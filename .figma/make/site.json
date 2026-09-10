@@ -1,0 +1,11 @@
+{
+  "description": "This online collaboration platform enhances teamwork among university students by integrating peer evaluation methods, fostering accountability and improved project outcomes.",
+  "language": "ko",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
