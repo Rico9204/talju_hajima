@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useProject } from "../context/ProjectContext";
+import PentagonChart from "./PentagonChart";
 
 const criteria = [
   { id: "role", label: "역할 이행", desc: "맡은 역할과 작업을 수행했는지", icon: "✓" },
@@ -9,7 +10,11 @@ const criteria = [
   { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
 ];
 
-const SCORE_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+// Each person still gets a 1-10 score per criterion, but the sum across all
+// peers for a given criterion must land exactly on a shared pool:
+// pool = peers.length * POOL_PER_PEER. Enforced at submit time via
+// `allBalanced`, not by capping any individual person's score below 10.
+const POOL_PER_PEER = 5;
 
 interface Peer { name: string; avatar: string; major: string; color: string }
 
@@ -57,6 +62,104 @@ const completedEvalsByProject: Record<string, CompletedEval[]> = {
 
 type Scores = Record<string, number>;
 
+// One continuous track over a fixed min..max range (1..10 per person) —
+// click anywhere or drag across it and the value snaps to whichever zone
+// the pointer is over. The scale always shows the same 1..max range, but
+// zones above `limit` (the shared-pool ceiling for this peer right now)
+// are dimmed and unselectable, so the visible scale stays consistent while
+// what you can actually pick shrinks as the pool gets used up.
+function ScoreTrack({
+  value, min = 1, max = 10, limit, onChange, disabled,
+}: { value: number; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const steps = max - min + 1;
+  const effectiveLimit = Math.min(limit ?? max, max);
+  const clamped = Math.min(Math.max(value, min), effectiveLimit);
+
+  function zoneFromClientX(clientX: number): number {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return clamped;
+    const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 0.999999);
+    const raw = min + Math.min(Math.floor(ratio * steps), steps - 1);
+    return Math.min(raw, effectiveLimit);
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (disabled) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    onChange(zoneFromClientX(e.clientX));
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (disabled || e.buttons !== 1) return;
+    onChange(zoneFromClientX(e.clientX));
+  }
+
+  const pctForIndex = (i: number) => ((i - min + 0.5) / steps) * 100;
+
+  return (
+    <div
+      ref={trackRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      className="relative h-10 select-none"
+      style={{ touchAction: "none", cursor: disabled ? "default" : "pointer" }}
+    >
+      {/* base rail */}
+      <div className="absolute left-0 right-0" style={{ top: 15, height: 3, background: "var(--muted)", borderRadius: "4px" }} />
+      {/* locked-out rail beyond the pool limit */}
+      {effectiveLimit < max && (
+        <div
+          className="absolute right-0"
+          style={{
+            top: 15,
+            height: 3,
+            width: `${100 - pctForIndex(effectiveLimit) - (0.5 / steps) * 100}%`,
+            background: "repeating-linear-gradient(45deg, #ef444440 0, #ef444440 3px, transparent 3px, transparent 6px)",
+            borderRadius: "4px",
+          }}
+        />
+      )}
+      {/* filled rail up to the selected zone */}
+      <div
+        className="absolute left-0 transition-all"
+        style={{ top: 15, height: 3, width: `${pctForIndex(clamped)}%`, background: "var(--primary)", borderRadius: "4px" }}
+      />
+      {/* per-zone ticks + numbers */}
+      {Array.from({ length: steps }, (_, i) => min + i).map((v) => {
+        const isSel = clamped === v;
+        const locked = v > effectiveLimit;
+        return (
+          <div
+            key={v}
+            className="absolute flex flex-col items-center pointer-events-none"
+            style={{ left: `${pctForIndex(v)}%`, top: 8, transform: "translateX(-50%)", opacity: locked ? 0.35 : 1 }}
+          >
+            <div style={{ width: 1, height: 8, background: isSel ? "var(--primary)" : locked ? "#ef4444" : "var(--border)" }} />
+            <div className="text-[10px] font-700 mt-1" style={{ color: isSel ? "var(--primary)" : locked ? "#ef4444" : "var(--muted-foreground)" }}>{v}</div>
+          </div>
+        );
+      })}
+      {/* thumb */}
+      <div
+        className="absolute rounded-full transition-all"
+        style={{
+          left: `${pctForIndex(clamped)}%`,
+          top: 16.5,
+          width: 13,
+          height: 13,
+          marginLeft: -6.5,
+          marginTop: -6.5,
+          background: "var(--primary)",
+          border: "2px solid var(--card)",
+          boxShadow: "0 2px 6px rgba(37,99,235,0.4)",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 export default function PeerEvaluation() {
   const { project, isShortTerm } = useProject();
   const peers = peersByProject[project.id] || [];
@@ -67,31 +170,44 @@ export default function PeerEvaluation() {
   const [selectedPeer, setSelectedPeer] = useState<number>(0);
   const [scores, setScores] = useState<Record<string, Record<number, Scores>>>({});
   const [comments, setComments] = useState<Record<string, Record<number, string>>>({});
-  const [submitted, setSubmitted] = useState<Record<string, Set<number>>>({});
+  const [submitted, setSubmitted] = useState<Record<string, boolean>>({});
 
   const pid = project.id;
   const peerScores = scores[pid]?.[selectedPeer] || {};
   const peerComment = comments[pid]?.[selectedPeer] || "";
-  const submittedSet = submitted[pid] || new Set<number>();
-  const isSubmitted = submittedSet.has(selectedPeer);
-  const submittedCount = submittedSet.size;
+  const isSubmitted = submitted[pid] ?? false;
+  const pool = peers.length * POOL_PER_PEER;
 
-  function handleScoreClick(criterion: string, value: number) {
-    if (isSubmitted || isDone) return;
-    applyScore(criterion, value);
+  function scoreFor(criterionId: string, peerIdx: number): number {
+    return scores[pid]?.[peerIdx]?.[criterionId] ?? 1;
   }
 
-  function applyScore(criterion: string, value: number) {
-    setScores((p) => ({ ...p, [pid]: { ...p[pid], [selectedPeer]: { ...p[pid]?.[selectedPeer], [criterion]: value } } }));
+  function criterionTotal(criterionId: string): number {
+    return peers.reduce((sum, _, i) => sum + scoreFor(criterionId, i), 0);
+  }
+
+  function othersTotal(criterionId: string, excludeIdx: number): number {
+    return peers.reduce((sum, _, i) => (i === excludeIdx ? sum : sum + scoreFor(criterionId, i)), 0);
+  }
+
+  // The most this peer can take for this criterion without pushing the
+  // shared total past the pool — never above the flat per-person cap of 10.
+  function maxAllowed(criterionId: string, peerIdx: number): number {
+    return Math.max(1, Math.min(10, pool - othersTotal(criterionId, peerIdx)));
+  }
+
+  function handleScoreClick(criterionId: string, value: number) {
+    if (isSubmitted || isDone) return;
+    const clamped = Math.min(Math.max(value, 1), maxAllowed(criterionId, selectedPeer));
+    setScores((p) => ({ ...p, [pid]: { ...p[pid], [selectedPeer]: { ...p[pid]?.[selectedPeer], [criterionId]: clamped } } }));
   }
 
   function submitEval() {
-    const allFilled = criteria.every((c) => peerScores[c.id]);
-    if (!allFilled) return;
-    setSubmitted((p) => ({ ...p, [pid]: new Set([...(p[pid] || new Set()), selectedPeer]) }));
+    if (!allBalanced) return;
+    setSubmitted((p) => ({ ...p, [pid]: true }));
   }
 
-  const allFilled = criteria.every((c) => peerScores[c.id]);
+  const allBalanced = peers.length > 0 && criteria.every((c) => criterionTotal(c.id) === pool);
 
   function avgScore(s: Scores) {
     const v = Object.values(s);
@@ -111,7 +227,7 @@ export default function PeerEvaluation() {
             ? "종료 평가(총괄) · 프로젝트 종료 후 공개된 결과"
             : midtermSkipped
             ? "2주 미만 단기 프로젝트 · 중간 점검 생략"
-            : "중간 점검(형성적) · 항목별 1~10점"}
+            : `중간 점검(형성적) · 항목별 1~10점, 단 동료 전체 합은 ${peers.length}명 × ${POOL_PER_PEER}점 = ${pool}점`}
         </p>
       </div>
 
@@ -160,16 +276,34 @@ export default function PeerEvaluation() {
 
       {!isDone && !midtermSkipped && (
         <>
-          {/* Progress */}
-          <div className="px-5 py-3 mb-5 flex items-center gap-4" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "var(--shadow-card)" }}>
-            <div className="flex-1">
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="font-600">{submittedCount}/{peers.length}명 제출 완료</span>
-                <span style={{ fontFamily: "var(--font-jetbrains)", color: "var(--primary)" }}>{Math.round((submittedCount / peers.length) * 100)}%</span>
-              </div>
-              <div className="h-2 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                <div className="h-2 transition-all" style={{ width: `${(submittedCount / peers.length) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
-              </div>
+          {/* Shared-pool allocation status per criterion */}
+          <div className="px-5 py-4 mb-5" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "var(--shadow-card)" }}>
+            <div className="text-xs font-600 mb-3" style={{ color: "var(--muted-foreground)" }}>
+              항목별 공유 점수 배분 현황 · 동료 {peers.length}명 × {POOL_PER_PEER}점 = 총 {pool}점
+            </div>
+            <div className="grid grid-cols-5 gap-3">
+              {criteria.map((c) => {
+                const used = criterionTotal(c.id);
+                const balanced = used === pool;
+                return (
+                  <div key={c.id}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="font-600">{c.label}</span>
+                      <span style={{ fontFamily: "var(--font-jetbrains)", color: balanced ? "#22c55e" : "var(--primary)" }}>{used}/{pool}</span>
+                    </div>
+                    <div className="h-1.5 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
+                      <div
+                        className="h-1.5 transition-all"
+                        style={{
+                          width: `${pool > 0 ? Math.min((used / pool) * 100, 100) : 0}%`,
+                          background: balanced ? "#22c55e" : "linear-gradient(90deg, var(--primary), #60a5fa)",
+                          borderRadius: "4px",
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -177,7 +311,7 @@ export default function PeerEvaluation() {
             {/* Peer list */}
             <div className="col-span-2 flex flex-col gap-2.5">
               {peers.map((p, i) => {
-                const done = submittedSet.has(i);
+                const peerTotal = criteria.reduce((sum, c) => sum + scoreFor(c.id, i), 0);
                 const active = selectedPeer === i;
                 return (
                   <button
@@ -198,11 +332,12 @@ export default function PeerEvaluation() {
                       <div className="text-sm font-700">{p.name}</div>
                       <div className="text-xs" style={{ color: active ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>{p.major}</div>
                     </div>
-                    {done && (
-                      <span className="text-xs px-2.5 py-1 font-700 shrink-0" style={{ background: active ? "rgba(255,255,255,0.2)" : "#22c55e18", color: active ? "#fff" : "#22c55e", borderRadius: "20px" }}>
-                        완료
-                      </span>
-                    )}
+                    <span
+                      className="text-xs px-2.5 py-1 font-700 shrink-0"
+                      style={{ background: active ? "rgba(255,255,255,0.2)" : "var(--muted)", color: active ? "#fff" : "var(--muted-foreground)", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
+                    >
+                      {peerTotal}점
+                    </span>
                   </button>
                 );
               })}
@@ -227,41 +362,45 @@ export default function PeerEvaluation() {
                   )}
                 </div>
 
+                {/* Live score preview */}
+                <div className="flex justify-center mb-4">
+                  <PentagonChart
+                    size={320}
+                    data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 1 }))}
+                  />
+                </div>
+
                 {/* Criteria */}
-                {criteria.map((c) => (
-                  <div key={c.id} className="mb-5">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 flex items-center justify-center text-xs" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
-                      <span className="text-sm font-700">{c.label}</span>
-                      <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{c.desc}</span>
-                      <span className="ml-auto text-xs font-700" style={{ color: peerScores[c.id] ? "var(--primary)" : "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-                        {peerScores[c.id] ? `${peerScores[c.id]}점` : "—"}
-                      </span>
+                {criteria.map((c) => {
+                  const current = peerScores[c.id] ?? 1;
+                  const totalForCriterion = criterionTotal(c.id);
+                  const remainingUnallocated = pool - totalForCriterion;
+                  const capped = maxAllowed(c.id, selectedPeer);
+                  const limitedByPool = capped < 10;
+                  return (
+                    <div key={c.id} className="mb-5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-6 h-6 flex items-center justify-center text-xs" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
+                        <span className="text-sm font-700">{c.label}</span>
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{c.desc}</span>
+                        <span className="ml-auto text-xs font-700 text-right" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+                          {current}점 <span style={{ color: "var(--muted-foreground)", fontWeight: 400 }}>(전체 남음 {remainingUnallocated}점)</span>
+                        </span>
+                      </div>
+                      <ScoreTrack
+                        value={current}
+                        limit={capped}
+                        disabled={isSubmitted}
+                        onChange={(v) => handleScoreClick(c.id, v)}
+                      />
+                      {limitedByPool && !isSubmitted && (
+                        <div className="text-xs mt-1.5 font-600" style={{ color: "#ef4444" }}>
+                          다른 동료들에게 이미 많이 배분해서 이 항목은 {capped}점까지만 줄 수 있어요 (공유 점수 초과 방지)
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-1.5">
-                      {SCORE_VALUES.map((v) => {
-                        const isSel = peerScores[c.id] === v;
-                        return (
-                          <button
-                            key={v}
-                            disabled={isSubmitted}
-                            onClick={() => handleScoreClick(c.id, v)}
-                            className="flex-1 h-10 text-sm font-700 transition-all"
-                            style={{
-                              background: isSel ? "var(--primary)" : "var(--muted)",
-                              color: isSel ? "#fff" : "var(--muted-foreground)",
-                              borderRadius: "10px",
-                              boxShadow: isSel ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
-                              cursor: isSubmitted ? "default" : "pointer",
-                            }}
-                          >
-                            {v}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {/* Comment */}
                 <div className="mb-4">
@@ -281,19 +420,32 @@ export default function PeerEvaluation() {
                 </div>
 
                 {!isSubmitted && (
-                  <button
-                    onClick={submitEval}
-                    className="w-full py-3 text-sm font-700 transition-all"
-                    style={{
-                      background: allFilled ? "var(--primary)" : "var(--muted)",
-                      color: allFilled ? "#fff" : "var(--muted-foreground)",
-                      borderRadius: "40px",
-                      boxShadow: allFilled ? "0 8px 20px rgba(37,99,235,0.3)" : "none",
-                      cursor: allFilled ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    중간 점검 제출 (비공개)
-                  </button>
+                  <>
+                    {!allBalanced && (
+                      <div className="text-xs text-center mb-2" style={{ color: "var(--muted-foreground)" }}>
+                        모든 항목의 공유 점수를 남김없이 다 나눠줘야 제출할 수 있어요 — 위 배분 현황에서 남은 점수를 확인해주세요.
+                      </div>
+                    )}
+                    <button
+                      onClick={submitEval}
+                      disabled={!allBalanced}
+                      className="w-full py-3 text-sm font-700 transition-all"
+                      style={{
+                        background: allBalanced ? "var(--primary)" : "var(--muted)",
+                        color: allBalanced ? "#fff" : "var(--muted-foreground)",
+                        borderRadius: "40px",
+                        boxShadow: allBalanced ? "0 8px 20px rgba(37,99,235,0.3)" : "none",
+                        cursor: allBalanced ? "pointer" : "not-allowed",
+                      }}
+                    >
+                      전체 동료 평가 제출 (비공개)
+                    </button>
+                  </>
+                )}
+                {isSubmitted && (
+                  <div className="text-xs text-center font-700" style={{ color: "#22c55e" }}>
+                    ✓ 전체 동료 평가 제출 완료 (비공개)
+                  </div>
                 )}
               </div>
             </div>
@@ -320,21 +472,20 @@ export default function PeerEvaluation() {
             </div>
             {completedEvals.length > 0 ? (
               <>
-                <div className="grid grid-cols-5 gap-4 mb-4">
-                  {criteria.map((c) => {
-                    const avg = completedEvals.reduce((a, e) => a + e.scores[c.id], 0) / completedEvals.length;
-                    return (
-                      <div key={c.id} className="p-3" style={{ background: "rgba(255,255,255,0.12)", borderRadius: "12px" }}>
-                        <div className="text-2xl font-800 mb-0.5" style={{ fontFamily: "var(--font-outfit)" }}>{avg.toFixed(1)}</div>
-                        <div className="text-xs font-600">{c.label}</div>
-                        <div className="mt-2 h-1.5 w-full" style={{ background: "rgba(255,255,255,0.2)", borderRadius: "4px" }}>
-                          <div className="h-1.5" style={{ width: `${(avg / 10) * 100}%`, background: "#fff", borderRadius: "4px" }} />
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="flex justify-center mb-2">
+                  <PentagonChart
+                    size={320}
+                    gridColor="rgba(255,255,255,0.4)"
+                    fillColor="#ffffff"
+                    labelColor="#ffffff"
+                    valueColor="rgba(255,255,255,0.85)"
+                    data={criteria.map((c) => ({
+                      label: c.label,
+                      value: completedEvals.reduce((a, e) => a + e.scores[c.id], 0) / completedEvals.length,
+                    }))}
+                  />
                 </div>
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-baseline gap-2 justify-center">
                   <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
                     {(completedEvals.reduce((sum, e) => sum + avgScore(e.scores), 0) / completedEvals.length).toFixed(1)}
                   </span>

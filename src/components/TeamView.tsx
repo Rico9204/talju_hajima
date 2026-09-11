@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useProject } from "../context/ProjectContext";
+import PentagonChart from "./PentagonChart";
 
 export default function TeamView({ onMessage }: { onMessage?: (name: string) => void }) {
   const { project, team, transferLeadership } = useProject();
@@ -182,28 +183,22 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
               ))}
             </div>
 
-            {/* Per-criterion bars */}
+            {/* Per-criterion radar chart */}
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
               동료 평가 항목별 점수 (참고)
             </div>
             {sel.evalCount > 0 ? (
-              [
-                { label: "역할 이행", score: sel.criteriaScores.role },
-                { label: "약속·마감 준수", score: sel.criteriaScores.deadline },
-                { label: "의사소통", score: sel.criteriaScores.communication },
-                { label: "협업 태도", score: sel.criteriaScores.collaboration },
-                { label: "결과물 품질", score: sel.criteriaScores.quality },
-              ].map((c) => (
-                <div key={c.label} className="mb-3">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="font-500">{c.label}</span>
-                    <span className="font-700" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>{c.score.toFixed(1)}</span>
-                  </div>
-                  <div className="h-2" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                    <div className="h-2" style={{ width: `${(c.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
-                  </div>
-                </div>
-              ))
+              <div className="flex justify-center">
+                <PentagonChart
+                  data={[
+                    { label: "역할 이행", value: sel.criteriaScores.role },
+                    { label: "약속·마감 준수", value: sel.criteriaScores.deadline },
+                    { label: "의사소통", value: sel.criteriaScores.communication },
+                    { label: "협업 태도", value: sel.criteriaScores.collaboration },
+                    { label: "결과물 품질", value: sel.criteriaScores.quality },
+                  ]}
+                />
+              </div>
             ) : (
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
                 {project.status === "done"
