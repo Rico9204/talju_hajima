@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import Dashboard from "./components/Dashboard";
 import TeamView from "./components/TeamView";
 import TaskBoard from "./components/TaskBoard";
@@ -12,42 +12,78 @@ import { ProjectProvider } from "./context/ProjectContext";
 
 export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "collector" | "evaluation";
 
-function AppShell() {
-  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
-  const [chatTarget, setChatTarget] = useState<string | undefined>(undefined);
-  const [workspaceFocus, setWorkspaceFocus] = useState<WorkspaceFocus | null>(null);
-
-  function openChatWith(name: string) {
-    setChatTarget(name);
-    setCurrentPage("chat");
-  }
-
-  function openFileInWorkspace(fileId: number, folderId: number | null) {
-    setWorkspaceFocus({ fileId, folderId });
-    setCurrentPage("workspace");
-  }
+function Layout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentPage = (location.pathname.split("/")[1] || "dashboard") as Page;
 
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
-      <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
+      <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} />
       <main className="flex-1 overflow-y-auto">
-        {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-        {currentPage === "team" && <TeamView onMessage={openChatWith} />}
-        {currentPage === "chat" && <TeamChat initialChannel={chatTarget} onOpenFile={openFileInWorkspace} />}
-        {currentPage === "tasks" && <TaskBoard />}
-        {currentPage === "schedule" && <Schedule />}
-        {currentPage === "workspace" && <Workspace focusFile={workspaceFocus} />}
-        {currentPage === "collector" && <DataCollector />}
-        {currentPage === "evaluation" && <PeerEvaluation />}
+        <Outlet />
       </main>
     </div>
+  );
+}
+
+function DashboardRoute() {
+  const navigate = useNavigate();
+  return <Dashboard onNavigate={(p) => navigate(`/${p}`)} />;
+}
+
+function TeamViewRoute() {
+  const navigate = useNavigate();
+  return <TeamView onMessage={(name) => navigate(`/chat/${encodeURIComponent(name)}`)} />;
+}
+
+function ChatRoute() {
+  const navigate = useNavigate();
+  const { channel } = useParams();
+  return (
+    <TeamChat
+      initialChannel={channel ? decodeURIComponent(channel) : undefined}
+      onOpenFile={(fileId, folderId) => navigate(`/workspace/${folderId ?? "none"}/${fileId}`)}
+    />
+  );
+}
+
+function WorkspaceRoute() {
+  const { folderId, fileId } = useParams();
+  const focusFile: WorkspaceFocus | null =
+    fileId !== undefined
+      ? { fileId: Number(fileId), folderId: folderId && folderId !== "none" ? Number(folderId) : null }
+      : null;
+  return <Workspace focusFile={focusFile} />;
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardRoute />} />
+        <Route path="team" element={<TeamViewRoute />} />
+        <Route path="chat" element={<ChatRoute />} />
+        <Route path="chat/:channel" element={<ChatRoute />} />
+        <Route path="tasks" element={<TaskBoard />} />
+        <Route path="schedule" element={<Schedule />} />
+        <Route path="workspace" element={<WorkspaceRoute />} />
+        <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
+        <Route path="collector" element={<DataCollector />} />
+        <Route path="evaluation" element={<PeerEvaluation />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Route>
+    </Routes>
   );
 }
 
 export default function App() {
   return (
     <ProjectProvider>
-      <AppShell />
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
     </ProjectProvider>
   );
 }
