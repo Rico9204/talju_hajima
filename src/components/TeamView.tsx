@@ -146,7 +146,7 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                     <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
                       {sel.score.toFixed(1)}
                     </span>
-                    <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 5.0</span>
+                    <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
                     {project.status === "done"
@@ -154,7 +154,7 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                       : `중간 점검 참고 점수 · ${sel.evalCount}건 (형성적 평가, 프로필 미반영)`}
                   </div>
                   <div className="mt-2 h-1.5 w-full" style={{ background: "var(--border)", borderRadius: "4px" }}>
-                    <div className="h-1.5" style={{ width: `${(sel.score / 5) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
+                    <div className="h-1.5" style={{ width: `${(sel.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
                   </div>
                 </>
               ) : (
@@ -192,6 +192,7 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                 { label: "약속·마감 준수", score: sel.criteriaScores.deadline },
                 { label: "의사소통", score: sel.criteriaScores.communication },
                 { label: "협업 태도", score: sel.criteriaScores.collaboration },
+                { label: "결과물 품질", score: sel.criteriaScores.quality },
               ].map((c) => (
                 <div key={c.label} className="mb-3">
                   <div className="flex justify-between text-xs mb-1">
@@ -199,7 +200,7 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                     <span className="font-700" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>{c.score.toFixed(1)}</span>
                   </div>
                   <div className="h-2" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                    <div className="h-2" style={{ width: `${(c.score / 5) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
+                    <div className="h-2" style={{ width: `${(c.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
                   </div>
                 </div>
               ))

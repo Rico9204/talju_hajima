@@ -56,6 +56,7 @@ function mapMember(row: any): Member {
       deadline: Number(row.criteria_deadline),
       communication: Number(row.criteria_communication),
       collaboration: Number(row.criteria_collaboration),
+      quality: Number(row.criteria_quality),
     },
     isLeader: row.is_leader,
   };
@@ -141,6 +142,7 @@ export const supabaseDataRepository: DataRepository = {
       criteria_deadline: 0,
       criteria_communication: 0,
       criteria_collaboration: 0,
+      criteria_quality: 0,
       is_leader: true,
     });
     if (memberError) throw memberError;

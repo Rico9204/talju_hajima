@@ -29,7 +29,7 @@ export interface Member {
   online: boolean;
   responsibilities: string[];
   color: string;
-  criteriaScores: { role: number; deadline: number; communication: number; collaboration: number };
+  criteriaScores: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
   isLeader: boolean;
 }
 

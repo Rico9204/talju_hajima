@@ -6,7 +6,10 @@ const criteria = [
   { id: "deadline", label: "약속 및 마감 준수", desc: "합의한 기한과 약속을 지켰는지", icon: "◷" },
   { id: "communication", label: "의사소통", desc: "요청·질문·진행 상황 공유에 적절히 응답했는지", icon: "◎" },
   { id: "collaboration", label: "협업 태도", desc: "팀 의사결정과 문제 해결 과정에 협조적으로 참여했는지", icon: "⊙" },
+  { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
 ];
+
+const SCORE_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 interface Peer { name: string; avatar: string; major: string; color: string }
 
@@ -37,14 +40,14 @@ const completedEvalsByProject: Record<string, CompletedEval[]> = {
   dialect: [
     {
       from: "박민준", avatar: "박", color: "#f59e0b",
-      scores: { role: 4, deadline: 5, communication: 5, collaboration: 4 },
+      scores: { role: 8, deadline: 10, communication: 9, collaboration: 8, quality: 9 },
       reapply: true,
       comment: "일정 관리 능력이 뛰어나고 팀 전체를 잘 이끌어줬습니다.",
       date: "2026-06-20",
     },
     {
       from: "오유진", avatar: "오", color: "#2563eb",
-      scores: { role: 5, deadline: 4, communication: 4, collaboration: 5 },
+      scores: { role: 9, deadline: 8, communication: 8, collaboration: 9, quality: 9 },
       reapply: true,
       comment: "주도적으로 역할을 수행하며 팀 분위기를 긍정적으로 이끌었습니다.",
       date: "2026-06-21",
@@ -53,57 +56,6 @@ const completedEvalsByProject: Record<string, CompletedEval[]> = {
 };
 
 type Scores = Record<string, number>;
-
-function ExtremeReasonModal({
-  score, criterion, onConfirm, onCancel,
-}: { score: number; criterion: string; onConfirm: (r: string) => void; onCancel: () => void }) {
-  const [reason, setReason] = useState("");
-  return (
-    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-      <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
-        <div
-          className="w-10 h-10 flex items-center justify-center text-lg font-700 mb-3"
-          style={{ background: score === 1 ? "#ef444418" : "#2563eb18", color: score === 1 ? "#ef4444" : "#2563eb", borderRadius: "12px" }}
-        >
-          {score}
-        </div>
-        <h3 className="font-700 mb-1">{score}점 선택 — 사유 입력</h3>
-        <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
-          <strong>{criterion}</strong> 항목에서 {score === 1 ? "최저점(1점)" : "최고점(5점)"}을 선택했습니다.
-          공정한 평가를 위해 간단한 이유를 입력해주세요.
-        </p>
-        <textarea
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="구체적인 상황이나 이유를 작성해주세요 (최대 200자)"
-          maxLength={200}
-          rows={3}
-          className="w-full text-sm p-3 resize-none outline-none mb-1"
-          style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
-        />
-        <div className="text-xs mb-4 text-right" style={{ color: "var(--muted-foreground)" }}>{reason.length}/200</div>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2.5 text-sm font-600" style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}>
-            취소
-          </button>
-          <button
-            onClick={() => reason.trim() && onConfirm(reason)}
-            className="flex-1 py-2.5 text-sm font-700 transition-all"
-            style={{
-              background: reason.trim() ? "var(--primary)" : "var(--border)",
-              color: reason.trim() ? "#fff" : "var(--muted-foreground)",
-              borderRadius: "40px",
-              boxShadow: reason.trim() ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
-              cursor: reason.trim() ? "pointer" : "not-allowed",
-            }}
-          >
-            확인
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function PeerEvaluation() {
   const { project, isShortTerm } = useProject();
@@ -115,29 +67,22 @@ export default function PeerEvaluation() {
   const [selectedPeer, setSelectedPeer] = useState<number>(0);
   const [scores, setScores] = useState<Record<string, Record<number, Scores>>>({});
   const [comments, setComments] = useState<Record<string, Record<number, string>>>({});
-  const [reasons, setReasons] = useState<Record<string, Record<number, Record<string, string>>>>({});
   const [submitted, setSubmitted] = useState<Record<string, Set<number>>>({});
-  const [pendingScore, setPendingScore] = useState<{ criterion: string; value: number } | null>(null);
 
   const pid = project.id;
   const peerScores = scores[pid]?.[selectedPeer] || {};
   const peerComment = comments[pid]?.[selectedPeer] || "";
-  const peerReasons = reasons[pid]?.[selectedPeer] || {};
   const submittedSet = submitted[pid] || new Set<number>();
   const isSubmitted = submittedSet.has(selectedPeer);
   const submittedCount = submittedSet.size;
 
   function handleScoreClick(criterion: string, value: number) {
     if (isSubmitted || isDone) return;
-    if (value === 1 || value === 5) setPendingScore({ criterion, value });
-    else applyScore(criterion, value);
+    applyScore(criterion, value);
   }
 
-  function applyScore(criterion: string, value: number, reason?: string) {
+  function applyScore(criterion: string, value: number) {
     setScores((p) => ({ ...p, [pid]: { ...p[pid], [selectedPeer]: { ...p[pid]?.[selectedPeer], [criterion]: value } } }));
-    if (reason) {
-      setReasons((p) => ({ ...p, [pid]: { ...p[pid], [selectedPeer]: { ...p[pid]?.[selectedPeer], [criterion]: reason } } }));
-    }
   }
 
   function submitEval() {
@@ -166,7 +111,7 @@ export default function PeerEvaluation() {
             ? "종료 평가(총괄) · 프로젝트 종료 후 공개된 결과"
             : midtermSkipped
             ? "2주 미만 단기 프로젝트 · 중간 점검 생략"
-            : "중간 점검(형성적) · 항목별 1~5점 · 극단 점수 사유 필수"}
+            : "중간 점검(형성적) · 항목별 1~10점"}
         </p>
       </div>
 
@@ -227,15 +172,6 @@ export default function PeerEvaluation() {
               </div>
             </div>
           </div>
-
-          {pendingScore && (
-            <ExtremeReasonModal
-              score={pendingScore.value}
-              criterion={criteria.find((c) => c.id === pendingScore.criterion)?.label || ""}
-              onConfirm={(reason) => { applyScore(pendingScore.criterion, pendingScore.value, reason); setPendingScore(null); }}
-              onCancel={() => setPendingScore(null)}
-            />
-          )}
 
           <div className="grid grid-cols-5 gap-5">
             {/* Peer list */}
@@ -302,36 +238,28 @@ export default function PeerEvaluation() {
                         {peerScores[c.id] ? `${peerScores[c.id]}점` : "—"}
                       </span>
                     </div>
-                    <div className="flex gap-2">
-                      {[1, 2, 3, 4, 5].map((v) => {
-                        const isExtreme = v === 1 || v === 5;
+                    <div className="flex gap-1.5">
+                      {SCORE_VALUES.map((v) => {
                         const isSel = peerScores[c.id] === v;
                         return (
                           <button
                             key={v}
                             disabled={isSubmitted}
                             onClick={() => handleScoreClick(c.id, v)}
-                            className="flex-1 h-10 text-sm font-700 relative transition-all"
+                            className="flex-1 h-10 text-sm font-700 transition-all"
                             style={{
                               background: isSel ? "var(--primary)" : "var(--muted)",
-                              color: isSel ? "#fff" : isExtreme ? "var(--foreground)" : "var(--muted-foreground)",
+                              color: isSel ? "#fff" : "var(--muted-foreground)",
                               borderRadius: "10px",
                               boxShadow: isSel ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
-                              border: isExtreme && !isSel ? "2px solid var(--border)" : "2px solid transparent",
                               cursor: isSubmitted ? "default" : "pointer",
                             }}
                           >
                             {v}
-                            {isExtreme && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: isSel ? "#fff" : "var(--accent)" }} title="극단 점수 — 사유 입력 필요" />}
                           </button>
                         );
                       })}
                     </div>
-                    {peerReasons[c.id] && (
-                      <div className="mt-1.5 text-xs px-3 py-2" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--muted-foreground)", fontStyle: "italic" }}>
-                        사유: {peerReasons[c.id]}
-                      </div>
-                    )}
                   </div>
                 ))}
 
@@ -392,7 +320,7 @@ export default function PeerEvaluation() {
             </div>
             {completedEvals.length > 0 ? (
               <>
-                <div className="grid grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-5 gap-4 mb-4">
                   {criteria.map((c) => {
                     const avg = completedEvals.reduce((a, e) => a + e.scores[c.id], 0) / completedEvals.length;
                     return (
@@ -400,7 +328,7 @@ export default function PeerEvaluation() {
                         <div className="text-2xl font-800 mb-0.5" style={{ fontFamily: "var(--font-outfit)" }}>{avg.toFixed(1)}</div>
                         <div className="text-xs font-600">{c.label}</div>
                         <div className="mt-2 h-1.5 w-full" style={{ background: "rgba(255,255,255,0.2)", borderRadius: "4px" }}>
-                          <div className="h-1.5" style={{ width: `${(avg / 5) * 100}%`, background: "#fff", borderRadius: "4px" }} />
+                          <div className="h-1.5" style={{ width: `${(avg / 10) * 100}%`, background: "#fff", borderRadius: "4px" }} />
                         </div>
                       </div>
                     );
@@ -410,7 +338,7 @@ export default function PeerEvaluation() {
                   <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
                     {(completedEvals.reduce((sum, e) => sum + avgScore(e.scores), 0) / completedEvals.length).toFixed(1)}
                   </span>
-                  <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 5.0 이 프로젝트 협업 평점</span>
+                  <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 이 프로젝트 협업 평점</span>
                 </div>
               </>
             ) : (

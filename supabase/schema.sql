@@ -40,6 +40,7 @@ create table if not exists members (
   criteria_deadline numeric not null default 0,
   criteria_communication numeric not null default 0,
   criteria_collaboration numeric not null default 0,
+  criteria_quality numeric not null default 0,
   is_leader boolean not null default false
 );
 

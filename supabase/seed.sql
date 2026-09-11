@@ -22,17 +22,17 @@ insert into teams (project_id, team_label, team_sub) values
 on conflict (project_id) do nothing;
 
 insert into members
-  (project_id, name, role, major, student, avatar, tasks_done, tasks_total, activities, score, eval_count, online, responsibilities, color, criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, is_leader)
+  (project_id, name, role, major, student, avatar, tasks_done, tasks_total, activities, score, eval_count, online, responsibilities, color, criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, criteria_quality, is_leader)
 values
-  ('heritage', '김지수', '팀장', '역사문화학과 3학년', '2021123456', '김', 5, 7, 38, 4.4, 3, true, array['자료 수집 총괄','발표 자료 제작','일정 관리'], '#2563eb', 4.5, 4.3, 4.2, 4.6, true),
-  ('heritage', '박민준', '기록 담당', '문헌정보학과 3학년', '2021234567', '박', 4, 6, 29, 4.1, 3, true, array['문헌 정리','인터뷰 기록','참고문헌 관리'], '#f59e0b', 4.2, 4.0, 4.1, 4.1, false),
-  ('heritage', '이서연', '디자인 담당', '시각디자인학과 2학년', '2022345678', '이', 3, 5, 22, 3.9, 3, false, array['인포그래픽 제작','포스터 디자인','웹 레이아웃'], '#22c55e', 3.8, 3.7, 4.0, 4.1, false),
-  ('heritage', '정하늘', '조사 담당', '역사문화학과 3학년', '2021456789', '정', 4, 6, 31, 4.2, 3, false, array['현장 답사','사진 촬영','지역 주민 인터뷰'], '#8b5cf6', 4.3, 4.1, 4.0, 4.4, false),
-  ('heritage', '최현우', '편집 담당', '미디어커뮤니케이션학과 2학년', '2022567890', '최', 2, 5, 15, 3.6, 3, true, array['영상 편집','SNS 콘텐츠','최종 보고서 편집'], '#ef4444', 3.5, 3.4, 3.6, 3.9, false),
-  ('dialect', '김지수', '참여자', '역사문화학과 3학년', '2021123456', '김', 8, 8, 24, 4.5, 2, false, array['설문 설계','녹취 전사'], '#2563eb', 4.5, 4.5, 4.5, 4.5, false),
-  ('dialect', '박민준', '조사 총괄', '문헌정보학과 3학년', '2021234567', '박', 8, 8, 33, 4.6, 2, true, array['현지 화자 섭외','일정 관리','보고서 총괄'], '#f59e0b', 4.7, 4.6, 4.5, 4.6, true),
-  ('dialect', '오유진', '분석 담당', '국어국문학과 2학년', '2022654321', '오', 7, 8, 27, 4.4, 2, false, array['어휘 분류','비교 분석','최종 보고서 작성'], '#2563eb', 4.4, 4.2, 4.5, 4.5, false),
-  ('dialect', '한소민', '촬영·기록 담당', '국어국문학과 2학년', '2022789012', '한', 6, 8, 19, 4.0, 2, false, array['인터뷰 촬영','녹취 자료 정리'], '#8b5cf6', 3.9, 3.8, 4.1, 4.2, false);
+  ('heritage', '김지수', '팀장', '역사문화학과 3학년', '2021123456', '김', 5, 7, 38, 8.8, 3, true, array['자료 수집 총괄','발표 자료 제작','일정 관리'], '#2563eb', 9.0, 8.6, 8.4, 9.2, 8.8, true),
+  ('heritage', '박민준', '기록 담당', '문헌정보학과 3학년', '2021234567', '박', 4, 6, 29, 8.2, 3, true, array['문헌 정리','인터뷰 기록','참고문헌 관리'], '#f59e0b', 8.4, 8.0, 8.2, 8.2, 8.0, false),
+  ('heritage', '이서연', '디자인 담당', '시각디자인학과 2학년', '2022345678', '이', 3, 5, 22, 7.8, 3, false, array['인포그래픽 제작','포스터 디자인','웹 레이아웃'], '#22c55e', 7.6, 7.4, 8.0, 8.2, 7.8, false),
+  ('heritage', '정하늘', '조사 담당', '역사문화학과 3학년', '2021456789', '정', 4, 6, 31, 8.4, 3, false, array['현장 답사','사진 촬영','지역 주민 인터뷰'], '#8b5cf6', 8.6, 8.2, 8.0, 8.8, 8.4, false),
+  ('heritage', '최현우', '편집 담당', '미디어커뮤니케이션학과 2학년', '2022567890', '최', 2, 5, 15, 7.2, 3, true, array['영상 편집','SNS 콘텐츠','최종 보고서 편집'], '#ef4444', 7.0, 6.8, 7.2, 7.8, 7.2, false),
+  ('dialect', '김지수', '참여자', '역사문화학과 3학년', '2021123456', '김', 8, 8, 24, 9.0, 2, false, array['설문 설계','녹취 전사'], '#2563eb', 9.0, 9.0, 9.0, 9.0, 9.0, false),
+  ('dialect', '박민준', '조사 총괄', '문헌정보학과 3학년', '2021234567', '박', 8, 8, 33, 9.2, 2, true, array['현지 화자 섭외','일정 관리','보고서 총괄'], '#f59e0b', 9.4, 9.2, 9.0, 9.2, 9.2, true),
+  ('dialect', '오유진', '분석 담당', '국어국문학과 2학년', '2022654321', '오', 7, 8, 27, 8.8, 2, false, array['어휘 분류','비교 분석','최종 보고서 작성'], '#2563eb', 8.8, 8.4, 9.0, 9.0, 8.8, false),
+  ('dialect', '한소민', '촬영·기록 담당', '국어국문학과 2학년', '2022789012', '한', 6, 8, 19, 8.0, 2, false, array['인터뷰 촬영','녹취 자료 정리'], '#8b5cf6', 7.8, 7.6, 8.2, 8.4, 8.0, false);
 
 -- Folders and files reference each other via generated ids. Rather than
 -- stashing ids in temp tables (which are connection-scoped and can vanish
