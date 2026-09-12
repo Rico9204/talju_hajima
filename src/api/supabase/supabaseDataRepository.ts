@@ -205,8 +205,9 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async joinProject(projectId, actorName, actorAvatar, input) {
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData, error: userError } = await supabase.auth.getUser();
     const userId = userData.user?.id;
+    console.log("[joinProject] debug", { projectId, userId, userError });
     if (!userId) throw new Error("로그인이 필요합니다.");
 
     const { count, error: countError } = await supabase
@@ -246,8 +247,9 @@ export const supabaseDataRepository: DataRepository = {
       .select()
       .single();
     if (error) {
+      console.log("[joinProject] insert error detail", error);
       if (error.code === "23505") throw new Error("이미 참여한 프로젝트입니다.");
-      throw new Error(`[${error.code ?? "?"}] ${error.message}`);
+      throw new Error(`[${error.code ?? "?"}] ${error.message} ${error.details ?? ""} ${error.hint ?? ""}`);
     }
     return mapMember(data);
   },
