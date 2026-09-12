@@ -208,6 +208,8 @@ export const supabaseDataRepository: DataRepository = {
     const { data: userData, error: userError } = await supabase.auth.getUser();
     const userId = userData.user?.id;
     console.log("[joinProject] debug", { projectId, userId, userError });
+    const debugAuth = await supabase.rpc("debug_auth");
+    console.log("[joinProject] debug_auth rpc", debugAuth.data, debugAuth.error);
     if (!userId) throw new Error("로그인이 필요합니다.");
 
     const { count, error: countError } = await supabase
