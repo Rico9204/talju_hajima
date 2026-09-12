@@ -204,7 +204,8 @@ export const supabaseDataRepository: DataRepository = {
 
   async joinProject(projectId, actorName, actorAvatar, input) {
     const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user?.id) throw new Error("로그인이 필요합니다.");
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
 
     const { count, error: countError } = await supabase
       .from("members")
@@ -212,38 +213,49 @@ export const supabaseDataRepository: DataRepository = {
       .eq("project_id", projectId);
     if (countError) throw new Error(countError.message);
 
-    const { data, error } = await supabase
-      .from("members")
-      .insert({
-        project_id: projectId,
-        // user_id is force-set by the set_member_user_id trigger — never sent
-        // from the client (see the comment on the members.user_id column).
-        name: actorName,
-        role: "팀원",
-        major: input.major.trim() || "전공 미지정",
-        student: input.student.trim() || "-",
-        avatar: actorAvatar,
-        tasks_done: 0,
-        tasks_total: 0,
-        activities: 0,
-        score: 0,
-        eval_count: 0,
-        online: true,
-        responsibilities: [],
-        color: FOLDER_COLOR_PALETTE[(count ?? 0) % FOLDER_COLOR_PALETTE.length],
-        criteria_role: 0,
-        criteria_deadline: 0,
-        criteria_communication: 0,
-        criteria_collaboration: 0,
-        criteria_quality: 0,
-        is_leader: false,
-      })
-      .select()
-      .single();
+    // No .select() chained on the insert itself: RETURNING a row from an
+    // INSERT also has to satisfy the table's SELECT policy (is_project_member),
+    // which for THIS exact row means "does a member row for me in this project
+    // exist" — true only once this very row exists, which isn't reliably
+    // visible to that self-referential check within the same statement. A
+    // separate follow-up select (its own statement, row already committed)
+    // sidesteps that instead of fighting it.
+    const { error } = await supabase.from("members").insert({
+      project_id: projectId,
+      // user_id is force-set by the set_member_user_id trigger — never sent
+      // from the client (see the comment on the members.user_id column).
+      name: actorName,
+      role: "팀원",
+      major: input.major.trim() || "전공 미지정",
+      student: input.student.trim() || "-",
+      avatar: actorAvatar,
+      tasks_done: 0,
+      tasks_total: 0,
+      activities: 0,
+      score: 0,
+      eval_count: 0,
+      online: true,
+      responsibilities: [],
+      color: FOLDER_COLOR_PALETTE[(count ?? 0) % FOLDER_COLOR_PALETTE.length],
+      criteria_role: 0,
+      criteria_deadline: 0,
+      criteria_communication: 0,
+      criteria_collaboration: 0,
+      criteria_quality: 0,
+      is_leader: false,
+    });
     if (error) {
       if (error.code === "23505") throw new Error("이미 참여한 프로젝트입니다.");
       throw new Error(`[${error.code ?? "?"}] ${error.message}`);
     }
+
+    const { data, error: fetchError } = await supabase
+      .from("members")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("user_id", userId)
+      .single();
+    if (fetchError) throw fetchError;
     return mapMember(data);
   },
 
