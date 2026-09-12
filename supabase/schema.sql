@@ -35,9 +35,11 @@ create table if not exists teams (
 create table if not exists members (
   id uuid primary key default gen_random_uuid(),
   project_id text not null references projects(id) on delete cascade,
-  -- null for members without a real account (e.g. seeded demo teammates) —
-  -- set to auth.uid() when a real person creates or joins the project.
-  user_id uuid references auth.users(id) on delete set null,
+  -- null for members without a real account (e.g. seeded demo teammates).
+  -- Defaults to auth.uid() rather than trusting a client-supplied value, so
+  -- it can never be missing/mismatched when a real person creates or joins
+  -- a project (which is exactly what the members_insert policy checks).
+  user_id uuid default auth.uid() references auth.users(id) on delete set null,
   name text not null,
   role text not null,
   major text not null,

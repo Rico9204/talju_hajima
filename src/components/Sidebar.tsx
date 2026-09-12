@@ -17,7 +17,7 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 ];
 
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
-  const { projects, project, setProjectId, addProject, deleteProject, chatUnreadTotal, isLeader, currentMember } = useProject();
+  const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember } = useProject();
   const { signOut } = useAuth();
   const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
@@ -322,6 +322,8 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     )}
     {joinOpen && (
       <JoinProjectModal
+        lookupProject={lookupProject}
+        joinProject={joinProject}
         onCancel={() => setJoinOpen(false)}
         onJoined={() => {
           setJoinOpen(false);

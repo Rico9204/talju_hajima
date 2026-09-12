@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { dataRepository } from "../api";
 import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, Task, TaskStatus, Member, ChatMessage } from "../api/types";
-import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE } from "../lib/supabase";
+import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
+import CreateProjectModal from "../components/CreateProjectModal";
+import JoinProjectModal from "../components/JoinProjectModal";
 
 export type { Project, NewProjectInput, Member, TeamData, FileVersion, FileComment, WorkspaceFile, Folder, Task, TaskStatus } from "../api/types";
 
@@ -59,7 +61,7 @@ interface ProjectContextValue {
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
-function StatusScreen({ kind, message }: { kind: "loading" | "empty" | "error"; message?: string }) {
+function StatusScreen({ kind, message }: { kind: "loading" | "error"; message?: string }) {
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
       <div
@@ -67,11 +69,6 @@ function StatusScreen({ kind, message }: { kind: "loading" | "empty" | "error"; 
         style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
       >
         {kind === "loading" && <div className="text-sm" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>}
-        {kind === "empty" && (
-          <div className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-            아직 프로젝트가 없습니다. Supabase에 <code>supabase/seed.sql</code>을 실행하거나 새 프로젝트를 만들어보세요.
-          </div>
-        )}
         {kind === "error" && (
           <>
             <div className="text-sm font-700 mb-1" style={{ color: "#ef4444" }}>
@@ -83,6 +80,61 @@ function StatusScreen({ kind, message }: { kind: "loading" | "empty" | "error"; 
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Shown when the signed-in account has no projects yet (a genuinely common
+// state now that every account starts with zero memberships) — this is the
+// one place `ProjectProvider` needs to render project-creating UI itself,
+// since it replaces `children` (and therefore the whole routed app,
+// including Sidebar) before any project exists to select.
+function EmptyProjectsScreen({
+  addProject, lookupProject, joinProject,
+}: {
+  addProject: (input: NewProjectInput) => Promise<string>;
+  lookupProject: (projectId: string) => Promise<Project | null>;
+  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
+}) {
+  const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+
+  return (
+    <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
+      <div
+        className="max-w-sm px-6 py-6 text-center"
+        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+      >
+        <div className="text-sm font-700 mb-1">아직 참여한 프로젝트가 없어요</div>
+        <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
+          새 프로젝트를 만들거나, 팀장에게 받은 참여 코드로 참여해보세요.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setJoinOpen(true)}
+            className="flex-1 py-2.5 text-sm font-700"
+            style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "40px" }}
+          >
+            참여하기
+          </button>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="flex-1 py-2.5 text-sm font-700"
+            style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px" }}
+          >
+            새 프로젝트
+          </button>
+        </div>
+      </div>
+      {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input) => addProject(input)} />}
+      {joinOpen && (
+        <JoinProjectModal
+          lookupProject={lookupProject}
+          joinProject={joinProject}
+          onCancel={() => setJoinOpen(false)}
+          onJoined={() => setJoinOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -129,12 +181,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     Promise.all([dataRepository.listProjects(), dataRepository.listMyProjectIds()])
       .then(([list, myProjectIds]) => {
         if (cancelled) return;
-        setProjects(list);
-        // Prefer a project the user actually belongs to — otherwise the
-        // oldest project in the list (e.g. legacy demo data) would be
-        // selected by default even though the user isn't a member of it.
-        const preferred = list.find((p) => myProjectIds.includes(p.id)) ?? list[0];
-        setProjectId(preferred?.id ?? null);
+        // `listProjects` returns every project in the database (RLS allows
+        // any signed-in user to preview one by id before joining — see
+        // `lookupProject`), so it must be filtered down to "my projects"
+        // here before it's exposed as app state. Otherwise every account
+        // would see every other account's projects in their own switcher.
+        const mine = list.filter((p) => myProjectIds.includes(p.id));
+        setProjects(mine);
+        setProjectId(mine[0]?.id ?? null);
         setProjectsLoaded(true);
       })
       .catch((err) => {
@@ -247,14 +301,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   // Used when there's no existing project membership to derive a name from
   // (creating or joining a project) — falls back to the account's own
-  // display name instead of `currentMember`.
-  function accountIdentity(): { name: string; avatar: string } {
-    const name = session?.user.user_metadata?.display_name?.trim() || session?.user.email?.split("@")[0] || "사용자";
+  // display name instead of `currentMember`. Reads a fresh `getUser()`
+  // rather than trusting the `session` from React state, so a display name
+  // set at signup is never missed due to any staleness in when that state
+  // last updated.
+  async function accountIdentity(): Promise<{ name: string; avatar: string }> {
+    const { data } = await supabase.auth.getUser();
+    const name = data.user?.user_metadata?.display_name?.trim() || data.user?.email?.split("@")[0] || "사용자";
     return { name, avatar: name.slice(0, 1) || "U" };
   }
 
   async function addProject(input: NewProjectInput): Promise<string> {
-    const { name, avatar } = accountIdentity();
+    const { name, avatar } = await accountIdentity();
     const created = await dataRepository.createProject(input, name, avatar);
     setProjects((prev) => [...prev, created]);
     setProjectId(created.id);
@@ -273,12 +331,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   async function joinProject(targetId: string, input: { major: string; student: string }) {
-    // `projects` already lists every project (RLS lets any signed-in user
-    // preview project names), so joining doesn't need to add anything there
-    // — just switch to it, which triggers the team/folders/files/tasks
-    // reload and picks up the new member row.
-    const { name, avatar } = accountIdentity();
+    const { name, avatar } = await accountIdentity();
     await dataRepository.joinProject(targetId, name, avatar, input);
+    // `projects` is filtered to "my projects" (see the load effect above),
+    // so the newly-joined project has to be added here explicitly.
+    const joined = await dataRepository.getProjectById(targetId);
+    if (joined) setProjects((prev) => (prev.some((p) => p.id === targetId) ? prev : [...prev, joined]));
     setProjectId(targetId);
   }
 
@@ -346,7 +404,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // screen (RequireAuth handles the redirect; there's nothing to load here).
   if (!session) return <>{children}</>;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
-  if (projects.length === 0) return <StatusScreen kind="empty" />;
+  if (projects.length === 0) return <EmptyProjectsScreen addProject={addProject} lookupProject={lookupProject} joinProject={joinProject} />;
   if (!initialized) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];

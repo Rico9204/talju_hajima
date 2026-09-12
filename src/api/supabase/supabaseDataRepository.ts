@@ -141,10 +141,6 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async createProject(input, actorName, actorAvatar) {
-    // RLS requires the inserted member row's user_id to match the caller.
-    const { data: userData } = await supabase.auth.getUser();
-    const userId = userData.user?.id ?? null;
-
     const id = slugify(input.name);
     const { data: projectRow, error: projectError } = await supabase
       .from("projects")
@@ -168,7 +164,8 @@ export const supabaseDataRepository: DataRepository = {
 
     const { error: memberError } = await supabase.from("members").insert({
       project_id: id,
-      user_id: userId,
+      // user_id defaults to auth.uid() at the DB level — never set from the
+      // client (see the comment on the members.user_id column).
       name: actorName,
       role: "팀장",
       major: "역사문화학과 3학년",
@@ -202,20 +199,18 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async joinProject(projectId, actorName, actorAvatar, input) {
-    const { data: userData } = await supabase.auth.getUser();
-    const userId = userData.user?.id ?? null;
-
     const { count, error: countError } = await supabase
       .from("members")
       .select("id", { count: "exact", head: true })
       .eq("project_id", projectId);
-    if (countError) throw countError;
+    if (countError) throw new Error(countError.message);
 
     const { data, error } = await supabase
       .from("members")
       .insert({
         project_id: projectId,
-        user_id: userId,
+        // user_id defaults to auth.uid() at the DB level — never set from
+        // the client (see the comment on the members.user_id column).
         name: actorName,
         role: "팀원",
         major: input.major.trim() || "전공 미지정",
@@ -240,7 +235,7 @@ export const supabaseDataRepository: DataRepository = {
       .single();
     if (error) {
       if (error.code === "23505") throw new Error("이미 참여한 프로젝트입니다.");
-      throw error;
+      throw new Error(`[${error.code ?? "?"}] ${error.message}`);
     }
     return mapMember(data);
   },

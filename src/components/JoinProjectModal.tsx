@@ -1,8 +1,14 @@
 import { useState } from "react";
-import { useProject } from "../context/ProjectContext";
+import type { Project } from "../api/types";
 
-export default function JoinProjectModal({ onCancel, onJoined }: { onCancel: () => void; onJoined: () => void }) {
-  const { lookupProject, joinProject } = useProject();
+export default function JoinProjectModal({
+  onCancel, onJoined, lookupProject, joinProject,
+}: {
+  onCancel: () => void;
+  onJoined: () => void;
+  lookupProject: (projectId: string) => Promise<Project | null>;
+  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
+}) {
   const [projectId, setProjectId] = useState("");
   const [preview, setPreview] = useState<{ id: string; name: string; org: string } | null>(null);
   const [major, setMajor] = useState("");
