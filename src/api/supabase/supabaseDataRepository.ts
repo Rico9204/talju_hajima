@@ -168,10 +168,8 @@ export const supabaseDataRepository: DataRepository = {
 
     const { error: memberError } = await supabase.from("members").insert({
       project_id: id,
-      // RLS's members_insert policy checks user_id = auth.uid() against the
-      // NEW row it's about to write — it does not reliably see a column
-      // DEFAULT applied for an omitted column, so this must be sent explicitly.
-      user_id: userId,
+      // user_id is force-set by the set_member_user_id trigger — never sent
+      // from the client (see the comment on the members.user_id column).
       name: actorName,
       role: "팀장",
       major: "역사문화학과 3학년",
@@ -205,12 +203,8 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async joinProject(projectId, actorName, actorAvatar, input) {
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    const userId = userData.user?.id;
-    console.log("[joinProject] debug", { projectId, userId, userError });
-    const debugAuth = await supabase.rpc("debug_auth");
-    console.log("[joinProject] debug_auth rpc", debugAuth.data, debugAuth.error);
-    if (!userId) throw new Error("로그인이 필요합니다.");
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user?.id) throw new Error("로그인이 필요합니다.");
 
     const { count, error: countError } = await supabase
       .from("members")
@@ -222,10 +216,8 @@ export const supabaseDataRepository: DataRepository = {
       .from("members")
       .insert({
         project_id: projectId,
-        // RLS's members_insert policy checks user_id = auth.uid() against the
-        // NEW row it's about to write — it does not reliably see a column
-        // DEFAULT applied for an omitted column, so this must be sent explicitly.
-        user_id: userId,
+        // user_id is force-set by the set_member_user_id trigger — never sent
+        // from the client (see the comment on the members.user_id column).
         name: actorName,
         role: "팀원",
         major: input.major.trim() || "전공 미지정",
@@ -249,9 +241,8 @@ export const supabaseDataRepository: DataRepository = {
       .select()
       .single();
     if (error) {
-      console.log("[joinProject] insert error detail", error);
       if (error.code === "23505") throw new Error("이미 참여한 프로젝트입니다.");
-      throw new Error(`[${error.code ?? "?"}] ${error.message} ${error.details ?? ""} ${error.hint ?? ""}`);
+      throw new Error(`[${error.code ?? "?"}] ${error.message}`);
     }
     return mapMember(data);
   },

@@ -36,11 +36,14 @@ create table if not exists members (
   id uuid primary key default gen_random_uuid(),
   project_id text not null references projects(id) on delete cascade,
   -- null for members without a real account (e.g. seeded demo teammates).
-  -- The client always sends this explicitly (see supabaseDataRepository.ts) —
-  -- the members_insert policy's `user_id = auth.uid()` check does not
-  -- reliably see this DEFAULT applied to an omitted column, so it can't be
-  -- relied on alone. Kept anyway as a harmless fallback for direct SQL inserts.
-  user_id uuid default auth.uid() references auth.users(id) on delete set null,
+  -- Force-set to auth.uid() by the set_member_user_id trigger below on every
+  -- insert, regardless of what the client sends — comparing a client-supplied
+  -- user_id against auth.uid() in the members_insert RLS policy turned out to
+  -- be unreliable specifically for INSERTs coming through PostgREST (verified:
+  -- the same equality check passes when run directly in the SQL editor, but
+  -- fails for the identical value submitted via the app's REST call), so the
+  -- trigger sidesteps that comparison entirely instead of depending on it.
+  user_id uuid references auth.users(id) on delete set null,
   name text not null,
   role text not null,
   major text not null,
@@ -228,18 +231,34 @@ create policy teams_insert on teams for insert with check (auth.role() = 'authen
 create policy teams_update on teams for update using (is_project_member(project_id));
 create policy teams_delete on teams for delete using (is_project_member(project_id));
 
--- members: select/update/delete require existing membership; insert only
--- allows writing a row for yourself (covers both "become the first/leader
--- member when creating a project" and "join an existing project").
+-- members: select/update/delete require existing membership. Insert just
+-- requires being signed in (covers both "become the first/leader member when
+-- creating a project" and "join an existing project") — the set_member_user_id
+-- trigger below is what actually guarantees a member row can only ever be
+-- attributed to the signed-in user, not this policy (see the long comment on
+-- the members.user_id column for why the check moved out of RLS).
 drop policy if exists members_select on members;
 drop policy if exists members_insert on members;
 drop policy if exists members_update on members;
 drop policy if exists members_delete on members;
 create policy members_select on members for select using (is_project_member(project_id));
 create policy members_insert on members for insert
-  with check (auth.role() = 'authenticated' and user_id = auth.uid());
+  with check (auth.role() = 'authenticated');
 create policy members_update on members for update using (is_project_member(project_id));
 create policy members_delete on members for delete using (is_project_member(project_id));
+
+create or replace function public.set_member_user_id()
+returns trigger language plpgsql as $$
+begin
+  new.user_id := auth.uid();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_member_user_id_trigger on members;
+create trigger set_member_user_id_trigger
+  before insert on members
+  for each row execute function public.set_member_user_id();
 
 drop policy if exists folders_all on folders;
 drop policy if exists files_all on files;
