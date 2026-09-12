@@ -1,10 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
-import type { Project, TeamData, Member, Folder, WorkspaceFile, FileComment, Task, TaskStatus } from "../types";
-
-// TODO: replace with the signed-in user once an auth flow exists.
-const CURRENT_USER_NAME = "김지수";
-const CURRENT_USER_AVATAR = "김";
+import type { Project, TeamData, Member, Folder, WorkspaceFile, FileComment, Task, TaskStatus, ChatMessage } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
 
@@ -39,6 +35,8 @@ function mapProject(row: any): Project {
 
 function mapMember(row: any): Member {
   return {
+    id: row.id,
+    userId: row.user_id ?? null,
     name: row.name,
     role: row.role,
     major: row.major,
@@ -108,6 +106,18 @@ function mapTask(row: any): Task {
   };
 }
 
+function mapMessage(row: any): ChatMessage {
+  return {
+    id: row.id,
+    channelId: row.channel_id,
+    senderId: row.sender_id,
+    text: row.text,
+    fileId: row.file_id,
+    createdAt: row.created_at,
+    readBy: (row.message_reads ?? []).map((r: any) => r.member_id),
+  };
+}
+
 export const supabaseDataRepository: DataRepository = {
   async listProjects() {
     const { data, error } = await supabase.from("projects").select("*").order("created_at", { ascending: true });
@@ -115,7 +125,26 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map(mapProject);
   },
 
-  async createProject(input) {
+  async listMyProjectIds() {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) return [];
+    const { data, error } = await supabase.from("members").select("project_id").eq("user_id", userId);
+    if (error) throw error;
+    return (data ?? []).map((r) => r.project_id);
+  },
+
+  async getProjectById(projectId) {
+    const { data, error } = await supabase.from("projects").select("*").eq("id", projectId).maybeSingle();
+    if (error) throw error;
+    return data ? mapProject(data) : null;
+  },
+
+  async createProject(input, actorName, actorAvatar) {
+    // RLS requires the inserted member row's user_id to match the caller.
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id ?? null;
+
     const id = slugify(input.name);
     const { data: projectRow, error: projectError } = await supabase
       .from("projects")
@@ -139,11 +168,12 @@ export const supabaseDataRepository: DataRepository = {
 
     const { error: memberError } = await supabase.from("members").insert({
       project_id: id,
-      name: CURRENT_USER_NAME,
+      user_id: userId,
+      name: actorName,
       role: "팀장",
       major: "역사문화학과 3학년",
       student: "2021123456",
-      avatar: CURRENT_USER_AVATAR,
+      avatar: actorAvatar,
       tasks_done: 0,
       tasks_total: 0,
       activities: 0,
@@ -162,6 +192,57 @@ export const supabaseDataRepository: DataRepository = {
     if (memberError) throw memberError;
 
     return mapProject(projectRow);
+  },
+
+  async deleteProject(projectId) {
+    // teams/members/folders/files/tasks all cascade-delete via their FK to
+    // projects, so removing the project row is enough.
+    const { error } = await supabase.from("projects").delete().eq("id", projectId);
+    if (error) throw error;
+  },
+
+  async joinProject(projectId, actorName, actorAvatar, input) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id ?? null;
+
+    const { count, error: countError } = await supabase
+      .from("members")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", projectId);
+    if (countError) throw countError;
+
+    const { data, error } = await supabase
+      .from("members")
+      .insert({
+        project_id: projectId,
+        user_id: userId,
+        name: actorName,
+        role: "팀원",
+        major: input.major.trim() || "전공 미지정",
+        student: input.student.trim() || "-",
+        avatar: actorAvatar,
+        tasks_done: 0,
+        tasks_total: 0,
+        activities: 0,
+        score: 0,
+        eval_count: 0,
+        online: true,
+        responsibilities: [],
+        color: FOLDER_COLOR_PALETTE[(count ?? 0) % FOLDER_COLOR_PALETTE.length],
+        criteria_role: 0,
+        criteria_deadline: 0,
+        criteria_communication: 0,
+        criteria_collaboration: 0,
+        criteria_quality: 0,
+        is_leader: false,
+      })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === "23505") throw new Error("이미 참여한 프로젝트입니다.");
+      throw error;
+    }
+    return mapMember(data);
   },
 
   async getTeam(projectId): Promise<TeamData> {
@@ -209,7 +290,7 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map(mapFolder);
   },
 
-  async createFolder(projectId, name) {
+  async createFolder(projectId, name, actorName) {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("폴더 이름이 비어 있습니다.");
     const { count, error: countError } = await supabase
@@ -224,7 +305,7 @@ export const supabaseDataRepository: DataRepository = {
         project_id: projectId,
         name: trimmed,
         color: FOLDER_COLOR_PALETTE[(count ?? 0) % FOLDER_COLOR_PALETTE.length],
-        created_by: CURRENT_USER_NAME,
+        created_by: actorName,
         date: todayISO(),
       })
       .select()
@@ -243,7 +324,7 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map(mapFile);
   },
 
-  async createFile(projectId, input) {
+  async createFile(projectId, input, actorName, actorAvatar) {
     const ext = input.name.split(".").pop()?.toLowerCase() || "doc";
     const type = (["pdf", "doc", "ppt", "xls", "zip", "img"].includes(ext) ? ext : "doc") as WorkspaceFile["type"];
     const sizeStr = formatSize(input.size);
@@ -255,8 +336,8 @@ export const supabaseDataRepository: DataRepository = {
         project_id: projectId,
         name: input.name,
         type,
-        uploader: CURRENT_USER_NAME,
-        avatar: CURRENT_USER_AVATAR,
+        uploader: actorName,
+        avatar: actorAvatar,
         date: today,
         size: sizeStr,
         tag: "보고서",
@@ -269,7 +350,7 @@ export const supabaseDataRepository: DataRepository = {
     const { error: versionError } = await supabase.from("file_versions").insert({
       file_id: fileRow.id,
       version: "v1",
-      uploaded_by: CURRENT_USER_NAME,
+      uploaded_by: actorName,
       date: today,
       size: sizeStr,
       note: input.note || "신규 업로드",
@@ -280,7 +361,7 @@ export const supabaseDataRepository: DataRepository = {
     return mapFile({ ...fileRow, file_versions: [], file_comments: [] });
   },
 
-  async addFileVersion(fileId, note) {
+  async addFileVersion(fileId, actorName, note) {
     const [{ count, error: countError }, { data: fileRow, error: fileError }] = await Promise.all([
       supabase.from("file_versions").select("id", { count: "exact", head: true }).eq("file_id", fileId),
       supabase.from("files").select("size").eq("id", fileId).single(),
@@ -294,7 +375,7 @@ export const supabaseDataRepository: DataRepository = {
     const { error } = await supabase.from("file_versions").insert({
       file_id: fileId,
       version: `v${(count ?? 0) + 1}`,
-      uploaded_by: CURRENT_USER_NAME,
+      uploaded_by: actorName,
       date: todayISO(),
       size: fileRow.size,
       note: note || "업데이트",
@@ -303,12 +384,12 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
-  async addFileComment(fileId, text) {
+  async addFileComment(fileId, actorName, actorAvatar, text) {
     const trimmed = text.trim();
     if (!trimmed) throw new Error("댓글 내용이 비어 있습니다.");
     const { data, error } = await supabase
       .from("file_comments")
-      .insert({ file_id: fileId, author: CURRENT_USER_NAME, avatar: CURRENT_USER_AVATAR, date: todayISO(), text: trimmed })
+      .insert({ file_id: fileId, author: actorName, avatar: actorAvatar, date: todayISO(), text: trimmed })
       .select()
       .single();
     if (error) throw error;
@@ -324,5 +405,61 @@ export const supabaseDataRepository: DataRepository = {
   async updateTaskStatus(taskId, status: TaskStatus) {
     const { error } = await supabase.from("tasks").update({ status }).eq("id", taskId);
     if (error) throw error;
+  },
+
+  async listMessages(projectId, channelId) {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*, message_reads(member_id)")
+      .eq("project_id", projectId)
+      .eq("channel_id", channelId)
+      .order("id", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(mapMessage);
+  },
+
+  async sendMessage(projectId, channelId, senderMemberId, input) {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .insert({ project_id: projectId, channel_id: channelId, sender_id: senderMemberId, text: input.text, file_id: input.fileId ?? null })
+      .select()
+      .single();
+    if (error) throw error;
+    return mapMessage({ ...data, message_reads: [] });
+  },
+
+  async markChannelRead(projectId, channelId, readerMemberId, messageIds) {
+    if (messageIds.length === 0) return;
+    const rows = messageIds.map((id) => ({ message_id: id, member_id: readerMemberId, project_id: projectId }));
+    const { error } = await supabase.from("message_reads").upsert(rows, { onConflict: "message_id,member_id", ignoreDuplicates: true });
+    if (error) throw error;
+  },
+
+  subscribeToMessages(projectId, onInsert) {
+    const channel = supabase
+      .channel(`chat_messages:${projectId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages", filter: `project_id=eq.${projectId}` },
+        (payload) => onInsert(mapMessage({ ...payload.new, message_reads: [] }))
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  },
+
+  subscribeToReads(projectId, onRead) {
+    const channel = supabase
+      .channel(`message_reads:${projectId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "message_reads", filter: `project_id=eq.${projectId}` },
+        (payload) => onRead({ messageId: payload.new.message_id, memberId: payload.new.member_id })
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   },
 };

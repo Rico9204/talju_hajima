@@ -1,20 +1,19 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { dataRepository } from "../api";
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, Task, TaskStatus } from "../api/types";
+import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, Task, TaskStatus, Member, ChatMessage } from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE } from "../lib/supabase";
+import { useAuth } from "./AuthContext";
 
 export type { Project, NewProjectInput, Member, TeamData, FileVersion, FileComment, WorkspaceFile, Folder, Task, TaskStatus } from "../api/types";
 
 const SHORT_TERM_THRESHOLD_DAYS = 14;
 
-// Mirrors the mock unread counts in TeamChat.tsx's `chatByProject`, duplicated
-// here only so the sidebar badge shows up without requiring a visit to /chat
-// first. Goes away once chat moves to Supabase (see the project-supabase-
-// migration memory note).
-const INITIAL_CHAT_UNREAD: Record<string, Record<string, number>> = {
-  heritage: { all: 0, 박민준: 2, 이서연: 0, 정하늘: 0, 최현우: 0 },
-  dialect: { all: 0, 박민준: 0, 오유진: 0, 한소민: 0 },
-};
+// The 1:1 channel id for two members, independent of who's asking — sorted
+// so both sides compute the same key.
+export function dmChannelId(memberIdA: string, memberIdB: string): string {
+  const [a, b] = [memberIdA, memberIdB].sort();
+  return `dm:${a}:${b}`;
+}
 
 export function getDurationDays(p: Project): number | null {
   if (!p.startDate || !p.endDate) return null;
@@ -34,6 +33,9 @@ interface ProjectContextValue {
   project: Project;
   setProjectId: (id: string) => void;
   addProject: (input: NewProjectInput) => Promise<string>;
+  deleteProject: (projectId: string) => Promise<void>;
+  lookupProject: (projectId: string) => Promise<Project | null>;
+  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
   isShortTerm: boolean;
@@ -47,8 +49,11 @@ interface ProjectContextValue {
   moveTask: (taskId: number, status: TaskStatus) => Promise<void>;
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
-  seedChatUnread: (initial: Record<string, number>) => void;
-  clearChatUnread: (channelId: string) => void;
+  chatMessages: Record<string, ChatMessage[]>;
+  sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<void>;
+  markChannelMessagesRead: (channelId: string) => Promise<void>;
+  currentMember: Member | null;
+  isLeader: boolean;
   loading: boolean;
 }
 
@@ -83,35 +88,53 @@ function StatusScreen({ kind, message }: { kind: "loading" | "empty" | "error"; 
 }
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [team, setTeam] = useState<TeamData>({ teamLabel: "", teamSub: "", members: [] });
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  // Chat unread counts are still client-only mock state (TeamChat.tsx owns
-  // the channel/message mock data) — lifted here just so the sidebar badge
-  // can see them too, ahead of the real chat DB migration.
-  const [chatUnreadByProject, setChatUnreadByProject] = useState<Record<string, Record<string, number>>>({});
+  // Real chat messages, keyed by channel id, for the currently selected
+  // project only. Eagerly loaded for every channel once the team is known
+  // (see the effect below) and kept live via the realtime subscription.
+  const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Computed early (duplicating the later `currentMember` derivation) so the
+  // effects below — which must run unconditionally, before any early return
+  // — can depend on it.
+  const myMemberId = session ? team.members.find((m) => m.userId === session.user.id)?.id ?? null : null;
 
-  // Load the project list once on mount and select the first project.
+  // Load the project list whenever the signed-in user changes (login,
+  // logout, or switching accounts) and select the first project.
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setError(SUPABASE_SETUP_MESSAGE);
       setProjectsLoaded(true);
       return;
     }
+    if (!session) {
+      // Not logged in — nothing to load. The router shows /login; render
+      // children as-is below instead of an empty/loading screen.
+      setProjectsLoaded(false);
+      setProjects([]);
+      setProjectId(null);
+      setError(null);
+      return;
+    }
     let cancelled = false;
-    dataRepository
-      .listProjects()
-      .then((list) => {
+    Promise.all([dataRepository.listProjects(), dataRepository.listMyProjectIds()])
+      .then(([list, myProjectIds]) => {
         if (cancelled) return;
         setProjects(list);
-        setProjectId(list[0]?.id ?? null);
+        // Prefer a project the user actually belongs to — otherwise the
+        // oldest project in the list (e.g. legacy demo data) would be
+        // selected by default even though the user isn't a member of it.
+        const preferred = list.find((p) => myProjectIds.includes(p.id)) ?? list[0];
+        setProjectId(preferred?.id ?? null);
         setProjectsLoaded(true);
       })
       .catch((err) => {
@@ -122,7 +145,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session?.user?.id]);
 
   // Load team/folders/files whenever the selected project changes.
   useEffect(() => {
@@ -141,7 +164,6 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setFolders(folderList);
         setFiles(fileList);
         setTasks(taskList);
-        seedChatUnread(INITIAL_CHAT_UNREAD[projectId] || {});
         setError(null);
         setInitialized(true);
       })
@@ -157,6 +179,62 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     };
   }, [projectId]);
 
+  // Live chat: subscribe to new messages/reads for the current project so
+  // the sidebar badge and any open chat view update without polling.
+  useEffect(() => {
+    setChatMessages({});
+    if (!projectId) return;
+
+    const unsubMessages = dataRepository.subscribeToMessages(projectId, (msg) => {
+      setChatMessages((prev) => {
+        const list = prev[msg.channelId] ?? [];
+        if (list.some((m) => m.id === msg.id)) return prev;
+        return { ...prev, [msg.channelId]: [...list, msg] };
+      });
+    });
+    const unsubReads = dataRepository.subscribeToReads(projectId, ({ messageId, memberId }) => {
+      setChatMessages((prev) => {
+        const next: Record<string, ChatMessage[]> = {};
+        for (const [cid, list] of Object.entries(prev)) {
+          next[cid] = list.map((m) => (m.id === messageId && !m.readBy.includes(memberId) ? { ...m, readBy: [...m.readBy, memberId] } : m));
+        }
+        return next;
+      });
+    });
+    return () => {
+      unsubMessages();
+      unsubReads();
+    };
+  }, [projectId]);
+
+  // Eagerly load every channel's message history (the group channel + one
+  // DM per other member) once the team roster is known, so the sidebar
+  // unread badge is accurate without first opening /chat.
+  useEffect(() => {
+    if (!projectId || !myMemberId) return;
+    let cancelled = false;
+    const channelIds = ["all", ...team.members.filter((m) => m.id !== myMemberId).map((m) => dmChannelId(myMemberId, m.id))];
+    Promise.all(channelIds.map((cid) => dataRepository.listMessages(projectId, cid)))
+      .then((results) => {
+        if (cancelled) return;
+        setChatMessages((prev) => {
+          const next = { ...prev };
+          channelIds.forEach((cid, i) => {
+            next[cid] = results[i];
+          });
+          return next;
+        });
+      })
+      .catch(() => {
+        // Best-effort — the realtime subscription still keeps things live
+        // going forward even if this initial bulk load fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, myMemberId, team.members.length]);
+
   async function refreshFolders() {
     if (!projectId) return;
     setFolders(await dataRepository.listFolders(projectId));
@@ -167,11 +245,41 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setFiles(await dataRepository.listFiles(projectId));
   }
 
+  // Used when there's no existing project membership to derive a name from
+  // (creating or joining a project) — falls back to the account's own
+  // display name instead of `currentMember`.
+  function accountIdentity(): { name: string; avatar: string } {
+    const name = session?.user.user_metadata?.display_name?.trim() || session?.user.email?.split("@")[0] || "사용자";
+    return { name, avatar: name.slice(0, 1) || "U" };
+  }
+
   async function addProject(input: NewProjectInput): Promise<string> {
-    const created = await dataRepository.createProject(input);
+    const { name, avatar } = accountIdentity();
+    const created = await dataRepository.createProject(input, name, avatar);
     setProjects((prev) => [...prev, created]);
     setProjectId(created.id);
     return created.id;
+  }
+
+  async function deleteProject(targetId: string) {
+    await dataRepository.deleteProject(targetId);
+    const remaining = projects.filter((p) => p.id !== targetId);
+    setProjects(remaining);
+    if (targetId === projectId) setProjectId(remaining[0]?.id ?? null);
+  }
+
+  async function lookupProject(targetId: string) {
+    return dataRepository.getProjectById(targetId);
+  }
+
+  async function joinProject(targetId: string, input: { major: string; student: string }) {
+    // `projects` already lists every project (RLS lets any signed-in user
+    // preview project names), so joining doesn't need to add anything there
+    // — just switch to it, which triggers the team/folders/files/tasks
+    // reload and picks up the new member row.
+    const { name, avatar } = accountIdentity();
+    await dataRepository.joinProject(targetId, name, avatar, input);
+    setProjectId(targetId);
   }
 
   async function transferLeadership(targetName: string) {
@@ -181,25 +289,26 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   async function addFolder(name: string) {
-    if (!projectId || !name.trim()) return;
-    await dataRepository.createFolder(projectId, name);
+    if (!projectId || !name.trim() || !currentMember) return;
+    await dataRepository.createFolder(projectId, name, currentMember.name);
     await refreshFolders();
   }
 
   async function addFile(name: string, size: number, folderId: number | null, note?: string) {
-    if (!projectId) return;
-    await dataRepository.createFile(projectId, { name, size, folderId, note });
+    if (!projectId || !currentMember) return;
+    await dataRepository.createFile(projectId, { name, size, folderId, note }, currentMember.name, currentMember.avatar);
     await refreshFiles();
   }
 
   async function addFileVersion(fileId: number, note?: string) {
-    await dataRepository.addFileVersion(fileId, note);
+    if (!currentMember) return;
+    await dataRepository.addFileVersion(fileId, currentMember.name, note);
     await refreshFiles();
   }
 
   async function addFileComment(fileId: number, text: string) {
-    if (!text.trim()) return;
-    await dataRepository.addFileComment(fileId, text);
+    if (!text.trim() || !currentMember) return;
+    await dataRepository.addFileComment(fileId, currentMember.name, currentMember.avatar, text);
     await refreshFiles();
   }
 
@@ -209,23 +318,46 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTasks(await dataRepository.listTasks(projectId));
   }
 
-  function seedChatUnread(initial: Record<string, number>) {
-    if (!projectId) return;
-    setChatUnreadByProject((p) => (p[projectId] ? p : { ...p, [projectId]: initial }));
+  async function sendChatMessage(channelId: string, text: string, fileId?: number) {
+    if (!projectId || !currentMember) return;
+    if (!text.trim() && !fileId) return;
+    const msg = await dataRepository.sendMessage(projectId, channelId, currentMember.id, { text: text.trim(), fileId });
+    setChatMessages((prev) => {
+      const list = prev[channelId] ?? [];
+      if (list.some((m) => m.id === msg.id)) return prev;
+      return { ...prev, [channelId]: [...list, msg] };
+    });
   }
 
-  function clearChatUnread(channelId: string) {
-    if (!projectId) return;
-    setChatUnreadByProject((p) => ({ ...p, [projectId]: { ...p[projectId], [channelId]: 0 } }));
+  async function markChannelMessagesRead(channelId: string) {
+    if (!projectId || !currentMember) return;
+    const list = chatMessages[channelId] ?? [];
+    const unreadIds = list.filter((m) => m.senderId !== currentMember.id && !m.readBy.includes(currentMember.id)).map((m) => m.id);
+    if (unreadIds.length === 0) return;
+    await dataRepository.markChannelRead(projectId, channelId, currentMember.id, unreadIds);
+    setChatMessages((prev) => ({
+      ...prev,
+      [channelId]: (prev[channelId] ?? []).map((m) => (unreadIds.includes(m.id) ? { ...m, readBy: [...m.readBy, currentMember.id] } : m)),
+    }));
   }
 
   if (error) return <StatusScreen kind="error" message={error} />;
+  // Not logged in — let the router render /login instead of a loading/empty
+  // screen (RequireAuth handles the redirect; there's nothing to load here).
+  if (!session) return <>{children}</>;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
   if (projects.length === 0) return <StatusScreen kind="empty" />;
   if (!initialized) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
-  const chatUnread = chatUnreadByProject[project.id] || {};
+  const currentMember = team.members.find((m) => m.userId === session.user.id) ?? null;
+  const isLeader = currentMember?.isLeader === true;
+  const chatUnread: Record<string, number> = {};
+  for (const [cid, list] of Object.entries(chatMessages)) {
+    chatUnread[cid] = currentMember
+      ? list.filter((m) => m.senderId !== currentMember.id && !m.readBy.includes(currentMember.id)).length
+      : 0;
+  }
   const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
 
   return (
@@ -235,6 +367,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         project,
         setProjectId,
         addProject,
+        deleteProject,
+        lookupProject,
+        joinProject,
         team,
         transferLeadership,
         isShortTerm: isShortTermProject(project),
@@ -248,8 +383,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         moveTask,
         chatUnread,
         chatUnreadTotal,
-        seedChatUnread,
-        clearChatUnread,
+        chatMessages,
+        sendChatMessage,
+        markChannelMessagesRead,
+        currentMember,
+        isLeader,
         loading,
       }}
     >

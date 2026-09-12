@@ -17,6 +17,8 @@ export interface NewProjectInput {
 }
 
 export interface Member {
+  id: string;
+  userId: string | null;
   name: string;
   role: string;
   major: string;
@@ -91,4 +93,14 @@ export interface Task {
   tags: string[];
   status: TaskStatus;
   color: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  channelId: string;
+  senderId: string;
+  text: string;
+  fileId: number | null;
+  createdAt: string;
+  readBy: string[];
 }

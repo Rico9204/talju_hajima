@@ -13,12 +13,19 @@ export default function CreateProjectModal({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const canSubmit = name.trim().length > 0;
+  const periodTextTrimmed = periodText.trim();
+  const periodTextInvalid = periodMode === "text" && periodTextTrimmed.length > 0 && !/\d/.test(periodTextTrimmed);
+  const canSubmit = name.trim().length > 0 && !periodTextInvalid;
+
+  function formatDateKR(dateStr: string): string {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return `${y}년 ${m}월 ${d}일`;
+  }
 
   function resolvedPeriod(): string {
     if (periodMode === "calendar") {
-      if (startDate && endDate) return `${startDate} ~ ${endDate}`;
-      if (startDate) return `${startDate} 시작`;
+      if (startDate && endDate) return `${formatDateKR(startDate)} ~ ${formatDateKR(endDate)}`;
+      if (startDate) return `${formatDateKR(startDate)} 시작`;
       return "";
     }
     return periodText;
@@ -102,13 +109,23 @@ export default function CreateProjectModal({
         </div>
 
         {periodMode === "text" ? (
-          <input
-            value={periodText}
-            onChange={(e) => setPeriodText(e.target.value)}
-            placeholder="예: 2026-2학기 · 9월 ~ 12월"
-            className="w-full text-sm px-3 py-2.5 outline-none mb-5"
-            style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
-          />
+          <>
+            <input
+              value={periodText}
+              onChange={(e) => setPeriodText(e.target.value)}
+              placeholder="예: 2026-2학기 · 9월 ~ 12월"
+              className="w-full text-sm px-3 py-2.5 outline-none"
+              style={{
+                border: `2px solid ${periodTextInvalid ? "#ef4444" : "var(--border)"}`,
+                borderRadius: "10px",
+                background: "var(--muted)",
+                fontFamily: "var(--font-outfit)",
+              }}
+            />
+            <p className="text-xs mt-1 mb-5" style={{ color: periodTextInvalid ? "#ef4444" : "var(--muted-foreground)" }}>
+              {periodTextInvalid ? "연도·월 등 숫자가 포함된 기간을 입력해주세요." : "연도나 월 등 숫자를 포함해 입력해주세요."}
+            </p>
+          </>
         ) : (
           <div className="flex flex-col gap-2 mb-5">
             <div className="flex items-center gap-2">

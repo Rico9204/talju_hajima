@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useProject, type WorkspaceFile } from "../context/ProjectContext";
+import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
 
 interface FileRef {
   id: number;
@@ -9,106 +9,108 @@ interface FileRef {
   folderName: string;
 }
 
-interface Message {
-  id: number;
-  from: string;
-  text: string;
-  time: string;
-  mine?: boolean;
-  fileRef?: FileRef;
-  readBy?: string[];
-}
-
 const fileTypeLabel: Record<string, string> = {
   pdf: "PDF", doc: "DOC", ppt: "PPT", xls: "XLS", zip: "ZIP", img: "IMG",
 };
 
-interface Channel {
-  id: string;
-  type: "group" | "dm";
-  name: string;
-  avatar: string;
-  color: string;
-  online?: boolean;
-  role?: string;
-  unread: number;
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit", hour12: true });
+  }
+  return d.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
 }
-
-interface ProjectChatData {
-  channels: Channel[];
-  messages: Record<string, Message[]>;
-}
-
-const chatByProject: Record<string, ProjectChatData> = {
-  heritage: {
-    channels: [
-      { id: "all", type: "group", name: "팀 전체", avatar: "⬡", color: "#2563eb", unread: 0 },
-      { id: "박민준", type: "dm", name: "박민준", avatar: "박", color: "#f59e0b", online: true, role: "기록 담당", unread: 2 },
-      { id: "이서연", type: "dm", name: "이서연", avatar: "이", color: "#22c55e", online: false, role: "디자인 담당", unread: 0 },
-      { id: "정하늘", type: "dm", name: "정하늘", avatar: "정", color: "#8b5cf6", online: false, role: "조사 담당", unread: 0 },
-      { id: "최현우", type: "dm", name: "최현우", avatar: "최", color: "#ef4444", online: true, role: "편집 담당", unread: 0 },
-    ],
-    messages: {
-      all: [
-        { id: 1, from: "정하늘", text: "강화도 현장 답사 사진 zip으로 올렸어요! 워크스페이스 확인 부탁드려요.", time: "오전 9:12" },
-        { id: 2, from: "이서연", text: "확인했습니다. 아카이브 설계에 바로 반영할게요.", time: "오전 9:20" },
-        { id: 3, from: "김지수", text: "다들 고생 많으세요. 중간발표 자료는 이번 주 금요일까지 초안 부탁드려요.", time: "오전 9:25", mine: true },
-        { id: 4, from: "박민준", text: "문헌 조사 파트 오늘 중 정리해서 공유드릴게요.", time: "오전 9:31" },
-        { id: 5, from: "최현우", text: "사진 편집은 내일 오전까지 끝낼 수 있을 것 같습니다.", time: "오전 9:40" },
-      ],
-      박민준: [
-        { id: 1, from: "박민준", text: "지수님, 인터뷰 녹취 정리하다가 하나 여쭤볼게 있어요.", time: "오전 8:50" },
-        { id: 2, from: "박민준", text: "3번 화자 발언 부분 출처 표기 어떻게 할까요?", time: "오전 8:51" },
-      ],
-      이서연: [{ id: 1, from: "이서연", text: "웹 전시 페이지 초안 레이아웃 시안 보내드렸어요~", time: "어제" }],
-      정하늘: [{ id: 1, from: "정하늘", text: "네 알겠습니다!", time: "어제" }],
-      최현우: [
-        { id: 1, from: "최현우", text: "편집본 링크 공유드려요.", time: "3일 전" },
-        { id: 2, from: "최현우", text: "확인 부탁드립니다 :)", time: "3일 전" },
-      ],
-    },
-  },
-  dialect: {
-    channels: [
-      { id: "all", type: "group", name: "팀 전체", avatar: "⬡", color: "#16a34a", unread: 0 },
-      { id: "박민준", type: "dm", name: "박민준", avatar: "박", color: "#f59e0b", online: true, role: "조사 총괄", unread: 0 },
-      { id: "오유진", type: "dm", name: "오유진", avatar: "오", color: "#2563eb", online: false, role: "분석 담당", unread: 0 },
-      { id: "한소민", type: "dm", name: "한소민", avatar: "한", color: "#8b5cf6", online: false, role: "촬영·기록 담당", unread: 0 },
-    ],
-    messages: {
-      all: [
-        { id: 1, from: "박민준", text: "다들 수고 많으셨습니다. 오늘부로 프로젝트 공식 종료됐어요!", time: "2026-06-21" },
-        { id: 2, from: "오유진", text: "최종 보고서 업로드했습니다. 확인 부탁드려요 :)", time: "2026-06-21" },
-        { id: 3, from: "김지수", text: "다들 정말 고생하셨어요! 종료 평가도 오늘 안에 제출할게요.", time: "2026-06-21", mine: true },
-      ],
-      박민준: [{ id: 1, from: "박민준", text: "섭외 관련 자료는 워크스페이스에 정리해뒀어요.", time: "2026-05-30" }],
-      오유진: [{ id: 1, from: "오유진", text: "분류 기준표 공유드립니다.", time: "2026-05-14" }],
-      한소민: [{ id: 1, from: "한소민", text: "촬영본 업로드 완료했어요!", time: "2026-04-22" }],
-    },
-  },
-};
-
-const emptyChatData: ProjectChatData = {
-  channels: [{ id: "all", type: "group", name: "팀 전체", avatar: "⬡", color: "#2563eb", unread: 0 }],
-  messages: { all: [] },
-};
 
 export default function TeamChat({
   initialChannel, onOpenFile,
 }: { initialChannel?: string; onOpenFile?: (fileId: number, folderId: number | null) => void }) {
-  const { project, files, folders, chatUnread, seedChatUnread, clearChatUnread } = useProject();
-  const data = chatByProject[project.id] || emptyChatData;
-  const [active, setActive] = useState<string>(initialChannel || "all");
-  const [messagesByProject, setMessagesByProject] = useState<Record<string, Record<string, Message[]>>>(
-    Object.fromEntries(Object.entries(chatByProject).map(([k, v]) => [k, v.messages]))
-  );
+  const {
+    project, files, folders, team, currentMember,
+    chatMessages, chatUnread, sendChatMessage, markChannelMessagesRead,
+  } = useProject();
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
+  const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
+  const channels = currentMember
+    ? [
+        { id: "all", type: "group" as const, name: "팀 전체", avatar: "⬡", color: "var(--primary)", online: undefined as boolean | undefined, role: undefined as string | undefined, memberId: undefined as string | undefined },
+        ...otherMembers.map((m) => ({
+          id: dmChannelId(currentMember.id, m.id),
+          type: "dm" as const,
+          name: m.name,
+          avatar: m.avatar,
+          color: m.color,
+          online: m.online,
+          role: m.role,
+          memberId: m.id,
+        })),
+      ]
+    : [];
+
+  const initialChannelId = currentMember && initialChannel ? dmChannelId(currentMember.id, initialChannel) : "all";
+  const [active, setActive] = useState<string>(initialChannelId);
+
+  function selectChannel(channelId: string) {
+    setActive(channelId);
+    markChannelMessagesRead(channelId);
+  }
+
+  useEffect(() => {
+    const exists = channels.some((c) => c.id === active);
+    const channelId = exists ? active : initialChannelId;
+    setActive(channelId);
+    markChannelMessagesRead(channelId);
+    setPendingFile(null);
+    setPickerOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, initialChannel, currentMember?.id]);
+
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages, active]);
+
+  if (!currentMember) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="mb-5">
+          <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            팀 채팅
+          </div>
+          <h1 className="text-2xl font-700">Team Chat</h1>
+        </div>
+        <div
+          className="p-8 border text-center"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+        >
+          <div className="text-3xl mb-3">◐</div>
+          <div className="text-sm font-600">이 프로젝트에 참여한 팀원만 채팅할 수 있어요</div>
+        </div>
+      </div>
+    );
+  }
+
+  const chan = channels.find((c) => c.id === active) || channels[0];
+  const thread = chatMessages[active] || [];
+  const lastMineId = [...thread].reverse().find((m) => m.senderId === currentMember.id)?.id;
+
+  function memberFor(id: string) {
+    return team.members.find((m) => m.id === id);
+  }
+
   function folderNameOf(folderId: number | null) {
     return folderId === null ? "루트" : folders.find((f) => f.id === folderId)?.name || "폴더";
+  }
+
+  function fileRefFor(fileId: number | null): FileRef | undefined {
+    if (fileId === null) return undefined;
+    const f = files.find((x) => x.id === fileId);
+    if (!f) return undefined;
+    return { id: f.id, name: f.name, type: f.type, folderId: f.folderId, folderName: folderNameOf(f.folderId) };
   }
 
   function pickFile(f: WorkspaceFile) {
@@ -116,66 +118,11 @@ export default function TeamChat({
     setPickerOpen(false);
   }
 
-  function selectChannel(channelId: string) {
-    setActive(channelId);
-    clearChatUnread(channelId);
-  }
-
-  // Seed the shared (context-level) unread map from this project's mock
-  // channel list, then clear whichever channel we land on.
-  useEffect(() => {
-    seedChatUnread(Object.fromEntries(data.channels.map((c) => [c.id, c.unread])));
-    const exists = data.channels.some((c) => c.id === initialChannel);
-    const channelId = exists && initialChannel ? initialChannel : "all";
-    setActive(channelId);
-    clearChatUnread(channelId);
-    setPendingFile(null);
-    setPickerOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id, initialChannel]);
-
-  useEffect(() => {
-    const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messagesByProject, active]);
-
-  const chan = data.channels.find((c) => c.id === active) || data.channels[0];
-  const thread = messagesByProject[project.id]?.[active] || [];
-  const lastMineId = [...thread].reverse().find((m) => m.mine)?.id;
-
-  function otherParticipants(channelId: string): string[] {
-    return channelId === "all" ? data.channels.filter((c) => c.type === "dm").map((c) => c.name) : [channelId];
-  }
-
   function send() {
     if (!input.trim() && !pendingFile) return;
-    const channelId = active;
-    const messageId = Date.now();
-    setMessagesByProject((p) => ({
-      ...p,
-      [project.id]: {
-        ...p[project.id],
-        [channelId]: [
-          ...(p[project.id]?.[channelId] || []),
-          { id: messageId, from: "김지수", text: input.trim(), time: "방금", mine: true, fileRef: pendingFile || undefined, readBy: [] },
-        ],
-      },
-    }));
+    sendChatMessage(active, input, pendingFile?.id);
     setInput("");
     setPendingFile(null);
-
-    // Simulate the other side opening the chat and reading it — there's no
-    // real second client in this demo, so we fake the "seen" state.
-    const readers = otherParticipants(channelId);
-    setTimeout(() => {
-      setMessagesByProject((p) => ({
-        ...p,
-        [project.id]: {
-          ...p[project.id],
-          [channelId]: (p[project.id]?.[channelId] || []).map((m) => (m.id === messageId ? { ...m, readBy: readers } : m)),
-        },
-      }));
-    }, 2200);
   }
 
   return (
@@ -197,7 +144,7 @@ export default function TeamChat({
             <div className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>채널</div>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto py-2">
-            {data.channels.map((c) => {
+            {channels.map((c) => {
               const isActive = active === c.id;
               const unread = chatUnread[c.id] ?? 0;
               return (
@@ -216,7 +163,7 @@ export default function TeamChat({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-700 truncate" style={{ color: isActive ? "var(--primary)" : "var(--foreground)" }}>{c.name}</div>
                     <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-                      {c.type === "group" ? `전체 ${data.channels.filter((x) => x.type === "dm").length + 1}명` : c.role}
+                      {c.type === "group" ? `전체 ${otherMembers.length + 1}명` : c.role}
                     </div>
                   </div>
                   {unread > 0 && (
@@ -245,70 +192,75 @@ export default function TeamChat({
           </div>
 
           <div ref={threadRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
-            {thread.map((m) => (
-              <div key={m.id} className="flex flex-col" style={{ alignItems: m.mine ? "flex-end" : "flex-start" }}>
-                {!m.mine && (
-                  <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{m.from}</span>
-                )}
-                {m.text && (
-                  <div
-                    className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed"
-                    style={{
-                      background: m.mine ? "var(--primary)" : "var(--muted)",
-                      color: m.mine ? "#fff" : "var(--foreground)",
-                      borderRadius: m.mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-                    }}
-                  >
-                    {m.text}
-                  </div>
-                )}
-                {m.fileRef && (
-                  <button
-                    onClick={() => onOpenFile?.(m.fileRef!.id, m.fileRef!.folderId)}
-                    className="flex items-center gap-2.5 px-3 py-2.5 max-w-[75%] text-left transition-all"
-                    style={{
-                      background: "var(--card)",
-                      border: "1.5px solid var(--border)",
-                      borderRadius: "12px",
-                      marginTop: m.text ? 6 : 0,
-                    }}
-                  >
-                    <span
-                      className="text-xs font-700 px-2 py-1 shrink-0"
-                      style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+            {thread.map((m) => {
+              const mine = m.senderId === currentMember.id;
+              const sender = memberFor(m.senderId);
+              const fileRef = fileRefFor(m.fileId);
+              return (
+                <div key={m.id} className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                  {!mine && (
+                    <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
+                  )}
+                  {m.text && (
+                    <div
+                      className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed"
+                      style={{
+                        background: mine ? "var(--primary)" : "var(--muted)",
+                        color: mine ? "#fff" : "var(--foreground)",
+                        borderRadius: mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                      }}
                     >
-                      {fileTypeLabel[m.fileRef.type] || "FILE"}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="text-xs font-700 truncate" style={{ color: "var(--foreground)" }}>{m.fileRef.name}</div>
-                      <div className="text-xs" style={{ color: "var(--primary)" }}>{m.fileRef.folderName} · 워크스페이스에서 보기 →</div>
-                    </div>
-                  </button>
-                )}
-                <div className="flex items-center gap-1.5 mt-1 px-1">
-                  {m.mine && m.id === lastMineId && chan.type === "dm" && m.readBy?.includes(chan.name) && (
-                    <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
-                  )}
-                  {m.mine && m.id === lastMineId && chan.type === "group" && (m.readBy?.length ?? 0) > 0 && (
-                    <div className="flex items-center -space-x-1.5" title={`읽음: ${m.readBy!.join(", ")}`}>
-                      {m.readBy!.map((name) => {
-                        const reader = data.channels.find((c) => c.id === name);
-                        return (
-                          <div
-                            key={name}
-                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700"
-                            style={{ background: reader?.color || "var(--muted-foreground)", color: "#fff", border: "1.5px solid var(--card)" }}
-                          >
-                            {reader?.avatar || name[0]}
-                          </div>
-                        );
-                      })}
+                      {m.text}
                     </div>
                   )}
-                  <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{m.time}</span>
+                  {fileRef && (
+                    <button
+                      onClick={() => onOpenFile?.(fileRef.id, fileRef.folderId)}
+                      className="flex items-center gap-2.5 px-3 py-2.5 max-w-[75%] text-left transition-all"
+                      style={{
+                        background: "var(--card)",
+                        border: "1.5px solid var(--border)",
+                        borderRadius: "12px",
+                        marginTop: m.text ? 6 : 0,
+                      }}
+                    >
+                      <span
+                        className="text-xs font-700 px-2 py-1 shrink-0"
+                        style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                      >
+                        {fileTypeLabel[fileRef.type] || "FILE"}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-700 truncate" style={{ color: "var(--foreground)" }}>{fileRef.name}</div>
+                        <div className="text-xs" style={{ color: "var(--primary)" }}>{fileRef.folderName} · 워크스페이스에서 보기 →</div>
+                      </div>
+                    </button>
+                  )}
+                  <div className="flex items-center gap-1.5 mt-1 px-1">
+                    {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
+                      <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
+                    )}
+                    {mine && m.id === lastMineId && chan.type === "group" && m.readBy.length > 0 && (
+                      <div className="flex items-center -space-x-1.5" title={`읽음: ${m.readBy.map((id) => memberFor(id)?.name ?? "?").join(", ")}`}>
+                        {m.readBy.map((id) => {
+                          const reader = memberFor(id);
+                          return (
+                            <div
+                              key={id}
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700"
+                              style={{ background: reader?.color || "var(--muted-foreground)", color: "#fff", border: "1.5px solid var(--card)" }}
+                            >
+                              {reader?.avatar || "?"}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatTime(m.createdAt)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {thread.length === 0 && (
               <div className="flex-1 flex items-center justify-center text-xs" style={{ color: "var(--muted-foreground)" }}>아직 대화가 없어요</div>
             )}

@@ -8,9 +8,25 @@ import TeamChat from "./components/TeamChat";
 import DataCollector from "./components/DataCollector";
 import Schedule from "./components/Schedule";
 import Sidebar from "./components/Sidebar";
+import Login from "./components/Login";
+import Landing from "./components/Landing";
 import { ProjectProvider } from "./context/ProjectContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
 export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "collector" | "evaluation";
+
+function RequireAuth() {
+  const { session, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
+        <div className="text-sm" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>
+      </div>
+    );
+  }
+  if (!session) return <Navigate to="/login" replace />;
+  return <Layout />;
+}
 
 function Layout() {
   const navigate = useNavigate();
@@ -34,7 +50,7 @@ function DashboardRoute() {
 
 function TeamViewRoute() {
   const navigate = useNavigate();
-  return <TeamView onMessage={(name) => navigate(`/chat/${encodeURIComponent(name)}`)} />;
+  return <TeamView onMessage={(memberId) => navigate(`/chat/${encodeURIComponent(memberId)}`)} />;
 }
 
 function ChatRoute() {
@@ -60,8 +76,9 @@ function WorkspaceRoute() {
 function AppRoutes() {
   return (
     <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Landing />} />
+      <Route path="login" element={<Login />} />
+      <Route element={<RequireAuth />}>
         <Route path="dashboard" element={<DashboardRoute />} />
         <Route path="team" element={<TeamViewRoute />} />
         <Route path="chat" element={<ChatRoute />} />
@@ -80,10 +97,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <ProjectProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </ProjectProvider>
+    <AuthProvider>
+      <ProjectProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </ProjectProvider>
+    </AuthProvider>
   );
 }

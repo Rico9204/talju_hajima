@@ -161,7 +161,7 @@ function ScoreTrack({
 }
 
 export default function PeerEvaluation() {
-  const { project, isShortTerm } = useProject();
+  const { project, isShortTerm, currentMember } = useProject();
   const peers = peersByProject[project.id] || [];
   const completedEvals = completedEvalsByProject[project.id] || [];
   const isDone = project.status === "done";
@@ -274,7 +274,18 @@ export default function PeerEvaluation() {
         </div>
       )}
 
-      {!isDone && !midtermSkipped && (
+      {!isDone && !midtermSkipped && peers.length === 0 && (
+        <div
+          className="p-8 border text-center"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+        >
+          <div className="text-3xl mb-3">◎</div>
+          <div className="text-sm font-600">아직 평가할 동료가 없어요</div>
+          <div className="text-sm mt-1">팀원을 초대하면 동료 평가를 진행할 수 있어요</div>
+        </div>
+      )}
+
+      {!isDone && !midtermSkipped && peers.length > 0 && (
         <>
           {/* Shared-pool allocation status per criterion */}
           <div className="px-5 py-4 mb-5" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "var(--shadow-card)" }}>
@@ -468,7 +479,7 @@ export default function PeerEvaluation() {
             style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
           >
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
-              나에 대한 종료 평가 (김지수) · {project.name} · {completedEvals.length}건
+              나에 대한 종료 평가 ({currentMember?.name ?? "참여자"}) · {project.name} · {completedEvals.length}건
             </div>
             {completedEvals.length > 0 ? (
               <>

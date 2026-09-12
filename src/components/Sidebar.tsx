@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
+import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
+import JoinProjectModal from "./JoinProjectModal";
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -15,10 +17,25 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 ];
 
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
-  const { projects, project, setProjectId, addProject, team, chatUnreadTotal } = useProject();
-  const myRole = team.members.find((m) => m.name === "김지수")?.role || "참여자";
+  const { projects, project, setProjectId, addProject, deleteProject, chatUnreadTotal, isLeader, currentMember } = useProject();
+  const { signOut } = useAuth();
+  const myName = currentMember?.name ?? "참여자";
+  const myRole = currentMember?.role ?? "참여자";
+  const myAvatar = currentMember?.avatar ?? "?";
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function confirmDelete() {
+    setDeleting(true);
+    await deleteProject(project.id);
+    setDeleting(false);
+    setPendingDelete(false);
+    onNavigate("dashboard");
+  }
 
   return (
     <>
@@ -90,6 +107,23 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           </div>
         </button>
 
+        <div className="mt-1.5 px-3 flex items-center justify-between gap-2">
+          <span className="text-xs truncate" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            참여 코드: {project.id}
+          </span>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(project.id);
+              setCodeCopied(true);
+              setTimeout(() => setCodeCopied(false), 1500);
+            }}
+            className="text-xs font-600 px-2 py-0.5 shrink-0"
+            style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
+          >
+            {codeCopied ? "복사됨!" : "복사"}
+          </button>
+        </div>
+
         {switcherOpen && (
           <div
             className="absolute left-4 right-4 top-full mt-1.5 p-1.5 z-20"
@@ -125,6 +159,24 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
                   >
                     {p.status === "active" ? "진행 중" : "완료"}
                   </span>
+                  {isCurrent && isLeader && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); setSwitcherOpen(false); setPendingDelete(true); }}
+                      className="w-6 h-6 flex items-center justify-center shrink-0 transition-all"
+                      style={{ background: "#ef444418", borderRadius: "6px" }}
+                      title="프로젝트 삭제"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                      </svg>
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -141,6 +193,19 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
                   +
                 </span>
                 <span className="text-xs font-700" style={{ color: "var(--primary)" }}>새 프로젝트 만들기</span>
+              </button>
+              <button
+                onClick={() => { setSwitcherOpen(false); setJoinOpen(true); }}
+                className="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-all"
+                style={{ borderRadius: "8px" }}
+              >
+                <span
+                  className="w-5 h-5 flex items-center justify-center text-xs font-700 shrink-0"
+                  style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "6px" }}
+                >
+                  →
+                </span>
+                <span className="text-xs font-700" style={{ color: "#22c55e" }}>프로젝트 참여하기</span>
               </button>
             </div>
           </div>
@@ -218,10 +283,10 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               boxShadow: "0 4px 10px rgba(245,158,11,0.3)",
             }}
           >
-            김
+            {myAvatar}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-700">김지수</div>
+            <div className="text-sm font-700">{myName}</div>
             <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
               {myRole} · 이 프로젝트
             </div>
@@ -230,6 +295,18 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
             className="w-2 h-2 rounded-full shrink-0"
             style={{ background: "#22c55e" }}
           />
+          <button
+            onClick={signOut}
+            title="로그아웃"
+            className="w-7 h-7 flex items-center justify-center shrink-0 transition-all"
+            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
         </div>
       </div>
     </aside>
@@ -242,6 +319,52 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           onNavigate("dashboard");
         }}
       />
+    )}
+    {joinOpen && (
+      <JoinProjectModal
+        onCancel={() => setJoinOpen(false)}
+        onJoined={() => {
+          setJoinOpen(false);
+          onNavigate("dashboard");
+        }}
+      />
+    )}
+    {pendingDelete && (
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+        <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+          <div className="w-10 h-10 flex items-center justify-center mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+            </svg>
+          </div>
+          <h3 className="font-700 mb-1">프로젝트를 삭제할까요?</h3>
+          <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+            <strong>{project.name}</strong>의 팀원·과제·파일·일정이 모두 함께 삭제되며, 이 작업은 되돌릴 수 없습니다.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPendingDelete(false)}
+              disabled={deleting}
+              className="flex-1 py-2.5 text-sm font-600"
+              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+            >
+              취소
+            </button>
+            <button
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="flex-1 py-2.5 text-sm font-700 transition-all"
+              style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
+            >
+              {deleting ? "삭제 중…" : "삭제하기"}
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     </>
   );

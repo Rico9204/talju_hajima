@@ -1,4 +1,4 @@
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileComment, Task, TaskStatus } from "./types";
+import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileComment, Task, TaskStatus, Member, ChatMessage } from "./types";
 
 /**
  * Every persistence-touching operation the app needs, independent of which
@@ -10,22 +10,44 @@ import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileCom
  */
 export interface DataRepository {
   listProjects(): Promise<Project[]>;
-  createProject(input: NewProjectInput): Promise<Project>;
+  listMyProjectIds(): Promise<string[]>;
+  getProjectById(projectId: string): Promise<Project | null>;
+  createProject(input: NewProjectInput, actorName: string, actorAvatar: string): Promise<Project>;
+  deleteProject(projectId: string): Promise<void>;
+  joinProject(
+    projectId: string,
+    actorName: string,
+    actorAvatar: string,
+    input: { major: string; student: string }
+  ): Promise<Member>;
 
   getTeam(projectId: string): Promise<TeamData>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;
-  createFolder(projectId: string, name: string): Promise<Folder>;
+  createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
 
   listFiles(projectId: string): Promise<WorkspaceFile[]>;
   createFile(
     projectId: string,
-    input: { name: string; size: number; folderId: number | null; note?: string }
+    input: { name: string; size: number; folderId: number | null; note?: string },
+    actorName: string,
+    actorAvatar: string
   ): Promise<WorkspaceFile>;
-  addFileVersion(fileId: number, note?: string): Promise<void>;
-  addFileComment(fileId: number, text: string): Promise<FileComment>;
+  addFileVersion(fileId: number, actorName: string, note?: string): Promise<void>;
+  addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string): Promise<FileComment>;
 
   listTasks(projectId: string): Promise<Task[]>;
   updateTaskStatus(taskId: number, status: TaskStatus): Promise<void>;
+
+  listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
+  sendMessage(
+    projectId: string,
+    channelId: string,
+    senderMemberId: string,
+    input: { text: string; fileId?: number }
+  ): Promise<ChatMessage>;
+  markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
+  subscribeToMessages(projectId: string, onInsert: (m: ChatMessage) => void): () => void;
+  subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
 }
