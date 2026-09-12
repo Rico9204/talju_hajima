@@ -141,6 +141,10 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async createProject(input, actorName, actorAvatar) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
     const id = slugify(input.name);
     const { data: projectRow, error: projectError } = await supabase
       .from("projects")
@@ -164,8 +168,10 @@ export const supabaseDataRepository: DataRepository = {
 
     const { error: memberError } = await supabase.from("members").insert({
       project_id: id,
-      // user_id defaults to auth.uid() at the DB level — never set from the
-      // client (see the comment on the members.user_id column).
+      // RLS's members_insert policy checks user_id = auth.uid() against the
+      // NEW row it's about to write — it does not reliably see a column
+      // DEFAULT applied for an omitted column, so this must be sent explicitly.
+      user_id: userId,
       name: actorName,
       role: "팀장",
       major: "역사문화학과 3학년",
@@ -199,6 +205,10 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async joinProject(projectId, actorName, actorAvatar, input) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
     const { count, error: countError } = await supabase
       .from("members")
       .select("id", { count: "exact", head: true })
@@ -209,8 +219,10 @@ export const supabaseDataRepository: DataRepository = {
       .from("members")
       .insert({
         project_id: projectId,
-        // user_id defaults to auth.uid() at the DB level — never set from
-        // the client (see the comment on the members.user_id column).
+        // RLS's members_insert policy checks user_id = auth.uid() against the
+        // NEW row it's about to write — it does not reliably see a column
+        // DEFAULT applied for an omitted column, so this must be sent explicitly.
+        user_id: userId,
         name: actorName,
         role: "팀원",
         major: input.major.trim() || "전공 미지정",

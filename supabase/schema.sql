@@ -36,9 +36,10 @@ create table if not exists members (
   id uuid primary key default gen_random_uuid(),
   project_id text not null references projects(id) on delete cascade,
   -- null for members without a real account (e.g. seeded demo teammates).
-  -- Defaults to auth.uid() rather than trusting a client-supplied value, so
-  -- it can never be missing/mismatched when a real person creates or joins
-  -- a project (which is exactly what the members_insert policy checks).
+  -- The client always sends this explicitly (see supabaseDataRepository.ts) —
+  -- the members_insert policy's `user_id = auth.uid()` check does not
+  -- reliably see this DEFAULT applied to an omitted column, so it can't be
+  -- relied on alone. Kept anyway as a harmless fallback for direct SQL inserts.
   user_id uuid default auth.uid() references auth.users(id) on delete set null,
   name text not null,
   role text not null,
