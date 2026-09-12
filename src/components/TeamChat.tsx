@@ -16,6 +16,7 @@ interface Message {
   time: string;
   mine?: boolean;
   fileRef?: FileRef;
+  readBy?: string[];
 }
 
 const fileTypeLabel: Record<string, string> = {
@@ -95,7 +96,7 @@ const emptyChatData: ProjectChatData = {
 export default function TeamChat({
   initialChannel, onOpenFile,
 }: { initialChannel?: string; onOpenFile?: (fileId: number, folderId: number | null) => void }) {
-  const { project, files, folders } = useProject();
+  const { project, files, folders, chatUnread, seedChatUnread, clearChatUnread } = useProject();
   const data = chatByProject[project.id] || emptyChatData;
   const [active, setActive] = useState<string>(initialChannel || "all");
   const [messagesByProject, setMessagesByProject] = useState<Record<string, Record<string, Message[]>>>(
@@ -115,9 +116,19 @@ export default function TeamChat({
     setPickerOpen(false);
   }
 
+  function selectChannel(channelId: string) {
+    setActive(channelId);
+    clearChatUnread(channelId);
+  }
+
+  // Seed the shared (context-level) unread map from this project's mock
+  // channel list, then clear whichever channel we land on.
   useEffect(() => {
+    seedChatUnread(Object.fromEntries(data.channels.map((c) => [c.id, c.unread])));
     const exists = data.channels.some((c) => c.id === initialChannel);
-    setActive(exists && initialChannel ? initialChannel : "all");
+    const channelId = exists && initialChannel ? initialChannel : "all";
+    setActive(channelId);
+    clearChatUnread(channelId);
     setPendingFile(null);
     setPickerOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,21 +141,41 @@ export default function TeamChat({
 
   const chan = data.channels.find((c) => c.id === active) || data.channels[0];
   const thread = messagesByProject[project.id]?.[active] || [];
+  const lastMineId = [...thread].reverse().find((m) => m.mine)?.id;
+
+  function otherParticipants(channelId: string): string[] {
+    return channelId === "all" ? data.channels.filter((c) => c.type === "dm").map((c) => c.name) : [channelId];
+  }
 
   function send() {
     if (!input.trim() && !pendingFile) return;
+    const channelId = active;
+    const messageId = Date.now();
     setMessagesByProject((p) => ({
       ...p,
       [project.id]: {
         ...p[project.id],
-        [active]: [
-          ...(p[project.id]?.[active] || []),
-          { id: Date.now(), from: "김지수", text: input.trim(), time: "방금", mine: true, fileRef: pendingFile || undefined },
+        [channelId]: [
+          ...(p[project.id]?.[channelId] || []),
+          { id: messageId, from: "김지수", text: input.trim(), time: "방금", mine: true, fileRef: pendingFile || undefined, readBy: [] },
         ],
       },
     }));
     setInput("");
     setPendingFile(null);
+
+    // Simulate the other side opening the chat and reading it — there's no
+    // real second client in this demo, so we fake the "seen" state.
+    const readers = otherParticipants(channelId);
+    setTimeout(() => {
+      setMessagesByProject((p) => ({
+        ...p,
+        [project.id]: {
+          ...p[project.id],
+          [channelId]: (p[project.id]?.[channelId] || []).map((m) => (m.id === messageId ? { ...m, readBy: readers } : m)),
+        },
+      }));
+    }, 2200);
   }
 
   return (
@@ -168,10 +199,11 @@ export default function TeamChat({
           <div className="flex-1 min-h-0 overflow-y-auto py-2">
             {data.channels.map((c) => {
               const isActive = active === c.id;
+              const unread = chatUnread[c.id] ?? 0;
               return (
                 <button
                   key={c.id}
-                  onClick={() => setActive(c.id)}
+                  onClick={() => selectChannel(c.id)}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all"
                   style={{ background: isActive ? "var(--secondary)" : "transparent", borderLeft: isActive ? "3px solid var(--primary)" : "3px solid transparent" }}
                 >
@@ -187,9 +219,9 @@ export default function TeamChat({
                       {c.type === "group" ? `전체 ${data.channels.filter((x) => x.type === "dm").length + 1}명` : c.role}
                     </div>
                   </div>
-                  {c.unread > 0 && (
+                  {unread > 0 && (
                     <span className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0" style={{ background: "var(--accent)", color: "#fff", borderRadius: "20px" }}>
-                      {c.unread}
+                      {unread}
                     </span>
                   )}
                 </button>
@@ -253,7 +285,28 @@ export default function TeamChat({
                     </div>
                   </button>
                 )}
-                <span className="text-xs mt-1 px-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{m.time}</span>
+                <div className="flex items-center gap-1.5 mt-1 px-1">
+                  {m.mine && m.id === lastMineId && chan.type === "dm" && m.readBy?.includes(chan.name) && (
+                    <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
+                  )}
+                  {m.mine && m.id === lastMineId && chan.type === "group" && (m.readBy?.length ?? 0) > 0 && (
+                    <div className="flex items-center -space-x-1.5" title={`읽음: ${m.readBy!.join(", ")}`}>
+                      {m.readBy!.map((name) => {
+                        const reader = data.channels.find((c) => c.id === name);
+                        return (
+                          <div
+                            key={name}
+                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700"
+                            style={{ background: reader?.color || "var(--muted-foreground)", color: "#fff", border: "1.5px solid var(--card)" }}
+                          >
+                            {reader?.avatar || name[0]}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{m.time}</span>
+                </div>
               </div>
             ))}
             {thread.length === 0 && (

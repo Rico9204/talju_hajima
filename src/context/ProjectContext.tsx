@@ -7,6 +7,15 @@ export type { Project, NewProjectInput, Member, TeamData, FileVersion, FileComme
 
 const SHORT_TERM_THRESHOLD_DAYS = 14;
 
+// Mirrors the mock unread counts in TeamChat.tsx's `chatByProject`, duplicated
+// here only so the sidebar badge shows up without requiring a visit to /chat
+// first. Goes away once chat moves to Supabase (see the project-supabase-
+// migration memory note).
+const INITIAL_CHAT_UNREAD: Record<string, Record<string, number>> = {
+  heritage: { all: 0, 박민준: 2, 이서연: 0, 정하늘: 0, 최현우: 0 },
+  dialect: { all: 0, 박민준: 0, 오유진: 0, 한소민: 0 },
+};
+
 export function getDurationDays(p: Project): number | null {
   if (!p.startDate || !p.endDate) return null;
   const start = new Date(p.startDate);
@@ -36,6 +45,10 @@ interface ProjectContextValue {
   addFileComment: (fileId: number, text: string) => Promise<void>;
   tasks: Task[];
   moveTask: (taskId: number, status: TaskStatus) => Promise<void>;
+  chatUnread: Record<string, number>;
+  chatUnreadTotal: number;
+  seedChatUnread: (initial: Record<string, number>) => void;
+  clearChatUnread: (channelId: string) => void;
   loading: boolean;
 }
 
@@ -76,6 +89,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  // Chat unread counts are still client-only mock state (TeamChat.tsx owns
+  // the channel/message mock data) — lifted here just so the sidebar badge
+  // can see them too, ahead of the real chat DB migration.
+  const [chatUnreadByProject, setChatUnreadByProject] = useState<Record<string, Record<string, number>>>({});
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -124,6 +141,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setFolders(folderList);
         setFiles(fileList);
         setTasks(taskList);
+        seedChatUnread(INITIAL_CHAT_UNREAD[projectId] || {});
         setError(null);
         setInitialized(true);
       })
@@ -191,12 +209,24 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTasks(await dataRepository.listTasks(projectId));
   }
 
+  function seedChatUnread(initial: Record<string, number>) {
+    if (!projectId) return;
+    setChatUnreadByProject((p) => (p[projectId] ? p : { ...p, [projectId]: initial }));
+  }
+
+  function clearChatUnread(channelId: string) {
+    if (!projectId) return;
+    setChatUnreadByProject((p) => ({ ...p, [projectId]: { ...p[projectId], [channelId]: 0 } }));
+  }
+
   if (error) return <StatusScreen kind="error" message={error} />;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
   if (projects.length === 0) return <StatusScreen kind="empty" />;
   if (!initialized) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
+  const chatUnread = chatUnreadByProject[project.id] || {};
+  const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
 
   return (
     <ProjectContext.Provider
@@ -216,6 +246,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         addFileComment,
         tasks,
         moveTask,
+        chatUnread,
+        chatUnreadTotal,
+        seedChatUnread,
+        clearChatUnread,
         loading,
       }}
     >

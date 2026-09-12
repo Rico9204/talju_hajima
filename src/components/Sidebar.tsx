@@ -15,7 +15,7 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 ];
 
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
-  const { projects, project, setProjectId, addProject, team } = useProject();
+  const { projects, project, setProjectId, addProject, team, chatUnreadTotal } = useProject();
   const myRole = team.members.find((m) => m.name === "김지수")?.role || "참여자";
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -185,7 +185,15 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
                 >
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.id === "chat" && chatUnreadTotal > 0 && (
+                  <span
+                    className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
+                    style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
+                  >
+                    {chatUnreadTotal}
+                  </span>
+                )}
               </button>
             );
           })}
