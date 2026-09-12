@@ -77,3 +77,18 @@ export interface Folder {
   createdBy: string;
   date: string;
 }
+
+export type TaskStatus = "todo" | "inprogress" | "review" | "done";
+export type TaskPriority = "high" | "mid" | "low";
+
+export interface Task {
+  id: number;
+  title: string;
+  assignee: string;
+  avatar: string;
+  priority: TaskPriority;
+  due: string;
+  tags: string[];
+  status: TaskStatus;
+  color: string;
+}

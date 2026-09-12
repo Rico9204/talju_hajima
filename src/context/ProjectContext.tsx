@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { dataRepository } from "../api";
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile } from "../api/types";
+import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, Task, TaskStatus } from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE } from "../lib/supabase";
 
-export type { Project, NewProjectInput, Member, TeamData, FileVersion, FileComment, WorkspaceFile, Folder } from "../api/types";
+export type { Project, NewProjectInput, Member, TeamData, FileVersion, FileComment, WorkspaceFile, Folder, Task, TaskStatus } from "../api/types";
 
 const SHORT_TERM_THRESHOLD_DAYS = 14;
 
@@ -34,6 +34,8 @@ interface ProjectContextValue {
   addFile: (name: string, size: number, folderId: number | null, note?: string) => Promise<void>;
   addFileVersion: (fileId: number, note?: string) => Promise<void>;
   addFileComment: (fileId: number, text: string) => Promise<void>;
+  tasks: Task[];
+  moveTask: (taskId: number, status: TaskStatus) => Promise<void>;
   loading: boolean;
 }
 
@@ -73,6 +75,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [team, setTeam] = useState<TeamData>({ teamLabel: "", teamSub: "", members: [] });
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -109,12 +112,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (!projectId) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all([dataRepository.getTeam(projectId), dataRepository.listFolders(projectId), dataRepository.listFiles(projectId)])
-      .then(([teamData, folderList, fileList]) => {
+    Promise.all([
+      dataRepository.getTeam(projectId),
+      dataRepository.listFolders(projectId),
+      dataRepository.listFiles(projectId),
+      dataRepository.listTasks(projectId),
+    ])
+      .then(([teamData, folderList, fileList, taskList]) => {
         if (cancelled) return;
         setTeam(teamData);
         setFolders(folderList);
         setFiles(fileList);
+        setTasks(taskList);
         setError(null);
         setInitialized(true);
       })
@@ -176,6 +185,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshFiles();
   }
 
+  async function moveTask(taskId: number, status: TaskStatus) {
+    if (!projectId) return;
+    await dataRepository.updateTaskStatus(taskId, status);
+    setTasks(await dataRepository.listTasks(projectId));
+  }
+
   if (error) return <StatusScreen kind="error" message={error} />;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
   if (projects.length === 0) return <StatusScreen kind="empty" />;
@@ -199,6 +214,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         addFile,
         addFileVersion,
         addFileComment,
+        tasks,
+        moveTask,
         loading,
       }}
     >

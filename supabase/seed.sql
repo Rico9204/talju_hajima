@@ -1,8 +1,8 @@
 -- Run this once, after schema.sql, on a fresh database (Supabase SQL editor).
 -- Seeds the two sample projects/teams so the app looks the same as the old
--- in-memory mock data did. Re-running will duplicate members/folders/files
--- rows since those don't have natural unique keys — safe to re-run only the
--- `projects`/`teams` inserts (they use ON CONFLICT DO NOTHING).
+-- in-memory mock data did. Re-running will duplicate members/folders/files/
+-- tasks rows since those don't have natural unique keys — safe to re-run only
+-- the `projects`/`teams` inserts (they use ON CONFLICT DO NOTHING).
 --
 -- Wrapped in one transaction so the whole seed either fully applies or not
 -- at all. Folder/file ids needed by later inserts are threaded through via
@@ -136,5 +136,25 @@ with
     returning file_id
   )
 select count(*) from versions;
+
+insert into tasks (project_id, title, assignee, avatar, priority, due, tags, status, color) values
+  ('heritage', '프로젝트 기획안 작성', '김지수', '김', 'high', '09/01', array['기획'], 'done', '#2563eb'),
+  ('heritage', '문헌 조사 및 선행 연구 정리', '박민준', '박', 'high', '09/05', array['조사'], 'done', '#f59e0b'),
+  ('heritage', '강화도 현장 답사 계획 수립', '정하늘', '정', 'high', '09/10', array['답사'], 'done', '#8b5cf6'),
+  ('heritage', '문화재 목록 데이터 정리 (인천)', '박민준', '박', 'high', '09/20', array['데이터'], 'inprogress', '#f59e0b'),
+  ('heritage', '디지털 아카이브 구조 설계', '이서연', '이', 'high', '09/22', array['설계'], 'inprogress', '#22c55e'),
+  ('heritage', '현장 사진 분류 및 편집', '최현우', '최', 'mid', '09/18', array['사진'], 'review', '#ef4444'),
+  ('heritage', '인터뷰 녹취 정리 (3건)', '박민준', '박', 'mid', '09/24', array['기록'], 'review', '#f59e0b'),
+  ('heritage', '중간 발표 슬라이드 제작', '이서연', '이', 'high', '10/01', array['발표'], 'todo', '#22c55e'),
+  ('heritage', '웹 전시 페이지 초안', '이서연', '이', 'mid', '10/08', array['설계'], 'todo', '#22c55e'),
+  ('heritage', '최종 보고서 초안 작성', '김지수', '김', 'high', '10/15', array['보고서'], 'todo', '#2563eb'),
+  ('dialect', '방언 조사 지역 선정', '박민준', '박', 'high', '03/10', array['기획'], 'done', '#f59e0b'),
+  ('dialect', '설문·인터뷰 문항 설계', '김지수', '김', 'high', '03/20', array['설계'], 'done', '#2563eb'),
+  ('dialect', '현지 화자 섭외', '박민준', '박', 'high', '04/05', array['섭외'], 'done', '#f59e0b'),
+  ('dialect', '1차 인터뷰 촬영', '한소민', '한', 'high', '04/20', array['촬영'], 'done', '#8b5cf6'),
+  ('dialect', '녹취 전사 (1차)', '김지수', '김', 'mid', '05/01', array['전사'], 'done', '#2563eb'),
+  ('dialect', '어휘 분류 체계 수립', '오유진', '오', 'mid', '05/10', array['분석'], 'done', '#2563eb'),
+  ('dialect', '비교 분석 및 통계 정리', '오유진', '오', 'high', '05/25', array['분석'], 'done', '#2563eb'),
+  ('dialect', '최종 보고서 작성', '오유진', '오', 'high', '06/15', array['보고서'], 'done', '#2563eb');
 
 commit;

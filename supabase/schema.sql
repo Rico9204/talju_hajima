@@ -86,6 +86,19 @@ create table if not exists file_comments (
   text text not null
 );
 
+create table if not exists tasks (
+  id bigint generated always as identity primary key,
+  project_id text not null references projects(id) on delete cascade,
+  title text not null,
+  assignee text not null,
+  avatar text not null,
+  priority text not null check (priority in ('high', 'mid', 'low')),
+  due text not null,
+  tags text[] not null default '{}',
+  status text not null check (status in ('todo', 'inprogress', 'review', 'done')),
+  color text not null
+);
+
 -- Row Level Security is required by Supabase for anon-key access. The app has
 -- no login yet, so these policies are intentionally wide open (any anon
 -- request can read/write everything). TODO: once auth is added, replace these
@@ -97,6 +110,7 @@ alter table folders enable row level security;
 alter table files enable row level security;
 alter table file_versions enable row level security;
 alter table file_comments enable row level security;
+alter table tasks enable row level security;
 
 do $$
 begin
@@ -120,5 +134,8 @@ begin
   end if;
   if not exists (select 1 from pg_policies where tablename = 'file_comments' and policyname = 'anon_all') then
     create policy anon_all on file_comments for all using (true) with check (true);
+  end if;
+  if not exists (select 1 from pg_policies where tablename = 'tasks' and policyname = 'anon_all') then
+    create policy anon_all on tasks for all using (true) with check (true);
   end if;
 end $$;

@@ -1,4 +1,4 @@
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileComment } from "./types";
+import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileComment, Task, TaskStatus } from "./types";
 
 /**
  * Every persistence-touching operation the app needs, independent of which
@@ -25,4 +25,7 @@ export interface DataRepository {
   ): Promise<WorkspaceFile>;
   addFileVersion(fileId: number, note?: string): Promise<void>;
   addFileComment(fileId: number, text: string): Promise<FileComment>;
+
+  listTasks(projectId: string): Promise<Task[]>;
+  updateTaskStatus(taskId: number, status: TaskStatus): Promise<void>;
 }

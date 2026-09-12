@@ -1,6 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
-import type { Project, TeamData, Member, Folder, WorkspaceFile, FileComment } from "../types";
+import type { Project, TeamData, Member, Folder, WorkspaceFile, FileComment, Task, TaskStatus } from "../types";
 
 // TODO: replace with the signed-in user once an auth flow exists.
 const CURRENT_USER_NAME = "김지수";
@@ -92,6 +92,20 @@ function mapFile(row: any): WorkspaceFile {
 
 function mapComment(row: any): FileComment {
   return { id: row.id, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+}
+
+function mapTask(row: any): Task {
+  return {
+    id: row.id,
+    title: row.title,
+    assignee: row.assignee,
+    avatar: row.avatar,
+    priority: row.priority,
+    due: row.due,
+    tags: row.tags ?? [],
+    status: row.status,
+    color: row.color,
+  };
 }
 
 export const supabaseDataRepository: DataRepository = {
@@ -299,5 +313,16 @@ export const supabaseDataRepository: DataRepository = {
       .single();
     if (error) throw error;
     return mapComment(data);
+  },
+
+  async listTasks(projectId) {
+    const { data, error } = await supabase.from("tasks").select("*").eq("project_id", projectId).order("id", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(mapTask);
+  },
+
+  async updateTaskStatus(taskId, status: TaskStatus) {
+    const { error } = await supabase.from("tasks").update({ status }).eq("id", taskId);
+    if (error) throw error;
   },
 };
