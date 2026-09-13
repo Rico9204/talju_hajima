@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { fetchMajorsFromApi } from "./_lib/majors";
+import { fetchMajorsFromApi } from "../src/lib/majorsApi";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const cache = new Map<string, { majors: string[]; cachedAt: number }>();

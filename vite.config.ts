@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { fetchMajorsFromApi } from './api/_lib/majors'
+import { fetchMajorsFromApi } from './src/lib/majorsApi'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
