@@ -406,16 +406,18 @@ create or replace function public.transfer_leadership(p_project_id text, p_targe
 returns void language plpgsql security definer set search_path = public as $$
 declare
   v_caller_id uuid;
+  v_caller_role text;
   v_target_id uuid;
+  v_target_role text;
 begin
-  select id into v_caller_id
+  select id, role into v_caller_id, v_caller_role
     from members
     where project_id = p_project_id and user_id = auth.uid() and is_leader;
   if v_caller_id is null then
     raise exception '팀장만 권한을 이전할 수 있습니다';
   end if;
 
-  select id into v_target_id
+  select id, role into v_target_id, v_target_role
     from members
     where project_id = p_project_id and name = p_target_name and not is_leader;
   if v_target_id is null then
@@ -424,8 +426,13 @@ begin
 
   perform set_config('app.allow_leader_change', 'true', true);
 
-  update members set is_leader = false where id = v_caller_id;
-  update members set is_leader = true  where id = v_target_id;
+  -- is_leader와 함께 role 표시 문구도 동기화 (커스텀 역할 문구는 그대로 둠)
+  update members set is_leader = false,
+    role = case when v_caller_role = '팀장' then '팀원' else v_caller_role end
+    where id = v_caller_id;
+  update members set is_leader = true,
+    role = case when v_target_role in ('참여자', '팀원') then '팀장' else v_target_role end
+    where id = v_target_id;
 end;
 $$;
 
