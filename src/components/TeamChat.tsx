@@ -155,7 +155,7 @@ export default function TeamChat({
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all"
                   style={{ background: isActive ? "var(--secondary)" : "transparent", borderLeft: isActive ? "3px solid var(--primary)" : "3px solid transparent" }}
                 >
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 relative overflow-hidden" style={{ background: `${c.color}18`, color: c.color }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 relative overflow-hidden" style={{ background: c.avatarUrl ? "var(--card)" : `${c.color}18`, color: c.color }}>
                     {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
                     {c.type === "dm" && c.online && (
                       <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
@@ -181,7 +181,7 @@ export default function TeamChat({
         {/* Thread */}
         <div className="col-span-3 min-h-0 min-w-0 flex flex-col">
           <div className="flex items-center gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: `${chan.color}18`, color: chan.color }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
               {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
             </div>
             <div>
@@ -249,10 +249,18 @@ export default function TeamChat({
                           return (
                             <div
                               key={id}
-                              className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700"
-                              style={{ background: reader?.color || "var(--muted-foreground)", color: "#fff", border: "1.5px solid var(--card)" }}
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700 overflow-hidden"
+                              style={{
+                                background: reader?.avatarUrl ? "var(--card)" : reader?.color || "var(--muted-foreground)",
+                                color: "#fff",
+                                border: "1.5px solid var(--card)",
+                              }}
                             >
-                              {reader?.avatar || "?"}
+                              {reader?.avatarUrl ? (
+                                <img src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
+                              ) : (
+                                reader?.avatar || "?"
+                              )}
                             </div>
                           );
                         })}
