@@ -11,11 +11,18 @@ export default function JoinProjectModal({
 }) {
   const [projectId, setProjectId] = useState("");
   const [preview, setPreview] = useState<{ id: string; name: string; org: string } | null>(null);
-  const [major, setMajor] = useState("");
+  const [department, setDepartment] = useState("");
+  const [grade, setGrade] = useState("1");
   const [student, setStudent] = useState("");
   const [checking, setChecking] = useState(false);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Real department names are just Korean/English words — this rejects
+  // obvious junk (numbers, symbols, empty input) without trying to match
+  // against an actual list of departments, which would be impractical.
+  const departmentTrimmed = department.trim();
+  const departmentValid = /^[가-힣a-zA-Z][가-힣a-zA-Z\s]{1,29}$/.test(departmentTrimmed);
 
   async function checkCode() {
     const trimmed = projectId.trim();
@@ -38,11 +45,11 @@ export default function JoinProjectModal({
   }
 
   async function submit() {
-    if (!preview || joining) return;
+    if (!preview || joining || !departmentValid) return;
     setJoining(true);
     setError(null);
     try {
-      await joinProject(preview.id, { major, student });
+      await joinProject(preview.id, { major: `${departmentTrimmed} ${grade}학년`, student });
       onJoined();
     } catch (err) {
       setError(err instanceof Error ? err.message : "참여하지 못했습니다.");
@@ -110,16 +117,36 @@ export default function JoinProjectModal({
               </div>
             </div>
 
-            <label className="text-xs font-600 block mb-1.5">전공</label>
-            <input
-              value={major}
-              onChange={(e) => setMajor(e.target.value)}
-              placeholder="예: 컴퓨터공학과 3학년"
-              className="w-full text-sm px-3 py-2.5 outline-none mb-3"
-              style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
-            />
+            <label className="text-xs font-600 block mb-1.5">학과 / 학년</label>
+            <div className="flex gap-2 mb-1.5">
+              <input
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="예: 컴퓨터공학과"
+                className="flex-1 min-w-0 text-sm px-3 py-2.5 outline-none"
+                style={{
+                  border: `2px solid ${department.length > 0 && !departmentValid ? "#ef4444" : "var(--border)"}`,
+                  borderRadius: "10px",
+                  background: "var(--muted)",
+                  fontFamily: "var(--font-outfit)",
+                }}
+              />
+              <select
+                value={grade}
+                onChange={(e) => setGrade(e.target.value)}
+                className="text-sm px-3 py-2.5 outline-none shrink-0"
+                style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
+              >
+                {["1", "2", "3", "4", "5", "6"].map((g) => (
+                  <option key={g} value={g}>{g}학년</option>
+                ))}
+              </select>
+            </div>
+            {department.length > 0 && !departmentValid && (
+              <div className="text-xs mb-1.5" style={{ color: "#ef4444" }}>학과 이름은 한글/영문으로 입력해주세요.</div>
+            )}
 
-            <label className="text-xs font-600 block mb-1.5">학번</label>
+            <label className="text-xs font-600 block mb-1.5 mt-3">학번</label>
             <input
               value={student}
               onChange={(e) => setStudent(e.target.value)}
@@ -140,14 +167,14 @@ export default function JoinProjectModal({
           </button>
           <button
             onClick={submit}
-            disabled={!preview || joining}
+            disabled={!preview || joining || !departmentValid}
             className="flex-1 py-2.5 text-sm font-700 transition-all"
             style={{
-              background: preview && !joining ? "var(--primary)" : "var(--border)",
-              color: preview && !joining ? "#fff" : "var(--muted-foreground)",
+              background: preview && !joining && departmentValid ? "var(--primary)" : "var(--border)",
+              color: preview && !joining && departmentValid ? "#fff" : "var(--muted-foreground)",
               borderRadius: "40px",
-              boxShadow: preview && !joining ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
-              cursor: preview && !joining ? "pointer" : "not-allowed",
+              boxShadow: preview && !joining && departmentValid ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
+              cursor: preview && !joining && departmentValid ? "pointer" : "not-allowed",
             }}
           >
             {joining ? "참여 중…" : "참여하기"}
