@@ -404,10 +404,10 @@ export default function Schedule() {
                       }}
                     >
                       <span
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0"
+                        className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
                         style={{ background: checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
                       >
-                        {m.avatar}
+                        {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
                       </span>
                       {m.name}
                     </button>

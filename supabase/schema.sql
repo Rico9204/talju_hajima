@@ -12,6 +12,14 @@ create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   avatar_initial text not null,
+  -- Account-wide profile fields (photo, major, student id) — one value per
+  -- person, shown the same way in every project they're in. `members` still
+  -- carries its own copies of these for accounts-less/seeded teammates; for
+  -- a real account, the mapping layer prefers these columns over the
+  -- members-row ones whenever a profiles row exists (see mapMember).
+  avatar_url text,
+  major text,
+  student text,
   created_at timestamptz not null default now()
 );
 
@@ -49,6 +57,9 @@ create table if not exists members (
   major text not null,
   student text not null,
   avatar text not null,
+  -- null unless the member has uploaded a real profile photo; falls back to
+  -- the `avatar` initial everywhere it's rendered (see src/components/Avatar.tsx).
+  avatar_url text,
   tasks_done int not null default 0,
   tasks_total int not null default 0,
   activities int not null default 0,
@@ -268,6 +279,20 @@ returns boolean language sql security definer stable as $$
   );
 $$;
 
+-- Profiles are account-wide, not project-scoped, so "can see this profile"
+-- can't reuse is_project_member directly — it's "shares at least one
+-- project with the viewer" instead. Needed so a teammate's name/photo/major
+-- (now sourced from profiles, not the per-project members row) is visible
+-- to the rest of their project(s), not just to themselves.
+create or replace function public.shares_project_with(target_user_id uuid)
+returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from members m1
+    join members m2 on m1.project_id = m2.project_id
+    where m1.user_id = auth.uid() and m2.user_id = target_user_id
+  );
+$$;
+
 alter table profiles enable row level security;
 alter table projects enable row level security;
 alter table teams enable row level security;
@@ -282,18 +307,12 @@ alter table task_checklist_items enable row level security;
 alter table task_comments enable row level security;
 alter table schedule_events enable row level security;
 
-do $$
-begin
-  if not exists (select 1 from pg_policies where tablename = 'profiles' and policyname = 'profiles_select_own') then
-    create policy profiles_select_own on profiles for select using (auth.uid() = id);
-  end if;
-  if not exists (select 1 from pg_policies where tablename = 'profiles' and policyname = 'profiles_insert_own') then
-    create policy profiles_insert_own on profiles for insert with check (auth.uid() = id);
-  end if;
-  if not exists (select 1 from pg_policies where tablename = 'profiles' and policyname = 'profiles_update_own') then
-    create policy profiles_update_own on profiles for update using (auth.uid() = id);
-  end if;
-end $$;
+drop policy if exists profiles_select_own on profiles;
+drop policy if exists profiles_insert_own on profiles;
+drop policy if exists profiles_update_own on profiles;
+create policy profiles_select_own on profiles for select using (auth.uid() = id or shares_project_with(id));
+create policy profiles_insert_own on profiles for insert with check (auth.uid() = id);
+create policy profiles_update_own on profiles for update using (auth.uid() = id);
 
 drop policy if exists anon_all on projects;
 drop policy if exists anon_all on teams;
@@ -496,3 +515,23 @@ create policy message_reads_insert on message_reads for insert
 -- postgres_changes events on the client.
 alter publication supabase_realtime add table chat_messages;
 alter publication supabase_realtime add table message_reads;
+
+-- Profile photo storage. Public bucket (avatars aren't sensitive and need to
+-- be viewable by teammates without a signed-URL round trip) — writes are
+-- still locked down below to "your own folder only".
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists avatars_public_read on storage.objects;
+drop policy if exists avatars_own_write on storage.objects;
+drop policy if exists avatars_own_update on storage.objects;
+drop policy if exists avatars_own_delete on storage.objects;
+create policy avatars_public_read on storage.objects for select
+  using (bucket_id = 'avatars');
+create policy avatars_own_write on storage.objects for insert
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy avatars_own_update on storage.objects for update
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy avatars_own_delete on storage.objects for delete
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);

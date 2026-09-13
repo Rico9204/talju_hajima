@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Project } from "../api/types";
+import { isValidDepartmentName } from "../lib/validators";
 
 export default function JoinProjectModal({
   onCancel, onJoined, lookupProject, joinProject,
@@ -18,11 +19,8 @@ export default function JoinProjectModal({
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Real department names are just Korean/English words — this rejects
-  // obvious junk (numbers, symbols, empty input) without trying to match
-  // against an actual list of departments, which would be impractical.
   const departmentTrimmed = department.trim();
-  const departmentValid = /^[가-힣a-zA-Z][가-힣a-zA-Z\s]{1,29}$/.test(departmentTrimmed);
+  const departmentValid = isValidDepartmentName(departmentTrimmed);
 
   async function checkCode() {
     const trimmed = projectId.trim();

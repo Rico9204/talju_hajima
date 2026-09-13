@@ -37,12 +37,13 @@ export default function TeamChat({
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
   const channels = currentMember
     ? [
-        { id: "all", type: "group" as const, name: "팀 전체", avatar: "⬡", color: "var(--primary)", online: undefined as boolean | undefined, role: undefined as string | undefined, memberId: undefined as string | undefined },
+        { id: "all", type: "group" as const, name: "팀 전체", avatar: "⬡", avatarUrl: null as string | null, color: "var(--primary)", online: undefined as boolean | undefined, role: undefined as string | undefined, memberId: undefined as string | undefined },
         ...otherMembers.map((m) => ({
           id: dmChannelId(currentMember.id, m.id),
           type: "dm" as const,
           name: m.name,
           avatar: m.avatar,
+          avatarUrl: m.avatarUrl,
           color: m.color,
           online: m.online,
           role: m.role,
@@ -154,8 +155,8 @@ export default function TeamChat({
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all"
                   style={{ background: isActive ? "var(--secondary)" : "transparent", borderLeft: isActive ? "3px solid var(--primary)" : "3px solid transparent" }}
                 >
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 relative" style={{ background: `${c.color}18`, color: c.color }}>
-                    {c.avatar}
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 relative overflow-hidden" style={{ background: `${c.color}18`, color: c.color }}>
+                    {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
                     {c.type === "dm" && c.online && (
                       <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
                     )}
@@ -180,8 +181,8 @@ export default function TeamChat({
         {/* Thread */}
         <div className="col-span-3 min-h-0 min-w-0 flex flex-col">
           <div className="flex items-center gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700" style={{ background: `${chan.color}18`, color: chan.color }}>
-              {chan.avatar}
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: `${chan.color}18`, color: chan.color }}>
+              {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
             </div>
             <div>
               <div className="text-sm font-700">{chan.name}</div>

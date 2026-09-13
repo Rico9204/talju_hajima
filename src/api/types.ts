@@ -24,6 +24,7 @@ export interface Member {
   major: string;
   student: string;
   avatar: string;
+  avatarUrl: string | null;
   tasks: { done: number; total: number };
   activities: number;
   score: number;

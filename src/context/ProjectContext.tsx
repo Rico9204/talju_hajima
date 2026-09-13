@@ -74,6 +74,7 @@ interface ProjectContextValue {
   joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
+  updateMyProfile: (patch: { name?: string; major?: string; student?: string; avatarFile?: File }) => Promise<void>;
   isShortTerm: boolean;
   folders: Folder[];
   files: WorkspaceFile[];
@@ -397,6 +398,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
+  async function updateMyProfile(patch: { name?: string; major?: string; student?: string; avatarFile?: File }) {
+    if (!projectId || !currentMember) return;
+    const avatarUrl = patch.avatarFile ? await dataRepository.uploadAvatar(patch.avatarFile) : undefined;
+    await dataRepository.updateMyProfile({ name: patch.name, major: patch.major, student: patch.student, avatarUrl });
+    setTeam(await dataRepository.getTeam(projectId));
+  }
+
   async function addFolder(name: string) {
     if (!projectId || !name.trim() || !currentMember) return;
     await dataRepository.createFolder(projectId, name, currentMember.name);
@@ -585,6 +593,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         joinProject,
         team,
         transferLeadership,
+        updateMyProfile,
         isShortTerm: isShortTermProject(project),
         folders,
         files,

@@ -39,6 +39,8 @@ export interface DataRepository {
   ): Promise<Member>;
 
   getTeam(projectId: string): Promise<TeamData>;
+  updateMyProfile(patch: Partial<{ name: string; major: string; student: string; avatarUrl: string | null }>): Promise<void>;
+  uploadAvatar(file: File): Promise<string>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;

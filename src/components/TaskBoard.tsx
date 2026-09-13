@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useProject, type Member, type TaskStatus, type TaskPriority } from "../context/ProjectContext";
 import TaskDetailPanel from "./TaskDetailPanel";
+import Avatar from "./Avatar";
 
-export function memberInfo(members: Member[], id: string): { name: string; avatar: string; color: string } {
+export function memberInfo(members: Member[], id: string): { name: string; avatar: string; avatarUrl: string | null; color: string } {
   const m = members.find((m) => m.id === id);
-  return m ? { name: m.name, avatar: m.avatar, color: m.color } : { name: "알 수 없음", avatar: "?", color: "#6b7280" };
+  return m
+    ? { name: m.name, avatar: m.avatar, avatarUrl: m.avatarUrl, color: m.color }
+    : { name: "알 수 없음", avatar: "?", avatarUrl: null, color: "#6b7280" };
 }
 
 const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
@@ -192,13 +195,8 @@ export default function TaskBoard() {
                             {shownAssignees.map((id) => {
                               const info = memberInfo(team.members, id);
                               return (
-                                <div
-                                  key={id}
-                                  title={info.name}
-                                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-700"
-                                  style={{ background: `${info.color}18`, color: info.color, border: "2px solid var(--card)" }}
-                                >
-                                  {info.avatar}
+                                <div key={id} title={info.name} style={{ border: "2px solid var(--card)", borderRadius: "50%" }}>
+                                  <Avatar url={info.avatarUrl} initial={info.avatar} color={info.color} size={20} />
                                 </div>
                               );
                             })}

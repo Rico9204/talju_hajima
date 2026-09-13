@@ -64,10 +64,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             }}
           >
             <div
-              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative"
+              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
               style={{ background: selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
             >
-              {m.avatar}
+              {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
               {m.isLeader && (
                 <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
               )}
@@ -97,8 +97,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
           {/* Left: profile */}
           <div className="col-span-2">
             <div className="flex items-start gap-4 mb-5">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0" style={{ background: `${sel.color}18`, color: sel.color }}>
-                {sel.avatar}
+              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden" style={{ background: `${sel.color}18`, color: sel.color }}>
+                {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
               </div>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">

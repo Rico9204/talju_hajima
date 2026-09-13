@@ -46,15 +46,21 @@ function mapProject(row: any): Project {
   };
 }
 
-function mapMember(row: any): Member {
+// `profile` is the matching profiles row for row.user_id, when one exists —
+// for a real account it's the authoritative source for name/major/student/
+// avatar (unified across every project that account is in); members without
+// a linked account (no profiles row) fall back to their own denormalized
+// columns, same as before.
+function mapMember(row: any, profile?: any): Member {
   return {
     id: row.id,
     userId: row.user_id ?? null,
-    name: row.name,
+    name: profile?.display_name || row.name,
     role: row.role,
-    major: row.major,
-    student: row.student,
-    avatar: row.avatar,
+    major: profile?.major || row.major,
+    student: profile?.student || row.student,
+    avatar: profile?.avatar_initial || row.avatar,
+    avatarUrl: profile?.avatar_url ?? row.avatar_url ?? null,
     tasks: { done: row.tasks_done, total: row.tasks_total },
     activities: row.activities,
     score: Number(row.score),
@@ -288,6 +294,15 @@ export const supabaseDataRepository: DataRepository = {
       throw new Error(`[${error.code ?? "?"}] ${error.message}`);
     }
 
+    // Major/student are now account-wide (see profiles table) — the join
+    // form is real user input, unlike createProject's placeholder defaults,
+    // so it's the right moment to sync it there too.
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ major: input.major.trim() || null, student: input.student.trim() || null })
+      .eq("id", userId);
+    if (profileError) throw profileError;
+
     const { data, error: fetchError } = await supabase
       .from("members")
       .select("*")
@@ -295,7 +310,10 @@ export const supabaseDataRepository: DataRepository = {
       .eq("user_id", userId)
       .single();
     if (fetchError) throw fetchError;
-    return mapMember(data);
+
+    const { data: profile, error: profileFetchError } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    if (profileFetchError) throw profileFetchError;
+    return mapMember(data, profile);
   },
 
   async getTeam(projectId): Promise<TeamData> {
@@ -306,11 +324,54 @@ export const supabaseDataRepository: DataRepository = {
     if (teamResult.error) throw teamResult.error;
     if (memberResult.error) throw memberResult.error;
 
+    const members = memberResult.data ?? [];
+    // Two separate queries instead of an embedded select: members.user_id and
+    // profiles.id both reference auth.users independently, with no FK between
+    // members and profiles themselves for PostgREST to embed through.
+    const userIds = [...new Set(members.map((m) => m.user_id).filter((id): id is string => !!id))];
+    let profileById: Record<string, any> = {};
+    if (userIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase.from("profiles").select("*").in("id", userIds);
+      if (profilesError) throw profilesError;
+      profileById = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+    }
+
     return {
       teamLabel: teamResult.data?.team_label ?? "팀",
       teamSub: teamResult.data?.team_sub ?? "",
-      members: (memberResult.data ?? []).map(mapMember),
+      members: members.map((m) => mapMember(m, m.user_id ? profileById[m.user_id] : undefined)),
     };
+  },
+
+  async updateMyProfile(patch) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    const updates: Record<string, unknown> = {};
+    if (patch.name !== undefined) updates.display_name = patch.name.trim();
+    if (patch.major !== undefined) updates.major = patch.major.trim();
+    if (patch.student !== undefined) updates.student = patch.student.trim();
+    if (patch.avatarUrl !== undefined) updates.avatar_url = patch.avatarUrl;
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await supabase.from("profiles").update(updates).eq("id", userId);
+    if (error) throw error;
+  },
+
+  async uploadAvatar(file) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    const ext = file.name.split(".").pop() || "jpg";
+    // Path prefix must be the uploader's own auth.uid() — the avatars_own_write
+    // storage policy checks exactly this (see schema.sql).
+    const path = `${userId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    if (error) throw error;
+
+    const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+    return data.publicUrl;
   },
 
   async transferLeadership(projectId, targetName) {
