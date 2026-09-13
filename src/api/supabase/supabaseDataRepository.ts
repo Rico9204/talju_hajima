@@ -61,6 +61,10 @@ function mapMember(row: any, profile?: any): Member {
     student: profile?.student || row.student,
     avatar: profile?.avatar_initial || row.avatar,
     avatarUrl: profile?.avatar_url ?? row.avatar_url ?? null,
+    contact: profile?.contact ?? null,
+    bannerColor: profile?.banner_color ?? null,
+    bannerImageUrl: profile?.banner_image_url ?? null,
+    links: Array.isArray(profile?.links) ? profile.links : [],
     tasks: { done: row.tasks_done, total: row.tasks_total },
     activities: row.activities,
     score: Number(row.score),
@@ -353,6 +357,10 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.major !== undefined) updates.major = patch.major.trim();
     if (patch.student !== undefined) updates.student = patch.student.trim();
     if (patch.avatarUrl !== undefined) updates.avatar_url = patch.avatarUrl;
+    if (patch.contact !== undefined) updates.contact = patch.contact?.trim() || null;
+    if (patch.bannerColor !== undefined) updates.banner_color = patch.bannerColor;
+    if (patch.bannerImageUrl !== undefined) updates.banner_image_url = patch.bannerImageUrl;
+    if (patch.links !== undefined) updates.links = patch.links;
     if (Object.keys(updates).length === 0) return;
     const { error } = await supabase.from("profiles").update(updates).eq("id", userId);
     if (error) throw error;
@@ -374,21 +382,38 @@ export const supabaseDataRepository: DataRepository = {
     return data.publicUrl;
   },
 
-  async transferLeadership(projectId, targetName) {
+  async uploadBannerImage(file) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    const ext = file.name.split(".").pop() || "jpg";
+    // Reuses the "avatars" bucket (same avatars_own_write-family policies,
+    // keyed only on the uid folder prefix) under a distinct filename prefix
+    // instead of provisioning a separate bucket for one more image type.
+    const path = `${userId}/banner-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    if (error) throw error;
+
+    const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+    return data.publicUrl;
+  },
+
+  async transferLeadership(projectId, targetMemberId) {
     const { data: members, error } = await supabase
       .from("members")
-      .select("id, name, role, is_leader")
+      .select("id, role, is_leader")
       .eq("project_id", projectId);
     if (error) throw error;
 
     for (const m of members ?? []) {
-      if (m.name === targetName && !m.is_leader) {
+      if (m.id === targetMemberId && !m.is_leader) {
         const { error: e } = await supabase
           .from("members")
           .update({ is_leader: true, role: m.role === "참여자" || m.role === "팀원" ? "팀장" : m.role })
           .eq("id", m.id);
         if (e) throw e;
-      } else if (m.is_leader && m.name !== targetName) {
+      } else if (m.is_leader && m.id !== targetMemberId) {
         const { error: e } = await supabase
           .from("members")
           .update({ is_leader: false, role: m.role === "팀장" ? "팀원" : m.role })
