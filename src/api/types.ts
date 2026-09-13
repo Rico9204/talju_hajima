@@ -83,16 +83,65 @@ export interface Folder {
 export type TaskStatus = "todo" | "inprogress" | "review" | "done";
 export type TaskPriority = "high" | "mid" | "low";
 
+export interface ChecklistItem {
+  id: number;
+  text: string;
+  done: boolean;
+}
+
+export interface TaskComment {
+  id: number;
+  author: string;
+  avatar: string;
+  date: string;
+  text: string;
+}
+
 export interface Task {
   id: number;
   title: string;
-  assignee: string;
+  assignee: string; // primary assignee (first of assigneeIds) — kept for older display code
   avatar: string;
   priority: TaskPriority;
   due: string;
   tags: string[];
   status: TaskStatus;
   color: string;
+  assigneeIds: string[]; // member ids; names/avatars resolve via team.members
+  checklist: ChecklistItem[];
+  comments: TaskComment[];
+  teamScheduleEventId: number | null;
+  personalScheduleEventId: number | null;
+}
+
+export interface NewTaskInput {
+  title: string;
+  assigneeIds: string[];
+  status: TaskStatus;
+}
+
+export type ScheduleEventType = "deadline" | "meeting" | "presentation" | "other";
+export type ScheduleEventScope = "personal" | "team";
+export type ScheduleEventVisibility = "private" | "shared";
+
+export interface ScheduleEvent {
+  id: number;
+  title: string;
+  date: string; // YYYY-MM-DD
+  type: ScheduleEventType;
+  scope: ScheduleEventScope;
+  ownerMemberId: string | null; // scope === "personal"일 때만 존재
+  visibility: ScheduleEventVisibility | null; // scope === "personal"일 때만 존재
+  hideTitle: boolean;
+}
+
+export interface NewScheduleEventInput {
+  title: string;
+  date: string;
+  type: ScheduleEventType;
+  scope: ScheduleEventScope;
+  visibility?: ScheduleEventVisibility; // scope === "personal"일 때 필수
+  hideTitle?: boolean;
 }
 
 export interface ChatMessage {

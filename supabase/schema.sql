@@ -112,6 +112,35 @@ create table if not exists file_comments (
   text text not null
 );
 
+-- 일정 이벤트. scope에 따라 personal/team으로 나뉘며,
+-- personal일 때만 owner_member_id와 visibility가 의미를 가진다. tasks보다
+-- 먼저 선언 — tasks가 이 테이블을 FK로 참조한다.
+create table if not exists schedule_events (
+  id bigint generated always as identity primary key,
+  project_id text not null references projects(id) on delete cascade,
+  title text not null,
+  date date not null,
+  type text not null check (type in ('deadline', 'meeting', 'presentation', 'other')),
+  scope text not null check (scope in ('personal', 'team')),
+  -- scope='team'이면 항상 null. scope='personal'이면 이 일정의 주인.
+  owner_member_id uuid references members(id) on delete cascade,
+  -- scope='personal'일 때만 사용. 'private'=나만 보기, 'shared'=팀에 공유.
+  visibility text check (visibility in ('private', 'shared')),
+  -- scope='personal' and visibility='shared'일 때만 의미 있음.
+  -- true면 팀원에게는 제목 대신 "바쁨"으로 표시 (일정별로 등록 시 선택).
+  hide_title boolean not null default false,
+  created_at timestamptz not null default now(),
+
+  constraint personal_fields_consistent check (
+    (scope = 'team' and owner_member_id is null and visibility is null)
+    or
+    (scope = 'personal' and owner_member_id is not null and visibility is not null)
+  )
+);
+
+create index if not exists schedule_events_project_idx
+  on schedule_events (project_id, date);
+
 create table if not exists tasks (
   id bigint generated always as identity primary key,
   project_id text not null references projects(id) on delete cascade,
@@ -122,7 +151,38 @@ create table if not exists tasks (
   due text not null,
   tags text[] not null default '{}',
   status text not null check (status in ('todo', 'inprogress', 'review', 'done')),
-  color text not null
+  color text not null,
+  -- nullable: a task isn't necessarily on either calendar. Set/cleared
+  -- together with the schedule_events row via toggleTaskTeamSchedule /
+  -- toggleTaskPersonalSchedule in ProjectContext.tsx.
+  team_schedule_event_id bigint references schedule_events(id) on delete set null,
+  personal_schedule_event_id bigint references schedule_events(id) on delete set null
+);
+
+-- Multiple assignees per task. References members(id) rather than storing
+-- names (like the rest of this schema denormalizes actor name/avatar)
+-- because assignment needs to survive a member's display name changing, and
+-- "is this member assigned" is checked constantly for the RLS policies below.
+create table if not exists task_assignees (
+  task_id bigint not null references tasks(id) on delete cascade,
+  member_id uuid not null references members(id) on delete cascade,
+  primary key (task_id, member_id)
+);
+
+create table if not exists task_checklist_items (
+  id bigint generated always as identity primary key,
+  task_id bigint not null references tasks(id) on delete cascade,
+  text text not null,
+  done boolean not null default false
+);
+
+create table if not exists task_comments (
+  id bigint generated always as identity primary key,
+  task_id bigint not null references tasks(id) on delete cascade,
+  author text not null,
+  avatar text not null,
+  date date not null default current_date,
+  text text not null
 );
 
 -- channel_id is 'all' for the whole-team channel, or 'dm:<lesser member
@@ -181,6 +241,33 @@ returns boolean language sql security definer stable as $$
   );
 $$;
 
+create or replace function public.is_task_assignee(p_task_id bigint)
+returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from task_assignees ta
+    join members m on m.id = ta.member_id
+    where ta.task_id = p_task_id and m.user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.is_task_project_member(p_task_id bigint)
+returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from tasks t
+    join members m on m.project_id = t.project_id
+    where t.id = p_task_id and m.user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.is_task_project_leader(p_task_id bigint)
+returns boolean language sql security definer stable as $$
+  select exists (
+    select 1 from tasks t
+    join members m on m.project_id = t.project_id
+    where t.id = p_task_id and m.user_id = auth.uid() and m.is_leader
+  );
+$$;
+
 alter table profiles enable row level security;
 alter table projects enable row level security;
 alter table teams enable row level security;
@@ -190,6 +277,10 @@ alter table files enable row level security;
 alter table file_versions enable row level security;
 alter table file_comments enable row level security;
 alter table tasks enable row level security;
+alter table task_assignees enable row level security;
+alter table task_checklist_items enable row level security;
+alter table task_comments enable row level security;
+alter table schedule_events enable row level security;
 
 do $$
 begin
@@ -262,10 +353,91 @@ create trigger set_member_user_id_trigger
 
 drop policy if exists folders_all on folders;
 drop policy if exists files_all on files;
-drop policy if exists tasks_all on tasks;
 create policy folders_all on folders for all using (is_project_member(project_id)) with check (is_project_member(project_id));
 create policy files_all on files for all using (is_project_member(project_id)) with check (is_project_member(project_id));
-create policy tasks_all on tasks for all using (is_project_member(project_id)) with check (is_project_member(project_id));
+
+-- tasks: any member can see the board, but only the leader creates/edits
+-- task metadata or deletes a task — matches ProjectContext.tsx's addTask/
+-- updateTaskDetails/moveTaskStatus/deleteTask, all of which check isLeader.
+-- UPDATE also allows the assignee themselves through, since
+-- toggleTaskPersonalSchedule (assignee-only) writes personal_schedule_event_id
+-- on this same row; RLS can't restrict that to just the one column, so an
+-- assignee technically could update other fields via a raw API call too —
+-- accepted trade-off rather than building column-level checks for this.
+drop policy if exists tasks_all on tasks;
+drop policy if exists tasks_select on tasks;
+drop policy if exists tasks_insert on tasks;
+drop policy if exists tasks_update on tasks;
+drop policy if exists tasks_delete on tasks;
+create policy tasks_select on tasks for select using (is_project_member(project_id));
+create policy tasks_insert on tasks for insert with check (is_project_leader(project_id));
+create policy tasks_update on tasks for update using (is_project_leader(project_id) or is_task_assignee(id));
+create policy tasks_delete on tasks for delete using (is_project_leader(project_id));
+
+-- task_assignees: leader manages who's assigned (part of updateTaskDetails).
+drop policy if exists task_assignees_select on task_assignees;
+drop policy if exists task_assignees_write on task_assignees;
+create policy task_assignees_select on task_assignees for select using (is_task_project_member(task_id));
+create policy task_assignees_write on task_assignees for all
+  using (is_task_project_leader(task_id)) with check (is_task_project_leader(task_id));
+
+-- task_checklist_items: only the task's assignee(s) manage their own
+-- checklist — matches toggleTaskChecklistItem/addTaskChecklistItem.
+drop policy if exists task_checklist_items_select on task_checklist_items;
+drop policy if exists task_checklist_items_write on task_checklist_items;
+create policy task_checklist_items_select on task_checklist_items for select using (is_task_project_member(task_id));
+create policy task_checklist_items_write on task_checklist_items for all
+  using (is_task_assignee(task_id)) with check (is_task_assignee(task_id));
+
+-- task_comments: open to any project member, like chat — matches
+-- addTaskComment, which only requires being a signed-in team member.
+drop policy if exists task_comments_select on task_comments;
+drop policy if exists task_comments_insert on task_comments;
+create policy task_comments_select on task_comments for select using (is_task_project_member(task_id));
+create policy task_comments_insert on task_comments for insert with check (is_task_project_member(task_id));
+
+-- schedule_events: team-scope events are leader-managed; personal-scope
+-- events are owned by the one member they belong to. Select additionally
+-- lets a shared personal event be seen by the whole team.
+drop policy if exists schedule_events_select on schedule_events;
+drop policy if exists schedule_events_insert on schedule_events;
+drop policy if exists schedule_events_update on schedule_events;
+drop policy if exists schedule_events_delete on schedule_events;
+create policy schedule_events_select on schedule_events for select using (
+  is_project_member(project_id)
+  and (
+    scope = 'team'
+    or visibility = 'shared'
+    or exists (select 1 from members m where m.id = owner_member_id and m.user_id = auth.uid())
+  )
+);
+create policy schedule_events_insert on schedule_events for insert with check (
+  is_project_member(project_id)
+  and (
+    (scope = 'team' and is_project_leader(project_id))
+    or
+    (scope = 'personal' and exists (
+      select 1 from members m
+      where m.id = owner_member_id and m.project_id = project_id and m.user_id = auth.uid()
+    ))
+  )
+);
+create policy schedule_events_update on schedule_events for update using (
+  (scope = 'team' and is_project_leader(project_id))
+  or
+  (scope = 'personal' and exists (
+    select 1 from members m
+    where m.id = owner_member_id and m.project_id = project_id and m.user_id = auth.uid()
+  ))
+);
+create policy schedule_events_delete on schedule_events for delete using (
+  (scope = 'team' and is_project_leader(project_id))
+  or
+  (scope = 'personal' and exists (
+    select 1 from members m
+    where m.id = owner_member_id and m.project_id = project_id and m.user_id = auth.uid()
+  ))
+);
 
 drop policy if exists file_versions_all on file_versions;
 drop policy if exists file_comments_all on file_comments;

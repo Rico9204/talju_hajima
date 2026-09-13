@@ -1,6 +1,19 @@
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
-import type { Project, TeamData, Member, Folder, WorkspaceFile, FileComment, Task, TaskStatus, ChatMessage } from "../types";
+import type {
+  Project,
+  TeamData,
+  Member,
+  Folder,
+  WorkspaceFile,
+  FileComment,
+  Task,
+  TaskStatus,
+  ChecklistItem,
+  TaskComment,
+  ScheduleEvent,
+  ChatMessage,
+} from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
 
@@ -92,6 +105,14 @@ function mapComment(row: any): FileComment {
   return { id: row.id, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
 }
 
+function mapChecklistItem(row: any): ChecklistItem {
+  return { id: row.id, text: row.text, done: row.done };
+}
+
+function mapTaskComment(row: any): TaskComment {
+  return { id: row.id, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+}
+
 function mapTask(row: any): Task {
   return {
     id: row.id,
@@ -103,6 +124,24 @@ function mapTask(row: any): Task {
     tags: row.tags ?? [],
     status: row.status,
     color: row.color,
+    assigneeIds: (row.task_assignees ?? []).map((a: any) => a.member_id),
+    checklist: (row.task_checklist_items ?? []).map(mapChecklistItem),
+    comments: (row.task_comments ?? []).map(mapTaskComment),
+    teamScheduleEventId: row.team_schedule_event_id,
+    personalScheduleEventId: row.personal_schedule_event_id,
+  };
+}
+
+function mapScheduleEvent(row: any): ScheduleEvent {
+  return {
+    id: row.id,
+    title: row.title,
+    date: row.date,
+    type: row.type,
+    scope: row.scope,
+    ownerMemberId: row.owner_member_id,
+    visibility: row.visibility,
+    hideTitle: row.hide_title,
   };
 }
 
@@ -411,13 +450,177 @@ export const supabaseDataRepository: DataRepository = {
   },
 
   async listTasks(projectId) {
-    const { data, error } = await supabase.from("tasks").select("*").eq("project_id", projectId).order("id", { ascending: true });
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*, task_assignees(member_id), task_checklist_items(*), task_comments(*)")
+      .eq("project_id", projectId)
+      .order("id", { ascending: true });
     if (error) throw error;
     return (data ?? []).map(mapTask);
   },
 
+  async createTask(projectId, input) {
+    if (input.assigneeIds.length === 0) throw new Error("담당자를 한 명 이상 선택해주세요.");
+    const { data: firstAssignee, error: memberError } = await supabase
+      .from("members")
+      .select("name, avatar, color")
+      .eq("id", input.assigneeIds[0])
+      .single();
+    if (memberError) throw memberError;
+
+    const { data: taskRow, error } = await supabase
+      .from("tasks")
+      .insert({
+        project_id: projectId,
+        title: input.title.trim(),
+        assignee: firstAssignee.name,
+        avatar: firstAssignee.avatar,
+        priority: "mid",
+        due: "",
+        tags: [],
+        status: input.status,
+        color: firstAssignee.color,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    const { error: assigneeError } = await supabase
+      .from("task_assignees")
+      .insert(input.assigneeIds.map((memberId) => ({ task_id: taskRow.id, member_id: memberId })));
+    if (assigneeError) throw assigneeError;
+
+    return mapTask({ ...taskRow, task_assignees: input.assigneeIds.map((id) => ({ member_id: id })), task_checklist_items: [], task_comments: [] });
+  },
+
   async updateTaskStatus(taskId, status: TaskStatus) {
     const { error } = await supabase.from("tasks").update({ status }).eq("id", taskId);
+    if (error) throw error;
+  },
+
+  async updateTaskDetails(taskId, patch) {
+    const updates: Record<string, unknown> = {};
+    if (patch.title !== undefined) updates.title = patch.title.trim();
+    if (patch.priority !== undefined) updates.priority = patch.priority;
+    if (patch.due !== undefined) updates.due = patch.due;
+    if (patch.tags !== undefined) updates.tags = patch.tags;
+
+    if (patch.assigneeIds !== undefined) {
+      if (patch.assigneeIds.length === 0) throw new Error("담당자는 한 명 이상이어야 합니다.");
+      const { data: firstAssignee, error: memberError } = await supabase
+        .from("members")
+        .select("name, avatar")
+        .eq("id", patch.assigneeIds[0])
+        .single();
+      if (memberError) throw memberError;
+      updates.assignee = firstAssignee.name;
+      updates.avatar = firstAssignee.avatar;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
+      if (error) throw error;
+    }
+
+    if (patch.assigneeIds !== undefined) {
+      const { error: deleteError } = await supabase.from("task_assignees").delete().eq("task_id", taskId);
+      if (deleteError) throw deleteError;
+      const { error: insertError } = await supabase
+        .from("task_assignees")
+        .insert(patch.assigneeIds.map((memberId) => ({ task_id: taskId, member_id: memberId })));
+      if (insertError) throw insertError;
+    }
+  },
+
+  async deleteTask(taskId) {
+    // Explicitly remove any linked schedule_events rows first — the FK from
+    // tasks is ON DELETE SET NULL, so deleting the task alone would leave
+    // those calendar entries orphaned instead of removed.
+    const { data: taskRow, error: fetchError } = await supabase
+      .from("tasks")
+      .select("team_schedule_event_id, personal_schedule_event_id")
+      .eq("id", taskId)
+      .single();
+    if (fetchError) throw fetchError;
+    const eventIds = [taskRow.team_schedule_event_id, taskRow.personal_schedule_event_id].filter(
+      (id): id is number => id !== null
+    );
+
+    const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+    if (error) throw error;
+
+    if (eventIds.length > 0) {
+      const { error: eventError } = await supabase.from("schedule_events").delete().in("id", eventIds);
+      if (eventError) throw eventError;
+    }
+  },
+
+  async addTaskChecklistItem(taskId, text) {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error("체크리스트 내용을 입력해주세요.");
+    const { data, error } = await supabase
+      .from("task_checklist_items")
+      .insert({ task_id: taskId, text: trimmed })
+      .select()
+      .single();
+    if (error) throw error;
+    return mapChecklistItem(data);
+  },
+
+  async toggleTaskChecklistItem(itemId, done) {
+    const { error } = await supabase.from("task_checklist_items").update({ done }).eq("id", itemId);
+    if (error) throw error;
+  },
+
+  async addTaskComment(taskId, actorName, actorAvatar, text) {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error("댓글 내용을 입력해주세요.");
+    const { data, error } = await supabase
+      .from("task_comments")
+      .insert({ task_id: taskId, author: actorName, avatar: actorAvatar, date: todayISO(), text: trimmed })
+      .select()
+      .single();
+    if (error) throw error;
+    return mapTaskComment(data);
+  },
+
+  async setTaskScheduleLink(taskId, field, eventId) {
+    const column = field === "team" ? "team_schedule_event_id" : "personal_schedule_event_id";
+    const { error } = await supabase.from("tasks").update({ [column]: eventId }).eq("id", taskId);
+    if (error) throw error;
+  },
+
+  async listScheduleEvents(projectId) {
+    const { data, error } = await supabase
+      .from("schedule_events")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("date", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(mapScheduleEvent);
+  },
+
+  async addScheduleEvent(projectId, actorMemberId, input) {
+    const { data, error } = await supabase
+      .from("schedule_events")
+      .insert({
+        project_id: projectId,
+        title: input.title.trim(),
+        date: input.date,
+        type: input.type,
+        scope: input.scope,
+        owner_member_id: input.scope === "personal" ? actorMemberId : null,
+        visibility: input.scope === "personal" ? (input.visibility ?? "private") : null,
+        hide_title: input.scope === "personal" && input.visibility === "shared" ? !!input.hideTitle : false,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return mapScheduleEvent(data);
+  },
+
+  async removeScheduleEvent(eventId) {
+    const { error } = await supabase.from("schedule_events").delete().eq("id", eventId);
     if (error) throw error;
   },
 

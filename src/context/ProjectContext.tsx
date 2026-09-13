@@ -1,12 +1,46 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { dataRepository } from "../api";
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, Task, TaskStatus, Member, ChatMessage } from "../api/types";
+import type {
+  Project,
+  NewProjectInput,
+  TeamData,
+  Folder,
+  WorkspaceFile,
+  Task,
+  NewTaskInput,
+  TaskStatus,
+  TaskPriority,
+  ScheduleEvent,
+  NewScheduleEventInput,
+  Member,
+  ChatMessage,
+} from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
 import CreateProjectModal from "../components/CreateProjectModal";
 import JoinProjectModal from "../components/JoinProjectModal";
 
-export type { Project, NewProjectInput, Member, TeamData, FileVersion, FileComment, WorkspaceFile, Folder, Task, TaskStatus } from "../api/types";
+export type {
+  Project,
+  NewProjectInput,
+  Member,
+  TeamData,
+  FileVersion,
+  FileComment,
+  WorkspaceFile,
+  Folder,
+  Task,
+  NewTaskInput,
+  TaskStatus,
+  TaskPriority,
+  ChecklistItem,
+  TaskComment,
+  ScheduleEvent,
+  NewScheduleEventInput,
+  ScheduleEventType,
+  ScheduleEventScope,
+  ScheduleEventVisibility,
+} from "../api/types";
 
 const SHORT_TERM_THRESHOLD_DAYS = 14;
 
@@ -48,7 +82,21 @@ interface ProjectContextValue {
   addFileVersion: (fileId: number, note?: string) => Promise<void>;
   addFileComment: (fileId: number, text: string) => Promise<void>;
   tasks: Task[];
+  addTask: (input: NewTaskInput) => Promise<void>;
   moveTask: (taskId: number, status: TaskStatus) => Promise<void>;
+  updateTaskDetails: (
+    taskId: number,
+    patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
+  ) => Promise<void>;
+  deleteTask: (taskId: number) => Promise<void>;
+  addTaskChecklistItem: (taskId: number, text: string) => Promise<void>;
+  toggleTaskChecklistItem: (taskId: number, itemId: number, done: boolean) => Promise<void>;
+  addTaskComment: (taskId: number, text: string) => Promise<void>;
+  toggleTaskTeamSchedule: (taskId: number, checked: boolean) => Promise<void>;
+  toggleTaskPersonalSchedule: (taskId: number, checked: boolean) => Promise<void>;
+  scheduleEvents: ScheduleEvent[];
+  addScheduleEvent: (input: NewScheduleEventInput) => Promise<void>;
+  removeScheduleEvent: (id: number) => Promise<void>;
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
   chatMessages: Record<string, ChatMessage[]>;
@@ -147,6 +195,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
   // Real chat messages, keyed by channel id, for the currently selected
   // project only. Eagerly loaded for every channel once the team is known
   // (see the effect below) and kept live via the realtime subscription.
@@ -211,13 +260,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       dataRepository.listFolders(projectId),
       dataRepository.listFiles(projectId),
       dataRepository.listTasks(projectId),
+      dataRepository.listScheduleEvents(projectId),
     ])
-      .then(([teamData, folderList, fileList, taskList]) => {
+      .then(([teamData, folderList, fileList, taskList, scheduleList]) => {
         if (cancelled) return;
         setTeam(teamData);
         setFolders(folderList);
         setFiles(fileList);
         setTasks(taskList);
+        setScheduleEvents(scheduleList);
         setError(null);
         setInitialized(true);
       })
@@ -370,10 +421,114 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshFiles();
   }
 
+  async function refreshTasks() {
+    if (!projectId) return;
+    setTasks(await dataRepository.listTasks(projectId));
+  }
+
+  async function refreshScheduleEvents() {
+    if (!projectId) return;
+    setScheduleEvents(await dataRepository.listScheduleEvents(projectId));
+  }
+
+  async function addTask(input: NewTaskInput) {
+    if (!projectId || !isLeader) return;
+    await dataRepository.createTask(projectId, input);
+    await refreshTasks();
+  }
+
   async function moveTask(taskId: number, status: TaskStatus) {
     if (!projectId) return;
     await dataRepository.updateTaskStatus(taskId, status);
     setTasks(await dataRepository.listTasks(projectId));
+  }
+
+  async function updateTaskDetails(
+    taskId: number,
+    patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
+  ) {
+    if (!isLeader) return;
+    await dataRepository.updateTaskDetails(taskId, patch);
+    await refreshTasks();
+  }
+
+  async function deleteTask(taskId: number) {
+    if (!isLeader) return;
+    await dataRepository.deleteTask(taskId);
+    await Promise.all([refreshTasks(), refreshScheduleEvents()]);
+  }
+
+  function isTaskAssignee(taskId: number): boolean {
+    if (!currentMember) return false;
+    return !!tasks.find((t) => t.id === taskId)?.assigneeIds.includes(currentMember.id);
+  }
+
+  async function addTaskChecklistItem(taskId: number, text: string) {
+    if (!isTaskAssignee(taskId)) return;
+    await dataRepository.addTaskChecklistItem(taskId, text);
+    await refreshTasks();
+  }
+
+  async function toggleTaskChecklistItem(taskId: number, itemId: number, done: boolean) {
+    if (!isTaskAssignee(taskId)) return;
+    await dataRepository.toggleTaskChecklistItem(itemId, done);
+    await refreshTasks();
+  }
+
+  async function addTaskComment(taskId: number, text: string) {
+    if (!text.trim() || !currentMember) return;
+    await dataRepository.addTaskComment(taskId, currentMember.name, currentMember.avatar, text);
+    await refreshTasks();
+  }
+
+  async function addScheduleEvent(input: NewScheduleEventInput) {
+    if (!projectId || !currentMember) return;
+    if (input.scope === "team" && !isLeader) return;
+    await dataRepository.addScheduleEvent(projectId, currentMember.id, input);
+    await refreshScheduleEvents();
+  }
+
+  async function removeScheduleEvent(id: number) {
+    await dataRepository.removeScheduleEvent(id);
+    await refreshScheduleEvents();
+  }
+
+  async function toggleTaskTeamSchedule(taskId: number, checked: boolean) {
+    if (!isLeader) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    if (checked) {
+      if (!task.due) return;
+      const created = await dataRepository.addScheduleEvent(projectId!, currentMember!.id, {
+        title: task.title,
+        date: task.due,
+        type: "deadline",
+        scope: "team",
+      });
+      await dataRepository.setTaskScheduleLink(taskId, "team", created.id);
+    } else if (task.teamScheduleEventId) {
+      await dataRepository.removeScheduleEvent(task.teamScheduleEventId);
+    }
+    await Promise.all([refreshTasks(), refreshScheduleEvents()]);
+  }
+
+  async function toggleTaskPersonalSchedule(taskId: number, checked: boolean) {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || !currentMember || !isTaskAssignee(taskId)) return;
+    if (checked) {
+      if (!task.due) return;
+      const created = await dataRepository.addScheduleEvent(projectId!, currentMember.id, {
+        title: task.title,
+        date: task.due,
+        type: "deadline",
+        scope: "personal",
+        visibility: "private",
+      });
+      await dataRepository.setTaskScheduleLink(taskId, "personal", created.id);
+    } else if (task.personalScheduleEventId) {
+      await dataRepository.removeScheduleEvent(task.personalScheduleEventId);
+    }
+    await Promise.all([refreshTasks(), refreshScheduleEvents()]);
   }
 
   async function sendChatMessage(channelId: string, text: string, fileId?: number) {
@@ -438,7 +593,18 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         addFileVersion,
         addFileComment,
         tasks,
+        addTask,
         moveTask,
+        updateTaskDetails,
+        deleteTask,
+        addTaskChecklistItem,
+        toggleTaskChecklistItem,
+        addTaskComment,
+        toggleTaskTeamSchedule,
+        toggleTaskPersonalSchedule,
+        scheduleEvents,
+        addScheduleEvent,
+        removeScheduleEvent,
         chatUnread,
         chatUnreadTotal,
         chatMessages,

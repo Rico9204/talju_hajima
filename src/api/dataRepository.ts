@@ -1,4 +1,21 @@
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileComment, Task, TaskStatus, Member, ChatMessage } from "./types";
+import type {
+  Project,
+  NewProjectInput,
+  TeamData,
+  Folder,
+  WorkspaceFile,
+  FileComment,
+  Task,
+  NewTaskInput,
+  TaskStatus,
+  TaskPriority,
+  ChecklistItem,
+  TaskComment,
+  ScheduleEvent,
+  NewScheduleEventInput,
+  Member,
+  ChatMessage,
+} from "./types";
 
 /**
  * Every persistence-touching operation the app needs, independent of which
@@ -38,7 +55,21 @@ export interface DataRepository {
   addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string): Promise<FileComment>;
 
   listTasks(projectId: string): Promise<Task[]>;
+  createTask(projectId: string, input: NewTaskInput): Promise<Task>;
   updateTaskStatus(taskId: number, status: TaskStatus): Promise<void>;
+  updateTaskDetails(
+    taskId: number,
+    patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
+  ): Promise<void>;
+  deleteTask(taskId: number): Promise<void>;
+  addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
+  toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
+  addTaskComment(taskId: number, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
+
+  listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
+  addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
+  removeScheduleEvent(eventId: number): Promise<void>;
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
   sendMessage(
