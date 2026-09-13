@@ -178,7 +178,7 @@ export default function TeamChat({
         </div>
 
         {/* Thread */}
-        <div className="col-span-3 min-h-0 flex flex-col">
+        <div className="col-span-3 min-h-0 min-w-0 flex flex-col">
           <div className="flex items-center gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700" style={{ background: `${chan.color}18`, color: chan.color }}>
               {chan.avatar}
@@ -191,23 +191,24 @@ export default function TeamChat({
             </div>
           </div>
 
-          <div ref={threadRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+          <div ref={threadRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
             {thread.map((m) => {
               const mine = m.senderId === currentMember.id;
               const sender = memberFor(m.senderId);
               const fileRef = fileRefFor(m.fileId);
               return (
-                <div key={m.id} className="flex flex-col" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                <div key={m.id} className="flex flex-col min-w-0 w-full" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                   {!mine && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
                   {m.text && (
                     <div
-                      className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed"
+                      className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed break-words"
                       style={{
                         background: mine ? "var(--primary)" : "var(--muted)",
                         color: mine ? "#fff" : "var(--foreground)",
                         borderRadius: mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                        overflowWrap: "anywhere",
                       }}
                     >
                       {m.text}
