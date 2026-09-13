@@ -117,7 +117,7 @@ function mapChecklistItem(row: any): ChecklistItem {
 }
 
 function mapTaskComment(row: any): TaskComment {
-  return { id: row.id, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+  return { id: row.id, memberId: row.member_id ?? null, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
 }
 
 function mapTask(row: any): Task {
@@ -633,12 +633,12 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
-  async addTaskComment(taskId, actorName, actorAvatar, text) {
+  async addTaskComment(taskId, actorMemberId, actorName, actorAvatar, text) {
     const trimmed = text.trim();
     if (!trimmed) throw new Error("댓글 내용을 입력해주세요.");
     const { data, error } = await supabase
       .from("task_comments")
-      .insert({ task_id: taskId, author: actorName, avatar: actorAvatar, date: todayISO(), text: trimmed })
+      .insert({ task_id: taskId, member_id: actorMemberId, author: actorName, avatar: actorAvatar, date: todayISO(), text: trimmed })
       .select()
       .single();
     if (error) throw error;

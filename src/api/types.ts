@@ -93,6 +93,7 @@ export interface ChecklistItem {
 
 export interface TaskComment {
   id: number;
+  memberId: string | null;
   author: string;
   avatar: string;
   date: string;

@@ -193,6 +193,11 @@ create table if not exists task_checklist_items (
 create table if not exists task_comments (
   id bigint generated always as identity primary key,
   task_id bigint not null references tasks(id) on delete cascade,
+  -- author/avatar stay as a frozen snapshot for rows with no member_id
+  -- (legacy rows, or the author has since left the project); when member_id
+  -- is set, the UI resolves the *current* name/avatar/avatarUrl from
+  -- members/profiles instead of trusting these columns (see TaskDetailPanel).
+  member_id uuid references members(id) on delete set null,
   author text not null,
   avatar text not null,
   date date not null default current_date,
@@ -476,10 +481,17 @@ create policy task_checklist_items_write on task_checklist_items for all
 
 -- task_comments: open to any project member, like chat — matches
 -- addTaskComment, which only requires being a signed-in team member.
+-- Insert additionally requires member_id to be the caller's own member row
+-- (same shape as chat_messages_insert) so comments can't be posted as
+-- someone else.
 drop policy if exists task_comments_select on task_comments;
 drop policy if exists task_comments_insert on task_comments;
 create policy task_comments_select on task_comments for select using (is_task_project_member(task_id));
-create policy task_comments_insert on task_comments for insert with check (is_task_project_member(task_id));
+create policy task_comments_insert on task_comments for insert
+  with check (
+    is_task_project_member(task_id)
+    and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+  );
 
 -- schedule_events: team-scope events are leader-managed; personal-scope
 -- events are owned by the one member they belong to. Select additionally

@@ -66,7 +66,7 @@ export interface DataRepository {
   deleteTask(taskId: number): Promise<void>;
   addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
   toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
-  addTaskComment(taskId: number, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  addTaskComment(taskId: number, actorMemberId: string, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
 
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Task, TaskStatus, TaskPriority, Member } from "../context/ProjectContext";
 import { memberInfo } from "./TaskBoard";
+import Avatar from "./Avatar";
 
 interface Props {
   task: Task;
@@ -331,11 +332,16 @@ export default function TaskDetailPanel({
           <div>
             <span className="text-xs font-700 block mb-2">댓글 ({task.comments.length})</span>
             <div className="flex flex-col gap-3 mb-3">
-              {task.comments.map((c) => (
+              {task.comments.map((c) => {
+                const liveMember = c.memberId ? members.find((m) => m.id === c.memberId) : undefined;
+                return (
                 <div key={c.id} className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
-                    {c.avatar}
-                  </div>
+                  <Avatar
+                    url={liveMember?.avatarUrl ?? null}
+                    initial={liveMember?.avatar ?? c.avatar}
+                    color={liveMember?.color ?? "#2563eb"}
+                    size={28}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-700">{c.author}</span>
@@ -346,7 +352,8 @@ export default function TaskDetailPanel({
                     </p>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {task.comments.length === 0 && (
                 <div className="text-xs text-center py-2" style={{ color: "var(--muted-foreground)" }}>
                   아직 댓글이 없어요.

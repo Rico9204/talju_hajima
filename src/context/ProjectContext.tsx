@@ -485,7 +485,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function addTaskComment(taskId: number, text: string) {
     if (!text.trim() || !currentMember) return;
-    await dataRepository.addTaskComment(taskId, currentMember.name, currentMember.avatar, text);
+    await dataRepository.addTaskComment(taskId, currentMember.id, currentMember.name, currentMember.avatar, text);
     await refreshTasks();
   }
 
