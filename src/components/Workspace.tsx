@@ -1,16 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useProject } from "../context/ProjectContext";
 
-const authorColor: Record<string, string> = {
-  김지수: "#2563eb",
-  박민준: "#f59e0b",
-  이서연: "#22c55e",
-  정하늘: "#8b5cf6",
-  최현우: "#ef4444",
-  오유진: "#2563eb",
-  한소민: "#8b5cf6",
-};
-
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
   pdf: { bg: "#ef444418", color: "#ef4444", label: "PDF" },
   doc: { bg: "#3d52d518", color: "#3d52d5", label: "DOC" },
@@ -36,7 +26,8 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, addFile, addFileVersion, addFileComment } = useProject();
+  const { project, folders, files, addFolder, addFile, addFileVersion, addFileComment, team } = useProject();
+  const authorColor = (name: string) => team.members.find((m) => m.name === name)?.color || "#6b7280";
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -434,7 +425,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     <div key={c.id} className="flex items-start gap-2.5">
                       <div
                         className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0"
-                        style={{ background: `${authorColor[c.author] || "#6b7280"}18`, color: authorColor[c.author] || "#6b7280" }}
+                        style={{ background: `${authorColor(c.author)}18`, color: authorColor(c.author) }}
                       >
                         {c.avatar}
                       </div>

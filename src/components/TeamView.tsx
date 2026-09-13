@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useProject } from "../context/ProjectContext";
+import PentagonChart from "./PentagonChart";
 
-export default function TeamView({ onMessage }: { onMessage?: (name: string) => void }) {
-  const { project, team, transferLeadership } = useProject();
+export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
+  const { project, team, transferLeadership, currentMember, isLeader } = useProject();
   const [selected, setSelected] = useState<number>(0);
   const [pendingTransfer, setPendingTransfer] = useState<string | null>(null);
 
@@ -11,10 +12,31 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
   }, [project.id]);
 
   const members = team.members;
+
+  if (members.length === 0) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="mb-6">
+          <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            팀 구성원
+          </div>
+          <h1 className="text-2xl font-700">{team.teamLabel}</h1>
+          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+        </div>
+        <div
+          className="p-8 border text-center"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+        >
+          <div className="text-3xl mb-3">◎</div>
+          <div className="text-sm font-600">아직 팀원이 없어요</div>
+          <div className="text-sm mt-1">이 프로젝트에 참여한 팀원만 여기에 표시됩니다</div>
+        </div>
+      </div>
+    );
+  }
+
   const sel = members[selected] || members[0];
-  const myMember = members.find((m) => m.name === "김지수");
-  const iAmLeader = myMember?.isLeader === true;
-  const canTransfer = iAmLeader && project.status !== "done" && sel && sel.name !== "김지수" && !sel.isLeader;
+  const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -97,9 +119,9 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                 <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
                 <div className="text-xs mt-1" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
                 <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                  {sel.name !== "김지수" && onMessage && (
+                  {sel.id !== currentMember?.id && onMessage && (
                     <button
-                      onClick={() => onMessage(sel.name)}
+                      onClick={() => onMessage(sel.id)}
                       className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
                       style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
                     >
@@ -146,7 +168,7 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                     <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
                       {sel.score.toFixed(1)}
                     </span>
-                    <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 5.0</span>
+                    <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
                     {project.status === "done"
@@ -154,7 +176,7 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
                       : `중간 점검 참고 점수 · ${sel.evalCount}건 (형성적 평가, 프로필 미반영)`}
                   </div>
                   <div className="mt-2 h-1.5 w-full" style={{ background: "var(--border)", borderRadius: "4px" }}>
-                    <div className="h-1.5" style={{ width: `${(sel.score / 5) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
+                    <div className="h-1.5" style={{ width: `${(sel.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
                   </div>
                 </>
               ) : (
@@ -182,27 +204,22 @@ export default function TeamView({ onMessage }: { onMessage?: (name: string) => 
               ))}
             </div>
 
-            {/* Per-criterion bars */}
+            {/* Per-criterion radar chart */}
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
               동료 평가 항목별 점수 (참고)
             </div>
             {sel.evalCount > 0 ? (
-              [
-                { label: "역할 이행", score: sel.criteriaScores.role },
-                { label: "약속·마감 준수", score: sel.criteriaScores.deadline },
-                { label: "의사소통", score: sel.criteriaScores.communication },
-                { label: "협업 태도", score: sel.criteriaScores.collaboration },
-              ].map((c) => (
-                <div key={c.label} className="mb-3">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="font-500">{c.label}</span>
-                    <span className="font-700" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>{c.score.toFixed(1)}</span>
-                  </div>
-                  <div className="h-2" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                    <div className="h-2" style={{ width: `${(c.score / 5) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
-                  </div>
-                </div>
-              ))
+              <div className="flex justify-center">
+                <PentagonChart
+                  data={[
+                    { label: "역할 이행", value: sel.criteriaScores.role },
+                    { label: "약속·마감 준수", value: sel.criteriaScores.deadline },
+                    { label: "의사소통", value: sel.criteriaScores.communication },
+                    { label: "협업 태도", value: sel.criteriaScores.collaboration },
+                    { label: "결과물 품질", value: sel.criteriaScores.quality },
+                  ]}
+                />
+              </div>
             ) : (
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
                 {project.status === "done"

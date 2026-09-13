@@ -84,7 +84,7 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project } = useProject();
+  const { project, currentMember } = useProject();
   const data = dashboardData[project.id] || emptyDashboardData;
   const isDone = project.status === "done";
 
@@ -120,7 +120,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             {project.period}
           </div>
           <h1 className="text-2xl font-700 mb-1" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
-            안녕하세요, 김지수님
+            안녕하세요, {currentMember?.name ?? "참여자"}님
           </h1>
           <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{data.banner}</p>
 

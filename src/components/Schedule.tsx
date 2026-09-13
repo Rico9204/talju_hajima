@@ -64,6 +64,12 @@ function dayKey(month: string, day: number) {
   return `${month}-${String(day).padStart(2, "0")}`;
 }
 
+function shiftMonth(yearMonth: string, delta: number) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function daysUntil(dateStr: string) {
   const a = new Date(TODAY + "T00:00:00");
   const b = new Date(dateStr + "T00:00:00");
@@ -86,15 +92,17 @@ export default function Schedule() {
   const referenceMonth = schedule?.referenceMonth || TODAY.slice(0, 7);
   const events = (eventsState[project.id] || []).slice().sort((a, b) => a.date.localeCompare(b.date));
   const locked = project.status === "done";
+  const [viewMonth, setViewMonth] = useState(referenceMonth);
 
   useEffect(() => {
     setSelectedDay(null);
     setTitle("");
     setDate("");
+    setViewMonth(referenceMonth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
-  const weeks = getMonthGrid(referenceMonth);
+  const weeks = getMonthGrid(viewMonth);
   const eventsByDay = events.reduce<Record<string, ScheduleEvent[]>>((acc, e) => {
     (acc[e.date] = acc[e.date] || []).push(e);
     return acc;
@@ -126,7 +134,34 @@ export default function Schedule() {
         {/* Calendar */}
         <div className="col-span-3 p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-700" style={{ fontFamily: "var(--font-jetbrains)" }}>{referenceMonth}</h2>
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => setViewMonth((v) => shiftMonth(v, -1))}
+                className="w-7 h-7 flex items-center justify-center text-sm transition-all"
+                style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "50%" }}
+                aria-label="이전 달"
+              >
+                ‹
+              </button>
+              <h2 className="text-base font-700 min-w-[5.5rem] text-center" style={{ fontFamily: "var(--font-jetbrains)" }}>{viewMonth}</h2>
+              <button
+                onClick={() => setViewMonth((v) => shiftMonth(v, 1))}
+                className="w-7 h-7 flex items-center justify-center text-sm transition-all"
+                style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "50%" }}
+                aria-label="다음 달"
+              >
+                ›
+              </button>
+              {viewMonth !== referenceMonth && (
+                <button
+                  onClick={() => setViewMonth(referenceMonth)}
+                  className="text-xs font-600 px-2.5 py-1"
+                  style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+                >
+                  이번 달
+                </button>
+              )}
+            </div>
             {selectedDay && (
               <button
                 onClick={() => setSelectedDay(null)}
@@ -149,7 +184,7 @@ export default function Schedule() {
               <div key={wi} className="grid grid-cols-7 gap-1">
                 {week.map((d, di) => {
                   if (d === null) return <div key={di} />;
-                  const key = dayKey(referenceMonth, d);
+                  const key = dayKey(viewMonth, d);
                   const dayEvents = eventsByDay[key] || [];
                   const isToday = key === TODAY;
                   const isSelected = selectedDay === key;
