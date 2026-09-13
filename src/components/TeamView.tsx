@@ -1,0 +1,263 @@
+import { useEffect, useState } from "react";
+import { useProject } from "../context/ProjectContext";
+import PentagonChart from "./PentagonChart";
+
+export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
+  const { project, team, transferLeadership, currentMember, isLeader } = useProject();
+  const [selected, setSelected] = useState<number>(0);
+  const [pendingTransfer, setPendingTransfer] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelected(0);
+  }, [project.id]);
+
+  const members = team.members;
+
+  if (members.length === 0) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="mb-6">
+          <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            팀 구성원
+          </div>
+          <h1 className="text-2xl font-700">{team.teamLabel}</h1>
+          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+        </div>
+        <div
+          className="p-8 border text-center"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+        >
+          <div className="text-3xl mb-3">◎</div>
+          <div className="text-sm font-600">아직 팀원이 없어요</div>
+          <div className="text-sm mt-1">이 프로젝트에 참여한 팀원만 여기에 표시됩니다</div>
+        </div>
+      </div>
+    );
+  }
+
+  const sel = members[selected] || members[0];
+  const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="mb-6">
+        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+          팀 구성원
+        </div>
+        <h1 className="text-2xl font-700">{team.teamLabel}</h1>
+        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+      </div>
+
+      {/* Member cards grid */}
+      <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
+        {members.map((m, i) => (
+          <button
+            key={i}
+            onClick={() => setSelected(i)}
+            className="flex flex-col items-center p-4 shrink-0 transition-all"
+            style={{
+              background: selected === i ? "var(--primary)" : "var(--card)",
+              borderRadius: "var(--radius)",
+              boxShadow: selected === i ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
+              width: 110,
+              color: selected === i ? "#fff" : "var(--foreground)",
+            }}
+          >
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
+              style={{ background: m.avatarUrl ? "var(--card)" : selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
+            >
+              {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+              {m.isLeader && (
+                <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
+              )}
+            </div>
+            <div className="text-xs font-700">{m.name}</div>
+            <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+              {m.role}
+            </div>
+            {m.evalCount > 0 ? (
+              <div className="flex items-center gap-1 mt-2">
+                <span className="text-xs">★</span>
+                <span className="text-xs font-700">{m.score.toFixed(1)}</span>
+              </div>
+            ) : (
+              <div className="text-xs mt-2" style={{ color: selected === i ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
+                평가 대기
+              </div>
+            )}
+            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: selected === i ? "#fff" : "#22c55e" }} />}
+          </button>
+        ))}
+      </div>
+
+      {/* Detail */}
+      <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="grid grid-cols-5 gap-6">
+          {/* Left: profile */}
+          <div className="col-span-2">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden" style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}>
+                {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-xl font-700">{sel.name}</h2>
+                  {sel.isLeader && (
+                    <span className="text-xs px-2 py-0.5 font-600" style={{ background: "#f59e0b18", color: "#f59e0b", borderRadius: "20px" }}>
+                      🧭 팀장
+                    </span>
+                  )}
+                  <span
+                    className="text-xs px-2 py-0.5 font-600"
+                    style={{ background: sel.online ? "#22c55e18" : "var(--muted)", color: sel.online ? "#22c55e" : "var(--muted-foreground)", borderRadius: "20px" }}
+                  >
+                    {sel.online ? "온라인" : "오프라인"}
+                  </span>
+                </div>
+                <div className="text-sm font-600 mt-0.5" style={{ color: sel.color }}>{sel.role}</div>
+                <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
+                <div className="text-xs mt-1" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
+                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                  {sel.id !== currentMember?.id && onMessage && (
+                    <button
+                      onClick={() => onMessage(sel.id)}
+                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
+                      style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
+                    >
+                      ◐ 메시지 보내기
+                    </button>
+                  )}
+                  {canTransfer && (
+                    <button
+                      onClick={() => setPendingTransfer(sel.name)}
+                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
+                      style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
+                    >
+                      🧭 팀장 권한 위임
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Responsibilities */}
+            <div className="mb-4">
+              <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)" }}>
+                담당 역할
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {sel.responsibilities.map((r) => (
+                  <span key={r} className="text-xs font-500 px-2.5 py-1" style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}>
+                    {r}
+                  </span>
+                ))}
+                {sel.responsibilities.length === 0 && (
+                  <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>아직 등록된 역할이 없어요</span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
+              <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
+                협업 평판 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
+              </div>
+              {sel.evalCount > 0 ? (
+                <>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
+                      {sel.score.toFixed(1)}
+                    </span>
+                    <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+                    {project.status === "done"
+                      ? `이 프로젝트 종료 평가 ${sel.evalCount}건 기준`
+                      : `중간 점검 참고 점수 · ${sel.evalCount}건 (형성적 평가, 프로필 미반영)`}
+                  </div>
+                  <div className="mt-2 h-1.5 w-full" style={{ background: "var(--border)", borderRadius: "4px" }}>
+                    <div className="h-1.5" style={{ width: `${(sel.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
+                  {project.status === "done"
+                    ? "이 프로젝트에서 받은 종료 평가가 아직 없어요."
+                    : "프로젝트가 진행 중이라 아직 평판 점수가 없어요. 종료 평가는 프로젝트 종료 후 공개됩니다."}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Right: stats */}
+          <div className="col-span-3">
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {[
+                { label: "완료 과제", value: `${sel.tasks.done}/${sel.tasks.total}`, icon: "✓", color: "#22c55e" },
+                { label: "활동 횟수", value: `${sel.activities}`, icon: "◷", color: "var(--primary)" },
+                { label: "완료율", value: `${sel.tasks.total ? Math.round((sel.tasks.done / sel.tasks.total) * 100) : 0}%`, icon: "⬤", color: sel.color },
+              ].map((st) => (
+                <div key={st.label} className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
+                  <div className="text-xl font-800 mb-0.5" style={{ color: st.color, fontFamily: "var(--font-outfit)" }}>{st.value}</div>
+                  <div className="text-xs font-600">{st.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-criterion radar chart */}
+            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
+              동료 평가 항목별 점수 (참고)
+            </div>
+            {sel.evalCount > 0 ? (
+              <div className="flex justify-center">
+                <PentagonChart
+                  data={[
+                    { label: "역할 이행", value: sel.criteriaScores.role },
+                    { label: "약속·마감 준수", value: sel.criteriaScores.deadline },
+                    { label: "의사소통", value: sel.criteriaScores.communication },
+                    { label: "협업 태도", value: sel.criteriaScores.collaboration },
+                    { label: "결과물 품질", value: sel.criteriaScores.quality },
+                  ]}
+                />
+              </div>
+            ) : (
+              <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
+                {project.status === "done"
+                  ? "이 프로젝트에서 받은 항목별 평가가 없어요."
+                  : "중간 점검은 형성적 평가로 프로필에 반영되지 않으며, 항목별 점수는 종료 평가 공개 후 표시됩니다."}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {pendingTransfer && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#f59e0b18", borderRadius: "12px" }}>🧭</div>
+            <h3 className="font-700 mb-1">팀장 권한을 위임할까요?</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              <strong>{pendingTransfer}</strong>님에게 팀장 권한이 넘어가고, 나는 팀원으로 전환됩니다. 이 작업은 즉시 적용됩니다.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingTransfer(null)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                onClick={() => { transferLeadership(pendingTransfer); setPendingTransfer(null); }}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}
+              >
+                위임하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,365 @@
+import { useState, useRef, useEffect } from "react";
+import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
+
+interface FileRef {
+  id: number;
+  name: string;
+  type: string;
+  folderId: number | null;
+  folderName: string;
+}
+
+const fileTypeLabel: Record<string, string> = {
+  pdf: "PDF", doc: "DOC", ppt: "PPT", xls: "XLS", zip: "ZIP", img: "IMG",
+};
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit", hour12: true });
+  }
+  return d.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
+}
+
+export default function TeamChat({
+  initialChannel, onOpenFile,
+}: { initialChannel?: string; onOpenFile?: (fileId: number, folderId: number | null) => void }) {
+  const {
+    project, files, folders, team, currentMember,
+    chatMessages, chatUnread, sendChatMessage, markChannelMessagesRead,
+  } = useProject();
+  const [input, setInput] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
+  const channels = currentMember
+    ? [
+        { id: "all", type: "group" as const, name: "팀 전체", avatar: "⬡", avatarUrl: null as string | null, color: "var(--primary)", online: undefined as boolean | undefined, role: undefined as string | undefined, memberId: undefined as string | undefined },
+        ...otherMembers.map((m) => ({
+          id: dmChannelId(currentMember.id, m.id),
+          type: "dm" as const,
+          name: m.name,
+          avatar: m.avatar,
+          avatarUrl: m.avatarUrl,
+          color: m.color,
+          online: m.online,
+          role: m.role,
+          memberId: m.id,
+        })),
+      ]
+    : [];
+
+  const initialChannelId = currentMember && initialChannel ? dmChannelId(currentMember.id, initialChannel) : "all";
+  const [active, setActive] = useState<string>(initialChannelId);
+
+  function selectChannel(channelId: string) {
+    setActive(channelId);
+    markChannelMessagesRead(channelId);
+  }
+
+  useEffect(() => {
+    const exists = channels.some((c) => c.id === active);
+    const channelId = exists ? active : initialChannelId;
+    setActive(channelId);
+    markChannelMessagesRead(channelId);
+    setPendingFile(null);
+    setPickerOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, initialChannel, currentMember?.id]);
+
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages, active]);
+
+  if (!currentMember) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="mb-5">
+          <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            팀 채팅
+          </div>
+          <h1 className="text-2xl font-700">Team Chat</h1>
+        </div>
+        <div
+          className="p-8 border text-center"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+        >
+          <div className="text-3xl mb-3">◐</div>
+          <div className="text-sm font-600">이 프로젝트에 참여한 팀원만 채팅할 수 있어요</div>
+        </div>
+      </div>
+    );
+  }
+
+  const chan = channels.find((c) => c.id === active) || channels[0];
+  const thread = chatMessages[active] || [];
+  const lastMineId = [...thread].reverse().find((m) => m.senderId === currentMember.id)?.id;
+
+  function memberFor(id: string) {
+    return team.members.find((m) => m.id === id);
+  }
+
+  function folderNameOf(folderId: number | null) {
+    return folderId === null ? "루트" : folders.find((f) => f.id === folderId)?.name || "폴더";
+  }
+
+  function fileRefFor(fileId: number | null): FileRef | undefined {
+    if (fileId === null) return undefined;
+    const f = files.find((x) => x.id === fileId);
+    if (!f) return undefined;
+    return { id: f.id, name: f.name, type: f.type, folderId: f.folderId, folderName: folderNameOf(f.folderId) };
+  }
+
+  function pickFile(f: WorkspaceFile) {
+    setPendingFile({ id: f.id, name: f.name, type: f.type, folderId: f.folderId, folderName: folderNameOf(f.folderId) });
+    setPickerOpen(false);
+  }
+
+  function send() {
+    if (!input.trim() && !pendingFile) return;
+    sendChatMessage(active, input, pendingFile?.id);
+    setInput("");
+    setPendingFile(null);
+  }
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="mb-5">
+        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+          팀 채팅
+        </div>
+        <h1 className="text-2xl font-700">Team Chat</h1>
+        <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+          {project.name} · 팀 전체 채널과 1:1 대화{project.status === "done" && " · 종료된 프로젝트 대화 기록"}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-5 gap-0 overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", height: 560 }}>
+        {/* Channel list */}
+        <div className="col-span-2 min-h-0 flex flex-col" style={{ borderRight: "1px solid var(--border)" }}>
+          <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>채널</div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto py-2">
+            {channels.map((c) => {
+              const isActive = active === c.id;
+              const unread = chatUnread[c.id] ?? 0;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => selectChannel(c.id)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all"
+                  style={{ background: isActive ? "var(--secondary)" : "transparent", borderLeft: isActive ? "3px solid var(--primary)" : "3px solid transparent" }}
+                >
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 relative overflow-hidden" style={{ background: c.avatarUrl ? "var(--card)" : `${c.color}18`, color: c.color }}>
+                    {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
+                    {c.type === "dm" && c.online && (
+                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-700 truncate" style={{ color: isActive ? "var(--primary)" : "var(--foreground)" }}>{c.name}</div>
+                    <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                      {c.type === "group" ? `전체 ${otherMembers.length + 1}명` : c.role}
+                    </div>
+                  </div>
+                  {unread > 0 && (
+                    <span className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0" style={{ background: "var(--accent)", color: "#fff", borderRadius: "20px" }}>
+                      {unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Thread */}
+        <div className="col-span-3 min-h-0 min-w-0 flex flex-col">
+          <div className="flex items-center gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
+              {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
+            </div>
+            <div>
+              <div className="text-sm font-700">{chan.name}</div>
+              <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                {chan.type === "group" ? "팀 전체 채널" : chan.online ? "온라인" : "오프라인"}
+              </div>
+            </div>
+          </div>
+
+          <div ref={threadRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+            {thread.map((m) => {
+              const mine = m.senderId === currentMember.id;
+              const sender = memberFor(m.senderId);
+              const fileRef = fileRefFor(m.fileId);
+              return (
+                <div key={m.id} className="flex flex-col min-w-0 w-full" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                  {!mine && (
+                    <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
+                  )}
+                  {m.text && (
+                    <div
+                      className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed break-words"
+                      style={{
+                        background: mine ? "var(--primary)" : "var(--muted)",
+                        color: mine ? "#fff" : "var(--foreground)",
+                        borderRadius: mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {m.text}
+                    </div>
+                  )}
+                  {fileRef && (
+                    <button
+                      onClick={() => onOpenFile?.(fileRef.id, fileRef.folderId)}
+                      className="flex items-center gap-2.5 px-3 py-2.5 max-w-[75%] text-left transition-all"
+                      style={{
+                        background: "var(--card)",
+                        border: "1.5px solid var(--border)",
+                        borderRadius: "12px",
+                        marginTop: m.text ? 6 : 0,
+                      }}
+                    >
+                      <span
+                        className="text-xs font-700 px-2 py-1 shrink-0"
+                        style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                      >
+                        {fileTypeLabel[fileRef.type] || "FILE"}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-700 truncate" style={{ color: "var(--foreground)" }}>{fileRef.name}</div>
+                        <div className="text-xs" style={{ color: "var(--primary)" }}>{fileRef.folderName} · 워크스페이스에서 보기 →</div>
+                      </div>
+                    </button>
+                  )}
+                  <div className="flex items-center gap-1.5 mt-1 px-1">
+                    {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
+                      <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
+                    )}
+                    {mine && m.id === lastMineId && chan.type === "group" && m.readBy.length > 0 && (
+                      <div className="flex items-center -space-x-1.5" title={`읽음: ${m.readBy.map((id) => memberFor(id)?.name ?? "?").join(", ")}`}>
+                        {m.readBy.map((id) => {
+                          const reader = memberFor(id);
+                          return (
+                            <div
+                              key={id}
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700 overflow-hidden"
+                              style={{
+                                background: reader?.avatarUrl ? "var(--card)" : reader?.color || "var(--muted-foreground)",
+                                color: "#fff",
+                                border: "1.5px solid var(--card)",
+                              }}
+                            >
+                              {reader?.avatarUrl ? (
+                                <img src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
+                              ) : (
+                                reader?.avatar || "?"
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatTime(m.createdAt)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {thread.length === 0 && (
+              <div className="flex-1 flex items-center justify-center text-xs" style={{ color: "var(--muted-foreground)" }}>아직 대화가 없어요</div>
+            )}
+          </div>
+
+          <div className="shrink-0 relative" style={{ borderTop: "1px solid var(--border)" }}>
+            {pickerOpen && (
+              <div
+                className="absolute bottom-full left-4 right-4 mb-2 max-h-64 overflow-y-auto p-1.5 z-20"
+                style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}
+              >
+                <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
+                  워크스페이스 파일 언급하기
+                </div>
+                {files.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => pickFile(f)}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left transition-all"
+                    style={{ borderRadius: "8px" }}
+                  >
+                    <span
+                      className="text-xs font-700 px-2 py-1 shrink-0"
+                      style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                    >
+                      {fileTypeLabel[f.type] || "FILE"}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-700 truncate">{f.name}</div>
+                      <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{folderNameOf(f.folderId)}</div>
+                    </div>
+                  </button>
+                ))}
+                {files.length === 0 && (
+                  <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>워크스페이스에 업로드된 파일이 없어요</div>
+                )}
+              </div>
+            )}
+
+            {pendingFile && (
+              <div className="flex items-center gap-2.5 mx-4 mt-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                <span
+                  className="text-xs font-700 px-2 py-1 shrink-0"
+                  style={{ background: "var(--card)", color: "var(--primary)", borderRadius: "6px" }}
+                >
+                  {fileTypeLabel[pendingFile.type] || "FILE"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-700 truncate">{pendingFile.name}</div>
+                  <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{pendingFile.folderName}에서 공유</div>
+                </div>
+                <button onClick={() => setPendingFile(null)} className="text-xs font-700 px-2 shrink-0" style={{ color: "var(--muted-foreground)" }}>
+                  ✕
+                </button>
+              </div>
+            )}
+
+            <div className="px-4 py-3 flex items-center gap-2">
+              <button
+                onClick={() => setPickerOpen((v) => !v)}
+                className="w-9 h-9 flex items-center justify-center text-sm shrink-0 transition-all"
+                style={{ background: pickerOpen ? "var(--primary)" : "var(--muted)", color: pickerOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "50%" }}
+                title="워크스페이스 파일 언급"
+              >
+                📎
+              </button>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && send()}
+                placeholder={pendingFile ? "메시지 추가 (선택)..." : `${chan.name}에게 메시지 보내기...`}
+                className="flex-1 text-sm px-3.5 py-2.5 outline-none"
+                style={{ background: "var(--muted)", borderRadius: "20px", fontFamily: "var(--font-outfit)" }}
+              />
+              <button
+                onClick={send}
+                className="w-9 h-9 flex items-center justify-center text-sm font-700 shrink-0 transition-all"
+                style={{
+                  background: input.trim() || pendingFile ? "var(--primary)" : "var(--muted)",
+                  color: input.trim() || pendingFile ? "#fff" : "var(--muted-foreground)",
+                  borderRadius: "50%",
+                }}
+              >
+                →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

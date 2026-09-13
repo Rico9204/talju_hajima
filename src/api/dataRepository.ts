@@ -1,0 +1,88 @@
+import type {
+  Project,
+  NewProjectInput,
+  TeamData,
+  Folder,
+  WorkspaceFile,
+  FileComment,
+  Task,
+  NewTaskInput,
+  TaskStatus,
+  TaskPriority,
+  ChecklistItem,
+  TaskComment,
+  ScheduleEvent,
+  NewScheduleEventInput,
+  Member,
+  ChatMessage,
+} from "./types";
+
+/**
+ * Every persistence-touching operation the app needs, independent of which
+ * backend actually stores the data. Today `./supabase/supabaseDataRepository.ts`
+ * is the only implementation. Moving to a self-hosted DB server later means
+ * writing a new implementation of this same interface (e.g.
+ * `./rest/restDataRepository.ts` calling your own API) and pointing
+ * `./index.ts` at it — nothing outside this folder needs to change.
+ */
+export interface DataRepository {
+  listProjects(): Promise<Project[]>;
+  listMyProjectIds(): Promise<string[]>;
+  getProjectById(projectId: string): Promise<Project | null>;
+  createProject(input: NewProjectInput, actorName: string, actorAvatar: string): Promise<Project>;
+  deleteProject(projectId: string): Promise<void>;
+  joinProject(
+    projectId: string,
+    actorName: string,
+    actorAvatar: string,
+    input: { major: string; student: string }
+  ): Promise<Member>;
+
+  getTeam(projectId: string): Promise<TeamData>;
+  updateMyProfile(patch: Partial<{ name: string; major: string; student: string; avatarUrl: string | null }>): Promise<void>;
+  uploadAvatar(file: File): Promise<string>;
+  transferLeadership(projectId: string, targetName: string): Promise<void>;
+
+  listFolders(projectId: string): Promise<Folder[]>;
+  createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
+
+  listFiles(projectId: string): Promise<WorkspaceFile[]>;
+  // content가 실제 파일 내용(텍스트) — 원래는 name+size만 받는 시그니처였지만, 진짜 버전 관리를
+  // 하려면 내용이 꼭 필요해서 확장함 (talju_hajima_이식기록.txt 참고)
+  createFile(
+    projectId: string,
+    input: { name: string; folderId: number | null; content: string; note?: string },
+    actorName: string,
+    actorAvatar: string
+  ): Promise<WorkspaceFile>;
+  addFileVersion(fileId: number, actorName: string, note: string | undefined, content: string): Promise<void>;
+  addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string): Promise<FileComment>;
+
+  listTasks(projectId: string): Promise<Task[]>;
+  createTask(projectId: string, input: NewTaskInput): Promise<Task>;
+  updateTaskStatus(taskId: number, status: TaskStatus): Promise<void>;
+  updateTaskDetails(
+    taskId: number,
+    patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
+  ): Promise<void>;
+  deleteTask(taskId: number): Promise<void>;
+  addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
+  toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
+  addTaskComment(taskId: number, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
+
+  listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
+  addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
+  removeScheduleEvent(eventId: number): Promise<void>;
+
+  listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
+  sendMessage(
+    projectId: string,
+    channelId: string,
+    senderMemberId: string,
+    input: { text: string; fileId?: number }
+  ): Promise<ChatMessage>;
+  markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
+  subscribeToMessages(projectId: string, onInsert: (m: ChatMessage) => void): () => void;
+  subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
+}

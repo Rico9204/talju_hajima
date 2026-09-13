@@ -1,0 +1,310 @@
+import { useEffect, useMemo, useState } from "react";
+import { useProject } from "../context/ProjectContext";
+import { createCalendarEvent, listCalendarEvents, type CalendarEvent, type CalendarEventType } from "../api/backend/calendar";
+
+// 제품개발/frontend의 일정(구글 캘린더 스타일 라벨 바 달력, ScheduleTab.tsx)을 이 앱의 화면 형식
+// (페이지 하나 = 화면 하나, var(--token) 인라인 스타일)에 맞춰 그대로 이식. talju_hajima 원래의
+// 개인/팀 범위(scope)·공개범위(visibility) 구분은 실제 백엔드 캘린더에 대응 개념이 없어(제목/날짜/
+// 기간/색/refType만 존재) 빠졌다 — Workspace.tsx를 실제 백엔드로 교체한 것과 동일한 방식.
+
+const typeMeta: Record<CalendarEventType, { label: string; color: string }> = {
+  deadline: { label: "마감", color: "#ef4444" },
+  meeting: { label: "회의", color: "#2563eb" },
+  presentation: { label: "발표", color: "#f59e0b" },
+  other: { label: "기타", color: "#8b5cf6" },
+};
+
+const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+const MAX_SEGMENTS_PER_DAY = 3;
+
+function eventColor(e: CalendarEvent): string {
+  return e.color ?? (e.refType ? typeMeta[e.refType].color : typeMeta.other.color);
+}
+
+function daysUntil(dateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function toDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function buildMonthGrid(monthDate: Date): Date[] {
+  const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - first.getDay());
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    return d;
+  });
+}
+
+export default function Schedule() {
+  const { project } = useProject();
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [type, setType] = useState<CalendarEventType>("meeting");
+  const [color, setColor] = useState(typeMeta.meeting.color);
+  const [error, setError] = useState<string | null>(null);
+  const [monthDate, setMonthDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  async function refresh() {
+    const { data } = await listCalendarEvents(project.id);
+    setEvents(data.slice().sort((a, b) => a.date.localeCompare(b.date)));
+  }
+
+  useEffect(() => {
+    setMonthDate(new Date());
+    setSelectedDate(null);
+    refresh().catch(() => setError("일정을 불러오지 못했습니다."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
+  async function handleAdd() {
+    if (!title.trim() || !date) return;
+    setError(null);
+    try {
+      await createCalendarEvent(project.id, { title: title.trim(), date, endDate: endDate || undefined, color, type });
+      setTitle("");
+      setDate("");
+      setEndDate("");
+      await refresh();
+    } catch {
+      setError("일정 추가에 실패했습니다.");
+    }
+  }
+
+  // 모든 일정을 "기간"으로 통일해서 다룬다 — 종료일이 없으면 시작일=종료일인 하루짜리 기간.
+  const segments = useMemo(
+    () => events.map((e) => ({ event: e, start: e.date.slice(0, 10), end: (e.endDate ?? e.date).slice(0, 10) })),
+    [events],
+  );
+
+  function segmentsForDay(key: string) {
+    return segments.filter((s) => key >= s.start && key <= s.end);
+  }
+
+  const monthGrid = useMemo(() => buildMonthGrid(monthDate), [monthDate]);
+  const todayKey = toDateKey(new Date());
+  const visibleEvents = selectedDate ? segmentsForDay(selectedDate).map((s) => s.event) : events;
+
+  return (
+    <div className="p-8 max-w-6xl mx-auto">
+      <div className="mb-7">
+        <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+          일정 · {project.name}
+        </div>
+        <h1 className="text-3xl font-600" style={{ fontFamily: "var(--font-fraunces)" }}>Schedule</h1>
+        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>마감·회의·발표 일정을 한눈에 확인하세요</p>
+      </div>
+
+      {error && (
+        <div className="text-sm mb-4 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "var(--radius-sm)" }}>
+          {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        {/* 달력 */}
+        <div className="lg:col-span-3 p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => setMonthDate((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+              className="w-8 h-8 flex items-center justify-center text-sm font-700"
+              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "50%" }}
+            >
+              ‹
+            </button>
+            <div className="text-sm font-700">
+              {monthDate.getFullYear()}년 {monthDate.getMonth() + 1}월
+            </div>
+            <button
+              onClick={() => setMonthDate((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+              className="w-8 h-8 flex items-center justify-center text-sm font-700"
+              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "50%" }}
+            >
+              ›
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-y-1 mb-1.5">
+            {WEEKDAY_LABELS.map((w) => (
+              <div key={w} className="text-xs font-600 text-center py-1" style={{ color: "var(--muted-foreground)" }}>
+                {w}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-y-1">
+            {monthGrid.map((d) => {
+              const key = toDateKey(d);
+              const inMonth = d.getMonth() === monthDate.getMonth();
+              const daySegments = segmentsForDay(key);
+              const isToday = key === todayKey;
+              const isSelected = key === selectedDate;
+
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedDate(isSelected ? null : key)}
+                  className="min-h-[92px] px-1 pt-1 pb-1 flex flex-col text-left transition-all overflow-hidden"
+                  style={{
+                    borderRadius: "10px",
+                    background: isSelected ? "var(--primary)" : isToday ? "var(--secondary)" : "transparent",
+                    opacity: inMonth ? 1 : 0.35,
+                  }}
+                >
+                  <span className="text-xs font-600 px-0.5 shrink-0" style={{ color: isSelected ? "#fff" : "var(--foreground)" }}>
+                    {d.getDate()}
+                  </span>
+                  <div className="flex flex-col gap-0.5 mt-1 -mx-1">
+                    {daySegments.slice(0, MAX_SEGMENTS_PER_DAY).map((s) => {
+                      const isStart = key === s.start;
+                      const isEnd = key === s.end;
+                      return (
+                        <div
+                          key={s.event.id}
+                          className="h-[18px] flex items-center px-1.5 text-[10px] font-600 truncate"
+                          style={{
+                            background: isSelected ? "rgba(255,255,255,0.75)" : eventColor(s.event),
+                            color: isSelected ? eventColor(s.event) : "#fff",
+                            borderTopLeftRadius: isStart ? 4 : 0,
+                            borderBottomLeftRadius: isStart ? 4 : 0,
+                            borderTopRightRadius: isEnd ? 4 : 0,
+                            borderBottomRightRadius: isEnd ? 4 : 0,
+                            marginLeft: isStart ? 2 : 0,
+                            marginRight: isEnd ? 2 : 0,
+                          }}
+                        >
+                          {isStart ? s.event.title : " "}
+                        </div>
+                      );
+                    })}
+                    {daySegments.length > MAX_SEGMENTS_PER_DAY && (
+                      <span className="text-[9px] leading-none px-1" style={{ color: isSelected ? "#fff" : "var(--muted-foreground)" }}>
+                        +{daySegments.length - MAX_SEGMENTS_PER_DAY}개 더보기
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 일정 추가 + 전체 일정 목록 */}
+        <div className="lg:col-span-2 flex flex-col gap-5">
+          <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+            <h2 className="text-sm font-700 mb-3">일정 추가</h2>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="일정 제목"
+              className="w-full text-sm px-3 py-2 outline-none mb-2"
+              style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+            />
+            <div className="flex gap-2 mb-2 items-center flex-wrap">
+              <div className="flex-1 min-w-[110px]">
+                <label className="text-xs block mb-1" style={{ color: "var(--muted-foreground)" }}>시작일</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full text-sm px-3 py-2 outline-none"
+                  style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+                />
+              </div>
+              <div className="flex-1 min-w-[110px]">
+                <label className="text-xs block mb-1" style={{ color: "var(--muted-foreground)" }}>종료일 (기간 일정 시)</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  min={date || undefined}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full text-sm px-3 py-2 outline-none"
+                  style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mb-2">
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value as CalendarEventType)}
+                className="flex-1 text-sm px-3 py-2 outline-none"
+                style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+              >
+                {(Object.keys(typeMeta) as CalendarEventType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {typeMeta[t].label}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-1.5 px-3" style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}>
+                <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>색상</span>
+                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="w-6 h-6 p-0 border-none bg-transparent cursor-pointer" />
+              </label>
+            </div>
+            <button
+              onClick={handleAdd}
+              className="w-full py-2.5 text-sm font-700"
+              style={{ borderRadius: "40px", background: title.trim() && date ? "var(--primary)" : "var(--muted)", color: title.trim() && date ? "#fff" : "var(--muted-foreground)" }}
+            >
+              일정 추가
+            </button>
+          </div>
+
+          <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-700">{selectedDate ? `${selectedDate} 일정` : "전체 일정"}</h2>
+              {selectedDate && (
+                <button onClick={() => setSelectedDate(null)} className="text-xs font-600" style={{ color: "var(--primary)" }}>
+                  전체 보기
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {visibleEvents.map((e) => {
+                const c = eventColor(e);
+                const meta = e.refType ? typeMeta[e.refType] : typeMeta.other;
+                const d = daysUntil(e.date.slice(0, 10));
+                return (
+                  <div key={e.id} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c }} />
+                      <div className="min-w-0">
+                        <div className="text-xs font-600 truncate">{e.title}</div>
+                        <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                          {e.date.slice(0, 10)}
+                          {e.endDate ? ` ~ ${e.endDate.slice(0, 10)}` : ""} · {meta.label}
+                        </div>
+                      </div>
+                    </div>
+                    <span
+                      className="text-xs font-700 px-2 py-0.5 shrink-0"
+                      style={{ borderRadius: "20px", background: d >= 0 && d <= 7 ? `${c}20` : "var(--card)", color: d >= 0 && d <= 7 ? c : "var(--muted-foreground)" }}
+                    >
+                      {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
+                    </span>
+                  </div>
+                );
+              })}
+              {visibleEvents.length === 0 && (
+                <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
+                  {selectedDate ? "이 날짜에는 일정이 없어요" : "등록된 일정이 없어요"}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
