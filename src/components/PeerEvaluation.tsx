@@ -215,7 +215,7 @@ export default function PeerEvaluation() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-5">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
@@ -292,7 +292,7 @@ export default function PeerEvaluation() {
             <div className="text-xs font-600 mb-3" style={{ color: "var(--muted-foreground)" }}>
               항목별 공유 점수 배분 현황 · 동료 {peers.length}명 × {POOL_PER_PEER}점 = 총 {pool}점
             </div>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
               {criteria.map((c) => {
                 const used = criterionTotal(c.id);
                 const balanced = used === pool;
@@ -318,9 +318,9 @@ export default function PeerEvaluation() {
             </div>
           </div>
 
-          <div className="grid grid-cols-5 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
             {/* Peer list */}
-            <div className="col-span-2 flex flex-col gap-2.5">
+            <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
               {peers.map((p, i) => {
                 const peerTotal = criteria.reduce((sum, c) => sum + scoreFor(c.id, i), 0);
                 const active = selectedPeer === i;
@@ -355,7 +355,7 @@ export default function PeerEvaluation() {
             </div>
 
             {/* Eval form */}
-            <div className="col-span-3">
+            <div className="col-span-1 md:col-span-3">
               <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
                 {/* Peer header */}
                 <div className="flex items-center gap-3 mb-5 pb-4" style={{ borderBottom: "2px solid var(--muted)" }}>

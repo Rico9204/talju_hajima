@@ -94,7 +94,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="mb-7">
         <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           파일 워킹스페이스 · {project.name}
@@ -173,7 +173,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {folders.map((f) => {
               const count = files.filter((x) => x.folderId === f.id).length;
               return (
@@ -197,7 +197,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               );
             })}
             {folders.length === 0 && !creatingFolder && (
-              <div className="col-span-3 p-6 text-center text-xs border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}>
+              <div className="col-span-1 sm:col-span-2 md:col-span-3 p-6 text-center text-xs border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}>
                 아직 폴더가 없어요
               </div>
             )}
@@ -278,9 +278,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         ))}
       </div>
 
-      <div className="grid grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}
-        <div className="col-span-3 flex flex-col gap-2">
+        <div className="col-span-1 md:col-span-3 flex flex-col gap-2">
           {filtered.map((f) => {
             const tc = typeColors[f.type] || typeColors.doc;
             const isSelected = selected === f.id;
@@ -346,7 +346,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </div>
 
         {/* Version panel */}
-        <div className="col-span-2">
+        <div className="col-span-1 md:col-span-2">
           {selFile ? (
             <div className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)" }}>
               <div className="flex items-center gap-2 mb-1">

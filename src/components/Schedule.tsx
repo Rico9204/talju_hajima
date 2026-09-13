@@ -125,7 +125,7 @@ export default function Schedule() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
       <div className="mb-5">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           일정 · {project.name}
@@ -136,9 +136,9 @@ export default function Schedule() {
         </p>
       </div>
 
-      <div className="grid grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Calendar */}
-        <div className="col-span-3 p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="col-span-1 md:col-span-3 p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <button
@@ -234,7 +234,7 @@ export default function Schedule() {
         </div>
 
         {/* Agenda + add form */}
-        <div className="col-span-2 flex flex-col gap-5">
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
           {!locked && (
             <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
               <h2 className="text-sm font-700 mb-3">일정 추가</h2>

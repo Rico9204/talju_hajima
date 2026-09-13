@@ -89,7 +89,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   const isDone = project.status === "done";
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
       {/* Hero banner */}
       <div
         className="relative mb-6 overflow-hidden"
@@ -144,7 +144,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {data.stats.map((s) => (
           <div key={s.label} className="p-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
             <div className="w-9 h-9 flex items-center justify-center text-base mb-3" style={{ background: `${s.color}18`, borderRadius: "10px", color: s.color }}>
@@ -159,9 +159,9 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         ))}
       </div>
 
-      <div className="grid grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Progress */}
-        <div className="col-span-3 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-base font-700">프로젝트 진행 현황</h2>
@@ -204,7 +204,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         </div>
 
         {/* Right column */}
-        <div className="col-span-2 flex flex-col gap-5">
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
           {/* Deadlines */}
           <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>

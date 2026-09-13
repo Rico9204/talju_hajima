@@ -86,7 +86,7 @@ export default function TaskBoard() {
   const doneCount = tasks.filter((t) => t.status === "done").length;
 
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       <div className="mb-6">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           과제 보드 · {project.name}
@@ -130,7 +130,7 @@ export default function TaskBoard() {
       </div>
 
       {/* Kanban */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {columns.map((col) => {
           const colTasks = filtered.filter((t) => t.status === col.id);
           return (

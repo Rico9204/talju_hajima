@@ -15,7 +15,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
   if (members.length === 0) {
     return (
-      <div className="p-6 max-w-5xl mx-auto">
+      <div className="p-4 md:p-6 max-w-5xl mx-auto">
         <div className="mb-6">
           <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
             팀 구성원
@@ -39,7 +39,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
       <div className="mb-6">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           팀 구성원
@@ -93,9 +93,9 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
       {/* Detail */}
       <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-        <div className="grid grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           {/* Left: profile */}
-          <div className="col-span-2">
+          <div className="col-span-1 md:col-span-2">
             <div className="flex items-start gap-4 mb-5">
               <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden" style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}>
                 {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
@@ -190,8 +190,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
           </div>
 
           {/* Right: stats */}
-          <div className="col-span-3">
-            <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="col-span-1 md:col-span-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {[
                 { label: "완료 과제", value: `${sel.tasks.done}/${sel.tasks.total}`, icon: "✓", color: "#22c55e" },
                 { label: "활동 횟수", value: `${sel.activities}`, icon: "◷", color: "var(--primary)" },

@@ -148,7 +148,7 @@ export default function TaskDetailPanel({
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             <div>
               <div className="text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>우선순위</div>
               {canEditFields ? (

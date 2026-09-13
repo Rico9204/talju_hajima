@@ -37,7 +37,8 @@ function Layout() {
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
       <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} />
-      <main className="flex-1 overflow-y-auto">
+      {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
         <Outlet />
       </main>
     </div>

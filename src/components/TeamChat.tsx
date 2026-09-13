@@ -54,9 +54,14 @@ export default function TeamChat({
 
   const initialChannelId = currentMember && initialChannel ? dmChannelId(currentMember.id, initialChannel) : "all";
   const [active, setActive] = useState<string>(initialChannelId);
+  // Below md there's only room for one pane at a time — picking a channel
+  // shows its thread and hides the list; "뒤로" goes back to the list. At md
+  // and up both panes are always shown side by side and this is unused.
+  const [mobileShowThread, setMobileShowThread] = useState(false);
 
   function selectChannel(channelId: string) {
     setActive(channelId);
+    setMobileShowThread(true);
     markChannelMessagesRead(channelId);
   }
 
@@ -77,7 +82,7 @@ export default function TeamChat({
 
   if (!currentMember) {
     return (
-      <div className="p-6 max-w-5xl mx-auto">
+      <div className="p-4 md:p-6 max-w-5xl mx-auto">
         <div className="mb-5">
           <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
             팀 채팅
@@ -127,8 +132,8 @@ export default function TeamChat({
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-5">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto flex flex-col h-full md:block md:h-auto">
+      <div className="hidden md:block mb-5 shrink-0">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           팀 채팅
         </div>
@@ -138,9 +143,15 @@ export default function TeamChat({
         </p>
       </div>
 
-      <div className="grid grid-cols-5 gap-0 overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", height: 560 }}>
+      <div
+        className="grid grid-cols-1 md:grid-cols-5 gap-0 overflow-hidden flex-1 min-h-0 md:flex-none md:h-[560px]"
+        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+      >
         {/* Channel list */}
-        <div className="col-span-2 min-h-0 flex flex-col" style={{ borderRight: "1px solid var(--border)" }}>
+        <div
+          className={`${mobileShowThread ? "hidden" : "flex"} md:flex md:col-span-2 min-h-0 flex-col`}
+          style={{ borderRight: "1px solid var(--border)" }}
+        >
           <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
             <div className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>채널</div>
           </div>
@@ -179,9 +190,17 @@ export default function TeamChat({
         </div>
 
         {/* Thread */}
-        <div className="col-span-3 min-h-0 min-w-0 flex flex-col">
+        <div className={`${mobileShowThread ? "flex" : "hidden"} md:flex md:col-span-3 min-h-0 min-w-0 flex-col`}>
           <div className="flex items-center gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
+            <button
+              onClick={() => setMobileShowThread(false)}
+              className="md:hidden w-8 h-8 flex items-center justify-center text-base shrink-0"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+              aria-label="채널 목록으로"
+            >
+              ←
+            </button>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden shrink-0" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
               {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
             </div>
             <div>

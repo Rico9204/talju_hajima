@@ -30,6 +30,16 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   const [codeCopied, setCodeCopied] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Below the md breakpoint the sidebar is hidden behind a hamburger button
+  // and takes over the full screen when opened (there's no room for a
+  // permanent 240px rail on a phone). At md and up this state is unused —
+  // the aside is always shown inline.
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  function navigate(p: Page) {
+    setMobileOpen(false);
+    onNavigate(p);
+  }
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
@@ -128,10 +138,27 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
 
   return (
     <>
+    {/* Always reachable on mobile, even while the sidebar itself is hidden. */}
+    <button
+      onClick={() => setMobileOpen(true)}
+      className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
+      style={{ background: "var(--card)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)" }}
+      aria-label="메뉴 열기"
+    >
+      ☰
+    </button>
     <aside
-      className="flex flex-col w-60 h-full shrink-0 p-4"
+      className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto`}
       style={{ background: "var(--background)" }}
     >
+      <button
+        onClick={() => setMobileOpen(false)}
+        className="md:hidden self-end w-9 h-9 flex items-center justify-center text-lg mb-2"
+        style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+        aria-label="메뉴 닫기"
+      >
+        ✕
+      </button>
       {/* Logo card */}
       <div
         className="px-4 py-4 mb-5 relative"
@@ -226,7 +253,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               return (
                 <button
                   key={p.id}
-                  onClick={() => { setProjectId(p.id); setSwitcherOpen(false); }}
+                  onClick={() => { setProjectId(p.id); setSwitcherOpen(false); setMobileOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
                   style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
                 >
@@ -319,7 +346,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
             return (
               <button
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => navigate(item.id)}
                 className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
                 style={{
                   borderRadius: "10px",

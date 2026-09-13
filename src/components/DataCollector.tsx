@@ -106,7 +106,7 @@ export default function DataCollector() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
       <div className="mb-5">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           정보 수집 · {project.name}
@@ -137,18 +137,18 @@ export default function DataCollector() {
                 </button>
               ))}
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && startJob()}
                 placeholder={mode === "keyword" ? "예: 강화도 문화유산 등록문화재" : "예: https://www.cha.go.kr/..."}
-                className="flex-1 text-sm px-3.5 py-2.5 border outline-none"
+                className="flex-1 min-w-0 text-sm px-3.5 py-2.5 border outline-none"
                 style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
               />
               <button
                 onClick={startJob}
-                className="px-5 py-2.5 text-sm font-700 shrink-0 transition-all"
+                className="px-5 py-2.5 text-sm font-700 shrink-0 w-full sm:w-auto transition-all"
                 style={{
                   background: query.trim() ? "var(--primary)" : "var(--muted)",
                   color: query.trim() ? "#fff" : "var(--muted-foreground)",
@@ -166,9 +166,9 @@ export default function DataCollector() {
         )}
       </div>
 
-      <div className="grid grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Job list */}
-        <div className="col-span-2 flex flex-col gap-2.5">
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
           {jobs.map((j) => {
             const sm = statusMeta[j.status];
             const active = selectedJob === j.id;
@@ -211,7 +211,7 @@ export default function DataCollector() {
         </div>
 
         {/* Result panel */}
-        <div className="col-span-3">
+        <div className="col-span-1 md:col-span-3">
           {job ? (
             <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
               <div className="flex items-center justify-between mb-1">
