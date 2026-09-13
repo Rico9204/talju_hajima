@@ -1,9 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
+
+const PROFILE_STORAGE_KEY = "collabpeer-profile";
+
+function hasImageAvatar(value?: string | null) {
+  return !!value && (value.startsWith("data:image/") || value.startsWith("http://") || value.startsWith("https://"));
+}
+
+type ProfileDraft = {
+  name: string;
+  major: string;
+  grade: string;
+  avatar: string;
+  bio: string;
+};
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -25,9 +39,110 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
+  const [passwordNotice, setPasswordNotice] = useState("");
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>({
+    name: myName,
+    major: currentMember?.major ?? "",
+    grade: currentMember?.student ?? "1학년",
+    avatar: myAvatar,
+    bio: "",
+  });
   const [codeCopied, setCodeCopied] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (!saved) {
+      setProfileDraft((prev) => ({
+        ...prev,
+        name: myName,
+        major: currentMember?.major ?? prev.major,
+        grade: currentMember?.student ?? prev.grade ?? "1학년",
+        avatar: myAvatar,
+      }));
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as Partial<ProfileDraft>;
+      setProfileDraft((prev) => ({
+        ...prev,
+        name: parsed.name || myName,
+        major: parsed.major || currentMember?.major || prev.major,
+        grade: parsed.grade || currentMember?.student || prev.grade || "1학년",
+        avatar: parsed.avatar || myAvatar,
+        bio: parsed.bio || prev.bio,
+      }));
+    } catch {
+      setProfileDraft((prev) => ({
+        ...prev,
+        name: myName,
+        major: currentMember?.major ?? prev.major,
+        grade: currentMember?.student ?? prev.grade ?? "1학년",
+        avatar: myAvatar,
+      }));
+    }
+  }, [currentMember?.id, myName, myRole, myAvatar, currentMember?.major, currentMember?.student]);
+
+  function updateProfileField<K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) {
+    setProfileDraft((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        updateProfileField("avatar", reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function saveProfile() {
+    const payload: ProfileDraft = {
+      ...profileDraft,
+      name: profileDraft.name.trim() || myName,
+      major: profileDraft.major.trim(),
+      grade: profileDraft.grade.trim() || "1학년",
+      avatar: profileDraft.avatar.trim() || myAvatar,
+      bio: profileDraft.bio.trim(),
+    };
+
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(payload));
+    setProfileDraft(payload);
+    setProfileOpen(false);
+  }
+
+  function submitPasswordChange() {
+    if (!passwordForm.current.trim() || !passwordForm.next.trim() || !passwordForm.confirm.trim()) {
+      setPasswordNotice("모든 비밀번호 입력란을 채워주세요.");
+      return;
+    }
+
+    if (passwordForm.next.length < 8) {
+      setPasswordNotice("새 비밀번호는 8자 이상이어야 합니다.");
+      return;
+    }
+
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordNotice("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
+      return;
+    }
+
+    setPasswordNotice("비밀번호가 성공적으로 변경되었습니다.");
+    setPasswordForm({ current: "", next: "", confirm: "" });
+    setTimeout(() => {
+      setPasswordOpen(false);
+      setPasswordNotice("");
+    }, 1000);
+  }
 
   async function confirmDelete() {
     setDeleting(true);
@@ -274,27 +389,41 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           boxShadow: "var(--shadow-card)",
         }}
       >
-        <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => setProfileOpen(true)}
+          className="w-full flex items-center gap-2.5 text-left"
+        >
           <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0"
+            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 overflow-hidden"
             style={{
               background: "var(--accent)",
               color: "#fff",
               boxShadow: "0 4px 10px rgba(245,158,11,0.3)",
             }}
           >
-            {myAvatar}
+            {hasImageAvatar(profileDraft.avatar) ? (
+              <img
+                src={profileDraft.avatar}
+                alt="profile"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span>{(profileDraft.avatar || myAvatar).slice(0, 1).toUpperCase() || "?"}</span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-700">{myName}</div>
+            <div className="text-sm font-700">{profileDraft.name || myName}</div>
             <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-              {myRole} · 이 프로젝트
+              {profileDraft.role || myRole} · 이 프로젝트
             </div>
           </div>
           <div
             className="w-2 h-2 rounded-full shrink-0"
             style={{ background: "#22c55e" }}
           />
+        </button>
+        <div className="flex justify-end mt-2">
           <button
             onClick={signOut}
             title="로그아웃"
@@ -330,6 +459,222 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           onNavigate("dashboard");
         }}
       />
+    )}
+    {profileOpen && (
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}>
+        <div className="w-[420px] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }}>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="text-xs font-700 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>PROFILE</div>
+              <h3 className="text-lg font-700 mt-1">프로필 설정</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setProfileOpen(false)}
+              className="w-8 h-8 flex items-center justify-center text-lg"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="flex items-center gap-4 mb-5">
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-700 overflow-hidden"
+              style={{ background: "var(--accent)", color: "#fff" }}
+            >
+              {hasImageAvatar(profileDraft.avatar) ? (
+                <img
+                  src={profileDraft.avatar}
+                  alt="profile preview"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{(profileDraft.avatar || myAvatar).slice(0, 1).toUpperCase() || "?"}</span>
+              )}
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>프로필 이미지</label>
+              <div className="flex items-center gap-2">
+                <label
+                  className="inline-flex items-center justify-center px-3 py-2 text-sm font-600 cursor-pointer"
+                  style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}
+                >
+                  이미지 선택
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPasswordOpen(true)}
+                  className="px-3 py-2 text-sm font-600"
+                  style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "10px" }}
+                >
+                  비밀번호 변경
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => updateProfileField("avatar", myAvatar)}
+                className="mt-2 text-xs font-600 block"
+                style={{ color: "var(--muted-foreground)" }}
+              >
+                기본 이미지로 변경
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>이름</label>
+              <input
+                value={profileDraft.name}
+                onChange={(e) => updateProfileField("name", e.target.value)}
+                className="w-full px-3 py-2.5 text-sm"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학과</label>
+                <input
+                  value={profileDraft.major}
+                  onChange={(e) => updateProfileField("major", e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm"
+                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학년</label>
+                <select
+                  value={profileDraft.grade}
+                  onChange={(e) => updateProfileField("grade", e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm"
+                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+                >
+                  {["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"].map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>소개</label>
+              <textarea
+                value={profileDraft.bio}
+                onChange={(e) => updateProfileField("bio", e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2.5 text-sm resize-none"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-5">
+            <button
+              type="button"
+              onClick={() => setProfileOpen(false)}
+              className="flex-1 py-2.5 text-sm font-600"
+              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={saveProfile}
+              className="flex-1 py-2.5 text-sm font-700"
+              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
+            >
+              저장
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {passwordOpen && (
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}>
+        <div className="w-[380px] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-700">비밀번호 변경</h3>
+            <button
+              type="button"
+              onClick={() => {
+                setPasswordOpen(false);
+                setPasswordNotice("");
+              }}
+              className="w-8 h-8 flex items-center justify-center text-lg"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>현재 비밀번호</label>
+              <input
+                type="password"
+                value={passwordForm.current}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호</label>
+              <input
+                type="password"
+                value={passwordForm.next}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호 확인</label>
+              <input
+                type="password"
+                value={passwordForm.confirm}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+          </div>
+
+          {passwordNotice && (
+            <div className="mt-3 text-xs font-600" style={{ color: passwordNotice.includes("성공") ? "#22c55e" : "#ef4444" }}>
+              {passwordNotice}
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-5">
+            <button
+              type="button"
+              onClick={() => {
+                setPasswordOpen(false);
+                setPasswordNotice("");
+              }}
+              className="flex-1 py-2.5 text-sm font-600"
+              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={submitPasswordChange}
+              className="flex-1 py-2.5 text-sm font-700"
+              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
+            >
+              변경
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     {pendingDelete && (
       <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
