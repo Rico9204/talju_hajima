@@ -57,13 +57,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // enumeration vector) — instead notify whoever actually owns it via a
       // password-reset email, which Supabase also won't confirm/deny the
       // existence of. The UI shows the same "check your email" screen either
-      // way. Deliberately not awaited: awaiting it would make this branch's
-      // response take one extra round trip longer than a fresh signup's,
-      // which is itself an enumeration side channel (measurable via timing
-      // even with an identical response body).
-      void supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
+      // way. Awaited (and its error logged, not surfaced) so real send
+      // failures — e.g. hitting Supabase's email rate limit — are still
+      // visible somewhere instead of silently vanishing.
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (resetError) console.error("resetPasswordForEmail failed for duplicate signup:", resetError.message);
       return { error: null };
     }
+    // Pad a fresh signup's response to roughly match the duplicate-email
+    // branch's extra round trip above, so response timing alone can't be
+    // used to tell the two cases apart.
+    await new Promise((resolve) => setTimeout(resolve, 400));
     return { error: error?.message ?? null };
   }
 
