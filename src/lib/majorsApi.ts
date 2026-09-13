@@ -1,9 +1,14 @@
-// Shared by api/majors.ts (Vercel serverless, production) and
-// vite.config.ts's dev-server middleware (local dev) so there's one place
-// that knows how to talk to the 대학알리미 대학별 학과정보 dataset —
-// duplicating this logic between the two was how the earlier version of
-// this feature ended up hardcoding a single school in only one of the two
-// copies without anyone noticing.
+// Used by vite.config.ts's dev-server middleware (local dev only).
+//
+// api/majors.ts (the real Vercel serverless function) INTENTIONALLY keeps
+// its own inline copy of this same function instead of importing this file —
+// Vercel's Node function bundler failed to package an import that reaches
+// outside the api/ directory (confirmed by testing: moving this file around
+// didn't help, only inlining it into api/majors.ts did). If you change the
+// fetch/pagination logic here, make the same change in api/majors.ts, or
+// local dev and production will quietly drift apart again — exactly how
+// this feature ended up hardcoding one school in only one of two copies the
+// first time.
 //
 // The dataset covers every Korean university (~50k rows), so this always
 // queries scoped to one school at a time — fetching everything would take
