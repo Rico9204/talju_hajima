@@ -57,8 +57,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // enumeration vector) — instead notify whoever actually owns it via a
       // password-reset email, which Supabase also won't confirm/deny the
       // existence of. The UI shows the same "check your email" screen either
-      // way.
-      await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
+      // way. Deliberately not awaited: awaiting it would make this branch's
+      // response take one extra round trip longer than a fresh signup's,
+      // which is itself an enumeration side channel (measurable via timing
+      // even with an identical response body).
+      void supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
       return { error: null };
     }
     return { error: error?.message ?? null };
