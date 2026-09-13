@@ -71,10 +71,10 @@ interface ProjectContextValue {
   addProject: (input: NewProjectInput) => Promise<string>;
   deleteProject: (projectId: string) => Promise<void>;
   lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
+  joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
-  updateMyProfile: (patch: { name?: string; major?: string; student?: string; avatarFile?: File }) => Promise<void>;
+  updateMyProfile: (patch: { name?: string; major?: string; student?: string; school?: string; avatarFile?: File }) => Promise<void>;
   isShortTerm: boolean;
   folders: Folder[];
   files: WorkspaceFile[];
@@ -143,7 +143,7 @@ function EmptyProjectsScreen({
 }: {
   addProject: (input: NewProjectInput) => Promise<string>;
   lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
+  joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -382,7 +382,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return dataRepository.getProjectById(targetId);
   }
 
-  async function joinProject(targetId: string, input: { major: string; student: string }) {
+  async function joinProject(targetId: string, input: { school: string; major: string; student: string }) {
     const { name, avatar } = await accountIdentity();
     await dataRepository.joinProject(targetId, name, avatar, input);
     // `projects` is filtered to "my projects" (see the load effect above),
@@ -398,10 +398,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
-  async function updateMyProfile(patch: { name?: string; major?: string; student?: string; avatarFile?: File }) {
+  async function updateMyProfile(patch: { name?: string; major?: string; student?: string; school?: string; avatarFile?: File }) {
     if (!projectId || !currentMember) return;
     const avatarUrl = patch.avatarFile ? await dataRepository.uploadAvatar(patch.avatarFile) : undefined;
-    await dataRepository.updateMyProfile({ name: patch.name, major: patch.major, student: patch.student, avatarUrl });
+    await dataRepository.updateMyProfile({ name: patch.name, major: patch.major, student: patch.student, school: patch.school, avatarUrl });
     setTeam(await dataRepository.getTeam(projectId));
   }
 

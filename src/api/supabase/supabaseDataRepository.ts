@@ -59,6 +59,7 @@ function mapMember(row: any, profile?: any): Member {
     role: row.role,
     major: profile?.major || row.major,
     student: profile?.student || row.student,
+    school: profile?.school ?? null,
     avatar: profile?.avatar_initial || row.avatar,
     avatarUrl: profile?.avatar_url ?? row.avatar_url ?? null,
     tasks: { done: row.tasks_done, total: row.tasks_total },
@@ -294,12 +295,16 @@ export const supabaseDataRepository: DataRepository = {
       throw new Error(`[${error.code ?? "?"}] ${error.message}`);
     }
 
-    // Major/student are now account-wide (see profiles table) — the join
-    // form is real user input, unlike createProject's placeholder defaults,
-    // so it's the right moment to sync it there too.
+    // School/major/student are now account-wide (see profiles table) — the
+    // join form is real user input, unlike createProject's placeholder
+    // defaults, so it's the right moment to sync it there too.
     const { error: profileError } = await supabase
       .from("profiles")
-      .update({ major: input.major.trim() || null, student: input.student.trim() || null })
+      .update({
+        school: input.school.trim() || null,
+        major: input.major.trim() || null,
+        student: input.student.trim() || null,
+      })
       .eq("id", userId);
     if (profileError) throw profileError;
 
@@ -352,6 +357,7 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.name !== undefined) updates.display_name = patch.name.trim();
     if (patch.major !== undefined) updates.major = patch.major.trim();
     if (patch.student !== undefined) updates.student = patch.student.trim();
+    if (patch.school !== undefined) updates.school = patch.school.trim();
     if (patch.avatarUrl !== undefined) updates.avatar_url = patch.avatarUrl;
     if (Object.keys(updates).length === 0) return;
     const { error } = await supabase.from("profiles").update(updates).eq("id", userId);

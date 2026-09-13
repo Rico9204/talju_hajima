@@ -35,11 +35,11 @@ export interface DataRepository {
     projectId: string,
     actorName: string,
     actorAvatar: string,
-    input: { major: string; student: string }
+    input: { school: string; major: string; student: string }
   ): Promise<Member>;
 
   getTeam(projectId: string): Promise<TeamData>;
-  updateMyProfile(patch: Partial<{ name: string; major: string; student: string; avatarUrl: string | null }>): Promise<void>;
+  updateMyProfile(patch: Partial<{ name: string; major: string; student: string; school: string; avatarUrl: string | null }>): Promise<void>;
   uploadAvatar(file: File): Promise<string>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 

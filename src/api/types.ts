@@ -23,6 +23,7 @@ export interface Member {
   role: string;
   major: string;
   student: string;
+  school: string | null;
   avatar: string;
   avatarUrl: string | null;
   tasks: { done: number; total: number };

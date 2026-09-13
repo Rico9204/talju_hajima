@@ -12,12 +12,15 @@ create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   avatar_initial text not null,
-  -- Account-wide profile fields (photo, major, student id) — one value per
-  -- person, shown the same way in every project they're in. `members` still
-  -- carries its own copies of these for accounts-less/seeded teammates; for
-  -- a real account, the mapping layer prefers these columns over the
-  -- members-row ones whenever a profiles row exists (see mapMember).
+  -- Account-wide profile fields (photo, school, major, student id) — one
+  -- value per person, shown the same way in every project they're in.
+  -- `members` still carries its own copies of major/student/avatar for
+  -- accounts-less/seeded teammates; for a real account, the mapping layer
+  -- prefers these columns over the members-row ones whenever a profiles row
+  -- exists (see mapMember). `school` has no members-table fallback — it's
+  -- new, only used to look up majors.odcloud.kr, not displayed elsewhere.
   avatar_url text,
+  school text,
   major text,
   student text,
   created_at timestamptz not null default now()

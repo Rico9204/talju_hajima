@@ -33,6 +33,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
+  const [profileSchool, setProfileSchool] = useState("");
   const [profileMajor, setProfileMajor] = useState("");
   const [profileStudent, setProfileStudent] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -61,6 +62,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
 
   function openProfile() {
     setProfileName(currentMember?.name ?? "");
+    setProfileSchool(currentMember?.school ?? "");
     setProfileMajor(currentMember?.major ?? "");
     setProfileStudent(currentMember?.student ?? "");
     setAvatarFile(null);
@@ -87,6 +89,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     try {
       await updateMyProfile({
         name: profileName.trim() || undefined,
+        school: profileSchool.trim() || undefined,
         major: majorTrimmed || undefined,
         student: profileStudent.trim() || undefined,
         avatarFile: avatarFile ?? undefined,
@@ -474,6 +477,16 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               <input
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
+                className="w-full px-3 py-2.5 text-sm outline-none"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학교</label>
+              <input
+                value={profileSchool}
+                onChange={(e) => setProfileSchool(e.target.value)}
+                placeholder="예: 동명대학교"
                 className="w-full px-3 py-2.5 text-sm outline-none"
                 style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
               />
