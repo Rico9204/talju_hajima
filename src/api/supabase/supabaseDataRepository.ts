@@ -380,28 +380,22 @@ export const supabaseDataRepository: DataRepository = {
     return data.publicUrl;
   },
 
+  // SECURITY: leadership transfer is delegated entirely to the
+  // `transfer_leadership` Postgres RPC function (SECURITY DEFINER).
+  // That function re-checks server-side that the caller (auth.uid())
+  // is actually the current project leader before making any change,
+  // and performs the "demote old leader / promote new leader" pair as
+  // a single atomic transaction. Do NOT replace this with direct
+  // `.from("members").update(...)` calls — that path relies solely on
+  // client-supplied project_id/name values and, even with RLS in place,
+  // reintroduces a route where the authorization check and the write
+  // are two separate steps instead of one enforced unit.
   async transferLeadership(projectId, targetName) {
-    const { data: members, error } = await supabase
-      .from("members")
-      .select("id, name, role, is_leader")
-      .eq("project_id", projectId);
+    const { error } = await supabase.rpc("transfer_leadership", {
+      p_project_id: projectId,
+      p_target_name: targetName,
+    });
     if (error) throw error;
-
-    for (const m of members ?? []) {
-      if (m.name === targetName && !m.is_leader) {
-        const { error: e } = await supabase
-          .from("members")
-          .update({ is_leader: true, role: m.role === "참여자" || m.role === "팀원" ? "팀장" : m.role })
-          .eq("id", m.id);
-        if (e) throw e;
-      } else if (m.is_leader && m.name !== targetName) {
-        const { error: e } = await supabase
-          .from("members")
-          .update({ is_leader: false, role: m.role === "팀장" ? "팀원" : m.role })
-          .eq("id", m.id);
-        if (e) throw e;
-      }
-    }
   },
 
   async listFolders(projectId) {

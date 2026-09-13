@@ -358,12 +358,20 @@ create policy members_select on members for select using (is_project_member(proj
 create policy members_insert on members for insert
   with check (auth.role() = 'authenticated');
 create policy members_update on members for update using (is_project_member(project_id));
-create policy members_delete on members for delete using (is_project_member(project_id));
+create policy members_delete on members for delete using (is_project_leader(project_id));
 
 create or replace function public.set_member_user_id()
 returns trigger language plpgsql as $$
 begin
   new.user_id := auth.uid();
+  -- 프로젝트에 이미 리더가 있으면 is_leader를 false로 강제
+  -- (createProject는 첫 번째 멤버라 리더 없음 → true 통과,
+  --  joinProject는 리더 이미 있음 → 클라이언트가 true 보내도 false로 교정)
+  if new.is_leader and exists (
+    select 1 from members where project_id = new.project_id and is_leader
+  ) then
+    new.is_leader := false;
+  end if;
   return new;
 end;
 $$;
@@ -372,6 +380,54 @@ drop trigger if exists set_member_user_id_trigger on members;
 create trigger set_member_user_id_trigger
   before insert on members
   for each row execute function public.set_member_user_id();
+
+-- is_leader 직접 UPDATE 차단: transfer_leadership RPC만 허용
+-- (RPC 내부에서 set_config('app.allow_leader_change','true',true)로 트랜잭션 범위 해제)
+create or replace function public.prevent_is_leader_direct_update()
+returns trigger language plpgsql as $$
+begin
+  if new.is_leader <> old.is_leader
+     and current_setting('app.allow_leader_change', true) is distinct from 'true'
+  then
+    raise exception 'is_leader 변경은 transfer_leadership() 함수를 통해서만 가능합니다';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_is_leader_direct_update on members;
+create trigger prevent_is_leader_direct_update
+  before update on members
+  for each row execute function public.prevent_is_leader_direct_update();
+
+-- transfer_leadership: 팀장 검증 + 원자적 교체
+-- SECURITY DEFINER로 실행되며 set_config 플래그로 위 트리거를 트랜잭션 내에서만 우회
+create or replace function public.transfer_leadership(p_project_id text, p_target_name text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_caller_id uuid;
+  v_target_id uuid;
+begin
+  select id into v_caller_id
+    from members
+    where project_id = p_project_id and user_id = auth.uid() and is_leader;
+  if v_caller_id is null then
+    raise exception '팀장만 권한을 이전할 수 있습니다';
+  end if;
+
+  select id into v_target_id
+    from members
+    where project_id = p_project_id and name = p_target_name and not is_leader;
+  if v_target_id is null then
+    raise exception '대상 멤버를 찾을 수 없거나 이미 팀장입니다';
+  end if;
+
+  perform set_config('app.allow_leader_change', 'true', true);
+
+  update members set is_leader = false where id = v_caller_id;
+  update members set is_leader = true  where id = v_target_id;
+end;
+$$;
 
 drop policy if exists folders_all on folders;
 drop policy if exists files_all on files;
