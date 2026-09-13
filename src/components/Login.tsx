@@ -78,7 +78,7 @@ export default function Login() {
 
         {signedUp ? (
           <div className="text-sm p-3" style={{ background: "#22c55e12", color: "#22c55e", borderRadius: "10px" }}>
-            가입 완료! 이메일 인증이 필요하면 받은 편지함을 확인한 뒤, 아니라면 바로 로그인 탭에서 로그인해주세요.
+            인증 이메일을 보냈습니다. 받은 편지함을 확인해주세요.
           </div>
         ) : (
           <>

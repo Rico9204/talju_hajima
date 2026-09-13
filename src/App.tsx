@@ -9,6 +9,7 @@ import DataCollector from "./components/DataCollector";
 import Schedule from "./components/Schedule";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
+import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
 import { ProjectProvider } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -78,6 +79,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="login" element={<Login />} />
+      <Route path="reset-password" element={<ResetPassword />} />
       <Route element={<RequireAuth />}>
         <Route path="dashboard" element={<DashboardRoute />} />
         <Route path="team" element={<TeamViewRoute />} />

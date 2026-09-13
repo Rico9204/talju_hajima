@@ -9,6 +9,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -40,16 +41,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signUp(email: string, password: string, displayName: string) {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { display_name: displayName } },
     });
-    // An "already registered" error leaks which emails have accounts. Report
-    // it identically to a fresh signup instead — Login.tsx shows the same
-    // "check your email" screen either way, so the response can't be used to
-    // enumerate registered addresses.
-    if (error && /already registered|already exists/i.test(error.message)) {
+    const alreadyRegistered =
+      (error && /already registered|already exists/i.test(error.message)) ||
+      // With email confirmation on, Supabase doesn't error on a duplicate
+      // email — it returns a user with no identities instead. That's the
+      // only signal available to catch this case.
+      (!error && !!data.user && data.user.identities?.length === 0);
+    if (alreadyRegistered) {
+      // Don't tell the caller this email already has an account (that's an
+      // enumeration vector) — instead notify whoever actually owns it via a
+      // password-reset email, which Supabase also won't confirm/deny the
+      // existence of. The UI shows the same "check your email" screen either
+      // way.
+      await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
       return { error: null };
     }
     return { error: error?.message ?? null };
@@ -59,8 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }
 
+  async function updatePassword(newPassword: string) {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    return { error: error?.message ?? null };
+  }
+
   return (
-    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>
       {children}
     </AuthContext.Provider>
   );
