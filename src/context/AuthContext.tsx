@@ -45,6 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       options: { data: { display_name: displayName } },
     });
+    // An "already registered" error leaks which emails have accounts. Report
+    // it identically to a fresh signup instead — Login.tsx shows the same
+    // "check your email" screen either way, so the response can't be used to
+    // enumerate registered addresses.
+    if (error && /already registered|already exists/i.test(error.message)) {
+      return { error: null };
+    }
     return { error: error?.message ?? null };
   }
 

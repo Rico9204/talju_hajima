@@ -111,11 +111,13 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
-              placeholder="6자 이상"
-              className="w-full text-sm px-3 py-2.5 outline-none mb-1.5"
+              placeholder={mode === "signup" ? "6자 이상" : "비밀번호"}
+              className={`w-full text-sm px-3 py-2.5 outline-none ${mode === "signup" ? "mb-1.5" : "mb-4"}`}
               style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
             />
-            <div className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>비밀번호는 6자 이상이어야 합니다.</div>
+            {mode === "signup" && (
+              <div className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>비밀번호는 6자 이상이어야 합니다.</div>
+            )}
 
             {error && (
               <div className="text-xs mb-3 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "10px" }}>
