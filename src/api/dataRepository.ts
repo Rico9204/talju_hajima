@@ -83,4 +83,5 @@ export interface DataRepository {
   markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
   subscribeToMessages(projectId: string, onInsert: (m: ChatMessage) => void): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
+  subscribeToPresence(projectId: string, memberId: string, onChange: (onlineMemberIds: Set<string>) => void): () => void;
 }

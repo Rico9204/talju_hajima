@@ -174,8 +174,8 @@ export default function TeamChat({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-700 truncate" style={{ color: isActive ? "var(--primary)" : "var(--foreground)" }}>{c.name}</div>
-                    <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-                      {c.type === "group" ? `전체 ${otherMembers.length + 1}명` : c.role}
+                    <div className="text-xs truncate" style={{ color: c.type === "dm" && c.online ? "#22c55e" : "var(--muted-foreground)" }}>
+                      {c.type === "group" ? `전체 ${otherMembers.length + 1}명` : c.online ? `${c.role} · 온라인` : c.role}
                     </div>
                   </div>
                   {unread > 0 && (

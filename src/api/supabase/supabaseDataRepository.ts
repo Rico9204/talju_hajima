@@ -740,4 +740,28 @@ export const supabaseDataRepository: DataRepository = {
       supabase.removeChannel(channel);
     };
   },
+
+  // Real presence instead of the `members.online` column, which is only
+  // ever written to `true` once at creation/join and never updated again —
+  // it can't tell a currently-connected member from one who joined months
+  // ago and never came back. Every tab that has this project open tracks
+  // itself under its own member id; presenceState()'s key set is exactly
+  // "who has at least one tab open right now".
+  subscribeToPresence(projectId, memberId, onChange) {
+    const channel = supabase.channel(`presence:${projectId}`, {
+      config: { presence: { key: memberId } },
+    });
+    channel
+      .on("presence", { event: "sync" }, () => {
+        onChange(new Set(Object.keys(channel.presenceState())));
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  },
 };

@@ -201,6 +201,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // project only. Eagerly loaded for every channel once the team is known
   // (see the effect below) and kept live via the realtime subscription.
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
+  // Who currently has this project open in a tab, from Realtime Presence —
+  // not the `members.online` column, which is only ever written once at
+  // creation/join and never updated again.
+  const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -312,6 +316,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       unsubReads();
     };
   }, [projectId]);
+
+  // Real online presence: track myself while this project is open, and
+  // mirror who else is currently tracked into onlineMemberIds.
+  useEffect(() => {
+    setOnlineMemberIds(new Set());
+    if (!projectId || !myMemberId) return;
+    const unsubPresence = dataRepository.subscribeToPresence(projectId, myMemberId, setOnlineMemberIds);
+    return unsubPresence;
+  }, [projectId, myMemberId]);
 
   // Eagerly load every channel's message history (the group channel + one
   // DM per other member) once the team roster is known, so the sidebar
@@ -571,7 +584,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   if (!initialized) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
-  const currentMember = team.members.find((m) => m.userId === session.user.id) ?? null;
+  const liveTeam: TeamData = { ...team, members: team.members.map((m) => ({ ...m, online: onlineMemberIds.has(m.id) })) };
+  const currentMember = liveTeam.members.find((m) => m.userId === session.user.id) ?? null;
   const isLeader = currentMember?.isLeader === true;
   const chatUnread: Record<string, number> = {};
   for (const [cid, list] of Object.entries(chatMessages)) {
@@ -591,7 +605,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         deleteProject,
         lookupProject,
         joinProject,
-        team,
+        team: liveTeam,
         transferLeadership,
         updateMyProfile,
         isShortTerm: isShortTermProject(project),
