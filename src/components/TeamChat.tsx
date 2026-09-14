@@ -23,6 +23,13 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
 }
 
+const MESSAGE_GROUP_GAP_MS = 5 * 60 * 1000;
+
+function belongsToMessageGroup(previous: { senderId: string; createdAt: string } | undefined, current: { senderId: string; createdAt: string }): boolean {
+  if (!previous || previous.senderId !== current.senderId) return false;
+  return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() <= MESSAGE_GROUP_GAP_MS;
+}
+
 export default function TeamChat({
   initialChannel, onOpenFile,
 }: { initialChannel?: string; onOpenFile?: (fileId: number, folderId: number | null) => void }) {
@@ -239,14 +246,23 @@ export default function TeamChat({
             </div>
           </div>
 
-          <div ref={threadRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
-            {thread.map((m) => {
+          <div ref={threadRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-1">
+            {thread.map((m, index) => {
               const mine = m.senderId === currentMember.id;
               const sender = memberFor(m.senderId);
               const fileRef = fileRefFor(m.fileId);
+              const joinsPrevious = belongsToMessageGroup(thread[index - 1], m);
+              const joinsNext = belongsToMessageGroup(m, thread[index + 1]);
+              const bubbleRadius = mine
+                ? joinsPrevious
+                  ? joinsNext ? "14px 2px 2px 14px" : "14px 2px 14px 14px"
+                  : "14px 14px 2px 14px"
+                : joinsPrevious
+                  ? joinsNext ? "2px 14px 14px 2px" : "2px 14px 14px 14px"
+                  : "14px 14px 14px 2px";
               return (
-                <div key={m.id} className="group/message flex flex-col min-w-0 w-full" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
-                  {!mine && (
+                <div key={m.id} className={`group/message flex flex-col min-w-0 w-full ${joinsPrevious ? "mt-0.5" : "mt-3"}`} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                  {!mine && !joinsPrevious && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
                   <div className="relative flex flex-col min-w-0 max-w-[75%]" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
@@ -256,7 +272,7 @@ export default function TeamChat({
                           style={{
                             background: mine ? "var(--primary)" : "var(--muted)",
                             color: mine ? "#fff" : "var(--foreground)",
-                            borderRadius: mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                            borderRadius: bubbleRadius,
                             overflowWrap: "anywhere",
                           }}
                         >
@@ -312,8 +328,9 @@ export default function TeamChat({
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1 mt-1.5 px-0.5">
-                    {[...new Set(m.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
+                  {m.reactions.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1.5 px-0.5">
+                      {[...new Set(m.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
                       const reactions = m.reactions.filter((reaction) => reaction.emoji === emoji);
                       const reactedByMe = reactions.some((reaction) => reaction.memberId === currentMember.id);
                       return (
@@ -333,9 +350,11 @@ export default function TeamChat({
                           <span>{emoji}</span><span className="font-600">{reactions.length}</span>
                         </button>
                       );
-                    })}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 px-1">
+                      })}
+                    </div>
+                  )}
+                  {!joinsNext && (
+                    <div className="flex items-center gap-1.5 mt-1 px-1">
                     {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
                       <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
                     )}
@@ -363,8 +382,9 @@ export default function TeamChat({
                         })}
                       </div>
                     )}
-                    <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatTime(m.createdAt)}</span>
-                  </div>
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatTime(m.createdAt)}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
