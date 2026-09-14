@@ -33,6 +33,7 @@ export default function TeamChat({
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -75,6 +76,7 @@ export default function TeamChat({
     setPendingFile(null);
     setPickerOpen(false);
     setEmojiPickerOpen(false);
+    setReactionPickerMessageId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, initialChannel, currentMember?.id]);
 
@@ -284,17 +286,30 @@ export default function TeamChat({
                           </div>
                         </button>
                       )}
-                    <div className={`absolute top-1 ${mine ? "right-full mr-2" : "left-full ml-2"} flex items-center gap-0.5 p-1 opacity-0 pointer-events-none group-hover/message:opacity-100 group-hover/message:pointer-events-auto group-focus-within/message:opacity-100 group-focus-within/message:pointer-events-auto transition-opacity z-10`} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}>
-                      {chatEmojis.map((emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() => void toggleChatReaction(m.id, emoji)}
-                          className="w-7 h-7 text-sm transition-transform hover:scale-110"
-                          title={`${emoji} 반응`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
+                    <div className={`absolute top-1 ${mine ? "right-full mr-2" : "left-full ml-2"} opacity-0 pointer-events-none group-hover/message:opacity-100 group-hover/message:pointer-events-auto group-focus-within/message:opacity-100 group-focus-within/message:pointer-events-auto transition-opacity z-10`}>
+                      <button
+                        onClick={() => setReactionPickerMessageId((id) => id === m.id ? null : m.id)}
+                        className="w-8 h-8 flex items-center justify-center text-sm"
+                        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "50%", boxShadow: "var(--shadow-card)" }}
+                        title="반응하기"
+                        aria-label="반응하기"
+                      >
+                        😊
+                      </button>
+                      {reactionPickerMessageId === m.id && (
+                        <div className={`absolute top-0 ${mine ? "right-full mr-1" : "left-full ml-1"} flex items-center gap-0.5 p-1`} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                          {chatEmojis.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => { void toggleChatReaction(m.id, emoji); setReactionPickerMessageId(null); }}
+                              className="w-7 h-7 text-sm transition-transform hover:scale-110"
+                              title={`${emoji} 반응`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1 mt-1.5 px-0.5">
