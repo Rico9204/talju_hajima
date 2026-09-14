@@ -8,6 +8,7 @@ import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
+import PentagonChart from "./PentagonChart";
 
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
@@ -46,6 +47,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   }
 
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileSchool, setProfileSchool] = useState("");
   const [profileMajor, setProfileMajor] = useState("");
@@ -83,6 +85,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   }
 
   function openProfile() {
+    setProfileEditOpen(false);
     setProfileName(currentMember?.name ?? "");
     setProfileSchool(currentMember?.school ?? "");
     setProfileMajor(currentMember?.major ?? "");
@@ -178,6 +181,10 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
       setPasswordNotice("");
     }, 1200);
   }
+
+  const reputation = currentMember && currentMember.evalCount > 0
+    ? { score: currentMember.score, count: currentMember.evalCount, criteria: currentMember.criteriaScores }
+    : null;
 
   return (
     <>
@@ -526,25 +533,28 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           <div className="relative h-28" style={bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl) ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }}>
             <button type="button" onClick={() => setProfileOpen(false)} className="absolute top-3 right-3 w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
           </div>
-          <div className="px-5 pb-5">
-            <div className="flex flex-wrap items-end gap-4 -mt-9 mb-4">
-              <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
-              <label className="px-3 py-2 text-xs font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "10px" }}>프로필 이미지<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>
-              <label className="px-3 py-2 text-xs font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "10px" }}>배너 이미지<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>
-              <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>배너 제거</button>
-            </div>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-6 h-6" title={color} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid var(--foreground)" : "2px solid transparent" }} />)}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                ["이름", profileName, setProfileName, ""], ["학교", profileSchool, setProfileSchool, "예: 동명대학교"], ["학과", profileMajor, setProfileMajor, "예: 컴퓨터공학과"], ["학번", profileStudent, setProfileStudent, "예: 2021123456"], ["연락처", profileContact, setProfileContact, "카카오톡 ID 또는 연락 방법"],
-              ].map(([label, value, setter, placeholder]) => <label key={label as string} className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} placeholder={placeholder as string} className="w-full mt-1 px-3 py-2 text-sm outline-none" style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }} /></label>)}
-              <div className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>이메일<div className="mt-1 px-3 py-2 text-sm" style={{ background: "var(--muted)", borderRadius: "10px" }}>{user?.email ?? ""}</div></div>
-            </div>
-            <div className="mt-4"><div className="text-xs font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>외부 링크</div><div className="flex flex-wrap gap-1.5">{profileLinks.map((link) => <span key={link.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}<button type="button" onClick={() => setProfileLinks((links) => links.filter((item) => item.id !== link.id))} aria-label="링크 삭제">×</button></span>)}<input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="https://..." className="px-2 py-1 text-xs outline-none" style={{ width: 150, background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="px-2 text-xs font-700" style={{ background: "var(--secondary)", borderRadius: "999px" }}>추가</button></div></div>
-            {profileError && <div className="text-xs mt-3 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "10px" }}>{profileError}</div>}
-            <div className="flex gap-2 mt-5"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={() => setProfileOpen(false)} className="ml-auto px-4 py-2 text-sm" style={{ background: "var(--muted)", borderRadius: "40px" }}>취소</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-4 py-2 text-sm font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>
+          <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
+            <section className="px-5 pb-5">
+              <div className="flex items-end justify-between -mt-9 mb-4">
+                <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
+                <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "var(--primary)", color: "#fff", borderRadius: "999px" }} title="프로필 편집">✎</button>
+              </div>
+              <h2 className="text-xl font-800 mb-3">{profileName || myName}</h2>
+              <div className="h-px mb-3" style={{ background: "var(--border)" }} />
+              {profileEditOpen ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학교", profileSchool, setProfileSchool], ["학과", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact]].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
+                  <div className="flex flex-wrap gap-1.5 mt-3">{BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-5 h-5" style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid var(--foreground)" : "2px solid transparent" }} />)}<label className="px-2 py-1 text-[11px] font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "8px" }}>배너 이미지<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label><label className="px-2 py-1 text-[11px] font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "8px" }}>사진 변경<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label></div>
+                </>
+              ) : <div className="space-y-3 text-sm">{[["학과", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email]].map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}</div>}
+              <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{profileLinks.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
+              {profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
+              {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
+            </section>
+            <section className="p-4" style={{ background: "var(--muted)" }}>
+              <div className="text-[11px] font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>내 협업 평판</div>
+              {reputation ? <><div className="text-lg font-800" style={{ color: "var(--primary)" }}>{reputation.score.toFixed(1)} <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span></div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>참고 점수 · {reputation.count}건 (형성적 평가)</div><div className="mt-2 h-1" style={{ background: "var(--border)", borderRadius: "4px" }}><div className="h-1" style={{ width: `${reputation.score * 10}%`, background: "var(--primary)", borderRadius: "4px" }} /></div><div className="flex justify-center mt-2"><PentagonChart size={230} data={[{ label: "역할 이행", value: reputation.criteria.role }, { label: "약속·마감 준수", value: reputation.criteria.deadline }, { label: "의사소통", value: reputation.criteria.communication }, { label: "협업 태도", value: reputation.criteria.collaboration }, { label: "결과물 품질", value: reputation.criteria.quality }]} /></div></> : <p className="text-sm leading-relaxed mt-6" style={{ color: "var(--muted-foreground)" }}>프로젝트 진행 중에는 참고 점수가 쌓이며, 종료 후 최종 평가가 공개됩니다.</p>}
+            </section>
           </div>
         </div>
       </div>
