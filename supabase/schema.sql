@@ -337,7 +337,8 @@ drop policy if exists projects_update on projects;
 drop policy if exists projects_delete on projects;
 create policy projects_select on projects for select using (auth.role() = 'authenticated');
 create policy projects_insert on projects for insert with check (auth.role() = 'authenticated');
-create policy projects_update on projects for update using (is_project_member(id));
+create policy projects_update on projects for update
+  using (is_project_leader(id)) with check (is_project_leader(id));
 create policy projects_delete on projects for delete using (is_project_leader(id));
 
 drop policy if exists teams_select on teams;
@@ -346,10 +347,16 @@ drop policy if exists teams_update on teams;
 drop policy if exists teams_delete on teams;
 create policy teams_select on teams for select using (is_project_member(project_id));
 create policy teams_insert on teams for insert with check (auth.role() = 'authenticated');
-create policy teams_update on teams for update using (is_project_member(project_id));
-create policy teams_delete on teams for delete using (is_project_member(project_id));
+create policy teams_update on teams for update
+  using (is_project_leader(project_id)) with check (is_project_leader(project_id));
+create policy teams_delete on teams for delete using (is_project_leader(project_id));
 
--- members: select/update/delete require existing membership. Insert just
+-- members: select/delete require existing membership. Direct UPDATE is not
+-- exposed to clients: account-profile changes use `profiles`, and leadership
+-- changes use the narrowly checked transfer_leadership() RPC below. Leaving
+-- no UPDATE policy prevents a member from changing another member's role,
+-- account link, or project id through a raw client request.
+-- Insert just
 -- requires being signed in (covers both "become the first/leader member when
 -- creating a project" and "join an existing project") — the set_member_user_id
 -- trigger below is what actually guarantees a member row can only ever be
@@ -362,7 +369,6 @@ drop policy if exists members_delete on members;
 create policy members_select on members for select using (is_project_member(project_id));
 create policy members_insert on members for insert
   with check (auth.role() = 'authenticated');
-create policy members_update on members for update using (is_project_member(project_id));
 create policy members_delete on members for delete using (is_project_leader(project_id));
 
 create or replace function public.set_member_user_id()
