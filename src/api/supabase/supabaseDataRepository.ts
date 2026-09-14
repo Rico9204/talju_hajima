@@ -715,7 +715,7 @@ export const supabaseDataRepository: DataRepository = {
 
   subscribeToMessages(projectId, onInsert) {
     const channel = supabase
-      .channel(`chat_messages:${projectId}`)
+      .channel(`chat_messages:${projectId}`, { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "chat_messages", filter: `project_id=eq.${projectId}` },
@@ -723,13 +723,13 @@ export const supabaseDataRepository: DataRepository = {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   },
 
   subscribeToReads(projectId, onRead) {
     const channel = supabase
-      .channel(`message_reads:${projectId}`)
+      .channel(`message_reads:${projectId}`, { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "message_reads", filter: `project_id=eq.${projectId}` },
@@ -737,7 +737,7 @@ export const supabaseDataRepository: DataRepository = {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   },
 
@@ -746,15 +746,19 @@ export const supabaseDataRepository: DataRepository = {
   // subscribed teammates and cleans up a disconnected socket automatically.
   subscribeToPresence(projectId, memberId, onChange) {
     const channel = supabase.channel(`presence:${projectId}`, {
-      config: { presence: { key: memberId } },
+      config: { private: true, presence: { key: memberId } },
     });
     channel
       .on("presence", { event: "sync" }, () => {
         onChange(new Set(Object.keys(channel.presenceState())));
       })
-      .subscribe((status) => {
+      .subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
           void channel.track({ online_at: new Date().toISOString() });
+        } else if (status === "CHANNEL_ERROR") {
+          // A missing or mismatched realtime.messages policy otherwise looks
+          // identical to every teammate being offline in the UI.
+          console.error("온라인 상태 채널 연결이 거부되었습니다:", error);
         }
       });
     return () => {

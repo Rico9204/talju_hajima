@@ -166,16 +166,18 @@ export default function TeamChat({
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all"
                   style={{ background: isActive ? "var(--secondary)" : "transparent", borderLeft: isActive ? "3px solid var(--primary)" : "3px solid transparent" }}
                 >
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 relative overflow-hidden" style={{ background: c.avatarUrl ? "var(--card)" : `${c.color}18`, color: c.color }}>
-                    {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
+                  <div className="w-9 h-9 relative shrink-0">
+                    <div className="w-full h-full rounded-full flex items-center justify-center text-sm font-700 overflow-hidden" style={{ background: c.avatarUrl ? "var(--card)" : `${c.color}18`, color: c.color }}>
+                      {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
+                    </div>
                     {c.type === "dm" && c.online && (
                       <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-700 truncate" style={{ color: isActive ? "var(--primary)" : "var(--foreground)" }}>{c.name}</div>
-                    <div className="text-xs truncate" style={{ color: c.type === "dm" && c.online ? "#22c55e" : "var(--muted-foreground)" }}>
-                      {c.type === "group" ? `전체 ${otherMembers.length + 1}명` : c.online ? `${c.role} · 온라인` : c.role}
+                    <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                      {c.type === "group" ? `전체 ${otherMembers.length + 1}명` : c.role}
                     </div>
                   </div>
                   {unread > 0 && (
@@ -200,13 +202,18 @@ export default function TeamChat({
             >
               ←
             </button>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 overflow-hidden shrink-0" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
-              {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
+            <div className="w-8 h-8 relative shrink-0">
+              <div className="w-full h-full rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
+                {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
+              </div>
+              {chan.type === "dm" && chan.online && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
+              )}
             </div>
             <div>
               <div className="text-sm font-700">{chan.name}</div>
               <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                {chan.type === "group" ? "팀 전체 채널" : chan.online ? "온라인" : "오프라인"}
+                {chan.type === "group" ? "팀 전체 채널" : chan.role}
               </div>
             </div>
           </div>
