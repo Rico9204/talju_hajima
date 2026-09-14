@@ -247,11 +247,10 @@ export default function TeamChat({
                   {!mine && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
-                  <div className={`flex items-center gap-1.5 max-w-full ${mine ? "flex-row-reverse" : ""}`}>
-                    <div className="flex flex-col min-w-0" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                  <div className="relative flex flex-col min-w-0 max-w-[75%]" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                       {m.text && (
                         <div
-                          className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed break-words"
+                          className="px-3.5 py-2.5 text-sm max-w-none leading-relaxed break-words"
                           style={{
                             background: mine ? "var(--primary)" : "var(--muted)",
                             color: mine ? "#fff" : "var(--foreground)",
@@ -265,7 +264,7 @@ export default function TeamChat({
                       {fileRef && (
                         <button
                           onClick={() => onOpenFile?.(fileRef.id, fileRef.folderId)}
-                          className="flex items-center gap-2.5 px-3 py-2.5 max-w-[75%] text-left transition-all"
+                          className="flex items-center gap-2.5 px-3 py-2.5 max-w-none text-left transition-all"
                           style={{
                             background: "var(--card)",
                             border: "1.5px solid var(--border)",
@@ -285,8 +284,7 @@ export default function TeamChat({
                           </div>
                         </button>
                       )}
-                    </div>
-                    <div className="flex items-center gap-0.5 p-1 opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100 transition-opacity" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}>
+                    <div className={`absolute top-1 ${mine ? "right-full mr-2" : "left-full ml-2"} flex items-center gap-0.5 p-1 opacity-0 pointer-events-none group-hover/message:opacity-100 group-hover/message:pointer-events-auto group-focus-within/message:opacity-100 group-focus-within/message:pointer-events-auto transition-opacity z-10`} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}>
                       {chatEmojis.map((emoji) => (
                         <button
                           key={emoji}
@@ -313,6 +311,7 @@ export default function TeamChat({
                             color: "var(--foreground)",
                             border: reactedByMe ? "1px solid var(--primary)" : "1px solid transparent",
                             borderRadius: "12px",
+                            animation: "reaction-pop 280ms cubic-bezier(0.22, 1, 0.36, 1)",
                           }}
                           title={`${reactions.map((reaction) => memberFor(reaction.memberId)?.name ?? "팀원").join(", ")} 반응`}
                         >
