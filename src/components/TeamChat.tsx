@@ -25,8 +25,8 @@ function formatTime(iso: string): string {
 
 const MESSAGE_GROUP_GAP_MS = 5 * 60 * 1000;
 
-function belongsToMessageGroup(previous: { senderId: string; createdAt: string } | undefined, current: { senderId: string; createdAt: string }): boolean {
-  if (!previous || previous.senderId !== current.senderId) return false;
+function belongsToMessageGroup(previous: { senderId: string; createdAt: string } | undefined, current: { senderId: string; createdAt: string } | undefined): boolean {
+  if (!previous || !current || previous.senderId !== current.senderId) return false;
   return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() <= MESSAGE_GROUP_GAP_MS;
 }
 
