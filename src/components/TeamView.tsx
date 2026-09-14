@@ -5,7 +5,7 @@ import PentagonChart from "./PentagonChart";
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
   const { project, team, transferLeadership, currentMember, isLeader } = useProject();
   const [selected, setSelected] = useState<number>(0);
-  const [pendingTransfer, setPendingTransfer] = useState<string | null>(null);
+  const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     setSelected(0);
@@ -130,7 +130,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   )}
                   {canTransfer && (
                     <button
-                      onClick={() => setPendingTransfer(sel.name)}
+                      onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
                       className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
                       style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
                     >
@@ -237,7 +237,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#f59e0b18", borderRadius: "12px" }}>🧭</div>
             <h3 className="font-700 mb-1">팀장 권한을 위임할까요?</h3>
             <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
-              <strong>{pendingTransfer}</strong>님에게 팀장 권한이 넘어가고, 나는 팀원으로 전환됩니다. 이 작업은 즉시 적용됩니다.
+              <strong>{pendingTransfer.name}</strong>님에게 팀장 권한이 넘어가고, 나는 팀원으로 전환됩니다. 이 작업은 즉시 적용됩니다.
             </p>
             <div className="flex gap-2">
               <button
@@ -248,7 +248,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 취소
               </button>
               <button
-                onClick={() => { transferLeadership(pendingTransfer); setPendingTransfer(null); }}
+                onClick={() => { transferLeadership(pendingTransfer.id); setPendingTransfer(null); }}
                 className="flex-1 py-2.5 text-sm font-700 transition-all"
                 style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}
               >

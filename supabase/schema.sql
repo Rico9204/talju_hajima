@@ -23,6 +23,21 @@ create table if not exists profiles (
   school text,
   major text,
   student text,
+  -- Optional reference info (KakaoTalk ID, phone number, etc.) shown to
+  -- teammates so they have a way to reach this person outside the app.
+  contact text,
+  -- Hex color for the profile card banner background. Independent from the
+  -- per-project members.color accent (that one is assigned automatically
+  -- from a palette and drives other UI); this is a user choice.
+  banner_color text,
+  -- Custom banner image (stored in the "avatars" bucket, see storage
+  -- policies below); takes priority over banner_color when set.
+  banner_image_url text,
+  -- Profile link chips (GitHub, Instagram, portfolio, ...) as a JSON array
+  -- of { id, type, url, label } — see src/lib/links.ts for the shape and
+  -- the auto-detect-from-URL logic. jsonb so new platform types never need
+  -- a schema change.
+  links jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 

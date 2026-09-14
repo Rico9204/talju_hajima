@@ -16,6 +16,15 @@ export interface NewProjectInput {
   endDate?: string;
 }
 
+export type ProfileLinkType = "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other";
+
+export interface ProfileLink {
+  id: string;
+  type: ProfileLinkType;
+  url: string;
+  label: string;
+}
+
 export interface Member {
   id: string;
   userId: string | null;
@@ -26,6 +35,10 @@ export interface Member {
   school: string | null;
   avatar: string;
   avatarUrl: string | null;
+  contact: string | null;
+  bannerColor: string | null;
+  bannerImageUrl: string | null;
+  links: ProfileLink[];
   tasks: { done: number; total: number };
   activities: number;
   score: number;
