@@ -13,7 +13,7 @@ as $$
     exists (
       select 1
       from public.members m
-      where p_topic ~ '^(presence|chat_messages|message_reads):[^:]+$'
+      where p_topic ~ '^(presence|chat_messages|message_reads|task_comment_reactions):[^:]+$'
         and m.project_id = split_part(p_topic, ':', 2)
         and m.user_id = auth.uid()
     );

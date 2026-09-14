@@ -683,6 +683,23 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
+  subscribeToTaskCommentReactions(projectId, onChange) {
+    const channel = supabase
+      .channel(`task_comment_reactions:${projectId}`, { config: { private: true } })
+      // Reactions do not carry project_id, so the table cannot use a server
+      // filter here. Its RLS policy controls delivery; the context reloads
+      // only the currently open project's tasks when an allowed event arrives.
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_comment_reactions" }, onChange)
+      .subscribe((status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("과제 댓글 반응 채널 연결에 실패했습니다:", error?.message ?? status);
+        }
+      });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
   async setTaskScheduleLink(taskId, field, eventId) {
     const column = field === "team" ? "team_schedule_event_id" : "personal_schedule_event_id";
     const { error } = await supabase.from("tasks").update({ [column]: eventId }).eq("id", taskId);
