@@ -18,11 +18,8 @@ as $$
     exists (
       select 1
       from public.members m
-      where m.project_id = case
-        when p_topic ~* '^(presence|chat_messages|message_reads):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-          then split_part(p_topic, ':', 2)
-        else null
-      end
+      where p_topic ~ '^(presence|chat_messages|message_reads):[^:]+$'
+        and m.project_id = split_part(p_topic, ':', 2)
         and m.user_id = auth.uid()
     );
 $$;
