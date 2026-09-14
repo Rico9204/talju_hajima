@@ -63,6 +63,10 @@ function mapMember(row: any, profile?: any): Member {
     school: profile?.school ?? null,
     avatar: profile?.avatar_initial || row.avatar,
     avatarUrl: profile?.avatar_url ?? row.avatar_url ?? null,
+    contact: profile?.contact ?? null,
+    bannerColor: profile?.banner_color ?? null,
+    bannerImageUrl: profile?.banner_image_url ?? null,
+    links: Array.isArray(profile?.links) ? profile.links : [],
     tasks: { done: row.tasks_done, total: row.tasks_total },
     activities: row.activities,
     score: Number(row.score),
@@ -369,6 +373,10 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.student !== undefined) updates.student = patch.student.trim();
     if (patch.school !== undefined) updates.school = patch.school.trim();
     if (patch.avatarUrl !== undefined) updates.avatar_url = patch.avatarUrl;
+    if (patch.contact !== undefined) updates.contact = patch.contact;
+    if (patch.bannerColor !== undefined) updates.banner_color = patch.bannerColor;
+    if (patch.bannerImageUrl !== undefined) updates.banner_image_url = patch.bannerImageUrl;
+    if (patch.links !== undefined) updates.links = patch.links;
     if (Object.keys(updates).length === 0) return;
     const { error } = await supabase.from("profiles").update(updates).eq("id", userId);
     if (error) throw error;
@@ -386,6 +394,19 @@ export const supabaseDataRepository: DataRepository = {
     const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
     if (error) throw error;
 
+    const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+    return data.publicUrl;
+  },
+
+  async uploadBannerImage(file) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    const ext = file.name.split(".").pop() || "jpg";
+    const path = `${userId}/banner-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    if (error) throw error;
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);
     return data.publicUrl;
   },

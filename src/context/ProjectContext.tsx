@@ -13,6 +13,7 @@ import type {
   ScheduleEvent,
   NewScheduleEventInput,
   Member,
+  ProfileLink,
   ChatMessage,
 } from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
@@ -74,7 +75,10 @@ interface ProjectContextValue {
   joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
-  updateMyProfile: (patch: { name?: string; major?: string; student?: string; school?: string; avatarFile?: File }) => Promise<void>;
+  updateMyProfile: (patch: {
+    name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
+    contact?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
+  }) => Promise<void>;
   isShortTerm: boolean;
   folders: Folder[];
   files: WorkspaceFile[];
@@ -461,10 +465,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
-  async function updateMyProfile(patch: { name?: string; major?: string; student?: string; school?: string; avatarFile?: File }) {
+  async function updateMyProfile(patch: {
+    name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
+    contact?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
+  }) {
     if (!projectId || !currentMember) return;
     const avatarUrl = patch.avatarFile ? await dataRepository.uploadAvatar(patch.avatarFile) : undefined;
-    await dataRepository.updateMyProfile({ name: patch.name, major: patch.major, student: patch.student, school: patch.school, avatarUrl });
+    const bannerImageUrl = patch.bannerImageFile ? await dataRepository.uploadBannerImage(patch.bannerImageFile) : patch.bannerImageUrl;
+    await dataRepository.updateMyProfile({
+      name: patch.name, major: patch.major, student: patch.student, school: patch.school, avatarUrl,
+      contact: patch.contact, bannerColor: patch.bannerColor, bannerImageUrl, links: patch.links,
+    });
     setTeam(await dataRepository.getTeam(projectId));
   }
 

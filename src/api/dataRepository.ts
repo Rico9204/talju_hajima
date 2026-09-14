@@ -14,6 +14,7 @@ import type {
   ScheduleEvent,
   NewScheduleEventInput,
   Member,
+  ProfileLink,
   ChatMessage,
   ChatReaction,
 } from "./types";
@@ -40,8 +41,12 @@ export interface DataRepository {
   ): Promise<Member>;
 
   getTeam(projectId: string): Promise<TeamData>;
-  updateMyProfile(patch: Partial<{ name: string; major: string; student: string; school: string; avatarUrl: string | null }>): Promise<void>;
+  updateMyProfile(patch: Partial<{
+    name: string; major: string; student: string; school: string; avatarUrl: string | null;
+    contact: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
+  }>): Promise<void>;
   uploadAvatar(file: File): Promise<string>;
+  uploadBannerImage(file: File): Promise<string>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;
