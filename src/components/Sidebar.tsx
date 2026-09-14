@@ -150,7 +150,9 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         bannerImageUrl: bannerCleared ? null : undefined,
         links: profileLinks,
       });
-      setProfileOpen(false);
+      // Keep the card open so the member can immediately verify the saved
+      // profile. Only leave edit mode and show the refreshed read view.
+      setProfileEditOpen(false);
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : "저장하지 못했습니다.");
     } finally {
@@ -534,9 +536,9 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
             <button type="button" onClick={() => setProfileOpen(false)} className="absolute top-3 right-3 w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
-            <section className="px-5 pb-5">
+            <section className="relative z-10 px-5 pb-5">
               <div className="flex items-end justify-between -mt-9 mb-4">
-                <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
+                <div className="relative z-20 p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
                 <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "var(--primary)", color: "#fff", borderRadius: "999px" }} title="프로필 편집">✎</button>
               </div>
               <h2 className="text-xl font-800 mb-3">{profileName || myName}</h2>
