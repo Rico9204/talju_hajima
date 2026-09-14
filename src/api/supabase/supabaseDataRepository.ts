@@ -754,11 +754,23 @@ export const supabaseDataRepository: DataRepository = {
       })
       .subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
-          void channel.track({ online_at: new Date().toISOString() });
-        } else if (status === "CHANNEL_ERROR") {
+          void channel
+            .track({ online_at: new Date().toISOString() })
+            .then((result) => {
+              if (result !== "ok") {
+                console.error("온라인 상태 발행에 실패했습니다:", result);
+                return;
+              }
+              // Presence sync normally follows track(), but immediately add
+              // the current user as well so a delayed sync cannot leave the
+              // user's own profile falsely marked offline.
+              onChange(new Set([...Object.keys(channel.presenceState()), memberId]));
+            })
+            .catch((trackError) => console.error("온라인 상태 발행에 실패했습니다:", trackError));
+        } else if (status !== "CLOSED") {
           // A missing or mismatched realtime.messages policy otherwise looks
           // identical to every teammate being offline in the UI.
-          console.error("온라인 상태 채널 연결이 거부되었습니다:", error);
+          console.error("온라인 상태 채널 연결에 실패했습니다:", status, error);
         }
       });
     return () => {
