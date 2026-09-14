@@ -288,6 +288,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     };
   }, [projectId]);
 
+  // Private Realtime channels authorize their join with the Realtime
+  // socket's JWT, which is separate from the REST client's request header.
+  // Set it before creating any project subscriptions so a restored browser
+  // session cannot attempt a Presence/chat join as the anonymous role.
+  useEffect(() => {
+    if (!session?.access_token) return;
+    supabase.realtime.setAuth(session.access_token);
+  }, [session?.access_token]);
+
   // Live chat: subscribe to new messages/reads for the current project so
   // the sidebar badge and any open chat view update without polling.
   useEffect(() => {
