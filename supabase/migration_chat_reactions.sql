@@ -27,5 +27,15 @@ create policy message_reactions_delete on message_reactions for delete
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
   );
 
-alter publication supabase_realtime add table message_reactions;
+do $$ begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'message_reactions'
+  ) then
+    alter publication supabase_realtime add table message_reactions;
+  end if;
+end $$;
 alter table message_reactions replica identity full;
