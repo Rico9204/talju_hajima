@@ -216,6 +216,10 @@ create table if not exists chat_messages (
   file_id bigint references files(id) on delete set null,
   created_at timestamptz not null default now()
 );
+do $$ begin
+  alter table chat_messages add constraint chat_messages_id_project_unique unique (id, project_id);
+exception when duplicate_object then null;
+end $$;
 create index if not exists chat_messages_channel_idx on chat_messages (project_id, channel_id, created_at);
 
 create table if not exists message_reads (
@@ -225,6 +229,11 @@ create table if not exists message_reads (
   read_at timestamptz not null default now(),
   primary key (message_id, member_id)
 );
+do $$ begin
+  alter table message_reads add constraint message_reads_message_project_fk
+    foreign key (message_id, project_id) references chat_messages(id, project_id) on delete cascade;
+exception when duplicate_object then null;
+end $$;
 
 create table if not exists message_reactions (
   message_id bigint not null references chat_messages(id) on delete cascade,
@@ -604,6 +613,7 @@ create policy message_reads_insert on message_reads for insert
   with check (
     is_project_member(project_id)
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+    and exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reads.project_id)
   );
 
 drop policy if exists message_reactions_select on message_reactions;

@@ -245,7 +245,7 @@ export default function TeamChat({
               const sender = memberFor(m.senderId);
               const fileRef = fileRefFor(m.fileId);
               return (
-                <div key={m.id} className="flex flex-col min-w-0 w-full" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                <div key={m.id} className="group/message flex flex-col min-w-0 w-full" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                   {!mine && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
@@ -308,7 +308,7 @@ export default function TeamChat({
                     })}
                     <button
                       onClick={() => setReactionPickerMessageId((id) => id === m.id ? null : m.id)}
-                      className="w-6 h-6 flex items-center justify-center text-xs transition-all"
+                      className={`w-6 h-6 flex items-center justify-center text-xs transition-all ${reactionPickerMessageId === m.id ? "opacity-100" : "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"}`}
                       style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "50%" }}
                       aria-label="메시지에 반응 추가"
                       title="반응 추가"
