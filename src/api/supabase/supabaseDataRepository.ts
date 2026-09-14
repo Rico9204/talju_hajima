@@ -741,12 +741,9 @@ export const supabaseDataRepository: DataRepository = {
     };
   },
 
-  // Real presence instead of the `members.online` column, which is only
-  // ever written to `true` once at creation/join and never updated again —
-  // it can't tell a currently-connected member from one who joined months
-  // ago and never came back. Every tab that has this project open tracks
-  // itself under its own member id; presenceState()'s key set is exactly
-  // "who has at least one tab open right now".
+  // Presence tracks every open browser tab under its member id. Unlike a
+  // database heartbeat, Realtime immediately broadcasts joins/leaves to all
+  // subscribed teammates and cleans up a disconnected socket automatically.
   subscribeToPresence(projectId, memberId, onChange) {
     const channel = supabase.channel(`presence:${projectId}`, {
       config: { presence: { key: memberId } },
@@ -757,11 +754,11 @@ export const supabaseDataRepository: DataRepository = {
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          channel.track({ online_at: new Date().toISOString() });
+          void channel.track({ online_at: new Date().toISOString() });
         }
       });
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   },
 };

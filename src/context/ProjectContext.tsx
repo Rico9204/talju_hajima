@@ -201,9 +201,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // project only. Eagerly loaded for every channel once the team is known
   // (see the effect below) and kept live via the realtime subscription.
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
-  // Who currently has this project open in a tab, from Realtime Presence —
-  // not the `members.online` column, which is only ever written once at
-  // creation/join and never updated again.
+  // A project-scoped Realtime Presence channel supplies the member ids that
+  // currently have this project open in one or more browser tabs.
   const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -317,13 +316,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     };
   }, [projectId]);
 
-  // Real online presence: track myself while this project is open, and
-  // mirror who else is currently tracked into onlineMemberIds.
+  // Keep the current user's Presence entry while a project is open. Supabase
+  // broadcasts a sync event whenever a teammate joins, leaves, reconnects,
+  // or opens an additional tab.
   useEffect(() => {
     setOnlineMemberIds(new Set());
     if (!projectId || !myMemberId) return;
-    const unsubPresence = dataRepository.subscribeToPresence(projectId, myMemberId, setOnlineMemberIds);
-    return unsubPresence;
+    return dataRepository.subscribeToPresence(projectId, myMemberId, setOnlineMemberIds);
   }, [projectId, myMemberId]);
 
   // Eagerly load every channel's message history (the group channel + one
