@@ -3,9 +3,13 @@ import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
+import { detectLink } from "../lib/links";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import Avatar from "./Avatar";
+import BrandIcon, { type KnownLinkType } from "./BrandIcon";
+
+const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -20,7 +24,7 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
   const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile } = useProject();
-  const { signOut, updatePassword } = useAuth();
+  const { user, signOut, updatePassword } = useAuth();
   const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
@@ -46,8 +50,15 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   const [profileSchool, setProfileSchool] = useState("");
   const [profileMajor, setProfileMajor] = useState("");
   const [profileStudent, setProfileStudent] = useState("");
+  const [profileContact, setProfileContact] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [bannerColor, setBannerColor] = useState("#2563eb");
+  const [bannerImageFile, setBannerImageFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [bannerCleared, setBannerCleared] = useState(false);
+  const [profileLinks, setProfileLinks] = useState<{ id: string; type: "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other"; url: string; label: string }[]>([]);
+  const [newLinkUrl, setNewLinkUrl] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
@@ -59,8 +70,9 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   useEffect(() => {
     return () => {
       if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
     };
-  }, [avatarPreview]);
+  }, [avatarPreview, bannerPreview]);
 
   async function confirmDelete() {
     setDeleting(true);
@@ -75,8 +87,15 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     setProfileSchool(currentMember?.school ?? "");
     setProfileMajor(currentMember?.major ?? "");
     setProfileStudent(currentMember?.student ?? "");
+    setProfileContact(currentMember?.contact ?? "");
     setAvatarFile(null);
     setAvatarPreview(null);
+    setBannerColor(currentMember?.bannerColor ?? currentMember?.color ?? "#2563eb");
+    setBannerImageFile(null);
+    setBannerPreview(null);
+    setBannerCleared(false);
+    setProfileLinks(currentMember?.links ?? []);
+    setNewLinkUrl("");
     setProfileError(null);
     setProfileOpen(true);
   }
@@ -86,6 +105,25 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     if (!file || !file.type.startsWith("image/")) return;
     setAvatarFile(file);
     setAvatarPreview(URL.createObjectURL(file));
+  }
+
+  function handleBannerPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    setBannerImageFile(file);
+    setBannerPreview(URL.createObjectURL(file));
+    setBannerCleared(false);
+  }
+
+  function addProfileLink() {
+    const raw = newLinkUrl.trim();
+    if (!raw) return;
+    const detected = detectLink(raw);
+    setProfileLinks((links) => [...links, {
+      id: crypto.randomUUID(), type: detected.type, label: detected.label,
+      url: raw.includes("://") ? raw : `https://${raw}`,
+    }]);
+    setNewLinkUrl("");
   }
 
   async function saveProfile() {
@@ -103,6 +141,11 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         major: majorTrimmed || undefined,
         student: profileStudent.trim() || undefined,
         avatarFile: avatarFile ?? undefined,
+        contact: profileContact.trim() || null,
+        bannerColor,
+        bannerImageFile: bannerImageFile ?? undefined,
+        bannerImageUrl: bannerCleared ? null : undefined,
+        links: profileLinks,
       });
       setProfileOpen(false);
     } catch (err) {
@@ -479,97 +522,29 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     )}
     {profileOpen && (
       <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setProfileOpen(false)}>
-        <div className="w-[420px] max-w-[92vw] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-700">프로필 설정</h3>
-            <button type="button" onClick={() => setProfileOpen(false)} className="w-8 h-8 flex items-center justify-center text-lg" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>
-              ×
-            </button>
+        <div className="w-[660px] max-w-[95vw] overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="relative h-28" style={bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl) ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }}>
+            <button type="button" onClick={() => setProfileOpen(false)} className="absolute top-3 right-3 w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
           </div>
-
-          <div className="flex items-center gap-4 mb-5">
-            <Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={64} />
-            <div className="flex-1">
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>프로필 이미지</label>
-              <label className="inline-flex items-center justify-center px-3 py-2 text-sm font-600 cursor-pointer" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>
-                이미지 선택
-                <input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" />
-              </label>
+          <div className="px-5 pb-5">
+            <div className="flex flex-wrap items-end gap-4 -mt-9 mb-4">
+              <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
+              <label className="px-3 py-2 text-xs font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "10px" }}>프로필 이미지<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>
+              <label className="px-3 py-2 text-xs font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "10px" }}>배너 이미지<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>
+              <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>배너 제거</button>
             </div>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>이름</label>
-              <input
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
+            <div className="flex flex-wrap gap-2 mb-4">
+              {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-6 h-6" title={color} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid var(--foreground)" : "2px solid transparent" }} />)}
             </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학교</label>
-              <input
-                value={profileSchool}
-                onChange={(e) => setProfileSchool(e.target.value)}
-                placeholder="예: 동명대학교"
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                ["이름", profileName, setProfileName, ""], ["학교", profileSchool, setProfileSchool, "예: 동명대학교"], ["학과", profileMajor, setProfileMajor, "예: 컴퓨터공학과"], ["학번", profileStudent, setProfileStudent, "예: 2021123456"], ["연락처", profileContact, setProfileContact, "카카오톡 ID 또는 연락 방법"],
+              ].map(([label, value, setter, placeholder]) => <label key={label as string} className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} placeholder={placeholder as string} className="w-full mt-1 px-3 py-2 text-sm outline-none" style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }} /></label>)}
+              <div className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>이메일<div className="mt-1 px-3 py-2 text-sm" style={{ background: "var(--muted)", borderRadius: "10px" }}>{user?.email ?? ""}</div></div>
             </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학과</label>
-              <input
-                value={profileMajor}
-                onChange={(e) => setProfileMajor(e.target.value)}
-                placeholder="예: 컴퓨터공학과"
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: `1px solid ${profileError ? "#ef4444" : "var(--border)"}`, borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학번</label>
-              <input
-                value={profileStudent}
-                onChange={(e) => setProfileStudent(e.target.value)}
-                placeholder="예: 2021123456"
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => { setProfileOpen(false); setPasswordOpen(true); }}
-              className="text-left text-xs font-600 px-3 py-2.5"
-              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "10px" }}
-            >
-              비밀번호 변경
-            </button>
-          </div>
-
-          {profileError && (
-            <div className="text-xs mt-3 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "10px" }}>{profileError}</div>
-          )}
-
-          <div className="flex gap-2 mt-5">
-            <button
-              type="button"
-              onClick={() => setProfileOpen(false)}
-              className="flex-1 py-2.5 text-sm font-600"
-              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              onClick={saveProfile}
-              disabled={savingProfile}
-              className="flex-1 py-2.5 text-sm font-700"
-              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
-            >
-              {savingProfile ? "저장 중…" : "저장"}
-            </button>
+            <div className="mt-4"><div className="text-xs font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>외부 링크</div><div className="flex flex-wrap gap-1.5">{profileLinks.map((link) => <span key={link.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}<button type="button" onClick={() => setProfileLinks((links) => links.filter((item) => item.id !== link.id))} aria-label="링크 삭제">×</button></span>)}<input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="https://..." className="px-2 py-1 text-xs outline-none" style={{ width: 150, background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="px-2 text-xs font-700" style={{ background: "var(--secondary)", borderRadius: "999px" }}>추가</button></div></div>
+            {profileError && <div className="text-xs mt-3 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "10px" }}>{profileError}</div>}
+            <div className="flex gap-2 mt-5"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={() => setProfileOpen(false)} className="ml-auto px-4 py-2 text-sm" style={{ background: "var(--muted)", borderRadius: "40px" }}>취소</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-4 py-2 text-sm font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>
           </div>
         </div>
       </div>
