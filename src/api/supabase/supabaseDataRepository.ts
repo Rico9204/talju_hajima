@@ -694,8 +694,20 @@ export const supabaseDataRepository: DataRepository = {
       .eq("project_id", projectId)
       .eq("channel_id", channelId)
       .order("id", { ascending: true });
-    if (error) throw error;
-    return (data ?? []).map(mapMessage);
+    if (!error) return (data ?? []).map(mapMessage);
+
+    // A deployment can reach the browser before the optional reactions
+    // migration is applied (or before PostgREST refreshes its relationship
+    // cache). Existing chat history must remain available in that state.
+    console.warn("메시지 반응을 불러오지 못해 반응 없이 채팅 내역을 표시합니다:", error.message);
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("chat_messages")
+      .select("*, message_reads(member_id)")
+      .eq("project_id", projectId)
+      .eq("channel_id", channelId)
+      .order("id", { ascending: true });
+    if (fallbackError) throw fallbackError;
+    return (fallbackData ?? []).map((row) => mapMessage({ ...row, message_reactions: [] }));
   },
 
   async sendMessage(projectId, channelId, senderMemberId, input) {
