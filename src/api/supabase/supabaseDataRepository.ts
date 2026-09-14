@@ -690,7 +690,10 @@ export const supabaseDataRepository: DataRepository = {
   async listMessages(projectId, channelId) {
     const { data, error } = await supabase
       .from("chat_messages")
-      .select("*, message_reads(member_id), message_reactions(member_id, emoji)")
+      // Both child tables have a legacy single-column FK and the hardened
+      // (message_id, project_id) FK. Name the latter explicitly so PostgREST
+      // does not reject this embed as an ambiguous relationship.
+      .select("*, message_reads!message_reads_message_project_fk(member_id), message_reactions!message_reactions_message_project_fk(member_id, emoji)")
       .eq("project_id", projectId)
       .eq("channel_id", channelId)
       .order("id", { ascending: true });
@@ -702,7 +705,7 @@ export const supabaseDataRepository: DataRepository = {
     console.warn("메시지 반응을 불러오지 못해 반응 없이 채팅 내역을 표시합니다:", error.message);
     const { data: fallbackData, error: fallbackError } = await supabase
       .from("chat_messages")
-      .select("*, message_reads(member_id)")
+      .select("*, message_reads!message_reads_message_project_fk(member_id)")
       .eq("project_id", projectId)
       .eq("channel_id", channelId)
       .order("id", { ascending: true });

@@ -43,6 +43,7 @@ export default function TeamChat({
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const scrollStateRef = useRef({ channelId: "", messageCount: 0 });
 
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
   const channels = currentMember
@@ -87,10 +88,20 @@ export default function TeamChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, initialChannel, currentMember?.id]);
 
+  // Do not use the whole chatMessages object here: a reaction or read receipt
+  // replaces that object too, but must not pull someone reading older messages
+  // back to the bottom. Only a channel change or an actual new message scrolls.
   useEffect(() => {
     const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [chatMessages, active]);
+    const previous = scrollStateRef.current;
+    const messageCount = chatMessages[active]?.length ?? 0;
+    const channelChanged = previous.channelId !== active;
+    const receivedNewMessage = !channelChanged && messageCount > previous.messageCount;
+
+    if (el && (channelChanged || receivedNewMessage)) el.scrollTop = el.scrollHeight;
+
+    scrollStateRef.current = { channelId: active, messageCount };
+  }, [active, chatMessages[active]?.length]);
 
   // Selecting a channel marks its current messages as read, but a message
   // received while that channel is already open must be read as well.

@@ -244,6 +244,21 @@ create table if not exists message_reactions (
   primary key (message_id, member_id, emoji)
 );
 create index if not exists message_reactions_project_idx on message_reactions (project_id, message_id);
+do $$ begin
+  alter table message_reactions add constraint message_reactions_message_project_fk
+    foreign key (message_id, project_id) references chat_messages(id, project_id) on delete cascade;
+exception when duplicate_object then null;
+end $$;
+
+-- Private, trigger-managed counters. Clients have no grants on this table;
+-- it prevents a member from flooding chat or repeatedly toggling reactions.
+create table if not exists chat_write_rate_limits (
+  member_id uuid not null references members(id) on delete cascade,
+  kind text not null check (kind in ('message', 'reaction')),
+  window_started timestamptz not null default now(),
+  event_count integer not null default 0 check (event_count >= 0),
+  primary key (member_id, kind)
+);
 
 -- Auth is now wired up. Every table below is scoped to "signed-in users who
 -- are a member of the project the row belongs to" via the helper functions
@@ -260,6 +275,115 @@ returns boolean language sql security definer stable as $$
     select 1 from members m where m.project_id = p_project_id and m.user_id = auth.uid()
   );
 $$;
+
+-- `all` is team-wide. A DM is readable/writable only when the caller's
+-- member id is one of its two UUID segments and both members are in project.
+create or replace function public.can_access_chat_channel(p_project_id text, p_channel_id text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select case
+    when p_channel_id = 'all' then exists (
+      select 1 from public.members mine
+      where mine.project_id = p_project_id and mine.user_id = (select auth.uid())
+    )
+    when p_channel_id ~ '^dm:[0-9a-f-]{36}:[0-9a-f-]{36}$'
+      and split_part(p_channel_id, ':', 2) <> split_part(p_channel_id, ':', 3)
+    then exists (
+      select 1
+      from public.members mine
+      where mine.project_id = p_project_id
+        and mine.user_id = (select auth.uid())
+        and mine.id::text in (split_part(p_channel_id, ':', 2), split_part(p_channel_id, ':', 3))
+        and exists (
+          select 1 from public.members first_member
+          where first_member.project_id = p_project_id and first_member.id::text = split_part(p_channel_id, ':', 2)
+        )
+        and exists (
+          select 1 from public.members second_member
+          where second_member.project_id = p_project_id and second_member.id::text = split_part(p_channel_id, ':', 3)
+        )
+    )
+    else false
+  end;
+$$;
+
+revoke all on function public.can_access_chat_channel(text, text) from public;
+grant execute on function public.can_access_chat_channel(text, text) to authenticated;
+
+create or replace function public.consume_chat_rate_limit(p_member_id uuid, p_kind text, p_max integer, p_window interval)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_limit public.chat_write_rate_limits%rowtype;
+begin
+  insert into public.chat_write_rate_limits (member_id, kind, window_started, event_count)
+  values (p_member_id, p_kind, now(), 0)
+  on conflict (member_id, kind) do nothing;
+
+  select * into current_limit
+  from public.chat_write_rate_limits
+  where member_id = p_member_id and kind = p_kind
+  for update;
+
+  if current_limit.window_started <= now() - p_window then
+    update public.chat_write_rate_limits
+    set window_started = now(), event_count = 1
+    where member_id = p_member_id and kind = p_kind;
+  elsif current_limit.event_count >= p_max then
+    raise exception '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' using errcode = 'P0001';
+  else
+    update public.chat_write_rate_limits
+    set event_count = event_count + 1
+    where member_id = p_member_id and kind = p_kind;
+  end if;
+end;
+$$;
+
+create or replace function public.enforce_chat_message_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$ begin
+  if not exists (select 1 from public.members m where m.id = new.sender_id and m.user_id = (select auth.uid())) then
+    raise exception 'Invalid chat sender.' using errcode = '42501';
+  end if;
+  perform public.consume_chat_rate_limit(new.sender_id, 'message', 12, interval '30 seconds');
+  return new;
+end; $$;
+
+create or replace function public.enforce_chat_reaction_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$ begin
+  if not exists (select 1 from public.members m where m.id = new.member_id and m.user_id = (select auth.uid())) then
+    raise exception 'Invalid reaction member.' using errcode = '42501';
+  end if;
+  perform public.consume_chat_rate_limit(new.member_id, 'reaction', 30, interval '30 seconds');
+  return new;
+end; $$;
+
+drop trigger if exists chat_messages_rate_limit on chat_messages;
+create trigger chat_messages_rate_limit before insert on chat_messages
+for each row execute function public.enforce_chat_message_rate_limit();
+drop trigger if exists message_reactions_rate_limit on message_reactions;
+create trigger message_reactions_rate_limit before insert on message_reactions
+for each row execute function public.enforce_chat_reaction_rate_limit();
+
+alter table chat_write_rate_limits enable row level security;
+revoke all on table chat_write_rate_limits from anon, authenticated;
+revoke all on function public.consume_chat_rate_limit(uuid, text, integer, interval) from public;
+revoke all on function public.enforce_chat_message_rate_limit() from public;
+revoke all on function public.enforce_chat_reaction_rate_limit() from public;
 
 -- Deleting a whole project is destructive/irreversible, so it's restricted
 -- to the project's leader rather than any member.
@@ -590,47 +714,53 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Chat: readable by any project member; inserting requires the sender/reader
--- to actually be the authenticated user's own member row (so you can't post
--- or mark things read as someone else).
+-- Chat access is channel-scoped: team members see `all`, while DMs are
+-- restricted to the two member ids encoded in the channel id.
 alter table chat_messages enable row level security;
 alter table message_reads enable row level security;
 alter table message_reactions enable row level security;
 
 drop policy if exists chat_messages_select on chat_messages;
 drop policy if exists chat_messages_insert on chat_messages;
-create policy chat_messages_select on chat_messages for select using (is_project_member(project_id));
-create policy chat_messages_insert on chat_messages for insert
+create policy chat_messages_select on chat_messages for select to authenticated using (can_access_chat_channel(project_id, channel_id));
+create policy chat_messages_insert on chat_messages for insert to authenticated
   with check (
-    is_project_member(project_id)
+    can_access_chat_channel(project_id, channel_id)
     and exists (select 1 from members m where m.id = sender_id and m.user_id = auth.uid())
   );
 
 drop policy if exists message_reads_select on message_reads;
 drop policy if exists message_reads_insert on message_reads;
-create policy message_reads_select on message_reads for select using (is_project_member(project_id));
-create policy message_reads_insert on message_reads for insert
+create policy message_reads_select on message_reads for select to authenticated using (
+  exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reads.project_id and can_access_chat_channel(c.project_id, c.channel_id))
+);
+create policy message_reads_insert on message_reads for insert to authenticated
   with check (
-    is_project_member(project_id)
+    exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reads.project_id and can_access_chat_channel(c.project_id, c.channel_id))
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
-    and exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reads.project_id)
   );
 
 drop policy if exists message_reactions_select on message_reactions;
 drop policy if exists message_reactions_insert on message_reactions;
 drop policy if exists message_reactions_delete on message_reactions;
-create policy message_reactions_select on message_reactions for select using (is_project_member(project_id));
-create policy message_reactions_insert on message_reactions for insert
+create policy message_reactions_select on message_reactions for select to authenticated using (
+  exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id and can_access_chat_channel(c.project_id, c.channel_id))
+);
+create policy message_reactions_insert on message_reactions for insert to authenticated
   with check (
-    is_project_member(project_id)
+    exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id and can_access_chat_channel(c.project_id, c.channel_id))
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
-    and exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id)
   );
-create policy message_reactions_delete on message_reactions for delete
+create policy message_reactions_delete on message_reactions for delete to authenticated
   using (
-    is_project_member(project_id)
+    exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id and can_access_chat_channel(c.project_id, c.channel_id))
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
   );
+
+revoke all on table chat_messages, message_reads, message_reactions from anon, authenticated;
+grant select, insert on table chat_messages to authenticated;
+grant select, insert on table message_reads to authenticated;
+grant select, insert, delete on table message_reactions to authenticated;
 
 -- Realtime: without this, INSERTs into these tables never fire
 -- postgres_changes events on the client.
