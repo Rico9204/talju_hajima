@@ -1,6 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @import 'tailwindcss';
 
+@keyframes reaction-pop {
+  0% { opacity: 0; transform: translateY(8px) scale(0.65); }
+  65% { opacity: 1; transform: translateY(-2px) scale(1.08); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes reaction-picker-in {
+  from { opacity: 0; transform: translateX(var(--reaction-picker-offset, 6px)) scale(0.9); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

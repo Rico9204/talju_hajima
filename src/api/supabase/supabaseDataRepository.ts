@@ -118,7 +118,15 @@ function mapChecklistItem(row: any): ChecklistItem {
 }
 
 function mapTaskComment(row: any): TaskComment {
-  return { id: row.id, memberId: row.member_id ?? null, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+  return {
+    id: row.id,
+    memberId: row.member_id ?? null,
+    author: row.author,
+    avatar: row.avatar,
+    date: row.date,
+    text: row.text,
+    reactions: (row.task_comment_reactions ?? []).map((reaction: any) => ({ commentId: row.id, memberId: reaction.member_id, emoji: reaction.emoji })),
+  };
 }
 
 function mapTask(row: any): Task {
@@ -515,11 +523,22 @@ export const supabaseDataRepository: DataRepository = {
   async listTasks(projectId) {
     const { data, error } = await supabase
       .from("tasks")
+      .select("*, task_assignees(member_id), task_checklist_items(*), task_comments(*, task_comment_reactions(member_id, emoji))")
+      .eq("project_id", projectId)
+      .order("id", { ascending: true });
+    if (!error) return (data ?? []).map(mapTask);
+
+    // Keep the task board usable while a deployment reaches a browser before
+    // the optional task-comment reactions migration is applied (or while the
+    // PostgREST relationship cache refreshes).
+    console.warn("댓글 반응을 불러오지 못해 반응 없이 과제를 표시합니다:", error.message);
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("tasks")
       .select("*, task_assignees(member_id), task_checklist_items(*), task_comments(*)")
       .eq("project_id", projectId)
       .order("id", { ascending: true });
-    if (error) throw error;
-    return (data ?? []).map(mapTask);
+    if (fallbackError) throw fallbackError;
+    return (fallbackData ?? []).map(mapTask);
   },
 
   async createTask(projectId, input) {
@@ -647,6 +666,40 @@ export const supabaseDataRepository: DataRepository = {
     return mapTaskComment(data);
   },
 
+  async setTaskCommentReaction(commentId, memberId, emoji, active) {
+    if (active) {
+      const { error } = await supabase
+        .from("task_comment_reactions")
+        .upsert({ comment_id: commentId, member_id: memberId, emoji }, { onConflict: "comment_id,member_id,emoji", ignoreDuplicates: true });
+      if (error) throw error;
+      return;
+    }
+    const { error } = await supabase
+      .from("task_comment_reactions")
+      .delete()
+      .eq("comment_id", commentId)
+      .eq("member_id", memberId)
+      .eq("emoji", emoji);
+    if (error) throw error;
+  },
+
+  subscribeToTaskCommentReactions(projectId, onChange) {
+    const channel = supabase
+      .channel(`task_comment_reactions:${projectId}`, { config: { private: true } })
+      // Reactions do not carry project_id, so the table cannot use a server
+      // filter here. Its RLS policy controls delivery; the context reloads
+      // only the currently open project's tasks when an allowed event arrives.
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_comment_reactions" }, onChange)
+      .subscribe((status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("과제 댓글 반응 채널 연결에 실패했습니다:", error?.message ?? status);
+        }
+      });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
   async setTaskScheduleLink(taskId, field, eventId) {
     const column = field === "team" ? "team_schedule_event_id" : "personal_schedule_event_id";
     const { error } = await supabase.from("tasks").update({ [column]: eventId }).eq("id", taskId);
@@ -690,7 +743,10 @@ export const supabaseDataRepository: DataRepository = {
   async listMessages(projectId, channelId) {
     const { data, error } = await supabase
       .from("chat_messages")
-      .select("*, message_reads(member_id), message_reactions(member_id, emoji)")
+      // Both child tables have a legacy single-column FK and the hardened
+      // (message_id, project_id) FK. Name the latter explicitly so PostgREST
+      // does not reject this embed as an ambiguous relationship.
+      .select("*, message_reads!message_reads_message_project_fk(member_id), message_reactions!message_reactions_message_project_fk(member_id, emoji)")
       .eq("project_id", projectId)
       .eq("channel_id", channelId)
       .order("id", { ascending: true });
@@ -702,7 +758,7 @@ export const supabaseDataRepository: DataRepository = {
     console.warn("메시지 반응을 불러오지 못해 반응 없이 채팅 내역을 표시합니다:", error.message);
     const { data: fallbackData, error: fallbackError } = await supabase
       .from("chat_messages")
-      .select("*, message_reads(member_id)")
+      .select("*, message_reads!message_reads_message_project_fk(member_id)")
       .eq("project_id", projectId)
       .eq("channel_id", channelId)
       .order("id", { ascending: true });

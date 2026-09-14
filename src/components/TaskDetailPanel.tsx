@@ -3,11 +3,14 @@ import type { Task, TaskStatus, TaskPriority, Member } from "../context/ProjectC
 import { memberInfo } from "./TaskBoard";
 import Avatar from "./Avatar";
 
+const commentEmojis = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
+
 interface Props {
   task: Task;
   members: Member[];
   columns: { id: TaskStatus; label: string; color: string; bg: string }[];
   priorityLabel: Record<TaskPriority, { label: string; color: string }>;
+  currentMember: Member | null;
   isLeader: boolean;
   isAssignee: boolean;
   canChangeStatus: boolean;
@@ -19,6 +22,7 @@ interface Props {
   onToggleChecklist: (itemId: number, done: boolean) => void;
   onAddChecklistItem: (text: string) => void;
   onAddComment: (text: string) => void;
+  onToggleCommentReaction: (commentId: number, emoji: string) => void;
   onToggleTeamSchedule: (checked: boolean) => void;
   onTogglePersonalSchedule: (checked: boolean) => void;
 }
@@ -28,6 +32,7 @@ export default function TaskDetailPanel({
   members,
   columns,
   priorityLabel,
+  currentMember,
   isLeader,
   isAssignee,
   canChangeStatus,
@@ -39,12 +44,15 @@ export default function TaskDetailPanel({
   onToggleChecklist,
   onAddChecklistItem,
   onAddComment,
+  onToggleCommentReaction,
   onToggleTeamSchedule,
   onTogglePersonalSchedule,
 }: Props) {
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
+  const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
+  const [reactionPickerCommentId, setReactionPickerCommentId] = useState<number | null>(null);
 
   const doneCount = task.checklist.filter((c) => c.done).length;
   const canEditFields = isLeader && !locked;
@@ -335,14 +343,14 @@ export default function TaskDetailPanel({
               {task.comments.map((c) => {
                 const liveMember = c.memberId ? members.find((m) => m.id === c.memberId) : undefined;
                 return (
-                <div key={c.id} className="flex items-start gap-2.5">
+                <div key={c.id} className="group/comment flex items-start gap-2.5">
                   <Avatar
                     url={liveMember?.avatarUrl ?? null}
                     initial={liveMember?.avatar ?? c.avatar}
                     color={liveMember?.color ?? "#2563eb"}
                     size={28}
                   />
-                  <div className="flex-1 min-w-0">
+                  <div className="relative flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-700">{c.author}</span>
                       <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{c.date}</span>
@@ -350,6 +358,45 @@ export default function TaskDetailPanel({
                     <p className="text-xs mt-0.5 leading-relaxed px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}>
                       {c.text}
                     </p>
+                    <div className="absolute right-0 top-0 opacity-0 pointer-events-none group-hover/comment:opacity-100 group-hover/comment:pointer-events-auto group-focus-within/comment:opacity-100 group-focus-within/comment:pointer-events-auto transition-opacity z-10">
+                      <button
+                        onClick={() => setReactionPickerCommentId((id) => id === c.id ? null : c.id)}
+                        className="w-7 h-7 flex items-center justify-center text-xs"
+                        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "50%", boxShadow: "var(--shadow-card)" }}
+                        title="반응하기"
+                        aria-label="반응하기"
+                      >
+                        😊
+                      </button>
+                      {reactionPickerCommentId === c.id && (
+                        <div className="absolute top-0 right-full mr-1 flex items-center gap-0.5 p-1" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                          {commentEmojis.map((emoji) => (
+                            <button key={emoji} onClick={() => { onToggleCommentReaction(c.id, emoji); setReactionPickerCommentId(null); }} className="w-7 h-7 text-sm transition-transform hover:scale-110" title={`${emoji} 반응`}>
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {c.reactions.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                        {[...new Set(c.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
+                          const reactions = c.reactions.filter((reaction) => reaction.emoji === emoji);
+                          const reactedByMe = reactions.some((reaction) => reaction.memberId === currentMember?.id);
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => onToggleCommentReaction(c.id, emoji)}
+                              className="h-6 px-1.5 flex items-center gap-1 text-xs transition-all"
+                              style={{ background: reactedByMe ? "var(--secondary)" : "var(--muted)", color: "var(--foreground)", border: reactedByMe ? "1px solid var(--primary)" : "1px solid transparent", borderRadius: "12px", animation: "reaction-pop 280ms cubic-bezier(0.22, 1, 0.36, 1)" }}
+                              title={`${reactions.map((reaction) => members.find((m) => m.id === reaction.memberId)?.name ?? "팀원").join(", ")} 반응`}
+                            >
+                              <span>{emoji}</span><span className="font-600">{reactions.length}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
                 );
@@ -361,7 +408,25 @@ export default function TaskDetailPanel({
               )}
             </div>
             {!locked && (
-              <div className="flex gap-2">
+              <div className="relative flex gap-2">
+                <button
+                  onClick={() => setCommentEmojiPickerOpen((open) => !open)}
+                  className="w-8 h-8 shrink-0 text-sm"
+                  style={{ background: "var(--muted)", borderRadius: "50%" }}
+                  title="이모지 추가"
+                  aria-label="이모지 추가"
+                >
+                  😊
+                </button>
+                {commentEmojiPickerOpen && (
+                  <div className="absolute bottom-full left-0 mb-1 flex items-center gap-0.5 p-1 z-20" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                    {commentEmojis.map((emoji) => (
+                      <button key={emoji} onClick={() => { setCommentDraft((draft) => `${draft}${emoji}`); setCommentEmojiPickerOpen(false); }} className="w-7 h-7 text-sm transition-transform hover:scale-110" title={emoji}>
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <input
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}

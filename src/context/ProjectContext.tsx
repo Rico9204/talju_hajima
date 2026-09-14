@@ -93,6 +93,7 @@ interface ProjectContextValue {
   addTaskChecklistItem: (taskId: number, text: string) => Promise<void>;
   toggleTaskChecklistItem: (taskId: number, itemId: number, done: boolean) => Promise<void>;
   addTaskComment: (taskId: number, text: string) => Promise<void>;
+  toggleTaskCommentReaction: (commentId: number, emoji: string) => Promise<void>;
   toggleTaskTeamSchedule: (taskId: number, checked: boolean) => Promise<void>;
   toggleTaskPersonalSchedule: (taskId: number, checked: boolean) => Promise<void>;
   scheduleEvents: ScheduleEvent[];
@@ -344,6 +345,28 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     };
   }, [projectId]);
 
+  // Unlike chat messages, task comments are loaded with their task detail.
+  // Refresh the project task list when any team member adds or removes a
+  // comment reaction so already-open task panels stay in sync.
+  useEffect(() => {
+    if (!projectId) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = dataRepository.subscribeToTaskCommentReactions(projectId, () => {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void refreshTasks();
+      }, 75);
+    });
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+    // refreshTasks is recreated as context state changes; resubscribing on
+    // every render would drop short-lived Realtime events.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
   // Keep the current user's Presence entry while a project is open. Supabase
   // broadcasts a sync event whenever a teammate joins, leaves, reconnects,
   // or opens an additional tab.
@@ -529,6 +552,15 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshTasks();
   }
 
+  async function toggleTaskCommentReaction(commentId: number, emoji: string) {
+    if (!currentMember) return;
+    const comment = tasks.flatMap((task) => task.comments).find((item) => item.id === commentId);
+    if (!comment) return;
+    const active = !comment.reactions.some((reaction) => reaction.memberId === currentMember.id && reaction.emoji === emoji);
+    await dataRepository.setTaskCommentReaction(commentId, currentMember.id, emoji, active);
+    await refreshTasks();
+  }
+
   async function addScheduleEvent(input: NewScheduleEventInput) {
     if (!projectId || !currentMember) return;
     if (input.scope === "team" && !isLeader) return;
@@ -671,6 +703,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         addTaskChecklistItem,
         toggleTaskChecklistItem,
         addTaskComment,
+        toggleTaskCommentReaction,
         toggleTaskTeamSchedule,
         toggleTaskPersonalSchedule,
         scheduleEvents,

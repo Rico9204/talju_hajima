@@ -42,7 +42,7 @@ export default function TaskBoard() {
   const {
     project, team, isLeader, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
-    toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment,
+    toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
     toggleTaskTeamSchedule, toggleTaskPersonalSchedule,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
@@ -335,6 +335,7 @@ export default function TaskBoard() {
           members={team.members}
           columns={columns}
           priorityLabel={priorityLabel}
+          currentMember={currentMember}
           isLeader={isLeader}
           isAssignee={!!currentMember && selectedTask.assigneeIds.includes(currentMember.id)}
           canChangeStatus={isLeader}
@@ -346,6 +347,7 @@ export default function TaskBoard() {
           onToggleChecklist={(itemId, done) => toggleTaskChecklistItem(selectedTask.id, itemId, done)}
           onAddChecklistItem={(text) => addTaskChecklistItem(selectedTask.id, text)}
           onAddComment={(text) => addTaskComment(selectedTask.id, text)}
+          onToggleCommentReaction={(commentId, emoji) => toggleTaskCommentReaction(commentId, emoji)}
           onToggleTeamSchedule={(checked) => toggleTaskTeamSchedule(selectedTask.id, checked)}
           onTogglePersonalSchedule={(checked) => toggleTaskPersonalSchedule(selectedTask.id, checked)}
         />
