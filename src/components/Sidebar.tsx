@@ -533,7 +533,10 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
       <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setProfileOpen(false)}>
         <div className="w-[660px] max-w-[95vw] overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
           <div className="relative h-28" style={bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl) ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }}>
-            <button type="button" onClick={() => setProfileOpen(false)} className="absolute top-3 right-3 w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
+            <div className="absolute top-3 right-3 flex items-center gap-2">
+              <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>
+              <button type="button" onClick={() => setProfileOpen(false)} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
+            </div>
             {profileEditOpen && <div className="absolute top-12 right-3 flex items-center gap-1.5 p-1.5" style={{ background: "rgba(255,255,255,.94)", borderRadius: "12px", boxShadow: "0 4px 12px rgba(15,18,53,.16)" }}>
               {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-4 h-4" title={`${color} 배경`} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid #111827" : "1px solid rgba(255,255,255,.7)" }} />)}
               <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "8px" }}>🖼️<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>
@@ -542,9 +545,11 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
             <section className="relative z-10 px-5 pb-5">
-              <div className="flex items-end justify-between -mt-9 mb-4">
-                <div className="relative z-20 flex items-center gap-2"><div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div><label title="프로필 사진 변경" className="w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--primary)", color: "#fff", borderRadius: "999px" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label></div>
-                <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "var(--primary)", color: "#fff", borderRadius: "999px" }} title="프로필 편집">✎</button>
+              <div className="flex items-end -mt-9 mb-4">
+                <div className="relative z-20">
+                  <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
+                  {profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>}
+                </div>
               </div>
               <h2 className="text-xl font-800 mb-3">{profileName || myName}</h2>
               <div className="h-px mb-3" style={{ background: "var(--border)" }} />
