@@ -12,6 +12,7 @@ interface FileRef {
 const fileTypeLabel: Record<string, string> = {
   pdf: "PDF", doc: "DOC", ppt: "PPT", xls: "XLS", zip: "ZIP", img: "IMG",
 };
+const chatEmojis = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -27,10 +28,12 @@ export default function TeamChat({
 }: { initialChannel?: string; onOpenFile?: (fileId: number, folderId: number | null) => void }) {
   const {
     project, files, folders, team, currentMember,
-    chatMessages, chatUnread, sendChatMessage, markChannelMessagesRead,
+    chatMessages, chatUnread, sendChatMessage, toggleChatReaction, markChannelMessagesRead,
   } = useProject();
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -72,6 +75,8 @@ export default function TeamChat({
     markChannelMessagesRead(channelId);
     setPendingFile(null);
     setPickerOpen(false);
+    setEmojiPickerOpen(false);
+    setReactionPickerMessageId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, initialChannel, currentMember?.id]);
 
@@ -129,6 +134,11 @@ export default function TeamChat({
     sendChatMessage(active, input, pendingFile?.id);
     setInput("");
     setPendingFile(null);
+  }
+
+  function appendEmoji(emoji: string) {
+    setInput((value) => value + emoji);
+    setEmojiPickerOpen(false);
   }
 
   return (
@@ -264,6 +274,51 @@ export default function TeamChat({
                       </div>
                     </button>
                   )}
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5 px-0.5">
+                    {[...new Set(m.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
+                      const reactions = m.reactions.filter((reaction) => reaction.emoji === emoji);
+                      const reactedByMe = reactions.some((reaction) => reaction.memberId === currentMember.id);
+                      return (
+                        <button
+                          key={emoji}
+                          onClick={() => void toggleChatReaction(m.id, emoji)}
+                          className="h-6 px-1.5 flex items-center gap-1 text-xs transition-all"
+                          style={{
+                            background: reactedByMe ? "var(--secondary)" : "var(--muted)",
+                            color: "var(--foreground)",
+                            border: reactedByMe ? "1px solid var(--primary)" : "1px solid transparent",
+                            borderRadius: "12px",
+                          }}
+                          title={`${reactions.map((reaction) => memberFor(reaction.memberId)?.name ?? "팀원").join(", ")} 반응`}
+                        >
+                          <span>{emoji}</span><span className="font-600">{reactions.length}</span>
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => setReactionPickerMessageId((id) => id === m.id ? null : m.id)}
+                      className="w-6 h-6 flex items-center justify-center text-xs transition-all"
+                      style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "50%" }}
+                      aria-label="메시지에 반응 추가"
+                      title="반응 추가"
+                    >
+                      😊
+                    </button>
+                    {reactionPickerMessageId === m.id && (
+                      <div className="flex items-center gap-0.5 px-1.5 py-1" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}>
+                        {chatEmojis.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => { void toggleChatReaction(m.id, emoji); setReactionPickerMessageId(null); }}
+                            className="w-7 h-7 text-sm transition-transform hover:scale-110"
+                            title={`${emoji} 반응`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5 mt-1 px-1">
                     {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
                       <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
@@ -303,6 +358,15 @@ export default function TeamChat({
           </div>
 
           <div className="shrink-0 relative" style={{ borderTop: "1px solid var(--border)" }}>
+            {emojiPickerOpen && (
+              <div className="absolute bottom-full left-14 mb-2 flex items-center gap-1 p-1.5 z-20" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}>
+                {chatEmojis.map((emoji) => (
+                  <button key={emoji} onClick={() => appendEmoji(emoji)} className="w-8 h-8 text-base transition-transform hover:scale-110" title={`${emoji} 입력`}>
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
             {pickerOpen && (
               <div
                 className="absolute bottom-full left-4 right-4 mb-2 max-h-64 overflow-y-auto p-1.5 z-20"
@@ -356,7 +420,15 @@ export default function TeamChat({
 
             <div className="px-4 py-3 flex items-center gap-2">
               <button
-                onClick={() => setPickerOpen((v) => !v)}
+                onClick={() => setEmojiPickerOpen((value) => !value)}
+                className="w-9 h-9 flex items-center justify-center text-sm shrink-0 transition-all"
+                style={{ background: emojiPickerOpen ? "var(--primary)" : "var(--muted)", color: emojiPickerOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "50%" }}
+                title="이모지 입력"
+              >
+                😊
+              </button>
+              <button
+                onClick={() => { setPickerOpen((v) => !v); setEmojiPickerOpen(false); }}
                 className="w-9 h-9 flex items-center justify-center text-sm shrink-0 transition-all"
                 style={{ background: pickerOpen ? "var(--primary)" : "var(--muted)", color: pickerOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "50%" }}
                 title="워크스페이스 파일 언급"

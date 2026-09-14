@@ -226,6 +226,16 @@ create table if not exists message_reads (
   primary key (message_id, member_id)
 );
 
+create table if not exists message_reactions (
+  message_id bigint not null references chat_messages(id) on delete cascade,
+  member_id uuid not null references members(id) on delete cascade,
+  project_id text not null references projects(id) on delete cascade,
+  emoji text not null check (emoji in ('👍', '❤️', '😂', '🎉', '👀', '✅')),
+  created_at timestamptz not null default now(),
+  primary key (message_id, member_id, emoji)
+);
+create index if not exists message_reactions_project_idx on message_reactions (project_id, message_id);
+
 -- Auth is now wired up. Every table below is scoped to "signed-in users who
 -- are a member of the project the row belongs to" via the helper functions
 -- below, with two deliberate exceptions: (1) `projects` stays readable by
@@ -576,6 +586,7 @@ create trigger on_auth_user_created
 -- or mark things read as someone else).
 alter table chat_messages enable row level security;
 alter table message_reads enable row level security;
+alter table message_reactions enable row level security;
 
 drop policy if exists chat_messages_select on chat_messages;
 drop policy if exists chat_messages_insert on chat_messages;
@@ -595,10 +606,28 @@ create policy message_reads_insert on message_reads for insert
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
   );
 
+drop policy if exists message_reactions_select on message_reactions;
+drop policy if exists message_reactions_insert on message_reactions;
+drop policy if exists message_reactions_delete on message_reactions;
+create policy message_reactions_select on message_reactions for select using (is_project_member(project_id));
+create policy message_reactions_insert on message_reactions for insert
+  with check (
+    is_project_member(project_id)
+    and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+    and exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id)
+  );
+create policy message_reactions_delete on message_reactions for delete
+  using (
+    is_project_member(project_id)
+    and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+  );
+
 -- Realtime: without this, INSERTs into these tables never fire
 -- postgres_changes events on the client.
 alter publication supabase_realtime add table chat_messages;
 alter publication supabase_realtime add table message_reads;
+alter publication supabase_realtime add table message_reactions;
+alter table message_reactions replica identity full;
 
 -- Profile photo storage. Public bucket (avatars aren't sensitive and need to
 -- be viewable by teammates without a signed-URL round trip) — writes are

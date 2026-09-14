@@ -102,6 +102,7 @@ interface ProjectContextValue {
   chatUnreadTotal: number;
   chatMessages: Record<string, ChatMessage[]>;
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<void>;
+  toggleChatReaction: (messageId: number, emoji: string) => Promise<void>;
   markChannelMessagesRead: (channelId: string) => Promise<void>;
   currentMember: Member | null;
   isLeader: boolean;
@@ -303,13 +304,31 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setChatMessages({});
     if (!projectId) return;
 
-    const unsubMessages = dataRepository.subscribeToMessages(projectId, (msg) => {
-      setChatMessages((prev) => {
-        const list = prev[msg.channelId] ?? [];
-        if (list.some((m) => m.id === msg.id)) return prev;
-        return { ...prev, [msg.channelId]: [...list, msg] };
-      });
-    });
+    const unsubMessages = dataRepository.subscribeToMessages(
+      projectId,
+      (msg) => {
+        setChatMessages((prev) => {
+          const list = prev[msg.channelId] ?? [];
+          if (list.some((m) => m.id === msg.id)) return prev;
+          return { ...prev, [msg.channelId]: [...list, msg] };
+        });
+      },
+      ({ active, reaction }) => {
+        setChatMessages((prev) => {
+          const next: Record<string, ChatMessage[]> = {};
+          for (const [channelId, list] of Object.entries(prev)) {
+            next[channelId] = list.map((message) => {
+              if (message.id !== reaction.messageId) return message;
+              const exists = message.reactions.some((item) => item.memberId === reaction.memberId && item.emoji === reaction.emoji);
+              if (active && !exists) return { ...message, reactions: [...message.reactions, reaction] };
+              if (!active && exists) return { ...message, reactions: message.reactions.filter((item) => item.memberId !== reaction.memberId || item.emoji !== reaction.emoji) };
+              return message;
+            });
+          }
+          return next;
+        });
+      }
+    );
     const unsubReads = dataRepository.subscribeToReads(projectId, ({ messageId, memberId }) => {
       setChatMessages((prev) => {
         const next: Record<string, ChatMessage[]> = {};
@@ -571,6 +590,27 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  async function toggleChatReaction(messageId: number, emoji: string) {
+    if (!projectId || !currentMember) return;
+    const message = Object.values(chatMessages).flat().find((item) => item.id === messageId);
+    if (!message) return;
+    const active = !message.reactions.some((reaction) => reaction.memberId === currentMember.id && reaction.emoji === emoji);
+    await dataRepository.setMessageReaction(projectId, messageId, currentMember.id, emoji, active);
+    setChatMessages((prev) => {
+      const next: Record<string, ChatMessage[]> = {};
+      for (const [channelId, list] of Object.entries(prev)) {
+        next[channelId] = list.map((item) => {
+          if (item.id !== messageId) return item;
+          const exists = item.reactions.some((reaction) => reaction.memberId === currentMember.id && reaction.emoji === emoji);
+          if (active && !exists) return { ...item, reactions: [...item.reactions, { messageId, memberId: currentMember.id, emoji }] };
+          if (!active && exists) return { ...item, reactions: item.reactions.filter((reaction) => reaction.memberId !== currentMember.id || reaction.emoji !== emoji) };
+          return item;
+        });
+      }
+      return next;
+    });
+  }
+
   async function markChannelMessagesRead(channelId: string) {
     if (!projectId || !currentMember) return;
     const list = chatMessages[channelId] ?? [];
@@ -640,6 +680,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         chatUnreadTotal,
         chatMessages,
         sendChatMessage,
+        toggleChatReaction,
         markChannelMessagesRead,
         currentMember,
         isLeader,

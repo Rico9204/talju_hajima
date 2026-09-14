@@ -155,4 +155,11 @@ export interface ChatMessage {
   fileId: number | null;
   createdAt: string;
   readBy: string[];
+  reactions: ChatReaction[];
+}
+
+export interface ChatReaction {
+  messageId: number;
+  memberId: string;
+  emoji: string;
 }

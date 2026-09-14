@@ -15,6 +15,7 @@ import type {
   NewScheduleEventInput,
   Member,
   ChatMessage,
+  ChatReaction,
 } from "./types";
 
 /**
@@ -81,7 +82,12 @@ export interface DataRepository {
     input: { text: string; fileId?: number }
   ): Promise<ChatMessage>;
   markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
-  subscribeToMessages(projectId: string, onInsert: (m: ChatMessage) => void): () => void;
+  setMessageReaction(projectId: string, messageId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
+  subscribeToMessages(
+    projectId: string,
+    onInsert: (m: ChatMessage) => void,
+    onReaction: (change: { active: boolean; reaction: ChatReaction }) => void
+  ): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
   subscribeToPresence(projectId: string, memberId: string, onChange: (onlineMemberIds: Set<string>) => void): () => void;
 }

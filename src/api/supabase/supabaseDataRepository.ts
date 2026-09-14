@@ -13,6 +13,7 @@ import type {
   TaskComment,
   ScheduleEvent,
   ChatMessage,
+  ChatReaction,
 } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
@@ -161,6 +162,7 @@ function mapMessage(row: any): ChatMessage {
     fileId: row.file_id,
     createdAt: row.created_at,
     readBy: (row.message_reads ?? []).map((r: any) => r.member_id),
+    reactions: (row.message_reactions ?? []).map((r: any) => ({ messageId: row.id, memberId: r.member_id, emoji: r.emoji })),
   };
 }
 
@@ -688,7 +690,7 @@ export const supabaseDataRepository: DataRepository = {
   async listMessages(projectId, channelId) {
     const { data, error } = await supabase
       .from("chat_messages")
-      .select("*, message_reads(member_id)")
+      .select("*, message_reads(member_id), message_reactions(member_id, emoji)")
       .eq("project_id", projectId)
       .eq("channel_id", channelId)
       .order("id", { ascending: true });
@@ -703,7 +705,7 @@ export const supabaseDataRepository: DataRepository = {
       .select()
       .single();
     if (error) throw error;
-    return mapMessage({ ...data, message_reads: [] });
+    return mapMessage({ ...data, message_reads: [], message_reactions: [] });
   },
 
   async markChannelRead(projectId, channelId, readerMemberId, messageIds) {
@@ -713,13 +715,43 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
-  subscribeToMessages(projectId, onInsert) {
+  async setMessageReaction(projectId, messageId, memberId, emoji, active) {
+    if (active) {
+      const { error } = await supabase
+        .from("message_reactions")
+        .upsert({ message_id: messageId, member_id: memberId, project_id: projectId, emoji }, { onConflict: "message_id,member_id,emoji", ignoreDuplicates: true });
+      if (error) throw error;
+      return;
+    }
+    const { error } = await supabase
+      .from("message_reactions")
+      .delete()
+      .eq("message_id", messageId)
+      .eq("member_id", memberId)
+      .eq("emoji", emoji);
+    if (error) throw error;
+  },
+
+  subscribeToMessages(projectId, onInsert, onReaction) {
     const channel = supabase
       .channel(`chat_messages:${projectId}`, { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "chat_messages", filter: `project_id=eq.${projectId}` },
-        (payload) => onInsert(mapMessage({ ...payload.new, message_reads: [] }))
+        (payload) => onInsert(mapMessage({ ...payload.new, message_reads: [], message_reactions: [] }))
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "message_reactions", filter: `project_id=eq.${projectId}` },
+        (payload) => onReaction({ active: true, reaction: { messageId: payload.new.message_id, memberId: payload.new.member_id, emoji: payload.new.emoji } })
+      )
+      .on(
+        "postgres_changes",
+        // Supabase does not support server-side filters for DELETE events.
+        // RLS still limits delivery, and the context only updates message ids
+        // already loaded for this project.
+        { event: "DELETE", schema: "public", table: "message_reactions" },
+        (payload) => onReaction({ active: false, reaction: { messageId: payload.old.message_id, memberId: payload.old.member_id, emoji: payload.old.emoji } })
       )
       .subscribe();
     return () => {
