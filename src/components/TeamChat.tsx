@@ -33,7 +33,6 @@ export default function TeamChat({
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -76,7 +75,6 @@ export default function TeamChat({
     setPendingFile(null);
     setPickerOpen(false);
     setEmojiPickerOpen(false);
-    setReactionPickerMessageId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, initialChannel, currentMember?.id]);
 
@@ -249,42 +247,58 @@ export default function TeamChat({
                   {!mine && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
-                  {m.text && (
-                    <div
-                      className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed break-words"
-                      style={{
-                        background: mine ? "var(--primary)" : "var(--muted)",
-                        color: mine ? "#fff" : "var(--foreground)",
-                        borderRadius: mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {m.text}
+                  <div className={`flex items-center gap-1.5 max-w-full ${mine ? "flex-row-reverse" : ""}`}>
+                    <div className="flex flex-col min-w-0" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                      {m.text && (
+                        <div
+                          className="px-3.5 py-2.5 text-sm max-w-[75%] leading-relaxed break-words"
+                          style={{
+                            background: mine ? "var(--primary)" : "var(--muted)",
+                            color: mine ? "#fff" : "var(--foreground)",
+                            borderRadius: mine ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {m.text}
+                        </div>
+                      )}
+                      {fileRef && (
+                        <button
+                          onClick={() => onOpenFile?.(fileRef.id, fileRef.folderId)}
+                          className="flex items-center gap-2.5 px-3 py-2.5 max-w-[75%] text-left transition-all"
+                          style={{
+                            background: "var(--card)",
+                            border: "1.5px solid var(--border)",
+                            borderRadius: "12px",
+                            marginTop: m.text ? 6 : 0,
+                          }}
+                        >
+                          <span
+                            className="text-xs font-700 px-2 py-1 shrink-0"
+                            style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                          >
+                            {fileTypeLabel[fileRef.type] || "FILE"}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-700 truncate" style={{ color: "var(--foreground)" }}>{fileRef.name}</div>
+                            <div className="text-xs" style={{ color: "var(--primary)" }}>{fileRef.folderName} · 워크스페이스에서 보기 →</div>
+                          </div>
+                        </button>
+                      )}
                     </div>
-                  )}
-                  {fileRef && (
-                    <button
-                      onClick={() => onOpenFile?.(fileRef.id, fileRef.folderId)}
-                      className="flex items-center gap-2.5 px-3 py-2.5 max-w-[75%] text-left transition-all"
-                      style={{
-                        background: "var(--card)",
-                        border: "1.5px solid var(--border)",
-                        borderRadius: "12px",
-                        marginTop: m.text ? 6 : 0,
-                      }}
-                    >
-                      <span
-                        className="text-xs font-700 px-2 py-1 shrink-0"
-                        style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
-                      >
-                        {fileTypeLabel[fileRef.type] || "FILE"}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-xs font-700 truncate" style={{ color: "var(--foreground)" }}>{fileRef.name}</div>
-                        <div className="text-xs" style={{ color: "var(--primary)" }}>{fileRef.folderName} · 워크스페이스에서 보기 →</div>
-                      </div>
-                    </button>
-                  )}
+                    <div className="flex items-center gap-0.5 p-1 opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100 transition-opacity" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}>
+                      {chatEmojis.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => void toggleChatReaction(m.id, emoji)}
+                          className="w-7 h-7 text-sm transition-transform hover:scale-110"
+                          title={`${emoji} 반응`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="flex flex-wrap items-center gap-1 mt-1.5 px-0.5">
                     {[...new Set(m.reactions.map((reaction) => reaction.emoji))].map((emoji) => {
                       const reactions = m.reactions.filter((reaction) => reaction.emoji === emoji);
@@ -306,29 +320,6 @@ export default function TeamChat({
                         </button>
                       );
                     })}
-                    <button
-                      onClick={() => setReactionPickerMessageId((id) => id === m.id ? null : m.id)}
-                      className={`w-6 h-6 flex items-center justify-center text-xs transition-all ${reactionPickerMessageId === m.id ? "opacity-100" : "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"}`}
-                      style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "50%" }}
-                      aria-label="메시지에 반응 추가"
-                      title="반응 추가"
-                    >
-                      😊
-                    </button>
-                    {reactionPickerMessageId === m.id && (
-                      <div className="flex items-center gap-0.5 px-1.5 py-1" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}>
-                        {chatEmojis.map((emoji) => (
-                          <button
-                            key={emoji}
-                            onClick={() => { void toggleChatReaction(m.id, emoji); setReactionPickerMessageId(null); }}
-                            className="w-7 h-7 text-sm transition-transform hover:scale-110"
-                            title={`${emoji} 반응`}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <div className="flex items-center gap-1.5 mt-1 px-1">
                     {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
