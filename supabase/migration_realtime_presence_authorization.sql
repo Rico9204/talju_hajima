@@ -15,11 +15,14 @@ set search_path = public
 stable
 as $$
   select
-    p_topic ~ '^(presence|chat_messages|message_reads):.+$'
-    and exists (
+    exists (
       select 1
       from public.members m
-      where m.project_id = (regexp_match(p_topic, '^(presence|chat_messages|message_reads):(.+)$'))[2]
+      where m.project_id = case
+        when p_topic ~* '^(presence|chat_messages|message_reads):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          then split_part(p_topic, ':', 2)::uuid
+        else null
+      end
         and m.user_id = auth.uid()
     );
 $$;
