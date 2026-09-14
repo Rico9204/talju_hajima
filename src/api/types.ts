@@ -98,6 +98,13 @@ export interface TaskComment {
   avatar: string;
   date: string;
   text: string;
+  reactions: TaskCommentReaction[];
+}
+
+export interface TaskCommentReaction {
+  commentId: number;
+  memberId: string;
+  emoji: string;
 }
 
 export interface Task {
