@@ -85,6 +85,17 @@ export default function TeamChat({
     if (el) el.scrollTop = el.scrollHeight;
   }, [chatMessages, active]);
 
+  // Selecting a channel marks its current messages as read, but a message
+  // received while that channel is already open must be read as well.
+  // Watching the message count avoids treating reaction updates as messages.
+  useEffect(() => {
+    if (!currentMember) return;
+    void markChannelMessagesRead(active);
+    // markChannelMessagesRead is recreated with context state; only run this
+    // when the viewed channel or its actual message count changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, currentMember?.id, chatMessages[active]?.length]);
+
   if (!currentMember) {
     return (
       <div className="p-4 md:p-6 max-w-5xl mx-auto">
