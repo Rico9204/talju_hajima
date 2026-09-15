@@ -87,12 +87,17 @@ async function walk(
       await walk(handle as FileSystemDirectoryHandle, path, files, skipped);
     } else {
       const fileHandle = handle as FileSystemFileHandle;
-      const file = await fileHandle.getFile();
-      if (file.size > MAX_FILE_SIZE) {
-        skipped.push(path);
-        continue;
-      }
+      // getFile()과 text() 둘 다 한 try 안에 있어야 한다 — 에디터가 저장할 때 흔히 쓰는
+      // "임시 파일에 쓰고 원본으로 rename" 방식은 그 찰나에 getFile()이 NotFoundError 등으로
+      // 실패할 수 있다. 이게 walk() 밖으로 새어나가면 runSync()의 catch까지 올라가 동기화
+      // 전체가 중단되고 자동 동기화가 꺼져버린다 — 파일 하나를 이번 주기에 건너뛰는 것으로
+      // 충분하니 여기서 잡아야 한다.
       try {
+        const file = await fileHandle.getFile();
+        if (file.size > MAX_FILE_SIZE) {
+          skipped.push(path);
+          continue;
+        }
         const content = await file.text();
         files.push({ path, content });
       } catch {
