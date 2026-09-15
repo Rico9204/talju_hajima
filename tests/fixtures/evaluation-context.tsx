@@ -2,14 +2,14 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import type { EvaluationData, EvaluationEntry, EvaluationPhase } from "../../src/api/types";
 const Context = createContext<any>(null);
 const team = { members: [
-  { id: "me", userId: "me", name: "테스트 팀장", major: "개발" },
-  { id: "one", userId: "one", name: "테스트 동료 1", major: "디자인" },
-  { id: "two", userId: "two", name: "테스트 동료 2", major: "기획" },
+  { id: "me", userId: "me", name: "테스트 팀장", avatar: "팀", color: "#2563eb", major: "개발" },
+  { id: "one", userId: "one", name: "테스트 동료 1", avatar: "일", color: "#f59e0b", major: "디자인" },
+  { id: "two", userId: "two", name: "테스트 동료 2", avatar: "이", color: "#22c55e", major: "기획" },
 ] };
 export function Fixture({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState("active");
   const project = { id: mode === "short" ? "short" : "test", name: "로컬 UI 검증", status: mode === "done" ? "done" : "active" };
-  const storageKey = (phase: string) => "evaluation-prototype-fixture:" + project.id + ":" + phase;
+  const storageKey = (phase: string) => "evaluation-restored-ui-fixture:" + project.id + ":" + phase;
   return <Context.Provider value={{
     project, team, currentMember: team.members[0], isLeader: true, isShortTerm: mode === "short",
     getEvaluationMode: async () => true,
