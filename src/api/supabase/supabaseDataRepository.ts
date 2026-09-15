@@ -179,6 +179,23 @@ function mapMessage(row: any): ChatMessage {
 }
 
 export const supabaseDataRepository: DataRepository = {
+  async getEvaluations(projectId, phase) {
+    const [records, submissions] = await Promise.all([
+      supabase.from("peer_evaluations").select("*").eq("project_id", projectId).eq("phase", phase).order("created_at"),
+      supabase.from("peer_evaluation_submissions").select("id").eq("project_id", projectId).eq("phase", phase),
+    ]);
+    if (records.error) throw records.error;
+    if (submissions.error) throw submissions.error;
+    return { records: records.data ?? [], submitted: !!submissions.data?.length };
+  },
+  async submitEvaluations(projectId, phase, entries) {
+    const { error } = await supabase.rpc("submit_peer_evaluations", { p_project_id: projectId, p_phase: phase, p_entries: entries });
+    if (error) throw error;
+  },
+  async completeProject(projectId) {
+    const { error } = await supabase.rpc("complete_evaluation_project", { p_project_id: projectId });
+    if (error) throw error;
+  },
   async listProjects() {
     const { data, error } = await supabase.from("projects").select("*").order("created_at", { ascending: true });
     if (error) throw error;

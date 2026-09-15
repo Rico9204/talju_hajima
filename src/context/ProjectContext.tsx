@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import type { EvaluationPhase, EvaluationEntry, EvaluationData } from "../api/types";
+import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
 import { dataRepository } from "../api";
 import type {
   Project,
@@ -66,6 +67,9 @@ export function isShortTermProject(p: Project): boolean {
 }
 
 interface ProjectContextValue {
+  getEvaluations: (phase: EvaluationPhase) => Promise<EvaluationData>;
+  submitEvaluations: (phase: EvaluationPhase, entries: EvaluationEntry[]) => Promise<void>;
+  completeProject: () => Promise<void>;
   projects: Project[];
   project: Project;
   setProjectId: (id: string) => void;
@@ -198,6 +202,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const evaluationProjectRef = useRef(projectId);
+  evaluationProjectRef.current = projectId;
   const [team, setTeam] = useState<TeamData>({ teamLabel: "", teamSub: "", members: [] });
   const [folders, setFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -689,6 +695,21 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   return (
     <ProjectContext.Provider
       value={{
+        getEvaluations: async (phase) => {
+          const [result, refreshedTeam] = await Promise.all([
+            dataRepository.getEvaluations(project.id, phase),
+            dataRepository.getTeam(project.id),
+          ]);
+          if (evaluationProjectRef.current === project.id) setTeam(refreshedTeam);
+          return result;
+        },
+        submitEvaluations: async (phase, entries) => {
+          await dataRepository.submitEvaluations(project.id, phase, entries);
+        },
+        completeProject: async () => {
+          await dataRepository.completeProject(project.id);
+          setProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: "done" } : p));
+        },
         projects,
         project,
         setProjectId,

@@ -183,3 +183,24 @@ export interface ChatReaction {
   memberId: string;
   emoji: string;
 }
+
+export type EvaluationPhase = "midterm" | "final";
+export interface EvaluationEntry {
+  recipient_id: string;
+  role: number;
+  deadline: number;
+  communication: number;
+  collaboration: number;
+  quality: number;
+  comment: string;
+}
+export interface PeerEvaluationRecord extends EvaluationEntry {
+  id: string;
+  evaluator_id: string;
+  phase: EvaluationPhase;
+  created_at: string;
+}
+export interface EvaluationData {
+  records: PeerEvaluationRecord[];
+  submitted: boolean;
+}

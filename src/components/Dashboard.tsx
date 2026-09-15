@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
 
@@ -84,9 +85,34 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, currentMember } = useProject();
-  const data = dashboardData[project.id] || emptyDashboardData;
+  const { project, currentMember, isShortTerm, getEvaluations } = useProject();
   const isDone = project.status === "done";
+  const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean } | null>(null);
+  const evaluationKey = project.id + ":" + project.status;
+  useEffect(() => {
+    let active = true;
+    getEvaluations(isDone ? "final" : "midterm")
+      .then((result) => { if (active) setEvaluation({ key: evaluationKey, submitted: result.submitted }); })
+      .catch(() => { if (active) setEvaluation(null); });
+    return () => { active = false; };
+  }, [evaluationKey]);
+  const source = dashboardData[project.id] || emptyDashboardData;
+  const data = {
+    ...source,
+    banner: isDone ? "프로젝트가 종료되었습니다. 종료 평가를 작성하고 받은 평가를 확인해 주세요." :
+      source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." : source.banner,
+    ctaPrimary: isDone ? { label: "종료 평가로 이동 →", page: "evaluation" as Page } : source.ctaPrimary,
+    deadlines: source.deadlines.filter((d) => !d.label.includes("평가")),
+    activity: source.activity.filter((a) => !a.action.includes("평가")),
+    stats: source.stats.map((stat) => stat.label === "평가 완료" ? {
+      ...stat, label: "내 평가",
+      value: !isDone && isShortTerm ? "생략" : evaluation?.key === evaluationKey ? evaluation.submitted ? "제출 완료" : "미제출" : "—",
+      sub: isDone ? "종료 평가" : "중간 점검",
+    } : stat.label === "협업 평점" ? {
+      ...stat, value: isDone && currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
+      sub: "이 프로젝트 종료 평가",
+    } : stat),
+  };
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
