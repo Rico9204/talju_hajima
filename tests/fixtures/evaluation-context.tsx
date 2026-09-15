@@ -9,9 +9,10 @@ const team = { members: [
 export function Fixture({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState("active");
   const project = { id: mode === "short" ? "short" : "test", name: "로컬 UI 검증", status: mode === "done" ? "done" : "active" };
-  const storageKey = (phase: string) => "evaluation-fixture:" + project.id + ":" + phase;
+  const storageKey = (phase: string) => "evaluation-prototype-fixture:" + project.id + ":" + phase;
   return <Context.Provider value={{
     project, team, currentMember: team.members[0], isLeader: true, isShortTerm: mode === "short",
+    getEvaluationMode: async () => true,
     getEvaluations: async (phase: EvaluationPhase): Promise<EvaluationData> => JSON.parse(localStorage.getItem(storageKey(phase)) || '{"records":[],"submitted":false}'),
     submitEvaluations: async (phase: EvaluationPhase, entries: EvaluationEntry[]) => {
       const records = entries.map((e, i) => ({ ...e, id: String(i), phase, evaluator_id: "me", created_at: new Date().toISOString() }));

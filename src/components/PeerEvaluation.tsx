@@ -22,12 +22,48 @@ function errorMessage(error: unknown) {
 }
 export default function PeerEvaluation() {
   const { project, currentMember } = useProject();
-  return <EvaluationPanel key={project.id + ":" + project.status + ":" + currentMember?.id} />;
+  return <EvaluationSelector key={project.id + ":" + project.status + ":" + currentMember?.id} />;
 }
-function EvaluationPanel() {
+function EvaluationSelector() {
+  const { project, getEvaluationMode } = useProject();
+  const [prototype, setPrototype] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [phase, setPhase] = useState<EvaluationPhase>(project.status === "done" ? "final" : "midterm");
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setError("");
+    getEvaluationMode().then((enabled) => { if (active) setPrototype(enabled); })
+      .catch((e) => { if (active) setError(errorMessage(e)); });
+    return () => { active = false; };
+  }, [retry]);
+  if (error) return <div role="alert" className="p-6">{error} <button onClick={() => setRetry((n) => n + 1)}>다시 불러오기</button></div>;
+  if (prototype === null) return <p role="status" className="p-6">평가 설정을 불러오는 중…</p>;
+  const phases: EvaluationPhase[] = prototype ? ["midterm", "final"] : [phase];
+  return <div>
+    {prototype && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
+      <p className="text-sm mb-3">프로토타입 검증 모드 · 기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다. 제출한 최종 평가는 팀에 공개되고 평판에 반영됩니다.</p>
+      <div role="tablist" aria-label="평가 유형" className="flex gap-2">
+        {phases.map((value) => <button key={value} type="button" role="tab" id={"evaluation-tab-" + value}
+          aria-selected={phase === value} aria-controls={"evaluation-panel-" + value} disabled={submitting}
+          onClick={() => setPhase(value)} className="px-5 py-2 rounded-full disabled:opacity-50"
+          style={{ background: phase === value ? "var(--primary)" : "var(--muted)", color: phase === value ? "#fff" : "var(--foreground)" }}>
+          {value === "midterm" ? "중간 평가" : "최종 평가"}
+        </button>)}
+      </div>
+    </div>}
+    {phases.map((value) => <div key={value} hidden={phase !== value} role={prototype ? "tabpanel" : undefined}
+      id={"evaluation-panel-" + value} aria-labelledby={prototype ? "evaluation-tab-" + value : undefined}>
+      <EvaluationPanel phase={value} prototype={prototype} active={phase === value} onBusyChange={setSubmitting} />
+    </div>)}
+  </div>;
+}
+function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
+  phase: EvaluationPhase; prototype: boolean; active: boolean; onBusyChange: (busy: boolean) => void;
+}) {
   const { project, team, currentMember, isLeader, isShortTerm, getEvaluations, submitEvaluations, completeProject } = useProject();
-  const phase: EvaluationPhase = project.status === "done" ? "final" : "midterm";
-  const skipped = phase === "midterm" && isShortTerm;
+  const skipped = !prototype && phase === "midterm" && isShortTerm;
   const [data, setData] = useState<EvaluationData | null>(null);
   const [draft, setDraft] = useState<Record<string, EvaluationEntry>>({});
   const [error, setError] = useState("");
@@ -37,14 +73,15 @@ function EvaluationPanel() {
   const [saved, setSaved] = useState(false);
   const [viewedMemberId, setViewedMemberId] = useState(currentMember?.id ?? "");
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    let mounted = true;
     setError("");
     getEvaluations(phase).then((result) => {
-      if (active) setData(result);
-    }).catch((e) => { if (active) setError(errorMessage(e)); });
-    return () => { active = false; };
-    // The panel remounts for project, phase and account changes.
-  }, [phase, refresh]);
+      if (mounted) setData(result);
+    }).catch((e) => { if (mounted) setError(errorMessage(e)); });
+    return () => { mounted = false; };
+    // Each phase keeps its own draft; project/account changes remount the selector.
+  }, [phase, refresh, active]);
   const submitted = saved || !!data?.submitted;
   const peers = team.members.filter((m) => submitted
     ? data?.records.some((r) => r.evaluator_id === currentMember?.id && r.recipient_id === m.id)
@@ -60,13 +97,13 @@ function EvaluationPanel() {
   const memberName = (id: string) => team.members.find((m) => m.id === id)?.name ?? "팀원";
   async function submit() {
     if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
-    setBusy(true); setError("");
+    setBusy(true); onBusyChange(true); setError("");
     try {
       await submitEvaluations(phase, entries);
       setSaved(true);
       setRefresh((n) => n + 1);
     } catch (e) { setError(errorMessage(e)); }
-    finally { setBusy(false); }
+    finally { setBusy(false); onBusyChange(false); }
   }
   async function closeProject() {
     setBusy(true); setError("");
@@ -77,14 +114,14 @@ function EvaluationPanel() {
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-700">동료 평가 · {project.name}</h1>
       <p className="mt-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
-        {phase === "final" ? "종료 평가 · 제출한 점수와 의견은 팀원에게 공개되고 이 프로젝트 평판에 반영됩니다." :
+        {phase === "final" ? "최종 평가 · 제출한 점수와 의견은 팀원에게 공개되고 이 프로젝트 평판에 반영됩니다." :
           "중간 점검 · 작성자와 평가받는 사람만 조회할 수 있으며 프로필 평판에는 반영되지 않습니다."}
       </p>
-      {isLeader && phase === "midterm" && (
+      {!prototype && isLeader && phase === "midterm" && (
         <div className="my-4 p-4 border rounded-xl" style={{ borderColor: "var(--border)" }}>
-          {!confirmClose ? <button type="button" onClick={() => setConfirmClose(true)} disabled={busy}>프로젝트 종료 및 종료 평가 열기</button> :
+          {!confirmClose ? <button type="button" onClick={() => setConfirmClose(true)} disabled={busy}>프로젝트 종료 및 최종 평가 열기</button> :
             <div>
-              <p>프로젝트를 종료하면 중간 평가는 마감되고 종료 평가가 열립니다. 종료하시겠습니까?</p>
+              <p>프로젝트를 종료하면 중간 평가는 마감되고 최종 평가가 열립니다. 종료하시겠습니까?</p>
               <div className="flex gap-4 mt-3">
                 <button type="button" disabled={busy} onClick={closeProject}>{busy ? "처리 중…" : "프로젝트 종료"}</button>
                 <button type="button" disabled={busy} onClick={() => setConfirmClose(false)}>취소</button>
@@ -96,12 +133,12 @@ function EvaluationPanel() {
         {error} <button type="button" className="underline ml-2" disabled={busy} onClick={() => { setData(null); setRefresh((n) => n + 1); }}>다시 불러오기</button>
       </div>}
       {!data && !error && <p role="status" className="my-6">평가를 불러오는 중…</p>}
-      {skipped && <p className="my-6 p-5 border rounded-xl">2주 미만 프로젝트는 중간 점검을 생략합니다. 프로젝트 종료 후 종료 평가를 진행해 주세요.</p>}
+      {skipped && <p className="my-6 p-5 border rounded-xl">2주 미만 프로젝트는 중간 점검을 생략합니다. 프로젝트 종료 후 최종 평가를 진행해 주세요.</p>}
       {!skipped && !submitted && currentMember && peers.length === 0 && <p className="my-6">아직 평가할 동료가 없습니다. 실제 계정으로 팀에 참여한 동료를 평가할 수 있습니다.</p>}
       {!currentMember && <p className="my-6">팀 참여 정보를 확인해 주세요.</p>}
       {data && !skipped && currentMember && (peers.length > 0 || submitted) && (
         <section className="mt-6" aria-label="평가 작성">
-          <h2 className="text-lg font-700">{phase === "final" ? "종료 평가 작성" : "중간 평가 작성"}</h2>
+          <h2 className="text-lg font-700">{phase === "final" ? "최종 평가 작성" : "중간 평가 작성"}</h2>
           <p className="text-sm mt-2">각 항목은 1~10점입니다. 항목마다 동료 {peers.length}명에게 총 {pool}점을 배분해 주세요. 제출 후에는 수정할 수 없습니다.</p>
           <p className="text-xs mt-1">작성 중인 내용은 이 화면을 벗어나면 사라집니다. 제출한 평가는 저장됩니다.</p>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2 my-4" aria-live="polite">
@@ -137,7 +174,7 @@ function EvaluationPanel() {
       )}
       {data && <section className="mt-8" aria-label="받은 평가">
         <div className="flex gap-4 items-center">
-          <h2 className="text-lg font-700">{phase === "final" && viewedMemberId !== currentMember?.id ? memberName(viewedMemberId) + " 님이 받은" : "내가 받은"} {phase === "final" ? "종료 평가" : "중간 피드백"} · {received.length}건</h2>
+          <h2 className="text-lg font-700">{phase === "final" && viewedMemberId !== currentMember?.id ? memberName(viewedMemberId) + " 님이 받은" : "내가 받은"} {phase === "final" ? "최종 평가" : "중간 피드백"} · {received.length}건</h2>
           <button type="button" className="text-sm underline" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>새로고침</button>
         </div>
         {phase === "final" && <label className="block text-sm mt-3">평가 결과 대상

@@ -85,14 +85,18 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, currentMember, isShortTerm, getEvaluations } = useProject();
+  const { project, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
-  const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean } | null>(null);
+  const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
   const evaluationKey = project.id + ":" + project.status;
   useEffect(() => {
     let active = true;
-    getEvaluations(isDone ? "final" : "midterm")
-      .then((result) => { if (active) setEvaluation({ key: evaluationKey, submitted: result.submitted }); })
+    getEvaluationMode().then(async (prototype) => {
+      const result = await getEvaluations(prototype ? "midterm" : isDone ? "final" : "midterm");
+      const final = prototype ? await getEvaluations("final") : null;
+      return { key: evaluationKey, submitted: result.submitted, prototype, finalSubmitted: final?.submitted ?? false };
+    })
+      .then((result) => { if (active) setEvaluation(result); })
       .catch(() => { if (active) setEvaluation(null); });
     return () => { active = false; };
   }, [evaluationKey]);
@@ -106,10 +110,12 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     activity: source.activity.filter((a) => !a.action.includes("평가")),
     stats: source.stats.map((stat) => stat.label === "평가 완료" ? {
       ...stat, label: "내 평가",
-      value: !isDone && isShortTerm ? "생략" : evaluation?.key === evaluationKey ? evaluation.submitted ? "제출 완료" : "미제출" : "—",
-      sub: isDone ? "종료 평가" : "중간 점검",
+      value: evaluation?.key !== evaluationKey ? "—" : evaluation.prototype
+        ? (evaluation.submitted ? "중간 완료" : "중간 대기") + " · " + (evaluation.finalSubmitted ? "최종 완료" : "최종 대기")
+        : !isDone && isShortTerm ? "생략" : evaluation.submitted ? "제출 완료" : "미제출",
+      sub: evaluation?.key === evaluationKey && evaluation.prototype ? "프로토타입 검증" : isDone ? "최종 평가" : "중간 점검",
     } : stat.label === "협업 평점" ? {
-      ...stat, value: isDone && currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
+      ...stat, value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
       sub: "이 프로젝트 종료 평가",
     } : stat),
   };

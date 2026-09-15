@@ -179,6 +179,11 @@ function mapMessage(row: any): ChatMessage {
 }
 
 export const supabaseDataRepository: DataRepository = {
+  async getEvaluationMode() {
+    const { data, error } = await supabase.rpc("evaluation_prototype_enabled");
+    if (error) throw error;
+    return data === true;
+  },
   async getEvaluations(projectId, phase) {
     const [records, submissions] = await Promise.all([
       supabase.from("peer_evaluations").select("*").eq("project_id", projectId).eq("phase", phase).order("created_at"),
