@@ -44,6 +44,121 @@ function buildMonthGrid(monthDate: Date): Date[] {
   });
 }
 
+// 일정 생성 폼에 시간을 남기지 않으면 자정(00:00)으로 저장된다 — 그래서 "시간이 실제로
+// 설정됐는지"는 별도 필드 없이 시:분이 00:00이 아닌지로 판단한다 (자정 정각에 시작하는
+// 일정을 시간 미설정으로 오판하는 예외가 있지만, 필드를 새로 추가하는 것보단 가벼움).
+function hasExplicitTime(iso: string): boolean {
+  const d = new Date(iso);
+  return d.getHours() !== 0 || d.getMinutes() !== 0;
+}
+
+function formatDayLabel(dateKey: string): string {
+  const [, m, d] = dateKey.split("-").map(Number);
+  return `${m}월 ${d}일`;
+}
+
+const POPUP_WIDTH = 420;
+const POPUP_HEIGHT = 380;
+const POPUP_ANIM_MS = 220;
+
+// 더블클릭한 날짜 칸의 위치(originRect)에서 시작해, 그 칸의 중심을 기준으로 펼쳐진 크기
+// (targetRect)로 커지는 팝업 — 화면 중앙이 아니라 클릭한 칸 자리에서 커진다(화면 밖으로
+// 나가지 않게 16px 여백만큼만 안쪽으로 밀어넣음). 마운트 직후 한 프레임 뒤에 phase를
+// 'open'으로 바꿔서 CSS transition이 실제로 발동하게 한다(처음부터 open 스타일로 그리면
+// transition이 걸리지 않음).
+function DayEventsPopup({
+  dateKey,
+  segments,
+  onClose,
+  originRect,
+}: {
+  dateKey: string;
+  segments: { event: CalendarEvent; start: string; end: string }[];
+  onClose: () => void;
+  originRect: DOMRect;
+}) {
+  const [phase, setPhase] = useState<"enter" | "open" | "closing">("enter");
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setPhase("open"));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  function close() {
+    setPhase("closing");
+    setTimeout(onClose, POPUP_ANIM_MS);
+  }
+
+  const open = phase === "open";
+  const targetWidth = Math.min(POPUP_WIDTH, window.innerWidth - 32);
+  const targetHeight = Math.min(POPUP_HEIGHT, window.innerHeight - 32);
+  const originCenterX = originRect.left + originRect.width / 2;
+  const originCenterY = originRect.top + originRect.height / 2;
+  const targetRect = {
+    left: Math.min(Math.max(originCenterX - targetWidth / 2, 16), window.innerWidth - targetWidth - 16),
+    top: Math.min(Math.max(originCenterY - targetHeight / 2, 16), window.innerHeight - targetHeight - 16),
+    width: targetWidth,
+    height: targetHeight,
+  };
+  const rect = open
+    ? targetRect
+    : { left: originRect.left, top: originRect.top, width: originRect.width, height: originRect.height };
+
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      style={{ background: "rgba(15,18,53,0.35)", opacity: open ? 1 : 0, transition: `opacity ${POPUP_ANIM_MS}ms ease` }}
+      onClick={close}
+    >
+      <div
+        className="fixed overflow-hidden flex flex-col"
+        style={{
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          background: "var(--card)",
+          borderRadius: "var(--radius)",
+          boxShadow: "0 24px 64px rgba(15,18,53,0.25)",
+          transition: `left ${POPUP_ANIM_MS}ms ease, top ${POPUP_ANIM_MS}ms ease, width ${POPUP_ANIM_MS}ms ease, height ${POPUP_ANIM_MS}ms ease`,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+          <h3 className="text-sm font-700">{formatDayLabel(dateKey)} 일정</h3>
+          <button
+            onClick={close}
+            className="w-7 h-7 flex items-center justify-center text-sm rounded-full"
+            style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+          {segments.map((s) => (
+            <div
+              key={s.event.id}
+              className="flex items-center gap-2.5 p-2.5"
+              style={{ background: "var(--muted)", borderRadius: "10px", opacity: hasExplicitTime(s.event.date) ? 1 : 0.5 }}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: eventColor(s.event) }} />
+              <div className="min-w-0">
+                <div className="text-xs font-600 truncate">{s.event.title}</div>
+                <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  {formatDayLabel(s.start)} ~ {formatDayLabel(s.end)}
+                </div>
+              </div>
+            </div>
+          ))}
+          {segments.length === 0 && (
+            <div className="text-xs text-center py-6" style={{ color: "var(--muted-foreground)" }}>이 날짜엔 일정이 없어요</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Schedule() {
   const { project } = useProject();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -55,6 +170,7 @@ export default function Schedule() {
   const [error, setError] = useState<string | null>(null);
   const [monthDate, setMonthDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [dayPopup, setDayPopup] = useState<{ dateKey: string; rect: DOMRect } | null>(null);
 
   async function refresh() {
     const { data } = await listCalendarEvents(project.id);
@@ -155,6 +271,7 @@ export default function Schedule() {
                 <button
                   key={key}
                   onClick={() => setSelectedDate(isSelected ? null : key)}
+                  onDoubleClick={(e) => setDayPopup({ dateKey: key, rect: e.currentTarget.getBoundingClientRect() })}
                   className="min-h-[92px] px-1 pt-1 pb-1 flex flex-col text-left transition-all overflow-hidden"
                   style={{
                     borderRadius: "10px",
@@ -305,6 +422,15 @@ export default function Schedule() {
           </div>
         </div>
       </div>
+
+      {dayPopup && (
+        <DayEventsPopup
+          dateKey={dayPopup.dateKey}
+          segments={segmentsForDay(dayPopup.dateKey)}
+          originRect={dayPopup.rect}
+          onClose={() => setDayPopup(null)}
+        />
+      )}
     </div>
   );
 }

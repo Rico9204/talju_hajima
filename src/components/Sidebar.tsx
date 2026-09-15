@@ -9,7 +9,6 @@ import JoinProjectModal from "./JoinProjectModal";
 import Avatar from "./Avatar";
 
 const navItems: { id: Page; label: string; icon: string }[] = [
-  { id: "myprojects", label: "내 프로젝트", icon: "▦" },
   { id: "dashboard", label: "대시보드", icon: "⊞" },
   { id: "team", label: "팀 관리", icon: "◎" },
   { id: "chat", label: "팀 채팅", icon: "◐" },

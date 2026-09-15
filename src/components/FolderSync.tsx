@@ -12,6 +12,8 @@ import { listProjectFiles, syncFiles, pingSyncPresence, listSyncPresence, type S
 const AUTO_SYNC_INTERVAL_MS = 2000;
 const PRESENCE_POLL_MS = 3000;
 const NEW_ROOT_VALUE = "__new__";
+// 연속으로 이 횟수만큼 계속 실패해야 자동 동기화를 끈다 (한 번의 일시적 오류로는 안 끔).
+const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
 
 interface BaselineEntry {
   content: string;
@@ -34,6 +36,9 @@ export default function FolderSync() {
   const syncingRef = useRef(false);
   const syncRootRef = useRef("");
   const baselineRef = useRef<Map<string, BaselineEntry>>(new Map());
+  // 연속으로 몇 번 실패했는지 — 네트워크 순간 끊김처럼 스쳐 지나가는 오류 때문에 자동 동기화가
+  // 바로 꺼지지 않도록, 연달아 여러 번 실패했을 때만 자동 동기화를 끈다.
+  const syncFailuresRef = useRef(0);
 
   // 이미 워크스페이스에 있는 최상위 폴더 이름들 (드롭다운 후보) — Workspace 화면의 폴더 목록을 그대로 재사용
   const folderOptions = useMemo(() => folders.map((f) => f.name).sort(), [folders]);
@@ -138,8 +143,25 @@ export default function FolderSync() {
           );
           setSyncResult(data);
         }
-        for (const entry of toPull) await writeFile(handle, entry.path, entry.content);
-        if (toPull.length > 0) setDownloaded(toPull.map((f) => f.path));
+        // 파일 하나가 지금 다른 프로그램에 열려있어 쓰기가 막히는 등 개별 파일 쓰기 실패는
+        // 흔한 일시적 상황이다 — 여기서 막지 않으면 예외가 바깥 catch까지 올라가 동기화
+        // 전체가 중단되고 자동 동기화가 꺼진다. 실패한 파일은 이번 주기에 건너뛰고(baseline도
+        // 되돌려서 다음 주기에 다시 받아쓰기 시도하게 함), 나머지는 정상 진행한다.
+        const failedPulls: string[] = [];
+        for (const entry of toPull) {
+          try {
+            await writeFile(handle, entry.path, entry.content);
+          } catch {
+            failedPulls.push(entry.path);
+          }
+        }
+        for (const path of failedPulls) {
+          const original = baseline.get(path);
+          if (original) nextBaseline.set(path, original);
+          else nextBaseline.delete(path);
+        }
+        const succeededPulls = toPull.filter((f) => !failedPulls.includes(f.path));
+        if (succeededPulls.length > 0) setDownloaded(succeededPulls.map((f) => f.path));
 
         const { data: refreshed } = await listProjectFiles(project.id);
         const refreshedByPath = new Map(refreshed.map((f) => [f.path, f]));
@@ -152,9 +174,19 @@ export default function FolderSync() {
 
         baselineRef.current = nextBaseline;
         pingSyncPresence(project.id, root).catch(() => {});
+        syncFailuresRef.current = 0;
+        setError(null);
       } catch {
-        setAutoSync(false);
-        setError("폴더 동기화 중 오류가 발생해 자동 동기화를 중지했습니다.");
+        syncFailuresRef.current += 1;
+        // 한 번 실패했다고 바로 끄지 않는다 — 네트워크가 한 번 순간적으로 끊긴 정도는 다음
+        // 주기에 알아서 회복되는 경우가 대부분이다. 연달아 여러 번 계속 실패할 때만
+        // "뭔가 진짜로 문제가 있다"고 보고 자동 동기화를 끈다.
+        if (syncFailuresRef.current >= MAX_CONSECUTIVE_SYNC_FAILURES) {
+          setAutoSync(false);
+          setError("폴더 동기화가 계속 실패해 자동 동기화를 중지했습니다. 네트워크 상태를 확인한 뒤 다시 연동해주세요.");
+        } else {
+          setError("폴더 동기화 중 일시적인 오류가 발생했습니다. 다음 주기에 다시 시도합니다.");
+        }
       } finally {
         syncingRef.current = false;
       }
