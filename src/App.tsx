@@ -11,10 +11,11 @@ import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
-import { ProjectProvider } from "./context/ProjectContext";
+import AdminPanel from "./components/AdminPanel";
+import { ProjectProvider, useProject } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
-export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "collector" | "evaluation";
+export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "collector" | "evaluation" | "admin";
 
 function RequireAuth() {
   const { session, loading } = useAuth();
@@ -32,7 +33,16 @@ function RequireAuth() {
 function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useAuth();
+  const { project } = useProject();
   const currentPage = (location.pathname.split("/")[1] || "dashboard") as Page;
+
+  // Non-approved projects (created by a non-admin, awaiting review) are
+  // locked to the dashboard page for everyone except an admin — matches
+  // gwanhan.md: "승인 대기/반려 상태에서는 대시보드 외 나머지 기능 접근 불가".
+  if (!isAdmin && project.approvalStatus !== "approved" && currentPage !== "dashboard") {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
@@ -43,6 +53,12 @@ function Layout() {
       </main>
     </div>
   );
+}
+
+function RequireAdmin() {
+  const { isAdmin } = useAuth();
+  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  return <AdminPanel />;
 }
 
 function DashboardRoute() {
@@ -92,6 +108,7 @@ function AppRoutes() {
         <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
         <Route path="collector" element={<DataCollector />} />
         <Route path="evaluation" element={<PeerEvaluation />} />
+        <Route path="admin" element={<RequireAdmin />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

@@ -13,10 +13,13 @@ import type {
   TaskComment,
   ScheduleEvent,
   NewScheduleEventInput,
+  ScheduleEventType,
+  ScheduleEventVisibility,
   Member,
   ProfileLink,
   ChatMessage,
   ChatReaction,
+  AdminProfileSummary,
 } from "./types";
 
 /**
@@ -39,11 +42,16 @@ export interface DataRepository {
     actorAvatar: string,
     input: { school: string; major: string; student: string }
   ): Promise<Member>;
+  approveProject(projectId: string): Promise<void>;
+  rejectProject(projectId: string): Promise<void>;
+  markProjectDone(projectId: string): Promise<void>;
+  kickMember(memberId: string): Promise<void>;
+  searchAdmins(query: string): Promise<AdminProfileSummary[]>;
 
   getTeam(projectId: string): Promise<TeamData>;
   updateMyProfile(patch: Partial<{
     name: string; major: string; student: string; school: string; avatarUrl: string | null;
-    contact: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
+    contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
   }>): Promise<void>;
   uploadAvatar(file: File): Promise<string>;
   uploadBannerImage(file: File): Promise<string>;
@@ -79,6 +87,10 @@ export interface DataRepository {
 
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
   addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
+  updateScheduleEvent(
+    eventId: number,
+    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+  ): Promise<void>;
   removeScheduleEvent(eventId: number): Promise<void>;
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;

@@ -38,6 +38,18 @@ create table if not exists profiles (
   -- the auto-detect-from-URL logic. jsonb so new platform types never need
   -- a schema change.
   links jsonb not null default '[]'::jsonb,
+  -- Account-wide admin flag (see gwanhan.md's permission matrix). Set at
+  -- signup time by choosing "관리자로 가입" on the signup form (Login.tsx),
+  -- which passes is_admin/org through auth.signUp()'s options.data and
+  -- handle_new_user() below reads it from there.
+  is_admin boolean not null default false,
+  -- Admin's organization/section (소속) — how a team leader finds the right
+  -- admin to route their project's approval to, via search_admin_profiles()
+  -- below. Meaningless for non-admin accounts.
+  org text,
+  -- Denormalized copy of auth.users.email (not otherwise queryable from the
+  -- client) so search_admin_profiles() can match on it.
+  email text,
   created_at timestamptz not null default now()
 );
 
@@ -49,6 +61,22 @@ create table if not exists projects (
   status text not null check (status in ('active', 'done')),
   start_date date,
   end_date date,
+  constraint projects_dates_required check (start_date is not null and end_date is not null),
+  -- 'pending' means a non-admin (team leader) created this project and it's
+  -- waiting on an admin's review — see set_project_approval_status() below,
+  -- which is the only thing that ever sets this (client-sent values are
+  -- ignored). Non-approved projects are locked to the dashboard page only —
+  -- see App.tsx's Layout.
+  approval_status text not null default 'approved' check (approval_status in ('pending', 'approved', 'rejected')),
+  -- Set once by the "프로젝트 종료" action (leader/admin, status -> 'done').
+  -- cleanup_completed_projects() uses this to find projects 30+ days past
+  -- completion to archive into evaluation_history and delete.
+  completed_at timestamptz,
+  -- The specific admin a non-admin creator picked (via search_admin_profiles,
+  -- see CreateProjectModal.tsx) to review this project. Null for
+  -- admin-created/legacy rows, in which case any admin may approve/reject —
+  -- see the projects_update policy below.
+  requested_admin_id uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
 
@@ -294,6 +322,11 @@ create table if not exists chat_write_rate_limits (
 -- or joining one), so those specific insert checks are "signed in" rather
 -- than "already a member".
 
+create or replace function public.is_admin()
+returns boolean language sql security definer stable as $$
+  select coalesce((select is_admin from profiles where id = auth.uid()), false);
+$$;
+
 create or replace function public.is_project_member(p_project_id text)
 returns boolean language sql security definer stable as $$
   select exists (
@@ -486,9 +519,35 @@ alter table schedule_events enable row level security;
 drop policy if exists profiles_select_own on profiles;
 drop policy if exists profiles_insert_own on profiles;
 drop policy if exists profiles_update_own on profiles;
-create policy profiles_select_own on profiles for select using (auth.uid() = id or shares_project_with(id));
+-- is_admin() bypass lets AdminPanel show real names/avatars for a project
+-- the admin isn't a member of (gwanhan.md: admin manages every project's
+-- roster, not just their own).
+create policy profiles_select_own on profiles for select using (auth.uid() = id or shares_project_with(id) or is_admin());
 create policy profiles_insert_own on profiles for insert with check (auth.uid() = id);
+-- Row-level only — doesn't stop a signed-in user from PATCHing their own
+-- is_admin column directly (not just through the app UI, which never sends
+-- it). prevent_profile_privilege_escalation() below closes that.
 create policy profiles_update_own on profiles for update using (auth.uid() = id);
+
+-- Blocks self-promotion to admin: a normal app/API request always has
+-- auth.uid() set, so any attempt to change is_admin through it gets
+-- silently reverted. A manual `update profiles set is_admin = true ...` run
+-- in the SQL editor has no auth.uid() (no JWT context), so it's unaffected —
+-- that remains the only way to promote an account.
+create or replace function public.prevent_profile_privilege_escalation()
+returns trigger language plpgsql as $$
+begin
+  if auth.uid() is not null and new.is_admin is distinct from old.is_admin then
+    new.is_admin := old.is_admin;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_profile_privilege_escalation_trigger on profiles;
+create trigger prevent_profile_privilege_escalation_trigger
+  before update on profiles
+  for each row execute function public.prevent_profile_privilege_escalation();
 
 drop policy if exists anon_all on projects;
 drop policy if exists anon_all on teams;
@@ -505,9 +564,41 @@ drop policy if exists projects_update on projects;
 drop policy if exists projects_delete on projects;
 create policy projects_select on projects for select using (auth.role() = 'authenticated');
 create policy projects_insert on projects for insert with check (auth.role() = 'authenticated');
-create policy projects_update on projects for update
-  using (is_project_leader(id)) with check (is_project_leader(id));
-create policy projects_delete on projects for delete using (is_project_leader(id));
+-- Leader edits their own project's info; admin also needs this to
+-- approve/reject/hard-edit a project (see set_project_approval_status()
+-- and the "관리자" AdminPanel). An admin can only act on a project that was
+-- either routed to them specifically (requested_admin_id) or has no
+-- specific target (null — admin-created/legacy rows). Plain members can no
+-- longer edit project rows.
+create policy projects_update on projects for update using (
+  is_project_leader(id)
+  or (is_admin() and (requested_admin_id is null or requested_admin_id = auth.uid()))
+);
+-- Deleting a project is admin-only (manual, no snapshot) — the leader-driven
+-- "정상 종료" path instead goes through markProjectDone + the pg_cron
+-- cleanup below, which snapshots to evaluation_history first.
+create policy projects_delete on projects for delete using (is_admin());
+
+-- Force approval_status server-side on every authenticated insert instead of
+-- trusting the client: admin-created projects start approved, everyone
+-- else's start pending until an admin reviews it in AdminPanel. Only
+-- overrides when auth.uid() is set (a real app request) — inserts with no
+-- session (SQL editor, seed.sql) keep whatever they sent (default 'approved'),
+-- so seeding/fixing data manually doesn't get forced into 'pending'.
+create or replace function public.set_project_approval_status()
+returns trigger language plpgsql as $$
+begin
+  if auth.uid() is not null then
+    new.approval_status := case when is_admin() then 'approved' else 'pending' end;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists set_project_approval_status_trigger on projects;
+create trigger set_project_approval_status_trigger
+  before insert on projects
+  for each row execute function public.set_project_approval_status();
 
 drop policy if exists teams_select on teams;
 drop policy if exists teams_insert on teams;
@@ -534,10 +625,15 @@ drop policy if exists members_select on members;
 drop policy if exists members_insert on members;
 drop policy if exists members_update on members;
 drop policy if exists members_delete on members;
-create policy members_select on members for select using (is_project_member(project_id));
+-- is_admin() bypass: AdminPanel lets an admin open any project's roster,
+-- not just projects they belong to (see members_delete below).
+create policy members_select on members for select using (is_project_member(project_id) or is_admin());
 create policy members_insert on members for insert
   with check (auth.role() = 'authenticated');
-create policy members_delete on members for delete using (is_project_leader(project_id));
+create policy members_update on members for update using (is_project_member(project_id));
+-- Removing (kicking) a member is leader/admin-only, not "any member" —
+-- matches gwanhan.md's "팀원 초대/제외" row.
+create policy members_delete on members for delete using (is_project_leader(project_id) or is_admin());
 
 create or replace function public.set_member_user_id()
 returns trigger language plpgsql as $$
@@ -764,18 +860,23 @@ create policy file_versions_all on file_versions for all
 create policy file_comments_all on file_comments for all
   using (is_file_project_member(file_id)) with check (is_file_project_member(file_id));
 
--- Auto-create a profile row (display name + avatar initial) whenever someone
--- signs up. Runs as a trigger (not a client-side insert right after signUp())
--- because if email confirmation is on, there's no session yet at that exact
--- moment for an RLS-checked client insert to succeed.
+-- Auto-create a profile row (display name + avatar initial, plus admin
+-- status/org/email) whenever someone signs up. Runs as a trigger (not a
+-- client-side insert right after signUp()) because if email confirmation is
+-- on, there's no session yet at that exact moment for an RLS-checked client
+-- insert to succeed. is_admin/org come from the signup form's "관리자로
+-- 가입" toggle (Login.tsx passes them through signUp()'s options.data).
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, display_name, avatar_initial)
+  insert into public.profiles (id, display_name, avatar_initial, is_admin, org, email)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'display_name', '사용자'),
-    left(coalesce(new.raw_user_meta_data->>'display_name', '사용자'), 1)
+    left(coalesce(new.raw_user_meta_data->>'display_name', '사용자'), 1),
+    coalesce((new.raw_user_meta_data->>'is_admin')::boolean, false),
+    nullif(new.raw_user_meta_data->>'org', ''),
+    new.email
   );
   return new;
 end;
@@ -860,3 +961,105 @@ create policy avatars_own_update on storage.objects for update
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy avatars_own_delete on storage.objects for delete
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Permanent, per-account evaluation record. No FK to projects (must survive
+-- the project row being deleted) and no insert/update/delete policy for
+-- regular clients — only archive_and_cleanup_project() (security definer,
+-- same trust pattern as handle_new_user() above) can ever write a row here.
+create table if not exists evaluation_history (
+  id bigint generated always as identity primary key,
+  project_id text not null,
+  project_name text not null,
+  project_org text not null,
+  member_user_id uuid references auth.users(id) on delete set null,
+  member_name text not null,
+  member_major text not null,
+  member_student text not null,
+  score numeric not null,
+  eval_count int not null,
+  criteria_role numeric not null,
+  criteria_deadline numeric not null,
+  criteria_communication numeric not null,
+  criteria_collaboration numeric not null,
+  criteria_quality numeric not null,
+  archived_at timestamptz not null default now()
+);
+
+alter table evaluation_history enable row level security;
+
+drop policy if exists evaluation_history_select on evaluation_history;
+create policy evaluation_history_select on evaluation_history for select
+  using (member_user_id = auth.uid() or is_admin());
+
+-- Snapshots every member of a project into evaluation_history, then deletes
+-- the project (teams/members/folders/files/tasks all cascade via their FK).
+create or replace function public.archive_and_cleanup_project(p_project_id text)
+returns void language plpgsql security definer as $$
+begin
+  insert into evaluation_history (
+    project_id, project_name, project_org, member_user_id,
+    member_name, member_major, member_student,
+    score, eval_count,
+    criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, criteria_quality
+  )
+  select
+    p.id, p.name, p.org, m.user_id,
+    m.name, m.major, m.student,
+    m.score, m.eval_count,
+    m.criteria_role, m.criteria_deadline, m.criteria_communication, m.criteria_collaboration, m.criteria_quality
+  from members m
+  join projects p on p.id = m.project_id
+  where m.project_id = p_project_id;
+
+  delete from projects where id = p_project_id;
+end;
+$$;
+
+-- Run nightly by pg_cron below. Only projects marked "done" (via the
+-- "프로젝트 종료" action) 30+ days ago are archived/deleted — a manually
+-- deleted or still-active project is untouched.
+create or replace function public.cleanup_completed_projects()
+returns void language plpgsql security definer as $$
+declare
+  p record;
+begin
+  for p in
+    select id from projects
+    where status = 'done' and completed_at is not null and completed_at <= now() - interval '30 days'
+  loop
+    perform public.archive_and_cleanup_project(p.id);
+  end loop;
+end;
+$$;
+
+create extension if not exists pg_cron;
+
+do $$
+begin
+  perform cron.unschedule('cleanup-completed-projects');
+exception when others then
+  null;
+end;
+$$;
+
+select cron.schedule('cleanup-completed-projects', '0 3 * * *', $$select public.cleanup_completed_projects();$$);
+
+-- Used by CreateProjectModal.tsx's "승인 요청 관리자" picker: a non-admin
+-- creator searches for the specific admin who should review their project.
+-- A security-definer RPC (rather than a broad SELECT policy on profiles)
+-- keeps this to just name/org/email for admin accounts — an admin's avatar,
+-- contact info, banner, links, etc. stay private from this lookup.
+create or replace function public.search_admin_profiles(q text)
+returns table(id uuid, display_name text, org text, email text)
+language sql security definer stable as $$
+  select p.id, p.display_name, p.org, p.email
+  from profiles p
+  where p.is_admin = true
+    and (
+      p.display_name ilike '%' || q || '%'
+      or p.org ilike '%' || q || '%'
+      or p.email ilike '%' || q || '%'
+    )
+  order by p.display_name
+  limit 10;
+$$;

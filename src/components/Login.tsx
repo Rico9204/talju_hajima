@@ -3,25 +3,34 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 type Mode = "signin" | "signup";
+type AccountType = "member" | "admin";
 
 export default function Login() {
   const { user, signIn, signUp } = useAuth();
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<Mode>(searchParams.get("mode") === "signup" ? "signup" : "signin");
+  const [accountType, setAccountType] = useState<AccountType>("member");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [org, setOrg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [signedUp, setSignedUp] = useState(false);
 
-  const canSubmit = email.trim().length > 0 && password.length >= 6 && (mode === "signin" || displayName.trim().length > 0);
+  const canSubmit =
+    email.trim().length > 0 &&
+    password.length >= 6 &&
+    (mode === "signin" || (displayName.trim().length > 0 && (accountType === "member" || org.trim().length > 0)));
 
   async function submit() {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
-    const result = mode === "signin" ? await signIn(email.trim(), password) : await signUp(email.trim(), password, displayName.trim());
+    const result =
+      mode === "signin"
+        ? await signIn(email.trim(), password)
+        : await signUp(email.trim(), password, displayName.trim(), { isAdmin: accountType === "admin", org: org.trim() });
     setSubmitting(false);
     if (result.error) {
       setError(result.error);
@@ -84,6 +93,26 @@ export default function Login() {
           <>
             {mode === "signup" && (
               <>
+                <label className="text-xs font-600 block mb-1.5">계정 유형</label>
+                <div className="flex gap-1 p-0.5 mb-3" style={{ background: "var(--muted)", borderRadius: "20px" }}>
+                  {(["member", "admin"] as AccountType[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setAccountType(t)}
+                      className="flex-1 text-xs font-600 px-2.5 py-1.5 transition-all"
+                      style={{
+                        background: accountType === t ? "var(--card)" : "transparent",
+                        color: accountType === t ? "var(--primary)" : "var(--muted-foreground)",
+                        borderRadius: "16px",
+                        boxShadow: accountType === t ? "var(--shadow-card)" : "none",
+                      }}
+                    >
+                      {t === "member" ? "일반 (팀장/팀원)" : "관리자"}
+                    </button>
+                  ))}
+                </div>
+
                 <label className="text-xs font-600 block mb-1.5">이름</label>
                 <input
                   value={displayName}
@@ -92,6 +121,24 @@ export default function Login() {
                   className="w-full text-sm px-3 py-2.5 outline-none mb-3"
                   style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
                 />
+
+                {accountType === "admin" && (
+                  <>
+                    <label className="text-xs font-600 block mb-1.5">
+                      소속 <span style={{ color: "#ef4444" }}>*</span>
+                    </label>
+                    <input
+                      value={org}
+                      onChange={(e) => setOrg(e.target.value)}
+                      placeholder="예: 컴퓨터공학과 · 4분반"
+                      className="w-full text-sm px-3 py-2.5 outline-none mb-1.5"
+                      style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
+                    />
+                    <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
+                      팀장이 프로젝트 승인을 요청할 때 이 소속으로 관리자님을 찾게 돼요.
+                    </p>
+                  </>
+                )}
               </>
             )}
 

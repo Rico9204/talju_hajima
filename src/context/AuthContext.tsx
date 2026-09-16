@@ -6,8 +6,14 @@ interface AuthContextValue {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    displayName: string,
+    opts?: { isAdmin?: boolean; org?: string }
+  ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
 }
@@ -17,6 +23,10 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  // Account-wide, not project-scoped (unlike ProjectContext's isLeader) — see
+  // profiles.is_admin in supabase/schema.sql. Re-fetched whenever the signed
+  // in user changes.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -35,16 +45,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setIsAdmin(false);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setIsAdmin(data?.is_admin === true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
+
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message ?? null };
   }
 
-  async function signUp(email: string, password: string, displayName: string) {
+  async function signUp(email: string, password: string, displayName: string, opts?: { isAdmin?: boolean; org?: string }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName } },
+      // handle_new_user() (see supabase/schema.sql) reads is_admin/org back
+      // out of this on the server side to set profiles.is_admin/org.
+      options: { data: { display_name: displayName, is_admin: opts?.isAdmin ?? false, org: opts?.org ?? "" } },
     });
     const alreadyRegistered =
       (error && /already registered|already exists/i.test(error.message)) ||
@@ -83,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>
+    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, isAdmin, signIn, signUp, signOut, updatePassword }}>
       {children}
     </AuthContext.Provider>
   );

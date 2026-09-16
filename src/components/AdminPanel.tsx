@@ -1,0 +1,231 @@
+import { useEffect, useState } from "react";
+import { dataRepository } from "../api";
+import type { Project } from "../api/types";
+import { useAuth } from "../context/AuthContext";
+import AdminProjectMembers from "./AdminProjectMembers";
+
+const STATUS_LABEL: Record<Project["approvalStatus"], { text: string; bg: string; color: string }> = {
+  pending: { text: "승인 대기", bg: "#f59e0b18", color: "#f59e0b" },
+  approved: { text: "승인됨", bg: "#22c55e18", color: "#22c55e" },
+  rejected: { text: "반려됨", bg: "#ef444418", color: "#ef4444" },
+};
+
+export default function AdminPanel() {
+  const { user } = useAuth();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
+  const [viewingMembers, setViewingMembers] = useState<Project | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const list = await dataRepository.listProjects();
+      setProjects(list);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function approve(id: string) {
+    setBusyId(id);
+    try {
+      await dataRepository.approveProject(id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reject(id: string) {
+    setBusyId(id);
+    try {
+      await dataRepository.rejectProject(id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setBusyId(pendingDelete.id);
+    try {
+      await dataRepository.deleteProject(pendingDelete.id);
+      setPendingDelete(null);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Scoped to requests routed to me specifically, plus untargeted ones
+  // (admin-created/legacy rows) — matches the projects_update RLS policy,
+  // which blocks approving a project routed to a *different* admin.
+  const pending = projects.filter(
+    (p) => p.approvalStatus === "pending" && (!p.requestedAdminId || p.requestedAdminId === user?.id)
+  );
+  const rest = projects.filter((p) => !pending.includes(p));
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="mb-6">
+        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+          관리자
+        </div>
+        <h1 className="text-2xl font-700">프로젝트 관리</h1>
+        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
+          조장이 만든 프로젝트를 승인·반려하고, 필요하면 프로젝트를 영구 삭제할 수 있어요. 프로젝트를 클릭하면 팀원을 확인하고 제외할 수 있어요.
+        </p>
+      </div>
+
+      {loading && (
+        <div className="text-sm text-center py-8" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>
+      )}
+
+      {!loading && (
+        <>
+          <div className="mb-6">
+            <h2 className="text-sm font-700 mb-3">승인 대기 ({pending.length})</h2>
+            {pending.length === 0 ? (
+              <div
+                className="p-6 border text-center text-sm"
+                style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+              >
+                승인 대기 중인 프로젝트가 없어요.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {pending.map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => setViewingMembers(p)}
+                    className="flex items-center justify-between gap-3 p-4 cursor-pointer transition-all"
+                    style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-700 truncate">{p.name}</div>
+                      <div className="text-xs mt-0.5 truncate" style={{ color: "var(--muted-foreground)" }}>
+                        {p.org} · {p.period}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        disabled={busyId === p.id}
+                        onClick={(e) => { e.stopPropagation(); reject(p.id); }}
+                        className="text-xs font-700 px-3.5 py-2 transition-all"
+                        style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
+                      >
+                        반려
+                      </button>
+                      <button
+                        disabled={busyId === p.id}
+                        onClick={(e) => { e.stopPropagation(); approve(p.id); }}
+                        className="text-xs font-700 px-3.5 py-2 transition-all"
+                        style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
+                      >
+                        승인
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h2 className="text-sm font-700 mb-3">전체 프로젝트 ({rest.length})</h2>
+            <div className="flex flex-col gap-2">
+              {rest.map((p) => {
+                const label = STATUS_LABEL[p.approvalStatus];
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => setViewingMembers(p)}
+                    className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-all"
+                    style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                  >
+                    <div className="min-w-0 flex items-center gap-2.5">
+                      <span
+                        className="text-xs px-2 py-0.5 font-600 shrink-0"
+                        style={{ background: label.bg, color: label.color, borderRadius: "20px" }}
+                      >
+                        {label.text}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-700 truncate">{p.name}</div>
+                        <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
+                      </div>
+                    </div>
+                    <button
+                      disabled={busyId === p.id}
+                      onClick={(e) => { e.stopPropagation(); setPendingDelete(p); }}
+                      title="프로젝트 삭제"
+                      className="w-7 h-7 flex items-center justify-center shrink-0 transition-all"
+                      style={{ background: "#ef444418", borderRadius: "8px" }}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                      </svg>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {pendingDelete && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+            <div className="w-10 h-10 flex items-center justify-center mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+            </div>
+            <h3 className="font-700 mb-1">프로젝트를 삭제할까요?</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              <strong>{pendingDelete.name}</strong>의 팀원·과제·파일·일정이 스냅샷 없이 즉시 모두 삭제되며, 이 작업은 되돌릴 수 없습니다.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingDelete(null)}
+                disabled={busyId === pendingDelete.id}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={busyId === pendingDelete.id}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
+              >
+                {busyId === pendingDelete.id ? "삭제 중…" : "삭제하기"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewingMembers && (
+        <AdminProjectMembers project={viewingMembers} onClose={() => setViewingMembers(null)} />
+      )}
+    </div>
+  );
+}
