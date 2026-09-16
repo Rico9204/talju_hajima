@@ -444,13 +444,19 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                 </div>
 
                 {/* Live score preview */}
-                <div className="flex justify-center mb-4" role="img" aria-label="선택한 동료의 항목별 평가 오각형 차트">
+                <div className="flex justify-center mb-4" role="group" aria-label="선택한 동료의 항목별 평가 오각형 차트">
                   <PentagonChart
                     size={320}
                     data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 1 }))}
+                    onValueChange={(index, value) => handleScoreClick(criteria[index].id, value)}
+                    limits={criteria.map((c) => maxAllowed(c.id, selectedPeer))}
+                    disabled={isSubmitted || busy}
                   />
                 </div>
 
+                <p className="text-xs text-center mb-4" style={{ color: "var(--muted-foreground)" }}>
+                  {isSubmitted ? "제출한 평가는 수정할 수 없습니다." : "오각형 꼭짓점을 잡아 바깥쪽이나 안쪽으로 움직여 점수를 조절하세요."}
+                </p>
                 {/* Criteria */}
                 {criteria.map((c) => {
                   const current = peerScores[c.id] ?? 1;
