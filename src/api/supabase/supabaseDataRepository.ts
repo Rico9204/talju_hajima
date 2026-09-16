@@ -102,6 +102,8 @@ function mapFile(row: any): WorkspaceFile {
     id: row.id,
     name: row.name,
     type: row.type,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
     uploader: row.uploader,
     avatar: row.avatar,
     date: row.date,
@@ -162,6 +164,8 @@ function mapScheduleEvent(row: any): ScheduleEvent {
     ownerMemberId: row.owner_member_id,
     visibility: row.visibility,
     hideTitle: row.hide_title,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
   };
 }
 
@@ -178,7 +182,42 @@ function mapMessage(row: any): ChatMessage {
   };
 }
 
+import { summarizeEvaluations } from "../../lib/evaluationSummary";
+
 export const supabaseDataRepository: DataRepository = {
+  async getMyEvaluationSummary() {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!auth.user) throw new Error("로그인이 필요합니다.");
+    const { data, error } = await supabase.rpc("visible_evaluation_members");
+    if (error) throw error;
+    const rows = data ?? [];
+    return summarizeEvaluations(rows.map((row: any) => mapMember(row)), new Set(rows.map((row: any) => row.project_id)).size);
+  },
+  async getEvaluationMode() {
+    const { data, error } = await supabase.rpc("evaluation_prototype_enabled");
+    if (error) throw error;
+    return data === true;
+  },
+  async getEvaluations(projectId, phase) {
+    const [records, submissions, average] = await Promise.all([
+      supabase.from("peer_evaluations").select("*").eq("project_id", projectId).eq("phase", phase).order("created_at"),
+      supabase.from("peer_evaluation_submissions").select("id").eq("project_id", projectId).eq("phase", phase),
+      supabase.rpc("my_evaluation_average", { p_project_id: projectId, p_phase: phase }),
+    ]);
+    if (records.error) throw records.error;
+    if (submissions.error) throw submissions.error;
+    if (average.error) throw average.error;
+    return { records: records.data ?? [], submitted: !!submissions.data?.length, average: average.data };
+  },
+  async submitEvaluations(projectId, phase, entries) {
+    const { error } = await supabase.rpc("submit_peer_evaluations", { p_project_id: projectId, p_phase: phase, p_entries: entries });
+    if (error) throw error;
+  },
+  async completeProject(projectId) {
+    const { error } = await supabase.rpc("complete_evaluation_project", { p_project_id: projectId });
+    if (error) throw error;
+  },
   async listProjects() {
     const { data, error } = await supabase.from("projects").select("*").order("created_at", { ascending: true });
     if (error) throw error;
@@ -323,9 +362,7 @@ export const supabaseDataRepository: DataRepository = {
     if (profileError) throw profileError;
 
     const { data, error: fetchError } = await supabase
-      .from("members")
-      .select("*")
-      .eq("project_id", projectId)
+      .rpc("visible_evaluation_members", { p_project_id: projectId })
       .eq("user_id", userId)
       .single();
     if (fetchError) throw fetchError;
@@ -338,7 +375,7 @@ export const supabaseDataRepository: DataRepository = {
   async getTeam(projectId): Promise<TeamData> {
     const [teamResult, memberResult] = await Promise.all([
       supabase.from("teams").select("*").eq("project_id", projectId).maybeSingle(),
-      supabase.from("members").select("*").eq("project_id", projectId).order("is_leader", { ascending: false }),
+      supabase.rpc("visible_evaluation_members", { p_project_id: projectId }).order("is_leader", { ascending: false }),
     ]);
     if (teamResult.error) throw teamResult.error;
     if (memberResult.error) throw memberResult.error;
@@ -347,7 +384,7 @@ export const supabaseDataRepository: DataRepository = {
     // Two separate queries instead of an embedded select: members.user_id and
     // profiles.id both reference auth.users independently, with no FK between
     // members and profiles themselves for PostgREST to embed through.
-    const userIds = [...new Set(members.map((m) => m.user_id).filter((id): id is string => !!id))];
+    const userIds = [...new Set(members.map((m: any) => m.user_id).filter((id: unknown): id is string => !!id))];
     let profileById: Record<string, any> = {};
     if (userIds.length > 0) {
       const { data: profiles, error: profilesError } = await supabase.from("profiles").select("*").in("id", userIds);
@@ -358,7 +395,7 @@ export const supabaseDataRepository: DataRepository = {
     return {
       teamLabel: teamResult.data?.team_label ?? "팀",
       teamSub: teamResult.data?.team_sub ?? "",
-      members: members.map((m) => mapMember(m, m.user_id ? profileById[m.user_id] : undefined)),
+      members: members.map((m: any) => mapMember(m, m.user_id ? profileById[m.user_id] : undefined)),
     };
   },
 

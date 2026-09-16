@@ -74,6 +74,8 @@ export interface FileComment {
 }
 
 export interface WorkspaceFile {
+  createdAt?: string | null;
+  updatedAt?: string | null;
   id: number;
   name: string;
   type: "pdf" | "doc" | "img" | "ppt" | "xls" | "zip";
@@ -148,6 +150,8 @@ export type ScheduleEventScope = "personal" | "team";
 export type ScheduleEventVisibility = "private" | "shared";
 
 export interface ScheduleEvent {
+  createdAt?: string | null;
+  updatedAt?: string | null;
   id: number;
   title: string;
   date: string; // YYYY-MM-DD
@@ -182,4 +186,26 @@ export interface ChatReaction {
   messageId: number;
   memberId: string;
   emoji: string;
+}
+
+export type EvaluationPhase = "midterm" | "final";
+export interface EvaluationEntry {
+  recipient_id: string;
+  role: number;
+  deadline: number;
+  communication: number;
+  collaboration: number;
+  quality: number;
+  comment: string;
+}
+export interface PeerEvaluationRecord extends EvaluationEntry {
+  id: string;
+  evaluator_id: string;
+  phase: EvaluationPhase;
+  created_at: string;
+}
+export interface EvaluationData {
+  average?: { available: boolean; count: number; score: number | null; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null; comments?: string[] };
+  records: PeerEvaluationRecord[];
+  submitted: boolean;
 }

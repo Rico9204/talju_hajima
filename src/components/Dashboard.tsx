@@ -1,3 +1,7 @@
+import { dashboardActivity } from "../lib/dashboardActivity";
+import { useEffect, useState } from "react";
+import { summarizeDashboardTasks } from "../lib/dashboardTasks";
+import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
 
@@ -21,9 +25,9 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ctaPrimary: { label: "동료 평가 하러가기 →", page: "evaluation" },
     stats: [
       { label: "완료 과제", value: "14", sub: "전체 22개 중", icon: "✓", color: "#22c55e" },
-      { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "var(--accent)" },
+      { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "남은 마감", value: "3", sub: "다가오는 기한", icon: "◷", color: "#ef4444" },
-      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "var(--primary)" },
+      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "#2563eb" },
     ],
     phases: [
       { label: "기획 및 자료 조사 계획", pct: 100 },
@@ -49,9 +53,9 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ctaPrimary: { label: "종료 평가 결과 보기 →", page: "evaluation" },
     stats: [
       { label: "완료 과제", value: "16", sub: "전체 16개 중", icon: "✓", color: "#22c55e" },
-      { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "var(--accent)" },
+      { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#7b82a8" },
-      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "var(--primary)" },
+      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "#2563eb" },
     ],
     phases: [
       { label: "방언 조사 지역 선정 및 계획", pct: 100 },
@@ -74,9 +78,9 @@ const emptyDashboardData: ProjectDashboardData = {
   ctaPrimary: { label: "팀 관리로 이동 →", page: "team" },
   stats: [
     { label: "완료 과제", value: "0", sub: "전체 0개 중", icon: "✓", color: "#22c55e" },
-    { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "var(--accent)" },
+    { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "#f59e0b" },
     { label: "남은 마감", value: "0", sub: "등록된 일정 없음", icon: "◷", color: "#ef4444" },
-    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "var(--primary)" },
+    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "#2563eb" },
   ],
   phases: [],
   deadlines: [],
@@ -84,12 +88,59 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, currentMember } = useProject();
-  const data = dashboardData[project.id] || emptyDashboardData;
+  const { project, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const refreshDate = () => setNow(new Date());
+    const timer = window.setInterval(refreshDate, 60_000);
+    window.addEventListener("focus", refreshDate);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshDate); };
+  }, []);
+  const taskSummary = summarizeDashboardTasks(tasks, now);
+  const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
+  useEffect(() => { setExpandedColumns({}); }, [project.id]);
+  const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
+  const evaluationKey = project.id + ":" + project.status;
+  useEffect(() => {
+    let active = true;
+    getEvaluationMode().then(async (prototype) => {
+      const result = await getEvaluations(prototype ? "midterm" : isDone ? "final" : "midterm");
+      const final = prototype ? await getEvaluations("final") : null;
+      return { key: evaluationKey, submitted: result.submitted, prototype, finalSubmitted: final?.submitted ?? false };
+    })
+      .then((result) => { if (active) setEvaluation(result); })
+      .catch(() => { if (active) setEvaluation(null); });
+    return () => { active = false; };
+  }, [evaluationKey]);
+  const source = dashboardData[project.id] || emptyDashboardData;
+  const data = {
+    ...source,
+    banner: isDone ? "프로젝트가 종료되었습니다. 종료 평가를 작성하고 받은 평가를 확인해 주세요." :
+      source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." : source.banner,
+    ctaPrimary: isDone ? { label: "종료 평가로 이동 →", page: "evaluation" as Page } : source.ctaPrimary,
+    deadlines: taskSummary.deadlines,
+    activity: dashboardActivity(files, scheduleEvents, currentMember?.id, now),
+    stats: source.stats.map((stat) => stat.label === "평가 완료" ? {
+      ...stat, label: "내 평가",
+      value: evaluation?.key !== evaluationKey ? "—" : evaluation.prototype
+        ? (evaluation.submitted ? "중간 완료" : "중간 대기") + " · " + (evaluation.finalSubmitted ? "최종 완료" : "최종 대기")
+        : !isDone && isShortTerm ? "생략" : evaluation.submitted ? "제출 완료" : "미제출",
+      sub: evaluation?.key === evaluationKey && evaluation.prototype ? "프로토타입 검증" : isDone ? "최종 평가" : "중간 점검",
+    } : stat.label === "협업 평점" ? {
+      ...stat, label: "현재 프로젝트 내 평점", value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
+      sub: "이 프로젝트 종료 평가",
+    } : stat.label === "완료 과제" ? {
+      ...stat, value: String(taskSummary.completed), sub: "전체 " + taskSummary.total + "개 중",
+    } : ["남은 마감", "참여 기간"].includes(stat.label) ? {
+      ...stat, label: "남은 마감", value: String(taskSummary.remaining),
+      sub: "마감일 있는 미완료 과제" + (taskSummary.overdue ? " · 기한 초과 " + taskSummary.overdue + "개" : ""),
+    } : stat),
+  };
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      <MyEvaluationSummary completedOnly />
       {/* Hero banner */}
       <div
         className="relative mb-6 overflow-hidden"
@@ -164,7 +215,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-base font-700">프로젝트 진행 현황</h2>
+              <h2 className="text-base font-700">현황판</h2>
               <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{project.name}</p>
             </div>
             <button
@@ -176,31 +227,35 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             </button>
           </div>
 
-          {data.phases.length === 0 && (
-            <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
-              아직 등록된 진행 단계가 없어요. 과제 보드에서 작업을 추가해보세요.
-            </div>
-          )}
-          {data.phases.map((phase) => (
-            <div key={phase.label} className="mb-4">
-              <div className="flex justify-between text-sm mb-1.5">
-                <span className="font-500 text-xs">{phase.label}</span>
-                <span className="font-700 text-xs" style={{ fontFamily: "var(--font-jetbrains)", color: phase.pct === 100 ? "#22c55e" : "var(--primary)" }}>
-                  {phase.pct}%
-                </span>
-              </div>
-              <div className="h-2 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                <div
-                  className="h-2 transition-all"
-                  style={{
-                    width: `${phase.pct}%`,
-                    background: phase.pct === 100 ? "linear-gradient(90deg, #22c55e, #16a34a)" : "linear-gradient(90deg, #2563eb, #3b82f6)",
-                    borderRadius: "4px",
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+          <div className="flex flex-col gap-4">
+            {([
+              { status: "todo", label: "예정", color: "#7b82a8" },
+              { status: "inprogress", label: "진행", color: "#2563eb" },
+              { status: "review", label: "검토", color: "#f59e0b" },
+            ] as const).map((column) => {
+              const items = tasks.filter((task) => task.status === column.status);
+              const expanded = expandedColumns[column.status] ?? false;
+              const visibleItems = expanded ? items : items.slice(0, 3);
+              return <section key={column.status} aria-label={column.label + " 과제"}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-sm font-700" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
+                  {items.length > 3 && <button type="button"
+                    aria-label={column.label + (expanded ? " 과제 접기" : " 과제 더보기")}
+                    aria-expanded={expanded} aria-controls={"dashboard-tasks-" + column.status}
+                    onClick={() => setExpandedColumns((previous) => ({ ...previous, [column.status]: !previous[column.status] }))}
+                    className="text-xs underline" style={{ color: "var(--primary)" }}>
+                    {expanded ? "접기" : "더보기"}
+                  </button>}
+                </div>
+                {items.length ? <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2">
+                  {visibleItems.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                    <span className="text-sm break-words min-w-0">{task.title}</span>
+                    {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+                  </li>)}
+                </ul> : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
+              </section>;
+            })}
+          </div>
         </div>
 
         {/* Right column */}
@@ -210,10 +265,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>
             <div className="flex flex-col gap-2.5">
               {data.deadlines.map((d) => (
-                <div key={d.label} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                <div key={d.id} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                    <span className="text-xs font-500">{d.label}</span>
+                    <div><div className="text-xs font-500">{d.label}</div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{d.due}</div></div>
                   </div>
                   <span
                     className="text-xs font-700 px-2 py-0.5"
@@ -224,13 +279,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                       fontFamily: "var(--font-jetbrains)",
                     }}
                   >
-                    D-{d.days}
+                    {d.badge}
                   </span>
                 </div>
               ))}
               {data.deadlines.length === 0 && (
                 <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                  종료된 프로젝트에는 마감 일정이 없어요
+                  마감일이 지정된 미완료 과제가 없습니다.
                 </div>
               )}
             </div>
@@ -238,13 +293,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
           {/* Recent activity */}
           <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <h2 className="text-sm font-700 mb-4">최근 활동</h2>
+            <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
             <div className="flex flex-col gap-3">
               {data.activity.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>아직 활동이 없어요</div>
+                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>최근 3일 이내 등록·수정된 일정이나 자료가 없습니다.</div>
               )}
-              {data.activity.map((a, i) => (
-                <div key={i} className="flex items-start gap-2.5">
+              {data.activity.map((a) => (
+                <div key={a.id} className="flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0" style={{ background: `${a.color}20`, color: a.color }}>
                     {a.avatar}
                   </div>

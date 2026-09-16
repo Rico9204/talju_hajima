@@ -1,3 +1,4 @@
+import type { EvaluationPhase, EvaluationEntry, EvaluationData } from "./types";
 import type {
   Project,
   NewProjectInput,
@@ -28,6 +29,11 @@ import type {
  * `./index.ts` at it — nothing outside this folder needs to change.
  */
 export interface DataRepository {
+  getMyEvaluationSummary(): Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
+  getEvaluationMode(): Promise<boolean>;
+  getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
+  submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]): Promise<void>;
+  completeProject(projectId: string): Promise<void>;
   listProjects(): Promise<Project[]>;
   listMyProjectIds(): Promise<string[]>;
   getProjectById(projectId: string): Promise<Project | null>;

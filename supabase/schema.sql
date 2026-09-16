@@ -860,3 +860,315 @@ create policy avatars_own_update on storage.objects for update
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy avatars_own_delete on storage.objects for delete
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Peer evaluation tables, policies and RPCs.
+-- Apply in the Supabase SQL editor before deploying the evaluation UI.
+begin;
+create table if not exists public.peer_evaluation_submissions (
+  id uuid primary key default gen_random_uuid(),
+  project_id text not null references public.projects(id) on delete cascade,
+  evaluator_id uuid not null references public.members(id),
+  phase text not null check (phase in ('midterm', 'final')),
+  created_at timestamptz not null default now(),
+  unique(project_id, evaluator_id, phase)
+);
+create table if not exists public.peer_evaluations (
+  id uuid primary key default gen_random_uuid(),
+  submission_id uuid not null references public.peer_evaluation_submissions(id) on delete cascade,
+  project_id text not null references public.projects(id) on delete cascade,
+  evaluator_id uuid not null references public.members(id),
+  recipient_id uuid not null references public.members(id),
+  phase text not null check (phase in ('midterm', 'final')),
+  role integer not null check(role between 1 and 10),
+  deadline integer not null check(deadline between 1 and 10),
+  communication integer not null check(communication between 1 and 10),
+  collaboration integer not null check(collaboration between 1 and 10),
+  quality integer not null check(quality between 1 and 10),
+  comment text not null default '' check(char_length(comment) <= 150),
+  created_at timestamptz not null default now(),
+  check(evaluator_id <> recipient_id),
+  unique(submission_id, recipient_id)
+);
+alter table public.peer_evaluation_submissions enable row level security;
+alter table public.peer_evaluations enable row level security;
+revoke all on public.peer_evaluation_submissions, public.peer_evaluations from anon, authenticated;
+grant select on public.peer_evaluation_submissions, public.peer_evaluations to authenticated;
+drop policy if exists evaluation_submission_read on public.peer_evaluation_submissions;
+create policy evaluation_submission_read on public.peer_evaluation_submissions for select to authenticated
+using (exists(select 1 from public.members m where m.id = evaluator_id and m.user_id = auth.uid()));
+drop policy if exists evaluation_read on public.peer_evaluations;
+create policy evaluation_read on public.peer_evaluations for select to authenticated
+using (public.is_project_member(project_id) and (
+  exists(select 1 from public.members m where m.user_id = auth.uid() and m.id in (evaluator_id, recipient_id))
+  or (phase = 'final' and exists(select 1 from public.projects p where p.id = project_id and p.status = 'done'))
+));
+
+create or replace function public.submit_peer_evaluations(p_project_id text, p_phase text, p_entries jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  p public.projects%rowtype;
+  actor uuid;
+  submission uuid;
+  expected integer;
+  actual integer;
+begin
+  -- Serialize submission/closure and prevent a second concurrent submission.
+  select * into p from public.projects where id = p_project_id for update;
+  if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+  if actor is null then raise exception '프로젝트 참여자만 평가할 수 있습니다.'; end if;
+  if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형입니다.'; end if;
+  if (p_phase = 'midterm' and p.status <> 'active') or (p_phase = 'final' and p.status <> 'done') then
+    raise exception '프로젝트 상태가 변경되었습니다. 새로고침해 주세요.';
+  end if;
+  if p_phase = 'midterm' and p.end_date - p.start_date < 14 then
+    raise exception '2주 미만 프로젝트는 중간 평가를 생략합니다.';
+  end if;
+  if exists(select 1 from public.peer_evaluation_submissions where project_id = p_project_id and evaluator_id = actor and phase = p_phase) then
+    raise exception '이미 제출한 평가입니다.';
+  end if;
+  -- Lock the membership snapshot while validating all recipients.
+  perform id from public.members where project_id = p_project_id for share;
+  select count(*) into expected from public.members where project_id = p_project_id and id <> actor and user_id is not null;
+  if expected = 0 then raise exception '평가할 동료가 없습니다.'; end if;
+  if jsonb_typeof(p_entries) is distinct from 'array' then raise exception '평가 목록이 필요합니다.'; end if;
+  if jsonb_array_length(p_entries) <> expected then raise exception '팀원 목록이 변경되었습니다. 새로고침해 주세요.'; end if;
+  select count(distinct e.recipient_id) into actual
+  from jsonb_to_recordset(p_entries) as e(recipient_id uuid)
+  join public.members m on m.id = e.recipient_id and m.project_id = p_project_id and m.id <> actor and m.user_id is not null;
+  if actual <> expected then raise exception '평가 대상이 올바르지 않습니다.'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_entries) e
+    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
+    where jsonb_typeof(e->k) is distinct from 'number'
+       or (e->>k)::numeric <> trunc((e->>k)::numeric)
+       or (e->>k)::numeric not between 1 and 10
+  ) then raise exception '점수는 1~10 사이의 정수여야 합니다.'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_entries) e
+    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
+    group by k having sum((e->>k)::integer) <> expected * 5
+  ) then raise exception '각 항목의 총점은 동료 수 × 5점이어야 합니다.'; end if;
+  insert into public.peer_evaluation_submissions(project_id,evaluator_id,phase)
+    values(p_project_id,actor,p_phase) returning id into submission;
+  insert into public.peer_evaluations(submission_id,project_id,evaluator_id,recipient_id,phase,role,deadline,communication,collaboration,quality,comment)
+    select submission,p_project_id,actor,e.recipient_id,p_phase,e.role,e.deadline,e.communication,e.collaboration,e.quality,coalesce(e.comment,'')
+    from jsonb_to_recordset(p_entries) as e(recipient_id uuid,role integer,deadline integer,communication integer,collaboration integer,quality integer,comment text);
+  -- Only final evaluations contribute to the existing project reputation fields.
+  if p_phase = 'final' then
+    update public.members m set
+      eval_count = a.n, score = a.score,
+      criteria_role = a.role, criteria_deadline = a.deadline,
+      criteria_communication = a.communication, criteria_collaboration = a.collaboration, criteria_quality = a.quality
+    from (
+      select recipient_id, count(*)::integer n,
+        avg((role+deadline+communication+collaboration+quality)/5.0) score,
+        avg(role) role, avg(deadline) deadline, avg(communication) communication,
+        avg(collaboration) collaboration, avg(quality) quality
+      from public.peer_evaluations where project_id = p_project_id and phase = 'final' group by recipient_id
+    ) a where m.id = a.recipient_id;
+  end if;
+end;
+$$;
+revoke all on function public.submit_peer_evaluations(text,text,jsonb) from public, anon;
+grant execute on function public.submit_peer_evaluations(text,text,jsonb) to authenticated;
+
+create or replace function public.complete_evaluation_project(p_project_id text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform id from public.projects where id = p_project_id for update;
+  if not public.is_project_leader(p_project_id) then raise exception '팀장만 프로젝트를 종료할 수 있습니다.'; end if;
+  update public.projects set status = 'done' where id = p_project_id and status = 'active';
+end;
+$$;
+revoke all on function public.complete_evaluation_project(text) from public, anon;
+grant execute on function public.complete_evaluation_project(text) to authenticated;
+commit;
+
+-- Prototype validation only. Set the helper to SELECT false to restore normal gating.
+begin;
+create or replace function public.evaluation_prototype_enabled()
+returns boolean language sql stable as $$ select true $$;
+revoke all on function public.evaluation_prototype_enabled() from public, anon;
+grant execute on function public.evaluation_prototype_enabled() to authenticated;
+
+create or replace function public.submit_peer_evaluations(p_project_id text, p_phase text, p_entries jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  p public.projects%rowtype;
+  actor uuid;
+  submission uuid;
+  expected integer;
+  actual integer;
+begin
+  -- Serialize submission/closure and prevent a second concurrent submission.
+  select * into p from public.projects where id = p_project_id for update;
+  if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+  if actor is null then raise exception '프로젝트 참여자만 평가할 수 있습니다.'; end if;
+  if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형입니다.'; end if;
+  if not public.evaluation_prototype_enabled() then
+    if (p_phase = 'midterm' and p.status <> 'active') or (p_phase = 'final' and p.status <> 'done') then
+      raise exception '프로젝트 상태가 변경되었습니다. 새로고침해 주세요.';
+    end if;
+    if p_phase = 'midterm' and p.end_date - p.start_date < 14 then
+      raise exception '2주 미만 프로젝트는 중간 평가를 생략합니다.';
+    end if;
+  end if;
+  if exists(select 1 from public.peer_evaluation_submissions where project_id = p_project_id and evaluator_id = actor and phase = p_phase) then
+    raise exception '이미 제출한 평가입니다.';
+  end if;
+  -- Lock the membership snapshot while validating all recipients.
+  perform id from public.members where project_id = p_project_id for share;
+  select count(*) into expected from public.members where project_id = p_project_id and id <> actor and user_id is not null;
+  if expected = 0 then raise exception '평가할 동료가 없습니다.'; end if;
+  if jsonb_typeof(p_entries) is distinct from 'array' then raise exception '평가 목록이 필요합니다.'; end if;
+  if jsonb_array_length(p_entries) <> expected then raise exception '팀원 목록이 변경되었습니다. 새로고침해 주세요.'; end if;
+  select count(distinct e.recipient_id) into actual
+  from jsonb_to_recordset(p_entries) as e(recipient_id uuid)
+  join public.members m on m.id = e.recipient_id and m.project_id = p_project_id and m.id <> actor and m.user_id is not null;
+  if actual <> expected then raise exception '평가 대상이 올바르지 않습니다.'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_entries) e
+    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
+    where jsonb_typeof(e->k) is distinct from 'number'
+       or (e->>k)::numeric <> trunc((e->>k)::numeric)
+       or (e->>k)::numeric not between 1 and 10
+  ) then raise exception '점수는 1~10 사이의 정수여야 합니다.'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_entries) e
+    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
+    group by k having sum((e->>k)::integer) <> expected * 5
+  ) then raise exception '각 항목의 총점은 동료 수 × 5점이어야 합니다.'; end if;
+  insert into public.peer_evaluation_submissions(project_id,evaluator_id,phase)
+    values(p_project_id,actor,p_phase) returning id into submission;
+  insert into public.peer_evaluations(submission_id,project_id,evaluator_id,recipient_id,phase,role,deadline,communication,collaboration,quality,comment)
+    select submission,p_project_id,actor,e.recipient_id,p_phase,e.role,e.deadline,e.communication,e.collaboration,e.quality,coalesce(e.comment,'')
+    from jsonb_to_recordset(p_entries) as e(recipient_id uuid,role integer,deadline integer,communication integer,collaboration integer,quality integer,comment text);
+  -- Only final evaluations contribute to the existing project reputation fields.
+  if p_phase = 'final' then
+    update public.members m set
+      eval_count = a.n, score = a.score,
+      criteria_role = a.role, criteria_deadline = a.deadline,
+      criteria_communication = a.communication, criteria_collaboration = a.collaboration, criteria_quality = a.quality
+    from (
+      select recipient_id, count(*)::integer n,
+        avg((role+deadline+communication+collaboration+quality)/5.0) score,
+        avg(role) role, avg(deadline) deadline, avg(communication) communication,
+        avg(collaboration) collaboration, avg(quality) quality
+      from public.peer_evaluations where project_id = p_project_id and phase = 'final' group by recipient_id
+    ) a where m.id = a.recipient_id;
+  end if;
+end;
+$$;
+revoke all on function public.submit_peer_evaluations(text,text,jsonb) from public, anon;
+grant execute on function public.submit_peer_evaluations(text,text,jsonb) to authenticated;
+
+
+drop policy if exists evaluation_read on public.peer_evaluations;
+create policy evaluation_read on public.peer_evaluations for select to authenticated
+using (public.is_project_member(project_id) and (
+  exists(select 1 from public.members m where m.user_id = auth.uid() and m.id in (evaluator_id, recipient_id))
+  or (phase = 'final' and (public.evaluation_prototype_enabled()
+    or exists(select 1 from public.projects p where p.id = project_id and p.status = 'done')))
+));
+commit;
+
+
+-- Evaluation privacy: apply last.
+begin;
+drop policy if exists evaluation_read on public.peer_evaluations;
+create policy evaluation_read on public.peer_evaluations for select to authenticated
+using (exists(select 1 from public.members m where m.id=evaluator_id and m.user_id=auth.uid()));
+create or replace function public.my_evaluation_average(p_project_id text, p_phase text)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare actor uuid; expected integer; received integer; result jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형'; end if;
+ select id into actor from members where project_id=p_project_id and user_id=auth.uid();
+ if actor is null then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ select count(*) into expected from members where project_id=p_project_id and id<>actor and user_id is not null;
+ select count(*) into received from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
+ if expected<2 or received<expected then
+   return jsonb_build_object('count',0,'score',null,'criteria',null,'comments','[]'::jsonb,'available',false);
+ end if;
+ select jsonb_build_object('count',count(*),'available',true,
+ 'score',avg((role+deadline+communication+collaboration+quality)::numeric/5),
+ 'criteria',jsonb_build_object('role',avg(role),'deadline',avg(deadline),'communication',avg(communication),'collaboration',avg(collaboration),'quality',avg(quality)),
+ 'comments',case when p_phase='midterm' then coalesce(jsonb_agg(comment) filter (where btrim(comment)<>''),'[]'::jsonb) else '[]'::jsonb end)
+ into result from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
+ return result;
+end $$;
+revoke all on function public.my_evaluation_average(text,text) from public,anon;
+grant execute on function public.my_evaluation_average(text,text) to authenticated;
+revoke select on public.members from public,anon,authenticated;
+do $$ declare cols text; begin
+ select string_agg(quote_ident(attname),',') into cols from pg_attribute
+ where attrelid='public.members'::regclass and attnum>0 and not attisdropped
+ and attname not in ('score','eval_count','criteria_role','criteria_deadline','criteria_communication','criteria_collaboration','criteria_quality');
+ execute 'grant select ('||cols||') on public.members to authenticated';
+end $$;
+revoke select(score,eval_count,criteria_role,criteria_deadline,criteria_communication,criteria_collaboration,criteria_quality) on public.members from public,anon,authenticated;
+create or replace function public.visible_evaluation_members(p_project_id text default null)
+returns setof public.members language plpgsql stable security definer set search_path=public as $$
+declare m public.members; a jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_project_id is not null and not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ for m in select * from members where (p_project_id is null and user_id=auth.uid()) or (p_project_id is not null and project_id=p_project_id) loop
+  m.score:=0; m.eval_count:=0; m.criteria_role:=0; m.criteria_deadline:=0; m.criteria_communication:=0; m.criteria_collaboration:=0; m.criteria_quality:=0;
+  if m.user_id=auth.uid() then
+   a:=public.my_evaluation_average(m.project_id,'final');
+   if (a->>'available')::boolean then
+    m.score:=(a->>'score')::numeric; m.eval_count:=(a->>'count')::integer;
+    m.criteria_role:=(a->'criteria'->>'role')::numeric; m.criteria_deadline:=(a->'criteria'->>'deadline')::numeric;
+    m.criteria_communication:=(a->'criteria'->>'communication')::numeric; m.criteria_collaboration:=(a->'criteria'->>'collaboration')::numeric; m.criteria_quality:=(a->'criteria'->>'quality')::numeric;
+   end if;
+  end if;
+  return next m;
+ end loop;
+end $$;
+revoke all on function public.visible_evaluation_members(text) from public,anon;
+grant execute on function public.visible_evaluation_members(text) to authenticated;
+update public.peer_evaluations set comment='' where phase='final' and comment<>'';
+create or replace function public.discard_final_evaluation_comment() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ if new.phase='final' then new.comment:=''; end if;
+ return new;
+end $$;
+drop trigger if exists peer_evaluation_final_comment_guard on public.peer_evaluations;
+create trigger peer_evaluation_final_comment_guard before insert or update of phase,comment
+on public.peer_evaluations for each row execute function public.discard_final_evaluation_comment();
+commit;
+
+-- Existing rows retain unknown timestamps; do not mark old records as newly created.
+begin;
+alter table public.files add column if not exists created_at timestamptz;
+alter table public.files add column if not exists updated_at timestamptz;
+alter table public.files alter column created_at set default now();
+alter table public.schedule_events add column if not exists updated_at timestamptz;
+create or replace function public.stamp_dashboard_activity() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ if TG_OP='INSERT' then new.created_at:=now(); new.updated_at:=null;
+ else new.created_at:=old.created_at; new.updated_at:=now(); end if;
+ return new;
+end $$;
+drop trigger if exists files_activity_stamp on public.files;
+create trigger files_activity_stamp before insert or update on public.files for each row execute function public.stamp_dashboard_activity();
+drop trigger if exists schedule_activity_stamp on public.schedule_events;
+create trigger schedule_activity_stamp before insert or update on public.schedule_events for each row execute function public.stamp_dashboard_activity();
+create or replace function public.touch_file_activity() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ -- The initial version is part of registration, not a separate modification.
+ if (select count(*) from public.file_versions where file_id=new.file_id)>1 then
+  update public.files set updated_at=now() where id=new.file_id;
+ end if;
+ return new;
+end $$;
+drop trigger if exists file_version_activity on public.file_versions;
+create trigger file_version_activity after insert on public.file_versions for each row execute function public.touch_file_activity();
+commit;
