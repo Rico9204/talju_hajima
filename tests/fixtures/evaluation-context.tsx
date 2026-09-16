@@ -15,7 +15,8 @@ export function Fixture({ children }: { children: ReactNode }) {
     getEvaluationMode: async () => true,
     getEvaluations: async (phase: EvaluationPhase): Promise<EvaluationData> => mode === "feedback" && phase === "midterm" ? {
       submitted: false,
-      records: [4, 8].map((score, index) => ({ id: "received-" + index, evaluator_id: index ? "two" : "one", recipient_id: "me", phase: "midterm", role: score, deadline: score, communication: score, collaboration: score, quality: score, comment: "중간 피드백 검증", created_at: "2026-09-16T00:00:00Z" })),
+      records: [],
+      average: { available: true, count: 2, score: 6, criteria: { role: 6, deadline: 6, communication: 6, collaboration: 6, quality: 6 } },
     } : JSON.parse(localStorage.getItem(storageKey(phase)) || '{"records":[],"submitted":false}'),
     submitEvaluations: async (phase: EvaluationPhase, entries: EvaluationEntry[]) => {
       const records = entries.map((e, i) => ({ ...e, id: String(i), phase, evaluator_id: "me", created_at: new Date().toISOString() }));

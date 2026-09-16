@@ -201,6 +201,7 @@ export interface PeerEvaluationRecord extends EvaluationEntry {
   created_at: string;
 }
 export interface EvaluationData {
+  average?: { available: boolean; count: number; score: number | null; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null };
   records: PeerEvaluationRecord[];
   submitted: boolean;
 }

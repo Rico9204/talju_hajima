@@ -164,7 +164,7 @@ function EvaluationSelector() {
   const phases: EvaluationPhase[] = prototype ? ["midterm", "final"] : [phase];
   return <div>
     {prototype && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
-      <p className="text-sm mb-3">프로토타입 검증 모드 · 기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다. 제출한 최종 평가는 팀에 공개되고 평판에 반영됩니다.</p>
+      <p className="text-sm mb-3">프로토타입 검증 모드 · 기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다. 최종 평가 평균은 본인의 대시보드와 프로필에서 확인할 수 있습니다.</p>
       <div role="tablist" aria-label="평가 유형" className="flex gap-2">
         {phases.map((value) => <button key={value} type="button" role="tab" id={"evaluation-tab-" + value}
           aria-selected={phase === value} aria-controls={"evaluation-panel-" + value} disabled={submitting}
@@ -193,7 +193,6 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const [refresh, setRefresh] = useState(0);
   const [confirmClose, setConfirmClose] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [viewedMemberId, setViewedMemberId] = useState(currentMember?.id ?? "");
   useEffect(() => {
     if (!active) return;
     let mounted = true;
@@ -215,8 +214,6 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const pool = peers.length * 5;
   const total = (key: typeof criteria[number]["id"]) => entries.reduce((sum, entry) => sum + entry[key], 0);
   const balanced = peers.length > 0 && criteria.every((c) => total(c.id) === pool);
-  const received = data?.records.filter((r) => r.recipient_id === (phase === "final" ? viewedMemberId : currentMember?.id)) ?? [];
-  const memberName = (id: string) => team.members.find((m) => m.id === id)?.name ?? "팀원";
   async function submit() {
     if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
     setBusy(true); onBusyChange(true); setError("");
@@ -243,14 +240,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const allBalanced = balanced;
   const criterionTotal = total;
   const submitEval = submit;
-  const completedEvals = received.map((record) => {
-    const author = team.members.find((m) => m.id === record.evaluator_id);
-    return {
-      from: author?.name ?? "팀원", avatar: author?.avatar ?? "팀", color: author?.color ?? "#2563eb",
-      scores: Object.fromEntries(criteria.map((c) => [c.id, record[c.id]])),
-      reapply: false, comment: record.comment, date: new Date(record.created_at).toLocaleDateString("ko-KR"),
-    };
-  });
+  const average = data?.average;
   function setSelectedPeer(index: number) { setSelectedPeerId(peers[index].id); }
   function scoreFor(id: typeof criteria[number]["id"], index: number) { return entries[index]?.[id] ?? 1; }
   function maxAllowed(id: typeof criteria[number]["id"], index: number) {
@@ -266,26 +256,23 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     if (!selectedEntry || isSubmitted || busy || comment.length > 150) return;
     setDraft((prev) => ({ ...prev, [selectedEntry.recipient_id]: { ...selectedEntry, comment } }));
   }
-  function avgScore(scores: Scores) {
-    const values = Object.values(scores);
-    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-  }
-  const expectedFeedbackCount = team.members.filter((m) => m.id !== currentMember?.id && m.userId !== null).length;
+
+  const feedbackAvailable = average?.available && average.criteria !== null;
   const evaluationSummary = (<div
             aria-label={isDone ? "프로젝트 최종 평가 평균" : "내 중간 피드백 평균"}
             className="p-6 mb-5"
             style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
           >
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
-              {isDone ? "최종 평가" : "중간 피드백"} ({isDone ? memberName(viewedMemberId) : currentMember?.name ?? "참여자"}) · {project.name} · {completedEvals.length}건
+              {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}
             </div>
             {!isDone && <div className="mb-4 text-sm">
               <h2 className="font-700 text-lg">내 중간 피드백 평균</h2>
-              <p>{completedEvals.length > 0 && completedEvals.length >= expectedFeedbackCount ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"} · 받은 평가 {completedEvals.length} / {expectedFeedbackCount}건</p>
-              <p className="text-xs mt-1">현재 프로젝트에서 제출 완료된 중간 피드백만 집계합니다. 전체 프로필 평판에는 반영되지 않습니다.</p>
+              <p>{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"}</p>
+              <p className="text-xs mt-1">동료 2명 이상이 모두 제출한 후 본인의 평균만 공개합니다. 이 프로젝트에서만 관리하며 전체 프로필 평판에는 반영되지 않습니다.</p>
               <button type="button" className="underline mt-2" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>중간 피드백 새로고침</button>
             </div>}
-            {completedEvals.length > 0 ? (
+            {feedbackAvailable ? (
               <>
                 <div className="flex justify-center mb-2">
                   <PentagonChart
@@ -296,19 +283,19 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                     valueColor="rgba(255,255,255,0.85)"
                     data={criteria.map((c) => ({
                       label: c.label,
-                      value: completedEvals.reduce((a, e) => a + e.scores[c.id], 0) / completedEvals.length,
+                      value: average!.criteria![c.id],
                     }))}
                   />
                 </div>
                 <div className="flex items-baseline gap-2 justify-center">
                   <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
-                    {(completedEvals.reduce((sum, e) => sum + avgScore(e.scores), 0) / completedEvals.length).toFixed(1)}
+                    {average?.score?.toFixed(1)}
                   </span>
                   <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
                 </div>
               </>
             ) : (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "아직 받은 중간 피드백이 없습니다. 동료가 제출하면 평균이 표시됩니다."}</p>
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "평균 공개 대기 중입니다. 평가자가 1명이거나 제출이 진행 중이면 점수를 표시하지 않습니다."}</p>
             )}
           </div>);
   return (
@@ -321,7 +308,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
         <h1 className="text-2xl font-700">Peer Evaluation</h1>
         <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
           {isDone
-            ? "최종 평가(총괄) · 평가 작성 및 공개된 결과"
+            ? "최종 평가(총괄) · 동료 평가 작성"
             : midtermSkipped
             ? "2주 미만 단기 프로젝트 · 중간 점검 생략"
             : `중간 점검(형성적) · 항목별 1~10점, 단 동료 전체 합은 ${peers.length}명 × ${POOL_PER_PEER}점 = ${pool}점`}
@@ -346,7 +333,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
         <div>
           {isDone ? (
             <>
-              <strong>최종 평가</strong>는 총괄 평가입니다 — 제출된 결과는 <span style={{ color: "var(--muted-foreground)" }}>이 프로젝트 평판에 반영되며, 개별적으로 숨기거나 제외할 수 없습니다.</span>
+              <strong>최종 평가</strong>는 총괄 평가입니다 — 제출된 결과는 <span style={{ color: "var(--muted-foreground)" }}>평균으로 집계되며, 본인의 최종 평균만 대시보드와 프로필에서 확인할 수 있습니다.</span>
             </>
           ) : midtermSkipped ? (
             <>
@@ -481,7 +468,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                   </div>
                   {isSubmitted && (
                     <span className="ml-auto text-xs font-700 px-3 py-1.5" style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}>
-                      ✓ 제출 완료 ({isDone ? "팀 공개" : "비공개"})
+                      ✓ 제출 완료 (비공개)
                     </span>
                   )}
                 </div>
@@ -571,13 +558,13 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                         cursor: allBalanced ? "pointer" : "not-allowed",
                       }}
                     >
-                      {busy ? "제출 중…" : "전체 동료 평가 제출"} ({isDone ? "팀 공개" : "비공개"})
+                      {busy ? "제출 중…" : "전체 동료 평가 제출"} (비공개)
                     </button>
                   </>
                 )}
                 {isSubmitted && (
                   <div className="text-xs text-center font-700" style={{ color: "#22c55e" }}>
-                    ✓ 전체 동료 평가 제출 완료 ({isDone ? "팀 공개" : "비공개"})
+                    ✓ 전체 동료 평가 제출 완료 (비공개)
                   </div>
                 )}
               </div>
@@ -586,62 +573,6 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
         </>
       )}
 
-      {data && (
-        <div className="mt-6">
-          <div className="flex items-center gap-3 mb-4">
-            {isDone && <label className="text-sm">평가 결과 대상
-              <select aria-label="평가 결과 대상" className="ml-2 px-3 py-2 rounded-lg" style={{ background: "var(--card)" }} value={viewedMemberId} onChange={(e) => setViewedMemberId(e.target.value)}>
-                {team.members.filter((m) => m.userId !== null).map((m) => <option key={m.id} value={m.id}>{m.name}{m.id === currentMember?.id ? " (나)" : ""}</option>)}
-              </select>
-            </label>}
-            <button type="button" className="text-sm underline" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>새로고침</button>
-          </div>
-          {/* No-hide policy notice */}
-          <div className="flex items-center gap-2 mb-4 px-1">
-            <span className="text-xs font-700 px-2.5 py-1" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
-              {isDone ? "🔒 최종 평가는 숨기기 옵션이 없습니다 — 제출된 모든 평가가 팀에 공개됩니다" : "중간 피드백은 작성자와 받는 사람만 조회할 수 있습니다"}
-            </span>
-          </div>
-
-          {isDone && evaluationSummary}
-
-          {/* Per-eval cards */}
-          <div className="flex flex-col gap-4">
-            {completedEvals.map((ev, i) => (
-              <div key={i} className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-                <div className="flex items-start justify-between mb-3 flex-wrap gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700" style={{ background: `${ev.color}18`, color: ev.color }}>{ev.avatar}</div>
-                    <div>
-                      <div className="text-sm font-700">{ev.from}</div>
-                      <div className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{ev.date}</div>
-                    </div>
-                  </div>
-                  <div className="flex gap-4 flex-wrap">
-                    {criteria.map((c) => (
-                      <div key={c.id} className="text-center">
-                        <div className="text-lg font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>{ev.scores[c.id]}</div>
-                        <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{c.label}</div>
-                      </div>
-                    ))}
-                    <div className="text-center">
-                      <div className="text-xs font-700 px-2.5 py-1" style={{ background: ev.reapply ? "#22c55e18" : "var(--muted)", color: ev.reapply ? "#22c55e" : "var(--muted-foreground)", borderRadius: "20px" }}>
-                        {ev.reapply ? "재참여 ✓" : "미표시"}
-                      </div>
-                      <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>재참여 의사</div>
-                    </div>
-                  </div>
-                </div>
-                {ev.comment && (
-                  <p className="text-sm leading-relaxed px-3 py-2.5" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                    "{ev.comment}"
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

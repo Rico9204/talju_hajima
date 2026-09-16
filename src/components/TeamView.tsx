@@ -76,7 +76,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
               {m.role}
             </div>
-            {m.evalCount > 0 ? (
+            {m.id === currentMember?.id && m.evalCount > 0 ? (
               <div className="flex items-center gap-1 mt-2">
                 <span className="text-xs">★</span>
                 <span className="text-xs font-700">{m.score.toFixed(1)}</span>
@@ -162,7 +162,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
                 협업 평판 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
               </div>
-              {sel.evalCount > 0 ? (
+              {sel.id === currentMember?.id && sel.evalCount > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
@@ -171,9 +171,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                     <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-                    {project.status === "done"
-                      ? `이 프로젝트 종료 평가 ${sel.evalCount}건 기준`
-                      : `중간 점검 참고 점수 · ${sel.evalCount}건 (형성적 평가, 프로필 미반영)`}
+                    {`이 프로젝트 최종 평가 ${sel.evalCount}건 평균`}
                   </div>
                   <div className="mt-2 h-1.5 w-full" style={{ background: "var(--border)", borderRadius: "4px" }}>
                     <div className="h-1.5" style={{ width: `${(sel.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
@@ -181,9 +179,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 </>
               ) : (
                 <p className="text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                  {project.status === "done"
-                    ? "이 프로젝트에서 받은 종료 평가가 아직 없어요."
-                    : "프로젝트가 진행 중이라 아직 평판 점수가 없어요. 종료 평가는 프로젝트 종료 후 공개됩니다."}
+                  {sel.id !== currentMember?.id ? "평점은 본인만 조회할 수 있습니다." : "평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다."}
                 </p>
               )}
             </div>
@@ -208,7 +204,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
               동료 평가 항목별 점수 (참고)
             </div>
-            {sel.evalCount > 0 ? (
+            {sel.id === currentMember?.id && sel.evalCount > 0 ? (
               <div className="flex justify-center">
                 <PentagonChart
                   data={[
@@ -222,9 +218,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             ) : (
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                {project.status === "done"
-                  ? "이 프로젝트에서 받은 항목별 평가가 없어요."
-                  : "중간 점검은 형성적 평가로 프로필에 반영되지 않으며, 항목별 점수는 종료 평가 공개 후 표시됩니다."}
+                {sel.id !== currentMember?.id ? "항목별 평균은 본인만 조회할 수 있습니다." : "최종 평가 평균 공개 후 표시됩니다. 중간 평균은 동료 평가 탭에서 확인하세요."}
               </div>
             )}
           </div>
