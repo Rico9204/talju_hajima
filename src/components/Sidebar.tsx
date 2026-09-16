@@ -8,7 +8,7 @@ import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
-import PentagonChart from "./PentagonChart";
+import MyEvaluationSummary from "./MyEvaluationSummary";
 
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
@@ -184,9 +184,6 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     }, 1200);
   }
 
-  const reputation = currentMember && currentMember.evalCount > 0
-    ? { score: currentMember.score, count: currentMember.evalCount, criteria: currentMember.criteriaScores }
-    : null;
 
   return (
     <>
@@ -562,10 +559,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               {profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
               {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
             </section>
-            <section className="p-4" style={{ background: "var(--muted)" }}>
-              <div className="text-[11px] font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>내 협업 평판</div>
-              {reputation ? <><div className="text-lg font-800" style={{ color: "var(--primary)" }}>{reputation.score.toFixed(1)} <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span></div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>종료 평가 · {reputation.count}건</div><div className="mt-2 h-1" style={{ background: "var(--border)", borderRadius: "4px" }}><div className="h-1" style={{ width: `${reputation.score * 10}%`, background: "var(--primary)", borderRadius: "4px" }} /></div><div className="flex justify-center mt-2"><PentagonChart size={230} data={[{ label: "역할 이행", value: reputation.criteria.role }, { label: "약속·마감 준수", value: reputation.criteria.deadline }, { label: "의사소통", value: reputation.criteria.communication }, { label: "협업 태도", value: reputation.criteria.collaboration }, { label: "결과물 품질", value: reputation.criteria.quality }]} /></div></> : <p className="text-sm leading-relaxed mt-6" style={{ color: "var(--muted-foreground)" }}>프로젝트 종료 후 제출된 최종 평가가 평판에 반영됩니다.</p>}
-            </section>
+            <MyEvaluationSummary chart />
           </div>
         </div>
       </div>

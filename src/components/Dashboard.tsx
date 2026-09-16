@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
 
@@ -115,13 +116,14 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         : !isDone && isShortTerm ? "생략" : evaluation.submitted ? "제출 완료" : "미제출",
       sub: evaluation?.key === evaluationKey && evaluation.prototype ? "프로토타입 검증" : isDone ? "최종 평가" : "중간 점검",
     } : stat.label === "협업 평점" ? {
-      ...stat, value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
+      ...stat, label: "현재 프로젝트 내 평점", value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
       sub: "이 프로젝트 종료 평가",
     } : stat),
   };
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      <MyEvaluationSummary />
       {/* Hero banner */}
       <div
         className="relative mb-6 overflow-hidden"

@@ -67,6 +67,7 @@ export function isShortTermProject(p: Project): boolean {
 }
 
 interface ProjectContextValue {
+  getMyEvaluationSummary: () => Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
   getEvaluationMode: () => Promise<boolean>;
   getEvaluations: (phase: EvaluationPhase) => Promise<EvaluationData>;
   submitEvaluations: (phase: EvaluationPhase, entries: EvaluationEntry[]) => Promise<void>;
@@ -696,6 +697,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   return (
     <ProjectContext.Provider
       value={{
+        getMyEvaluationSummary: () => dataRepository.getMyEvaluationSummary(),
         getEvaluationMode: () => dataRepository.getEvaluationMode(),
         getEvaluations: async (phase) => {
           const [result, refreshedTeam] = await Promise.all([

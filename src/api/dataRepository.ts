@@ -29,6 +29,7 @@ import type {
  * `./index.ts` at it — nothing outside this folder needs to change.
  */
 export interface DataRepository {
+  getMyEvaluationSummary(): Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
   getEvaluationMode(): Promise<boolean>;
   getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
   submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]): Promise<void>;

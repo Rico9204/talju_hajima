@@ -178,7 +178,18 @@ function mapMessage(row: any): ChatMessage {
   };
 }
 
+import { summarizeEvaluations } from "../../lib/evaluationSummary";
+
 export const supabaseDataRepository: DataRepository = {
+  async getMyEvaluationSummary() {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!auth.user) throw new Error("로그인이 필요합니다.");
+    const { data, error } = await supabase.from("members").select("*").eq("user_id", auth.user.id);
+    if (error) throw error;
+    const rows = data ?? [];
+    return summarizeEvaluations(rows.map((row) => mapMember(row)), new Set(rows.map((row) => row.project_id)).size);
+  },
   async getEvaluationMode() {
     const { data, error } = await supabase.rpc("evaluation_prototype_enabled");
     if (error) throw error;
