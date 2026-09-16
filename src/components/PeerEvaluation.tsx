@@ -260,9 +260,12 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const feedbackAvailable = average?.available && average.criteria !== null;
   const evaluationSummary = (<div
             aria-label={isDone ? "프로젝트 최종 평가 평균" : "내 중간 피드백 평균"}
-            className="p-6 mb-5"
+            className="relative overflow-hidden p-6 mb-5"
             style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
           >
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.06)", right: -40, top: -60 }} />
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.05)", right: 80, bottom: -40 }} />
+            <div className="relative">
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
               {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}
             </div>
@@ -297,6 +300,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             ) : (
               <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "평균 공개 대기 중입니다. 평가자가 1명이거나 제출이 진행 중이면 점수를 표시하지 않습니다."}</p>
             )}
+            </div>
           </div>);
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
