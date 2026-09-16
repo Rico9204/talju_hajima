@@ -261,6 +261,14 @@ export default function TeamChat({
             {thread.map((m, index) => {
               const mine = m.senderId === currentMember.id;
               const sender = memberFor(m.senderId);
+              // Receipts can outlive the locally loaded membership list.
+              // Only show identifiable teammates, excluding the sender.
+              const readers = [...new Set(m.readBy)]
+                .filter((id) => id !== m.senderId)
+                .flatMap((id) => {
+                  const member = memberFor(id);
+                  return member ? [member] : [];
+                });
               const fileRef = fileRefFor(m.fileId);
               const joinsPrevious = belongsToMessageGroup(thread[index - 1], m);
               const joinsNext = belongsToMessageGroup(m, thread[index + 1]);
@@ -369,24 +377,24 @@ export default function TeamChat({
                     {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
                       <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
                     )}
-                    {mine && m.id === lastMineId && chan.type === "group" && m.readBy.length > 0 && (
-                      <div className="flex items-center -space-x-1.5" title={`읽음: ${m.readBy.map((id) => memberFor(id)?.name ?? "?").join(", ")}`}>
-                        {m.readBy.map((id) => {
-                          const reader = memberFor(id);
+                    {mine && m.id === lastMineId && chan.type === "group" && readers.length > 0 && (
+                      <div className="flex items-center -space-x-1.5" title={`읽음: ${readers.map((reader) => reader.name).join(", ")}`}>
+                        {readers.map((reader) => {
                           return (
                             <div
-                              key={id}
+                              key={reader.id}
+                              title={`${reader.name} 읽음`}
                               className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-700 overflow-hidden"
                               style={{
-                                background: reader?.avatarUrl ? "var(--card)" : reader?.color || "var(--muted-foreground)",
+                                background: reader.avatarUrl ? "var(--card)" : reader.color || "var(--muted-foreground)",
                                 color: "#fff",
                                 border: "1.5px solid var(--card)",
                               }}
                             >
-                              {reader?.avatarUrl ? (
+                              {reader.avatarUrl ? (
                                 <img src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
                               ) : (
-                                reader?.avatar || "?"
+                                (reader.avatar.trim() && reader.avatar !== "?" ? reader.avatar : reader.name.trim().slice(0, 1)) || "팀"
                               )}
                             </div>
                           );
