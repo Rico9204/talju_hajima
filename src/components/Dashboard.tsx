@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { summarizeDashboardTasks } from "../lib/dashboardTasks";
 import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
@@ -88,6 +89,14 @@ const emptyDashboardData: ProjectDashboardData = {
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const { project, tasks, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const refreshDate = () => setNow(new Date());
+    const timer = window.setInterval(refreshDate, 60_000);
+    window.addEventListener("focus", refreshDate);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshDate); };
+  }, []);
+  const taskSummary = summarizeDashboardTasks(tasks, now);
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   useEffect(() => { setExpandedColumns({}); }, [project.id]);
   const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
@@ -109,7 +118,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     banner: isDone ? "프로젝트가 종료되었습니다. 종료 평가를 작성하고 받은 평가를 확인해 주세요." :
       source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." : source.banner,
     ctaPrimary: isDone ? { label: "종료 평가로 이동 →", page: "evaluation" as Page } : source.ctaPrimary,
-    deadlines: source.deadlines.filter((d) => !d.label.includes("평가")),
+    deadlines: taskSummary.deadlines,
     activity: source.activity.filter((a) => !a.action.includes("평가")),
     stats: source.stats.map((stat) => stat.label === "평가 완료" ? {
       ...stat, label: "내 평가",
@@ -120,6 +129,11 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     } : stat.label === "협업 평점" ? {
       ...stat, label: "현재 프로젝트 내 평점", value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
       sub: "이 프로젝트 종료 평가",
+    } : stat.label === "완료 과제" ? {
+      ...stat, value: String(taskSummary.completed), sub: "전체 " + taskSummary.total + "개 중",
+    } : ["남은 마감", "참여 기간"].includes(stat.label) ? {
+      ...stat, label: "남은 마감", value: String(taskSummary.remaining),
+      sub: "마감일 있는 미완료 과제" + (taskSummary.overdue ? " · 기한 초과 " + taskSummary.overdue + "개" : ""),
     } : stat),
   };
 
@@ -248,10 +262,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>
             <div className="flex flex-col gap-2.5">
               {data.deadlines.map((d) => (
-                <div key={d.label} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                <div key={d.id} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                    <span className="text-xs font-500">{d.label}</span>
+                    <div><div className="text-xs font-500">{d.label}</div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{d.due}</div></div>
                   </div>
                   <span
                     className="text-xs font-700 px-2 py-0.5"
@@ -262,13 +276,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                       fontFamily: "var(--font-jetbrains)",
                     }}
                   >
-                    D-{d.days}
+                    {d.badge}
                   </span>
                 </div>
               ))}
               {data.deadlines.length === 0 && (
                 <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                  종료된 프로젝트에는 마감 일정이 없어요
+                  마감일이 지정된 미완료 과제가 없습니다.
                 </div>
               )}
             </div>
