@@ -86,7 +86,7 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
+  const { project, tasks, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
   const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
   const evaluationKey = project.id + ":" + project.status;
@@ -123,7 +123,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
-      <MyEvaluationSummary />
+      <MyEvaluationSummary completedOnly />
       {/* Hero banner */}
       <div
         className="relative mb-6 overflow-hidden"
@@ -198,7 +198,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-base font-700">프로젝트 진행 현황</h2>
+              <h2 className="text-base font-700">현황판</h2>
               <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{project.name}</p>
             </div>
             <button
@@ -210,31 +210,24 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             </button>
           </div>
 
-          {data.phases.length === 0 && (
-            <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
-              아직 등록된 진행 단계가 없어요. 과제 보드에서 작업을 추가해보세요.
-            </div>
-          )}
-          {data.phases.map((phase) => (
-            <div key={phase.label} className="mb-4">
-              <div className="flex justify-between text-sm mb-1.5">
-                <span className="font-500 text-xs">{phase.label}</span>
-                <span className="font-700 text-xs" style={{ fontFamily: "var(--font-jetbrains)", color: phase.pct === 100 ? "#22c55e" : "var(--primary)" }}>
-                  {phase.pct}%
-                </span>
-              </div>
-              <div className="h-2 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                <div
-                  className="h-2 transition-all"
-                  style={{
-                    width: `${phase.pct}%`,
-                    background: phase.pct === 100 ? "linear-gradient(90deg, #22c55e, #16a34a)" : "linear-gradient(90deg, #2563eb, #3b82f6)",
-                    borderRadius: "4px",
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+          <div className="flex flex-col gap-4">
+            {([
+              { status: "todo", label: "예정", color: "#7b82a8" },
+              { status: "inprogress", label: "진행", color: "#2563eb" },
+              { status: "review", label: "검토", color: "#f59e0b" },
+            ] as const).map((column) => {
+              const items = tasks.filter((task) => task.status === column.status);
+              return <section key={column.status} aria-label={column.label + " 과제"}>
+                <h3 className="text-sm font-700 mb-2" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
+                {items.length ? <ul className="flex flex-col gap-2">
+                  {items.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                    <span className="text-sm break-words min-w-0">{task.title}</span>
+                    {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+                  </li>)}
+                </ul> : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
+              </section>;
+            })}
+          </div>
         </div>
 
         {/* Right column */}
