@@ -391,7 +391,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             {/* Peer list */}
             <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
               {peers.map((p, i) => {
-                const peerTotal = criteria.reduce((sum, c) => sum + scoreFor(c.id, i), 0);
+                const peerAverage = criteria.reduce((sum, c) => sum + scoreFor(c.id, i), 0) / criteria.length;
                 const active = selectedPeer === i;
                 return (
                   <button
@@ -417,7 +417,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                       className="text-xs px-2.5 py-1 font-700 shrink-0"
                       style={{ background: active ? "rgba(255,255,255,0.2)" : "var(--muted)", color: active ? "#fff" : "var(--muted-foreground)", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
                     >
-                      {peerTotal}점
+                      평균 {peerAverage.toFixed(1)}점
                     </span>
                   </button>
                 );
