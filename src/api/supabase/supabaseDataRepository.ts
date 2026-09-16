@@ -102,6 +102,8 @@ function mapFile(row: any): WorkspaceFile {
     id: row.id,
     name: row.name,
     type: row.type,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
     uploader: row.uploader,
     avatar: row.avatar,
     date: row.date,
@@ -162,6 +164,8 @@ function mapScheduleEvent(row: any): ScheduleEvent {
     ownerMemberId: row.owner_member_id,
     visibility: row.visibility,
     hideTitle: row.hide_title,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
   };
 }
 

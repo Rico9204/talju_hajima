@@ -74,6 +74,8 @@ export interface FileComment {
 }
 
 export interface WorkspaceFile {
+  createdAt?: string | null;
+  updatedAt?: string | null;
   id: number;
   name: string;
   type: "pdf" | "doc" | "img" | "ppt" | "xls" | "zip";
@@ -148,6 +150,8 @@ export type ScheduleEventScope = "personal" | "team";
 export type ScheduleEventVisibility = "private" | "shared";
 
 export interface ScheduleEvent {
+  createdAt?: string | null;
+  updatedAt?: string | null;
   id: number;
   title: string;
   date: string; // YYYY-MM-DD

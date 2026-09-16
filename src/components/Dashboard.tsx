@@ -1,3 +1,4 @@
+import { dashboardActivity } from "../lib/dashboardActivity";
 import { useEffect, useState } from "react";
 import { summarizeDashboardTasks } from "../lib/dashboardTasks";
 import MyEvaluationSummary from "./MyEvaluationSummary";
@@ -87,7 +88,7 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, tasks, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
+  const { project, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -119,7 +120,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." : source.banner,
     ctaPrimary: isDone ? { label: "종료 평가로 이동 →", page: "evaluation" as Page } : source.ctaPrimary,
     deadlines: taskSummary.deadlines,
-    activity: source.activity.filter((a) => !a.action.includes("평가")),
+    activity: dashboardActivity(files, scheduleEvents, currentMember?.id, now),
     stats: source.stats.map((stat) => stat.label === "평가 완료" ? {
       ...stat, label: "내 평가",
       value: evaluation?.key !== evaluationKey ? "—" : evaluation.prototype
@@ -290,13 +291,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
           {/* Recent activity */}
           <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <h2 className="text-sm font-700 mb-4">최근 활동</h2>
+            <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
             <div className="flex flex-col gap-3">
               {data.activity.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>아직 활동이 없어요</div>
+                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>최근 3일 이내 등록·수정된 일정이나 자료가 없습니다.</div>
               )}
-              {data.activity.map((a, i) => (
-                <div key={i} className="flex items-start gap-2.5">
+              {data.activity.map((a) => (
+                <div key={a.id} className="flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0" style={{ background: `${a.color}20`, color: a.color }}>
                     {a.avatar}
                   </div>
