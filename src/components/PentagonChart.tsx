@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
+import { radarAxisAt, radarScoreAt } from "../lib/radarInput";
+
 interface RadarAxis {
   label: string;
   value: number;
@@ -98,13 +100,13 @@ export default function PentagonChart({
     const matrix = svgRef.current?.getScreenCTM();
     if (!editable || !matrix || maxR <= 0) return;
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
-    const angle = angles[axis] * Math.PI / 180;
-    const distance = (point.x - cx) * Math.sin(angle) - (point.y - cy) * Math.cos(angle);
-    onValueChange?.(axis, Math.max(1, Math.min(limitFor(axis), Math.round(distance / maxR * MAX_VALUE))));
+    const score = radarScoreAt(point.x - cx, point.y - cy, axis, n, maxR);
+    onValueChange?.(axis, Math.min(limitFor(axis), score));
   }
   function startDrag(event: ReactPointerEvent<SVGElement>, axis: number) {
     if (!editable || dragging.current || (event.pointerType === "mouse" && event.button !== 0)) return;
     event.preventDefault();
+    event.stopPropagation();
     dragging.current = { axis, pointerId: event.pointerId };
     svgRef.current?.setPointerCapture(event.pointerId);
     event.currentTarget.focus();
@@ -122,6 +124,21 @@ export default function PentagonChart({
         if (dragging.current?.pointerId === event.pointerId) updatePointer(event, dragging.current.axis);
       }}
       onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={() => { dragging.current = null; }}>
+      <g onPointerDown={(event) => {
+        const matrix = svgRef.current?.getScreenCTM();
+        if (!editable || !matrix) return;
+        const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+        startDrag(event, radarAxisAt(point.x - cx, point.y - cy, n));
+      }} style={{ cursor: editable ? "crosshair" : "default" }}>
+      {/* Transparent fill makes the entire grid clickable, including empty areas. */}
+      <polygon points={toPolygon(outerPoints)} fill="transparent" />
+      {/* scale markers sit just inside each polygon side and behind the grid/data */}
+      {[10, 5].map((score) => {
+        const sideRadius = maxR * (score / MAX_VALUE) * Math.cos(Math.PI / n);
+        const position = polarPoint(cx, cy, Math.max(0, sideRadius - 8), -angleStep / 2);
+        return <text key={score} x={position.x} y={position.y} textAnchor="middle"
+          dominantBaseline="middle" fontSize={10} fontWeight={700} fill={gridColor} pointerEvents="none">{score}</text>;
+      })}
       {/* spokes */}
       {outerPoints.map((p, i) => (
         <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke={gridColor} strokeWidth={1} />
@@ -156,22 +173,7 @@ export default function PentagonChart({
           }} />
       ))}
 
-      {/* scale markers, placed in the gap between two axes so they never cross the grid lines */}
-      {(() => {
-        const scaleAngle = -angleStep / 2;
-        const outerLabelPos = polarPoint(cx, cy, maxR + 10, scaleAngle);
-        const midLabelPos = polarPoint(cx, cy, maxR * (MID_VALUE / MAX_VALUE) + 10, scaleAngle);
-        return (
-          <>
-            <text x={outerLabelPos.x} y={outerLabelPos.y} textAnchor="middle" dominantBaseline="middle" fontSize={10} fontWeight={700} fill={gridColor}>
-              10
-            </text>
-            <text x={midLabelPos.x} y={midLabelPos.y} textAnchor="middle" dominantBaseline="middle" fontSize={10} fontWeight={700} fill={gridColor}>
-              5
-            </text>
-          </>
-        );
-      })()}
+      </g>
 
       {/* axis labels + values — stacked on two short lines, always centered
           on the anchor point so long Korean labels grow evenly on both

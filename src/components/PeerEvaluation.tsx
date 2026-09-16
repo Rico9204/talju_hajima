@@ -455,7 +455,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                 </div>
 
                 <p className="text-xs text-center mb-4" style={{ color: "var(--muted-foreground)" }}>
-                  {isSubmitted ? "제출한 평가는 수정할 수 없습니다." : "오각형 꼭짓점을 잡아 바깥쪽이나 안쪽으로 움직여 점수를 조절하세요."}
+                  {isSubmitted ? "제출한 평가는 수정할 수 없습니다." : "오각형 안의 원하는 위치를 누르거나 꼭짓점을 드래그해 점수를 조절하세요."}
                 </p>
                 {/* Criteria */}
                 {criteria.map((c) => {
