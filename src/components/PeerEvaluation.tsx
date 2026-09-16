@@ -270,6 +270,47 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     const values = Object.values(scores);
     return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
   }
+  const expectedFeedbackCount = team.members.filter((m) => m.id !== currentMember?.id && m.userId !== null).length;
+  const evaluationSummary = (<div
+            aria-label={isDone ? "프로젝트 최종 평가 평균" : "내 중간 피드백 평균"}
+            className="p-6 mb-5"
+            style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
+          >
+            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
+              {isDone ? "최종 평가" : "중간 피드백"} ({isDone ? memberName(viewedMemberId) : currentMember?.name ?? "참여자"}) · {project.name} · {completedEvals.length}건
+            </div>
+            {!isDone && <div className="mb-4 text-sm">
+              <h2 className="font-700 text-lg">내 중간 피드백 평균</h2>
+              <p>{completedEvals.length > 0 && completedEvals.length >= expectedFeedbackCount ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"} · 받은 평가 {completedEvals.length} / {expectedFeedbackCount}건</p>
+              <p className="text-xs mt-1">현재 프로젝트에서 제출 완료된 중간 피드백만 집계합니다. 전체 프로필 평판에는 반영되지 않습니다.</p>
+              <button type="button" className="underline mt-2" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>중간 피드백 새로고침</button>
+            </div>}
+            {completedEvals.length > 0 ? (
+              <>
+                <div className="flex justify-center mb-2">
+                  <PentagonChart
+                    size={320}
+                    gridColor="rgba(255,255,255,0.4)"
+                    fillColor="#ffffff"
+                    labelColor="#ffffff"
+                    valueColor="rgba(255,255,255,0.85)"
+                    data={criteria.map((c) => ({
+                      label: c.label,
+                      value: completedEvals.reduce((a, e) => a + e.scores[c.id], 0) / completedEvals.length,
+                    }))}
+                  />
+                </div>
+                <div className="flex items-baseline gap-2 justify-center">
+                  <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
+                    {(completedEvals.reduce((sum, e) => sum + avgScore(e.scores), 0) / completedEvals.length).toFixed(1)}
+                  </span>
+                  <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "아직 받은 중간 피드백이 없습니다. 동료가 제출하면 평균이 표시됩니다."}</p>
+            )}
+          </div>);
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
       {/* Header */}
@@ -331,6 +372,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
           <button type="button" disabled={busy} onClick={closeProject}>프로젝트 종료</button>
           <button type="button" disabled={busy} onClick={() => setConfirmClose(false)} className="ml-3">취소</button></div>}
       </div>}
+
+      {data && !isDone && !midtermSkipped && currentMember && evaluationSummary}
 
       {midtermSkipped && (
         <div
@@ -560,40 +603,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             </span>
           </div>
 
-          {/* Summary */}
-          <div
-            className="p-6 mb-5"
-            style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
-          >
-            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
-              {isDone ? "최종 평가" : "중간 피드백"} ({isDone ? memberName(viewedMemberId) : currentMember?.name ?? "참여자"}) · {project.name} · {completedEvals.length}건
-            </div>
-            {completedEvals.length > 0 ? (
-              <>
-                <div className="flex justify-center mb-2">
-                  <PentagonChart
-                    size={320}
-                    gridColor="rgba(255,255,255,0.4)"
-                    fillColor="#ffffff"
-                    labelColor="#ffffff"
-                    valueColor="rgba(255,255,255,0.85)"
-                    data={criteria.map((c) => ({
-                      label: c.label,
-                      value: completedEvals.reduce((a, e) => a + e.scores[c.id], 0) / completedEvals.length,
-                    }))}
-                  />
-                </div>
-                <div className="flex items-baseline gap-2 justify-center">
-                  <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
-                    {(completedEvals.reduce((sum, e) => sum + avgScore(e.scores), 0) / completedEvals.length).toFixed(1)}
-                  </span>
-                  <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 이 프로젝트 협업 평점</span>
-                </div>
-              </>
-            ) : (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>아직 제출된 평가가 없습니다.</p>
-            )}
-          </div>
+          {isDone && evaluationSummary}
 
           {/* Per-eval cards */}
           <div className="flex flex-col gap-4">
