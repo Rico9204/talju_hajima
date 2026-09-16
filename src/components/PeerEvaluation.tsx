@@ -406,8 +406,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                       color: active ? "#fff" : "var(--foreground)",
                     }}
                   >
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-700 shrink-0" style={{ background: active ? "rgba(255,255,255,0.2)" : `${p.color}18`, color: active ? "#fff" : p.color }}>
-                      {p.avatar}
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-700 shrink-0 overflow-hidden" style={{ background: p.avatarUrl ? "var(--card)" : active ? "rgba(255,255,255,0.2)" : `${p.color}18`, color: active ? "#fff" : p.color }}>
+                      {p.avatarUrl ? <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" /> : p.avatar}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-700">{p.name}</div>
@@ -429,8 +429,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
               <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
                 {/* Peer header */}
                 <div className="flex items-center gap-3 mb-5 pb-4" style={{ borderBottom: "2px solid var(--muted)" }}>
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center font-700 text-lg" style={{ background: `${peers[selectedPeer]?.color}18`, color: peers[selectedPeer]?.color }}>
-                    {peers[selectedPeer]?.avatar}
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center font-700 text-lg shrink-0 overflow-hidden" style={{ background: peers[selectedPeer]?.avatarUrl ? "var(--card)" : `${peers[selectedPeer]?.color}18`, color: peers[selectedPeer]?.color }}>
+                    {peers[selectedPeer]?.avatarUrl ? <img src={peers[selectedPeer].avatarUrl} alt={peers[selectedPeer].name} className="w-full h-full object-cover" /> : peers[selectedPeer]?.avatar}
                   </div>
                   <div>
                     <div className="font-700">{peers[selectedPeer]?.name}</div>
