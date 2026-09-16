@@ -25,9 +25,9 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ctaPrimary: { label: "동료 평가 하러가기 →", page: "evaluation" },
     stats: [
       { label: "완료 과제", value: "14", sub: "전체 22개 중", icon: "✓", color: "#22c55e" },
-      { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "var(--accent)" },
+      { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "남은 마감", value: "3", sub: "다가오는 기한", icon: "◷", color: "#ef4444" },
-      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "var(--primary)" },
+      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "#2563eb" },
     ],
     phases: [
       { label: "기획 및 자료 조사 계획", pct: 100 },
@@ -53,9 +53,9 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ctaPrimary: { label: "종료 평가 결과 보기 →", page: "evaluation" },
     stats: [
       { label: "완료 과제", value: "16", sub: "전체 16개 중", icon: "✓", color: "#22c55e" },
-      { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "var(--accent)" },
+      { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#7b82a8" },
-      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "var(--primary)" },
+      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "#2563eb" },
     ],
     phases: [
       { label: "방언 조사 지역 선정 및 계획", pct: 100 },
@@ -78,9 +78,9 @@ const emptyDashboardData: ProjectDashboardData = {
   ctaPrimary: { label: "팀 관리로 이동 →", page: "team" },
   stats: [
     { label: "완료 과제", value: "0", sub: "전체 0개 중", icon: "✓", color: "#22c55e" },
-    { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "var(--accent)" },
+    { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "#f59e0b" },
     { label: "남은 마감", value: "0", sub: "등록된 일정 없음", icon: "◷", color: "#ef4444" },
-    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "var(--primary)" },
+    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "#2563eb" },
   ],
   phases: [],
   deadlines: [],
@@ -237,20 +237,22 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               const expanded = expandedColumns[column.status] ?? false;
               const visibleItems = expanded ? items : items.slice(0, 3);
               return <section key={column.status} aria-label={column.label + " 과제"}>
-                <h3 className="text-sm font-700 mb-2" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-sm font-700" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
+                  {items.length > 3 && <button type="button"
+                    aria-label={column.label + (expanded ? " 과제 접기" : " 과제 더보기")}
+                    aria-expanded={expanded} aria-controls={"dashboard-tasks-" + column.status}
+                    onClick={() => setExpandedColumns((previous) => ({ ...previous, [column.status]: !previous[column.status] }))}
+                    className="text-xs underline" style={{ color: "var(--primary)" }}>
+                    {expanded ? "접기" : "더보기"}
+                  </button>}
+                </div>
                 {items.length ? <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2">
                   {visibleItems.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                     <span className="text-sm break-words min-w-0">{task.title}</span>
                     {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
                   </li>)}
                 </ul> : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
-                {items.length > 3 && <button type="button"
-                  aria-label={column.label + (expanded ? " 과제 접기" : " 과제 더보기")}
-                  aria-expanded={expanded} aria-controls={"dashboard-tasks-" + column.status}
-                  onClick={() => setExpandedColumns((previous) => ({ ...previous, [column.status]: !previous[column.status] }))}
-                  className="text-xs underline mt-2" style={{ color: "var(--primary)" }}>
-                  {expanded ? "접기" : "더보기"}
-                </button>}
               </section>;
             })}
           </div>

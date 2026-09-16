@@ -1,10 +1,10 @@
 import type { ScheduleEvent, WorkspaceFile } from "../api/types";
 export function dashboardActivity(files: WorkspaceFile[], events: ScheduleEvent[], memberId: string | undefined, now = new Date()) {
   const candidates = [
-    ...files.map(file => ({ id: "file-" + file.id, title: file.name, kind: "자료", createdAt: file.createdAt, updatedAt: file.updatedAt, color: "#2563eb", avatar: "▤" })),
+    ...files.map(file => ({ id: "file-" + file.id, title: file.name, kind: "자료", createdAt: file.createdAt, updatedAt: file.updatedAt, color: "#2563eb", avatar: "📄" })),
     ...events.filter(event => event.scope === "team" || event.ownerMemberId === memberId || event.visibility === "shared").map(event => ({
       id: "event-" + event.id, title: event.hideTitle && event.ownerMemberId !== memberId && event.scope === "personal" ? "바쁨" : event.title,
-      kind: "일정", createdAt: event.createdAt, updatedAt: event.updatedAt, color: "#22c55e", avatar: "◷" })),
+      kind: "일정", createdAt: event.createdAt, updatedAt: event.updatedAt, color: "#22c55e", avatar: "🗓" })),
   ];
   return candidates.flatMap(item => {
     const created = Date.parse(item.createdAt ?? "");
