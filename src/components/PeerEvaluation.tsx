@@ -463,7 +463,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                   const totalForCriterion = criterionTotal(c.id);
                   const remainingUnallocated = pool - totalForCriterion;
                   const capped = maxAllowed(c.id, selectedPeer);
-                  const limitedByPool = capped < 10;
+                  const limitedByPool = capped < 10 && current >= capped;
                   return (
                     <div key={c.id} className="mb-5">
                       <div className="flex items-center gap-2 mb-2">
@@ -483,7 +483,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                       />
                       {limitedByPool && !isSubmitted && (
                         <div className="text-xs mt-1.5 font-600" style={{ color: "#ef4444" }}>
-                          다른 동료들에게 이미 많이 배분해서 이 항목은 {capped}점까지만 줄 수 있어요 (공유 점수 초과 방지)
+                          {c.label}의 공유 점수를 모두 배분했습니다. 이 동료에게는 최대 {capped}점까지 줄 수 있어요. 더 주려면 다른 동료의 같은 항목 점수를 낮춰주세요.
                         </div>
                       )}
                     </div>
