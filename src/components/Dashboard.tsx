@@ -88,6 +88,8 @@ const emptyDashboardData: ProjectDashboardData = {
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const { project, tasks, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
+  const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
+  useEffect(() => { setExpandedColumns({}); }, [project.id]);
   const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
   const evaluationKey = project.id + ":" + project.status;
   useEffect(() => {
@@ -217,14 +219,23 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               { status: "review", label: "검토", color: "#f59e0b" },
             ] as const).map((column) => {
               const items = tasks.filter((task) => task.status === column.status);
+              const expanded = expandedColumns[column.status] ?? false;
+              const visibleItems = expanded ? items : items.slice(0, 3);
               return <section key={column.status} aria-label={column.label + " 과제"}>
                 <h3 className="text-sm font-700 mb-2" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
-                {items.length ? <ul className="flex flex-col gap-2">
-                  {items.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                {items.length ? <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2">
+                  {visibleItems.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                     <span className="text-sm break-words min-w-0">{task.title}</span>
                     {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
                   </li>)}
                 </ul> : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
+                {items.length > 3 && <button type="button"
+                  aria-label={column.label + (expanded ? " 과제 접기" : " 과제 더보기")}
+                  aria-expanded={expanded} aria-controls={"dashboard-tasks-" + column.status}
+                  onClick={() => setExpandedColumns((previous) => ({ ...previous, [column.status]: !previous[column.status] }))}
+                  className="text-xs underline mt-2" style={{ color: "var(--primary)" }}>
+                  {expanded ? "접기" : "더보기"}
+                </button>}
               </section>;
             })}
           </div>
