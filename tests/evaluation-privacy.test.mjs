@@ -32,7 +32,7 @@ await db.exec(readFileSync(new URL("../supabase/migration_peer_evaluations.sql",
 await db.exec(readFileSync(new URL("../supabase/migration_evaluation_prototype.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
 await db.exec(readFileSync(new URL("../supabase/migration_evaluation_privacy.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
 async function login(i) { await db.exec("reset role"); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[i===null?"":ids[i]]); await db.exec("set role authenticated"); }
-const entriesFor = (actor, phase) => ids.slice(0,3).filter(id => id !== ids[actor]).map((recipient_id,index)=>({recipient_id,role:5,deadline:5,communication:5,collaboration:5,quality:5,comment:"private"}));
+const entriesFor = (actor, phase) => ids.slice(0,3).filter(id => id !== ids[actor]).map((recipient_id,index)=>({recipient_id,role:5,deadline:5,communication:5,collaboration:5,quality:5,comment:"동료 " + actor + "의 코멘트"}));
 const average = async (project="long",phase="midterm") => (await db.query("select my_evaluation_average($1,$2) as a",[project,phase])).rows[0].a;
 await login(1);
 await db.query("select submit_peer_evaluations('long','midterm',$1::jsonb)",[JSON.stringify(entriesFor(1))]);
@@ -46,6 +46,7 @@ await db.query("select submit_peer_evaluations('long','midterm',$1::jsonb)",[JSO
 await login(0);
 assert.equal((await average()).score,5);
 assert.equal((await average()).count,2);
+assert.deepEqual((await average()).comments.sort(), ["동료 1의 코멘트", "동료 2의 코멘트"]);
 assert.equal((await db.query("select * from peer_evaluations")).rows.length,0);
 await assert.rejects(average("short"),/참여자/);
 await assert.rejects(db.query("select * from visible_evaluation_members('short')"),/참여자/);
@@ -59,6 +60,7 @@ assert.equal(visible.find(m=>m.id===ids[0]).score,'5.0000000000000000');
 assert.ok(visible.filter(m=>m.id!==ids[0]).every(m=>Number(m.score)===0 && m.eval_count===0));
 assert.ok((await db.query("select * from visible_evaluation_members()")).rows.every(m=>m.user_id===ids[0]));
 assert.ok((await db.query("select * from peer_evaluations")).rows.every(r=>r.evaluator_id===ids[0]));
+assert.equal((await db.query("select distinct comment from peer_evaluations where phase='final'")).rows[0].comment,'');
 await login(3);
 await db.query("select submit_peer_evaluations('short','midterm',$1::jsonb)",[JSON.stringify([{recipient_id:ids[4],role:5,deadline:5,communication:5,collaboration:5,quality:5,comment:""}])]);
 await login(4); assert.equal((await average('short')).available,false);

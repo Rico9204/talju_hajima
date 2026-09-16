@@ -253,7 +253,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     setDraft((prev) => ({ ...prev, [selectedEntry.recipient_id]: { ...selectedEntry, [id]: score } }));
   }
   function updateComment(comment: string) {
-    if (!selectedEntry || isSubmitted || busy || comment.length > 150) return;
+    if (!selectedEntry || isDone || isSubmitted || busy || comment.length > 150) return;
     setDraft((prev) => ({ ...prev, [selectedEntry.recipient_id]: { ...selectedEntry, comment } }));
   }
 
@@ -296,6 +296,16 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                   </span>
                   <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
                 </div>
+                {!isDone && (average?.comments?.length ?? 0) > 0 && (
+                  <div className="mt-5 grid gap-2" aria-label="받은 종합 코멘트">
+                    <h3 className="text-sm font-700">동료들의 종합 코멘트</h3>
+                    {average!.comments!.map((comment, index) => (
+                      <p key={index} className="p-3 text-sm leading-relaxed" style={{ background: "rgba(255,255,255,0.14)", borderRadius: "10px" }}>
+                        {comment}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "평균 공개 대기 중입니다. 평가자가 1명이거나 제출이 진행 중이면 점수를 표시하지 않습니다."}</p>
@@ -524,8 +534,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                   );
                 })}
 
-                {/* Comment */}
-                <div className="mb-4">
+                {/* Midterm-only comment */}
+                {!isDone && <div className="mb-4">
                   <label className="text-sm font-700 block mb-1.5">
                     종합 코멘트 <span className="font-400 text-xs" style={{ color: "var(--muted-foreground)" }}>(선택 · 최대 150자)</span>
                   </label>
@@ -541,7 +551,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                     style={{ border: "2px solid var(--muted)", borderRadius: "10px", background: isSubmitted ? "var(--muted)" : "var(--background)", fontFamily: "var(--font-outfit)" }}
                   />
                   <div className="text-right text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{peerComment.length}/150</div>
-                </div>
+                </div>}
 
                 {!isSubmitted && (
                   <>

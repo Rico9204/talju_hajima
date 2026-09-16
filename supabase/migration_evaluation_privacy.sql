@@ -13,11 +13,12 @@ begin
  select count(*) into expected from members where project_id=p_project_id and id<>actor and user_id is not null;
  select count(*) into received from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
  if expected<2 or received<expected then
-   return jsonb_build_object('count',0,'score',null,'criteria',null,'available',false);
+   return jsonb_build_object('count',0,'score',null,'criteria',null,'comments','[]'::jsonb,'available',false);
  end if;
  select jsonb_build_object('count',count(*),'available',true,
  'score',avg((role+deadline+communication+collaboration+quality)::numeric/5),
- 'criteria',jsonb_build_object('role',avg(role),'deadline',avg(deadline),'communication',avg(communication),'collaboration',avg(collaboration),'quality',avg(quality)))
+ 'criteria',jsonb_build_object('role',avg(role),'deadline',avg(deadline),'communication',avg(communication),'collaboration',avg(collaboration),'quality',avg(quality)),
+ 'comments',case when p_phase='midterm' then coalesce(jsonb_agg(comment) filter (where btrim(comment)<>''),'[]'::jsonb) else '[]'::jsonb end)
  into result from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
  return result;
 end $$;
@@ -52,4 +53,15 @@ begin
 end $$;
 revoke all on function public.visible_evaluation_members(text) from public,anon;
 grant execute on function public.visible_evaluation_members(text) to authenticated;
+-- Final evaluations are score-only. Existing final comments are removed as well.
+update public.peer_evaluations set comment='' where phase='final' and comment<>'';
+create or replace function public.discard_final_evaluation_comment() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ if new.phase='final' then new.comment:=''; end if;
+ return new;
+end $$;
+drop trigger if exists peer_evaluation_final_comment_guard on public.peer_evaluations;
+create trigger peer_evaluation_final_comment_guard before insert or update of phase,comment
+on public.peer_evaluations for each row execute function public.discard_final_evaluation_comment();
 commit;
