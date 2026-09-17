@@ -294,4 +294,37 @@ await check('closed projects cannot delete even as leader',async()=> {
   await assert.rejects(db.query('select delete_workspace_file($1)',[first.file_id]),/진행 중인/);
   await assert.rejects(db.query('select delete_workspace_folder(1)'),/진행 중인/);
 });
+
+await db.exec("reset role; update projects set status='active' where id='p'");
+const searchMigration=readFileSync(new URL('../supabase/migration_workspace_search.sql',import.meta.url),'utf8');
+await db.exec(searchMigration); await db.exec(searchMigration);
+await login(0);
+async function searchUpload(text,{fileId=null,base=null,status='ready'}={}) {
+ const path=await object(0);
+ return (await db.query("select register_workspace_search_version('p',$1,$2,null,'검색.pdf','pdf',$3,'',array[]::text[],$4,$5) as result",[fileId,base,path,text,status])).rows[0].result;
+}
+const indexed=await searchUpload('원본 본문');
+const indexedNext=await searchUpload('새 본문',{fileId:indexed.file_id,base:indexed.version_id});
+await check('extracted text is stored per version and follows promotion',async()=>{
+ assert.equal((await db.query('select search_text from file_versions where file_id=$1 and current',[indexed.file_id])).rows[0].search_text,'새 본문');
+ await db.query('select promote_workspace_version($1,$2)',[indexed.file_id,indexed.version_id]);
+ assert.equal((await db.query('select search_text from file_versions where file_id=$1 and current',[indexed.file_id])).rows[0].search_text,'원본 본문');
+});
+await check('invalid extraction rolls back the version registration',async()=>{
+ const before=(await db.query('select count(*) from files')).rows[0].count;
+ await assert.rejects(searchUpload('x'.repeat(200001)),/검색 본문/);
+ assert.equal((await db.query('select count(*) from files')).rows[0].count,before);
+});
+await check('existing version can be indexed without changing upload time',async()=>{
+ const before=(await db.query('select uploaded_at from file_versions where id=$1',[indexed.version_id])).rows[0].uploaded_at;
+ await db.query("select set_workspace_version_text($1,'보완 본문','ready')",[indexed.version_id]);
+ assert.equal(String((await db.query('select uploaded_at from file_versions where id=$1',[indexed.version_id])).rows[0].uploaded_at),String(before));
+});
+await login(2);
+await check('outsiders cannot read or overwrite indexed text',async()=>{
+ assert.equal((await db.query('select search_text from file_versions where id=$1',[indexed.version_id])).rows.length,0);
+ await assert.rejects(db.query("select set_workspace_version_text($1,'위조','ready')",[indexed.version_id]),/참여자/);
+});
+await db.exec("reset role; update projects set status='done' where id='p'"); await login(0);
+await check('closed project indexing is denied',()=>assert.rejects(db.query("select set_workspace_version_text($1,'변경','ready')",[indexed.version_id]),/진행 중인/));
 await db.close(); console.log(`${passed} workspace DB checks passed.`);

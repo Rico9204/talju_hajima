@@ -95,6 +95,7 @@ interface ProjectContextValue {
   addFolder: (name: string) => Promise<void>;
   uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
+  indexFileVersion: (version: import("../api/types").FileVersion) => Promise<void>;
   setFileTags: (fileId: number, tags: string[]) => Promise<void>;
   pinFileVersion: (fileId: number, versionId: number, pinned: boolean) => Promise<void>;
   downloadFileVersion: (versionId: number) => Promise<Blob>;
@@ -555,7 +556,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function uploadWorkspaceFile(input: import("../api/types").FileUploadInput) {
     if (!projectId || !currentMember) throw new Error("프로젝트 참여자만 업로드할 수 있습니다.");
-    const result = await dataRepository.uploadFile(projectId, input);
+    if (input.file.size > 50 * 1024 * 1024) throw new Error("파일은 50MB까지 업로드할 수 있습니다.");
+    const { extractWorkspaceText } = await import("../lib/extractWorkspaceText");
+    const extractedText = await extractWorkspaceText(input.file).catch(() => ({ text: "", status: "failed" as const }));
+    const result = await dataRepository.uploadFile(projectId, { ...input, extractedText });
     await refreshFiles();
     return result;
   }
@@ -800,6 +804,13 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         addFolder,
         uploadWorkspaceFile,
         promoteFileVersion,
+        indexFileVersion: async (version) => {
+          const blob = await dataRepository.downloadFileVersion(version.id);
+          const { extractWorkspaceText } = await import("../lib/extractWorkspaceText");
+          const result = await extractWorkspaceText(new File([blob], version.originalName ?? "file", { type: version.mimeType }));
+          await dataRepository.setFileVersionText(version.id, result);
+          await refreshFiles();
+        },
         setFileTags: async (fileId, tags) => { await dataRepository.setFileTags(fileId, tags); await refreshFiles(); },
         pinFileVersion,
         downloadFileVersion: (versionId) => dataRepository.downloadFileVersion(versionId),

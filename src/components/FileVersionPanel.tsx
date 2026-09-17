@@ -1,11 +1,14 @@
+import SearchHighlight from "./SearchHighlight";
+import { lazy, Suspense } from "react";
+const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
 import FileUploadDialog from "./FileUploadDialog";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
 import { formatUploadTime, versionTree } from "../lib/workspaceFiles";
 
-export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
-  const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
+export default function FileVersionPanel({ file, searchQuery = "" }: { file: WorkspaceFile; searchQuery?: string }) {
+  const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion, indexFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,6 +64,8 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
   }
 
   const tree = versionTree(file.versions).filter(({ version }) => !onlyPinned || version.pinned);
+  const currentVersion = file.versions.find((v) => v.current);
+  const statusLabel = { pending: "본문 미추출", ready: "본문 검색 가능", partial: "본문 일부만 검색 가능", failed: "본문 추출 실패", unsupported: "본문 추출 미지원" };
   const actionClass = "text-xs px-2.5 py-1.5 rounded-lg border disabled:opacity-40";
   return <div>
     {pendingUpload && <FileUploadDialog file={pendingUpload} initialTags={file.tags} destination={`“${file.name}” 새 버전 · 기준: ${file.versions.find((v) => v.id === baseId)?.version ?? "첫 버전"}`} onCancel={() => setPendingUpload(null)} onConfirm={async (tags, note) => {
@@ -87,6 +92,11 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
+    {currentVersion && <section className="mb-4 p-3 rounded-xl border" style={{ borderColor: "var(--border)" }}>
+      <p className="text-xs mb-2">현재 버전 · {statusLabel[currentVersion.searchStatus ?? "pending"]}</p>
+      {currentVersion.searchStatus === "ready" && !currentVersion.searchText && <p className="text-xs">추출 가능한 텍스트가 없습니다. 스캔 문서는 OCR이 필요합니다.</p>}
+      {currentVersion.searchText && <details open={!!searchQuery.trim()}><summary className="text-xs cursor-pointer">추출 본문 보기</summary><pre className="text-xs whitespace-pre-wrap break-words max-h-64 overflow-auto mt-2"><SearchHighlight text={currentVersion.searchText} query={searchQuery} /></pre></details>}
+    </section>}
     <label className="flex items-center gap-2 text-xs mb-3"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} />핀한 버전만 보기</label>
     <div className="space-y-3 max-h-[560px] overflow-auto" aria-label="파일 버전 트리">
       {tree.map(({ version: v, depth }) => <div key={v.id} className="border-l-2 pl-3 py-1" style={{ marginLeft: Math.min(depth, 6) * 12, borderColor: v.current ? "var(--primary)" : "var(--border)" }}>
@@ -99,6 +109,7 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
         <div className="flex flex-wrap gap-1.5 mt-2">
           {v.storagePath && <><button className={actionClass} disabled={busy} onClick={() => void run(() => openVersion(v, false))}>미리보기</button><button className={actionClass} disabled={busy} onClick={() => void run(() => openVersion(v, true))}>다운로드</button></>}
           {!locked && <>
+            {v.storagePath && <button className={actionClass} disabled={busy} onClick={() => void run(() => indexFileVersion(v))}>{v.searchStatus === "ready" || v.searchStatus === "partial" ? "본문 다시 추출" : "검색용 본문 추출"}</button>}
             {!v.current && v.storagePath && <button className={actionClass} disabled={busy} onClick={() => void run(async () => { await promoteFileVersion(file.id, v.id); if (mounted.current) { setBaseId(v.id); setMessage(`${v.version}을 현재 버전으로 지정했습니다.`); } })}>현재 버전으로</button>}
             <button className={actionClass} disabled={busy} onClick={() => void run(() => pinFileVersion(file.id, v.id, !v.pinned))}>{v.pinned ? "핀 해제" : "핀 고정"}</button>
             <button className={actionClass} disabled={busy} onClick={() => { setBaseId(v.id); setMessage(`${v.version} 기준으로 업로드할 파일을 선택해 주세요.`); input.current?.click(); }}>여기서 새 버전</button>
@@ -110,8 +121,8 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
     {preview && <section className="mt-4 border rounded-xl p-3" aria-label="버전 미리보기">
       <div className="flex justify-between gap-2 text-xs mb-2"><span className="break-all">{preview.name}</span><button onClick={closePreview}>닫기</button></div>
       {preview.kind === "image" && <img src={preview.url} alt={preview.name} className="w-full max-h-96 object-contain" />}
-      {preview.kind === "pdf" && <iframe title={preview.name} src={preview.url} className="w-full h-96" />}
-      {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-96 overflow-auto">{preview.text}</pre>}
+      {preview.kind === "pdf" && <Suspense fallback={<p className="text-xs">PDF를 불러오는 중…</p>}><PdfSearchPreview source={preview.url!} query={searchQuery} /></Suspense>}
+      {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-96 overflow-auto"><SearchHighlight text={preview.text ?? ""} query={searchQuery} /></pre>}
     </section>}
   </div>;
 }

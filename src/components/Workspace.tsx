@@ -1,3 +1,5 @@
+import SearchHighlight from "./SearchHighlight";
+import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/workspaceSearch";
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
 import { latestFileUploadTime } from "../lib/workspaceFiles";
@@ -43,6 +45,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
@@ -79,6 +82,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   }, [project.id]);
 
   useEffect(() => {
+    setSearchQuery("");
     setPendingUpload(null);
     setCurrentFolderId(null);
     setSelected(null);
@@ -98,13 +102,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   const currentFolder = currentFolderId !== null ? folders.find((f) => f.id === currentFolderId) || null : null;
   const scoped = files.filter((f) => f.folderId === currentFolderId);
-  const tags = [null, ...Array.from(new Set(scoped.flatMap((f) => f.tags)))];
-  const filtered = filterTag === null ? scoped : scoped.filter((f) => f.tags.includes(filterTag));
+  const searchScope = searchQuery.trim() ? files.filter((f) => matchesWorkspaceSearch(f, searchQuery)) : scoped;
+  const tags = [null, ...Array.from(new Set(searchScope.flatMap((f) => f.tags)))];
+  const filtered = filterTag === null ? searchScope : searchScope.filter((f) => f.tags.includes(filterTag));
   const selFile = selected !== null ? files.find((f) => f.id === selected) || null : null;
   const locked = project.status === "done";
   useEffect(() => {
-    if (filterTag !== null && !scoped.some((f) => f.tags.includes(filterTag))) setFilterTag(null);
-  }, [files, currentFolderId, filterTag]);
+    if (filterTag !== null && !searchScope.some((f) => f.tags.includes(filterTag))) setFilterTag(null);
+  }, [files, currentFolderId, filterTag, searchQuery]);
 
   function openFolder(id: number | null) {
     setCurrentFolderId(id);
@@ -253,7 +258,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     📁
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-700 truncate">{f.name}</div>
+                    <div className="text-sm font-700 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
                     <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>파일 {count}개 · {f.createdBy}</div>
                   </div>
                 </button>
@@ -306,11 +311,15 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </>
       )}
 
+      <label className="block text-sm mb-4">파일 검색
+        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full mt-2 p-3 rounded-xl border" style={{ background: "var(--card)", borderColor: "var(--border)" }} />
+        {searchQuery.trim() && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>검색 결과 {filtered.length}개 · 본문은 현재 버전 기준</span>}
+      </label>
       {/* Filter */}
       <div className="flex gap-2 mb-5 flex-wrap">
         {tags.map((t) => (
           <button
-            key={t ?? "all-tags"}
+            key={t === null ? "all-tags" : `tag:${t}`}
             onClick={() => setFilterTag(t)}
             className="text-xs font-600 px-3 py-1.5 border transition-all"
             style={{
@@ -326,7 +335,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 className="ml-1.5 px-1 py-0.5 text-xs"
                 style={{ background: filterTag === t ? "rgba(255,255,255,0.25)" : "var(--muted)", borderRadius: "2px" }}
               >
-                {scoped.filter((f) => f.tags.includes(t)).length}
+                {searchScope.filter((f) => f.tags.includes(t)).length}
               </span>
             )}
           </button>
@@ -360,7 +369,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-600 truncate">{f.name}</div>
+                  <div className="text-sm font-600 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
+                  {searchQuery.trim() && contentSnippet(currentFileText(f), searchQuery) && <p className="text-xs mt-1 line-clamp-2 break-words"><SearchHighlight text={contentSnippet(currentFileText(f), searchQuery)} query={searchQuery} /></p>}
                   <div className="flex items-center gap-2 mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
                     <span className="text-xs">{f.uploader}</span>
                     <span className="text-xs">·</span>
@@ -395,7 +405,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
           {filtered.length === 0 && (
             <div className="border-2 border-dashed p-8 text-center" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}>
-              {currentFolder ? "이 폴더에는 파일이 없습니다" : "루트에 저장된 파일이 없습니다 (위 폴더를 열어보세요)"}
+              {searchQuery.trim() ? "검색 결과가 없습니다" : currentFolder ? "이 폴더에는 파일이 없습니다" : "루트에 저장된 파일이 없습니다 (위 폴더를 열어보세요)"}
             </div>
           )}
         </div>
@@ -448,7 +458,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
 
               {detailTab === "versions" ? (
-                <FileVersionPanel file={selFile} />
+                <FileVersionPanel file={selFile} searchQuery={searchQuery} />
               ) : (
                 <WorkspaceComments file={selFile} />
               )}

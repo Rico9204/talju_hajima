@@ -57,6 +57,8 @@ export interface TeamData {
 }
 
 export interface FileVersion {
+  searchText?: string;
+  searchStatus?: import("../lib/workspaceSearch").SearchStatus;
   id: number;
   parentVersionId: number | null;
   storagePath: string | null;
@@ -74,6 +76,7 @@ export interface FileVersion {
 }
 
 export interface FileUploadInput {
+  extractedText?: import("../lib/workspaceSearch").ExtractedText;
   tags?: string[];
   file: File;
   folderId: number | null;

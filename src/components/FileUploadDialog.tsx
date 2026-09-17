@@ -71,7 +71,7 @@ export default function FileUploadDialog({ file, destination, initialTags = [], 
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" disabled={busy} onClick={onCancel} className="px-4 py-2 rounded-xl border disabled:opacity-50">취소</button>
-        <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl disabled:opacity-50" style={{ background: "var(--primary)", color: "white" }}>{busy ? "업로드 중…" : "확인 · 업로드"}</button>
+        <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl disabled:opacity-50" style={{ background: "var(--primary)", color: "white" }}>{busy ? "본문 분석·업로드 중…" : "확인 · 업로드"}</button>
       </div>
     </form>
   </dialog>, document.body);

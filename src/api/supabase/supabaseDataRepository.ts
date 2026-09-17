@@ -90,7 +90,7 @@ function mapFile(row: any): WorkspaceFile {
   const versions = (row.file_versions ?? [])
     .slice()
     .sort((a: any, b: any) => b.id - a.id)
-    .map((v: any) => ({ id: v.id, parentVersionId: v.parent_version_id ?? null, storagePath: v.storage_path ?? null, originalName: v.original_name ?? null, mimeType: v.mime_type ?? "application/octet-stream", byteSize: v.byte_size ?? null, pinned: v.pinned ?? false, version: v.version, uploadedBy: v.uploaded_by, uploadedAt: v.uploaded_at ?? null, date: v.date, size: v.size, note: v.note, current: v.current }));
+    .map((v: any) => ({ id: v.id, parentVersionId: v.parent_version_id ?? null, storagePath: v.storage_path ?? null, originalName: v.original_name ?? null, mimeType: v.mime_type ?? "application/octet-stream", byteSize: v.byte_size ?? null, pinned: v.pinned ?? false, version: v.version, searchText: v.search_text ?? "", searchStatus: v.search_status ?? "pending", uploadedBy: v.uploaded_by, uploadedAt: v.uploaded_at ?? null, date: v.date, size: v.size, note: v.note, current: v.current }));
   const comments = (row.file_comments ?? [])
     .slice()
     .sort((a: any, b: any) => a.id - b.id)
@@ -549,12 +549,13 @@ export const supabaseDataRepository: DataRepository = {
       contentType: file.type || "application/octet-stream", upsert: false,
     });
     if (uploadError) throw uploadError;
-    const { data, error } = await supabase.rpc("register_workspace_version", {
+    const { data, error } = await supabase.rpc("register_workspace_search_version", {
       p_project_id: projectId, p_file_id: input.fileId ?? null,
       p_base_version_id: input.baseVersionId ?? null, p_folder_id: input.folderId,
       p_name: file.name, p_type: workspaceFileType(file.name), p_path: path,
       p_note: input.note ?? "",
       p_tags: input.tags ?? null,
+      p_search_text: input.extractedText?.text ?? "", p_search_status: input.extractedText?.status ?? "unsupported",
     });
     if (error) {
       // The delete policy refuses to delete a committed version, even if its
@@ -570,6 +571,10 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
+  async setFileVersionText(versionId, extracted) {
+    const { error } = await supabase.rpc("set_workspace_version_text", { p_version_id: versionId, p_text: extracted.text, p_status: extracted.status });
+    if (error) throw error;
+  },
   async setFileTags(fileId, tags) {
     validateFileTags(tags, false);
     const { error } = await supabase.rpc("set_workspace_file_tags", { p_file_id: fileId, p_tags: tags });

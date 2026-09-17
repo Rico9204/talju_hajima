@@ -29,7 +29,7 @@ function transport() {
         remove:async(paths)=>{ for(const path of paths) if(![...records.values()].includes(path)) objects.delete(path); return {error:null}; },
       };
     }},
-    rpc:async(name,args)=> { assert.equal(name,'register_workspace_version'); const id=++counter; records.set(id,args.p_path); return {data:{file_id:id,version_id:id,branched:false},error:null}; },
+    rpc:async(name,args)=> { assert.equal(name,'register_workspace_search_version'); const id=++counter; records.set(id,args.p_path); return {data:{file_id:id,version_id:id,branched:false},error:null}; },
     from:()=>({select:()=>({eq:(_key,id)=>({single:async()=>({data:{storage_path:records.get(id)},error:null})})})}),
   };
   return {fake,objects,records};

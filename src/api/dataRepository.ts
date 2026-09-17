@@ -65,6 +65,7 @@ export interface DataRepository {
   listFiles(projectId: string): Promise<WorkspaceFile[]>;
   uploadFile(projectId: string, input: import("./types").FileUploadInput): Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion(fileId: number, versionId: number): Promise<void>;
+  setFileVersionText(versionId: number, extracted: import("../lib/workspaceSearch").ExtractedText): Promise<void>;
   setFileTags(fileId: number, tags: string[]): Promise<void>;
   pinFileVersion(fileId: number, versionId: number, pinned: boolean): Promise<void>;
   downloadFileVersion(versionId: number): Promise<Blob>;
