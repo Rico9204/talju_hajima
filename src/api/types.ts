@@ -83,6 +83,8 @@ export interface FileUploadInput {
 }
 
 export interface FileComment {
+  memberId: string | null;
+  reactions: { commentId: number; memberId: string; emoji: string }[];
   id: number;
   author: string;
   avatar: string;

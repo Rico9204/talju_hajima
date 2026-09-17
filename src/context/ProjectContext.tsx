@@ -98,6 +98,7 @@ interface ProjectContextValue {
   setFileTags: (fileId: number, tags: string[]) => Promise<void>;
   pinFileVersion: (fileId: number, versionId: number, pinned: boolean) => Promise<void>;
   downloadFileVersion: (versionId: number) => Promise<Blob>;
+  setFileCommentReaction: (commentId: number, emoji: string, active: boolean) => Promise<void>;
   addFileComment: (fileId: number, text: string) => Promise<void>;
   tasks: Task[];
   addTask: (input: NewTaskInput) => Promise<void>;
@@ -802,6 +803,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setFileTags: async (fileId, tags) => { await dataRepository.setFileTags(fileId, tags); await refreshFiles(); },
         pinFileVersion,
         downloadFileVersion: (versionId) => dataRepository.downloadFileVersion(versionId),
+        setFileCommentReaction: async (commentId, emoji, active) => {
+          if (!currentMember) throw new Error("프로젝트 참여자만 반응할 수 있습니다.");
+          await dataRepository.setFileCommentReaction(commentId, currentMember.id, emoji, active);
+          await refreshFiles();
+        },
         addFileComment,
         tasks,
         addTask,

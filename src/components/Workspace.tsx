@@ -1,3 +1,4 @@
+import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
 import { latestFileUploadTime } from "../lib/workspaceFiles";
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
@@ -31,8 +32,7 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, uploadWorkspaceFile, addFileComment, team } = useProject();
-  const authorColor = (name: string) => team.members.find((m) => m.name === name)?.color || "#6b7280";
+  const { project, folders, files, addFolder, uploadWorkspaceFile } = useProject();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -46,7 +46,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
-  const [commentDraft, setCommentDraft] = useState("");
   const [uploading, setUploading] = useState(false);
   const uploadingRef = useRef(false);
   const activeProjectRef = useRef(project.id);
@@ -451,55 +450,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               {detailTab === "versions" ? (
                 <FileVersionPanel file={selFile} />
               ) : (
-                <div className="flex flex-col gap-3">
-                  {selFile.comments.map((c) => (
-                    <div key={c.id} className="flex items-start gap-2.5">
-                      <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0"
-                        style={{ background: `${authorColor(c.author)}18`, color: authorColor(c.author) }}
-                      >
-                        {c.avatar}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-700">{c.author}</span>
-                          <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{c.date}</span>
-                        </div>
-                        <p className="text-xs mt-0.5 leading-relaxed px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}>
-                          {c.text}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  {selFile.comments.length === 0 && (
-                    <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                      아직 댓글이 없어요. 첫 코멘트를 남겨보세요.
-                    </div>
-                  )}
-                  {!locked && (
-                    <div className="flex gap-2 mt-1">
-                      <input
-                        value={commentDraft}
-                        onChange={(e) => setCommentDraft(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && (addFileComment(selFile.id, commentDraft), setCommentDraft(""))}
-                        placeholder="이 파일에 코멘트 남기기..."
-                        className="flex-1 text-xs px-3 py-2 outline-none"
-                        style={{ background: "var(--muted)", borderRadius: "20px", fontFamily: "var(--font-outfit)" }}
-                      />
-                      <button
-                        onClick={() => { addFileComment(selFile.id, commentDraft); setCommentDraft(""); }}
-                        className="px-3 text-xs font-700 shrink-0 transition-all"
-                        style={{
-                          background: commentDraft.trim() ? "var(--primary)" : "var(--muted)",
-                          color: commentDraft.trim() ? "#fff" : "var(--muted-foreground)",
-                          borderRadius: "20px",
-                        }}
-                      >
-                        등록
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <WorkspaceComments file={selFile} />
               )}
             </div>
           ) : (

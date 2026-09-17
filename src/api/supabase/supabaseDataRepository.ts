@@ -115,7 +115,7 @@ function mapFile(row: any): WorkspaceFile {
 }
 
 function mapComment(row: any): FileComment {
-  return { id: row.id, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+  return { id: row.id, memberId: row.member_id ?? null, reactions: (row.file_comment_reactions ?? []).map((r: any) => ({ commentId: row.id, memberId: r.member_id, emoji: r.emoji })), author: row.author, avatar: row.avatar, date: row.date, text: row.text };
 }
 
 function mapChecklistItem(row: any): ChecklistItem {
@@ -529,7 +529,7 @@ export const supabaseDataRepository: DataRepository = {
   async listFiles(projectId) {
     const { data, error } = await supabase
       .from("files")
-      .select("*, file_versions(*), file_comments(*)")
+      .select("*, file_versions(*), file_comments(*, file_comment_reactions(member_id, emoji))")
       .eq("project_id", projectId)
       .order("id", { ascending: false });
     if (error) throw error;
@@ -588,6 +588,23 @@ export const supabaseDataRepository: DataRepository = {
     const { data: blob, error: downloadError } = await supabase.storage.from(WORKSPACE_BUCKET).download(data.storage_path);
     if (downloadError) throw downloadError;
     return blob;
+  },
+
+  async setFileCommentReaction(commentId, memberId, emoji, active) {
+    if (active) {
+      const { error } = await supabase
+        .from("file_comment_reactions")
+        .upsert({ comment_id: commentId, member_id: memberId, emoji }, { onConflict: "comment_id,member_id,emoji", ignoreDuplicates: true });
+      if (error) throw error;
+      return;
+    }
+    const { error } = await supabase
+      .from("file_comment_reactions")
+      .delete()
+      .eq("comment_id", commentId)
+      .eq("member_id", memberId)
+      .eq("emoji", emoji);
+    if (error) throw error;
   },
 
   async addFileComment(fileId, actorName, actorAvatar, text) {
