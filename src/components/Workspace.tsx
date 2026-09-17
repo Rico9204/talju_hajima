@@ -405,7 +405,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         <div className="col-span-1 md:col-span-2">
           {selFile ? (
             <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-start justify-between gap-3 mb-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="text-xs font-700 px-2 py-0.5" style={{ background: typeColors[selFile.type]?.bg, color: typeColors[selFile.type]?.color, borderRadius: "3px" }}>
                   {typeColors[selFile.type]?.label}
                 </span>
@@ -413,12 +414,13 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   {selFile.tags.join(" · ") || "태그 없음"}
                 </span>
               </div>
-              <h3 className="text-sm font-700 mt-2 mb-0.5 leading-snug">{selFile.name}</h3>
+              <WorkspaceDeleteActions item={selFile} kind="file" onDeleted={() => setSelected(null)} />
+              </div>
+              <h3 className="text-sm font-700 mt-2 mb-0.5 leading-snug break-words">{selFile.name}</h3>
               <p className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>
                 {selFile.versions.length}개 버전 · 최근 업로드 {latestFileUploadTime(selFile)}
               </p>
 
-              <WorkspaceDeleteActions item={selFile} kind="file" onDeleted={() => setSelected(null)} />
               <FileTagEditor file={selFile} />
               {/* Tab toggle */}
               <div className="flex gap-1.5 mb-3 p-1" style={{ background: "var(--muted)", borderRadius: "10px" }}>

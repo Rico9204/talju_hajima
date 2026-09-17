@@ -227,6 +227,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const activityRevision = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Computed early (duplicating the later `currentMember` derivation) so the
@@ -280,6 +282,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (!projectId) return;
     let cancelled = false;
     setLoading(true);
+    activityRevision.current++;
     Promise.all([
       dataRepository.getTeam(projectId),
       dataRepository.listFolders(projectId),
@@ -296,6 +299,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setScheduleEvents(scheduleList);
         setError(null);
         setInitialized(true);
+        setLoadedProjectId(projectId);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -308,6 +312,43 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [projectId]);
+
+  // Refresh activity after returning to the app and while it remains open.
+  // Project existence is checked before exposing files from that project.
+  useEffect(() => {
+    if (!session || !projectsLoaded) return;
+    let cancelled = false;
+    let pending = false;
+    async function syncActivity() {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
+      const revision = activityRevision.current;
+      try {
+        const [list, myIds] = await Promise.all([dataRepository.listProjects(), dataRepository.listMyProjectIds()]);
+        if (cancelled || revision !== activityRevision.current) return;
+        const mine = list.filter(p => myIds.includes(p.id));
+        setProjects(mine);
+        if (!projectId || !mine.some(p => p.id === projectId)) {
+          setFiles([]); setFolders([]); setScheduleEvents([]); setTasks([]); setChatMessages({});
+          setLoadedProjectId(null); setError(null);
+          setProjectId(mine[0]?.id ?? null);
+          return;
+        }
+        if (loadedProjectId !== projectId) return;
+        const [nextFiles, nextEvents] = await Promise.all([dataRepository.listFiles(projectId), dataRepository.listScheduleEvents(projectId)]);
+        if (cancelled || revision !== activityRevision.current) return;
+        setFiles(nextFiles); setScheduleEvents(nextEvents);
+      } catch {
+        // A transient network failure is not evidence that a project was deleted.
+      } finally { pending = false; }
+    }
+    const refresh = () => { void syncActivity(); };
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    refresh();
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [session?.user.id, projectId, projectsLoaded, loadedProjectId]);
 
   // Private Realtime channels authorize their join with the Realtime
   // socket's JWT, which is separate from the REST client's request header.
@@ -430,6 +471,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshFiles() {
+    activityRevision.current++;
     if (!projectId) return;
     const refreshedFiles = await dataRepository.listFiles(projectId);
     if (evaluationProjectRef.current === projectId) setFiles(refreshedFiles);
@@ -456,10 +498,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   async function deleteProject(targetId: string) {
+    activityRevision.current++;
     await dataRepository.deleteProject(targetId);
     const remaining = projects.filter((p) => p.id !== targetId);
     setProjects(remaining);
-    if (targetId === projectId) setProjectId(remaining[0]?.id ?? null);
+    if (targetId === projectId) {
+      activityRevision.current++;
+      setFiles([]); setFolders([]); setScheduleEvents([]); setTasks([]); setChatMessages({});
+      setLoadedProjectId(null);
+      setProjectId(remaining[0]?.id ?? null);
+    }
   }
 
   async function lookupProject(targetId: string) {
@@ -533,6 +581,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshScheduleEvents() {
+    activityRevision.current++;
     if (!projectId) return;
     setScheduleEvents(await dataRepository.listScheduleEvents(projectId));
   }
@@ -696,7 +745,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   if (!session) return <>{children}</>;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
   if (projects.length === 0) return <EmptyProjectsScreen addProject={addProject} lookupProject={lookupProject} joinProject={joinProject} />;
-  if (!initialized) return <StatusScreen kind="loading" />;
+  if (!initialized || loadedProjectId !== projectId) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
   const liveTeam: TeamData = { ...team, members: team.members.map((m) => ({ ...m, online: onlineMemberIds.has(m.id) })) };

@@ -13,3 +13,19 @@ test('uses modification time rather than event date and preserves private/hidden
  const events=[{...base,id:1,title:'비공개',visibility:'private'}, {...base,id:2,title:'숨긴 제목',visibility:'shared',hideTitle:true}, {...base,id:3,title:'내 일정',visibility:'private',ownerMemberId:'me'}];
  assert.deepEqual(dashboardActivity([],events,'me',now).map(x=>x.title),['바쁨','내 일정']);
 });
+
+test('uploads use immutable version timestamps and include branch uploads',()=>{
+ const files=[{id:8,name:'자료.pdf',updatedAt:'2026-09-16T11:59:00Z',versions:[
+  {id:10,version:'v1',uploadedBy:'팀원',originalName:'초안.pdf',uploadedAt:'2026-09-16T10:00:00Z',current:true},
+  {id:11,version:'v2',uploadedBy:'동료',originalName:'수정.pdf',uploadedAt:'2026-09-16T11:00:00Z',current:false},
+ ]}];
+ const result=dashboardActivity(files,[],'me',now);
+ assert.deepEqual(result.map(x=>x.action),['수정.pdf v2 업로드','초안.pdf v1 업로드']);
+ assert.equal(result[0].who,'동료');
+ assert.equal(result[0].timestamp,Date.parse('2026-09-16T11:00:00Z'));
+});
+test('deleted file or cleared project leaves no cached upload notifications',()=>{
+ const file={id:8,name:'자료',versions:[{id:10,version:'v1',uploadedBy:'팀원',uploadedAt:'2026-09-16T10:00:00Z'}]};
+ assert.equal(dashboardActivity([file],[],'me',now).length,1);
+ assert.deepEqual(dashboardActivity([],[],'me',now),[]);
+});

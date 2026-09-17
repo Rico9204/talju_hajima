@@ -31,8 +31,8 @@ export default function WorkspaceDeleteActions({ item, kind, fileCount = 0, onDe
     } catch (e) { if (mounted.current) setError(errorMessage(e)); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
-  return <div className="mb-4 text-xs">
-    <button disabled={busy || nonempty} onClick={() => void remove()} className="rounded-lg px-3 py-2 text-red-700 bg-red-50 disabled:opacity-50">
+  return <div className={kind === "file" ? "shrink-0 text-right text-xs max-w-[50%]" : "mb-4 text-xs"}>
+    <button disabled={busy || nonempty} onClick={() => void remove()} className="rounded-full px-3 py-2 font-600 whitespace-nowrap text-red-700 bg-red-50 hover:bg-red-100 transition-colors disabled:opacity-50">
       {busy ? "삭제 중…" : `${kind === "file" ? "파일" : "폴더"} 삭제`}
     </button>
     {nonempty && <p className="mt-1" style={{ color: "var(--muted-foreground)" }}>폴더 안의 파일을 먼저 삭제해 주세요.</p>}
