@@ -3,6 +3,8 @@ import type { DataRepository } from "../dataRepository";
 import type { Project, TeamData, Member, Folder, WorkspaceFile, FileComment, Task, TaskStatus, ChatMessage } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
+let fileContentSupported: boolean | null = null;
+let filePreviewSupported: boolean | null = null;
 
 function slugify(name: string): string {
   const base = name
@@ -76,6 +78,8 @@ function mapFile(row: any): WorkspaceFile {
   return {
     id: row.id,
     name: row.name,
+    content: row.content ?? "",
+    previewData: row.file_data ?? "",
     type: row.type,
     uploader: row.uploader,
     avatar: row.avatar,
@@ -335,6 +339,10 @@ export const supabaseDataRepository: DataRepository = {
       .eq("project_id", projectId)
       .order("id", { ascending: false });
     if (error) throw error;
+    if (data && data.length > 0) {
+      fileContentSupported = Object.prototype.hasOwnProperty.call(data[0], "content");
+      filePreviewSupported = Object.prototype.hasOwnProperty.call(data[0], "file_data");
+    }
     return (data ?? []).map(mapFile);
   },
 
@@ -344,21 +352,30 @@ export const supabaseDataRepository: DataRepository = {
     const sizeStr = formatSize(input.size);
     const today = todayISO();
 
-    const { data: fileRow, error: fileError } = await supabase
-      .from("files")
-      .insert({
-        project_id: projectId,
-        name: input.name,
-        type,
-        uploader: actorName,
-        avatar: actorAvatar,
-        date: today,
-        size: sizeStr,
-        tag: "보고서",
-        folder_id: input.folderId,
-      })
-      .select()
-      .single();
+    const fileInput = {
+      project_id: projectId,
+      name: input.name,
+      type,
+      uploader: actorName,
+      avatar: actorAvatar,
+      date: today,
+      size: sizeStr,
+      tag: "보고서",
+      folder_id: input.folderId,
+      ...(fileContentSupported !== false && input.content?.trim() ? { content: input.content.trim() } : {}),
+      ...(filePreviewSupported !== false && input.fileData ? { file_data: input.fileData } : {}),
+    };
+    let { data: fileRow, error: fileError } = await supabase.from("files").insert(fileInput).select().single();
+
+    // Existing Supabase projects may not have run migration_file_content.sql yet.
+    // Keep uploads working while the migration is pending; text content will be
+    // searchable after the column is added.
+    if (fileError && /content|file_data|column/i.test(fileError.message)) {
+      const { content: _content, file_data: _fileData, ...legacyFileInput } = fileInput;
+      const retry = await supabase.from("files").insert(legacyFileInput).select().single();
+      fileRow = retry.data;
+      fileError = retry.error;
+    }
     if (fileError) throw fileError;
 
     const { error: versionError } = await supabase.from("file_versions").insert({

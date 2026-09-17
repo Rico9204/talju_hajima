@@ -44,7 +44,7 @@ interface ProjectContextValue {
   folders: Folder[];
   files: WorkspaceFile[];
   addFolder: (name: string) => Promise<void>;
-  addFile: (name: string, size: number, folderId: number | null, note?: string) => Promise<void>;
+  addFile: (name: string, size: number, folderId: number | null, note?: string, content?: string, fileData?: string) => Promise<void>;
   addFileVersion: (fileId: number, note?: string) => Promise<void>;
   addFileComment: (fileId: number, text: string) => Promise<void>;
   tasks: Task[];
@@ -352,9 +352,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshFolders();
   }
 
-  async function addFile(name: string, size: number, folderId: number | null, note?: string) {
+  async function addFile(name: string, size: number, folderId: number | null, note?: string, content?: string, fileData?: string) {
     if (!projectId || !currentMember) return;
-    await dataRepository.createFile(projectId, { name, size, folderId, note }, currentMember.name, currentMember.avatar);
+    await dataRepository.createFile(projectId, { name, size, folderId, note, content, fileData }, currentMember.name, currentMember.avatar);
     await refreshFiles();
   }
 

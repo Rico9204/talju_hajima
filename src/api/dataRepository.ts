@@ -30,7 +30,7 @@ export interface DataRepository {
   listFiles(projectId: string): Promise<WorkspaceFile[]>;
   createFile(
     projectId: string,
-    input: { name: string; size: number; folderId: number | null; note?: string },
+    input: { name: string; size: number; folderId: number | null; note?: string; content?: string; fileData?: string },
     actorName: string,
     actorAvatar: string
   ): Promise<WorkspaceFile>;

@@ -61,6 +61,8 @@ export interface FileComment {
 export interface WorkspaceFile {
   id: number;
   name: string;
+  content?: string;
+  previewData?: string;
   type: "pdf" | "doc" | "img" | "ppt" | "xls" | "zip";
   uploader: string;
   avatar: string;
