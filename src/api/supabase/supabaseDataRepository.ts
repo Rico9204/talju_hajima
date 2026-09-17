@@ -1,4 +1,4 @@
-import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath } from "../../lib/workspaceFiles";
+import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath, validateFileTags } from "../../lib/workspaceFiles";
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
 import type {
@@ -83,14 +83,14 @@ function mapMember(row: any, profile?: any): Member {
 }
 
 function mapFolder(row: any): Folder {
-  return { id: row.id, name: row.name, color: row.color, createdBy: row.created_by, date: row.date };
+  return { id: row.id, name: row.name, color: row.color, createdBy: row.created_by, ownerUserId: row.owner_user_id ?? null, date: row.date };
 }
 
 function mapFile(row: any): WorkspaceFile {
   const versions = (row.file_versions ?? [])
     .slice()
     .sort((a: any, b: any) => b.id - a.id)
-    .map((v: any) => ({ id: v.id, parentVersionId: v.parent_version_id ?? null, storagePath: v.storage_path ?? null, originalName: v.original_name ?? null, mimeType: v.mime_type ?? "application/octet-stream", byteSize: v.byte_size ?? null, pinned: v.pinned ?? false, version: v.version, uploadedBy: v.uploaded_by, date: v.date, size: v.size, note: v.note, current: v.current }));
+    .map((v: any) => ({ id: v.id, parentVersionId: v.parent_version_id ?? null, storagePath: v.storage_path ?? null, originalName: v.original_name ?? null, mimeType: v.mime_type ?? "application/octet-stream", byteSize: v.byte_size ?? null, pinned: v.pinned ?? false, version: v.version, uploadedBy: v.uploaded_by, uploadedAt: v.uploaded_at ?? null, date: v.date, size: v.size, note: v.note, current: v.current }));
   const comments = (row.file_comments ?? [])
     .slice()
     .sort((a: any, b: any) => a.id - b.id)
@@ -106,6 +106,8 @@ function mapFile(row: any): WorkspaceFile {
     date: row.date,
     size: row.size,
     tag: row.tag,
+    ownerUserId: row.owner_user_id ?? null,
+    tags: row.tags ?? (row.tag && row.tag !== "기타" ? [row.tag] : []),
     folderId: row.folder_id,
     versions,
     comments,
@@ -497,6 +499,33 @@ export const supabaseDataRepository: DataRepository = {
     return mapFolder(data);
   },
 
+  async deleteWorkspaceFile(fileId) {
+    const { error } = await supabase.rpc("delete_workspace_file", { p_file_id: fileId });
+    if (error) throw error;
+  },
+  async deleteWorkspaceFolder(folderId) {
+    const { error } = await supabase.rpc("delete_workspace_folder", { p_folder_id: folderId });
+    if (error) throw error;
+  },
+  async pendingWorkspaceCleanup(projectId) {
+    const { data, error } = await supabase.from("workspace_delete_queue").select("storage_path").eq("project_id", projectId).order("storage_path").limit(100);
+    if (error) throw error;
+    return (data ?? []).map((row) => row.storage_path as string);
+  },
+  async cleanupWorkspaceFiles(projectId) {
+    // Drain in bounded API batches. Failed requests leave the durable retry list.
+    for (;;) {
+      const paths = await supabaseDataRepository.pendingWorkspaceCleanup(projectId);
+      if (!paths.length) return;
+      const { error } = await supabase.storage.from(WORKSPACE_BUCKET).remove(paths);
+      if (error) throw error;
+      const { error: finishError } = await supabase.rpc("finish_workspace_cleanup", { p_project_id: projectId });
+      if (finishError) throw finishError;
+      const pending = await supabaseDataRepository.pendingWorkspaceCleanup(projectId);
+      if (pending.some((path) => paths.includes(path))) throw new Error("일부 원본을 삭제하지 못했습니다. 다시 시도해 주세요.");
+    }
+  },
+
   async listFiles(projectId) {
     const { data, error } = await supabase
       .from("files")
@@ -510,6 +539,7 @@ export const supabaseDataRepository: DataRepository = {
   async uploadFile(projectId, input) {
     const file = input.file;
     if (file.size > MAX_WORKSPACE_FILE_SIZE) throw new Error("파일은 50MB까지 업로드할 수 있습니다.");
+    if (input.tags !== undefined || !input.fileId) validateFileTags(input.tags ?? [], workspaceFileType(file.name) === "img" || file.type.startsWith("image/"));
     const { data: auth, error: authError } = await supabase.auth.getUser();
     if (authError) throw authError;
     if (!auth.user) throw new Error("로그인이 필요합니다.");
@@ -524,6 +554,7 @@ export const supabaseDataRepository: DataRepository = {
       p_base_version_id: input.baseVersionId ?? null, p_folder_id: input.folderId,
       p_name: file.name, p_type: workspaceFileType(file.name), p_path: path,
       p_note: input.note ?? "",
+      p_tags: input.tags ?? null,
     });
     if (error) {
       // The delete policy refuses to delete a committed version, even if its
@@ -536,6 +567,12 @@ export const supabaseDataRepository: DataRepository = {
 
   async promoteFileVersion(fileId, versionId) {
     const { error } = await supabase.rpc("promote_workspace_version", { p_file_id: fileId, p_version_id: versionId });
+    if (error) throw error;
+  },
+
+  async setFileTags(fileId, tags) {
+    validateFileTags(tags, false);
+    const { error } = await supabase.rpc("set_workspace_file_tags", { p_file_id: fileId, p_tags: tags });
     if (error) throw error;
   },
 

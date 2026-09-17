@@ -66,6 +66,7 @@ export interface FileVersion {
   pinned: boolean;
   version: string;
   uploadedBy: string;
+  uploadedAt?: string | null;
   date: string;
   size: string;
   note: string;
@@ -73,6 +74,7 @@ export interface FileVersion {
 }
 
 export interface FileUploadInput {
+  tags?: string[];
   file: File;
   folderId: number | null;
   fileId?: number;
@@ -89,6 +91,7 @@ export interface FileComment {
 }
 
 export interface WorkspaceFile {
+  ownerUserId?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   id: number;
@@ -99,12 +102,14 @@ export interface WorkspaceFile {
   date: string;
   size: string;
   tag: string;
+  tags: string[];
   folderId: number | null;
   versions: FileVersion[];
   comments: FileComment[];
 }
 
 export interface Folder {
+  ownerUserId?: string | null;
   id: number;
   name: string;
   color: string;

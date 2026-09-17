@@ -1350,3 +1350,246 @@ create policy workspace_binary_cleanup on storage.objects for delete to authenti
   and not exists(select 1 from public.file_versions v where v.storage_path=objects.name)
 );
 commit;
+
+-- Apply after workspace versioning and path-policy migrations.
+begin;
+alter table public.files add column if not exists tags text[] not null default '{}';
+update public.files set tags=array[tag] where cardinality(tags)=0 and trim(coalesce(tag,'')) not in ('','기타');
+create or replace function public.normalize_workspace_tags(p_tags text[])
+returns text[] language plpgsql immutable set search_path=public as $$
+declare result text[];
+begin
+  select coalesce(array_agg(tag order by first_position),array[]::text[]) into result
+  from (select btrim(value) tag,min(position) first_position from unnest(p_tags) with ordinality as t(value,position)
+    where nullif(btrim(value),'') is not null group by btrim(value)) cleaned;
+  if cardinality(result)>10 or exists(select 1 from unnest(result) tag where char_length(tag)>30) then
+    raise exception '태그는 최대 10개, 각각 30자까지 입력할 수 있습니다.';
+  end if;
+  return result;
+end $$;
+drop function if exists public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text);
+create or replace function public.register_workspace_version(
+  p_project_id text,p_file_id bigint,p_base_version_id bigint,p_folder_id bigint,
+  p_name text,p_type text,p_path text,p_note text,p_tags text[] default null
+) returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  actor public.members%rowtype;
+  f public.files%rowtype;
+  existing public.file_versions%rowtype;
+  head_id bigint;
+  new_id bigint;
+  n integer;
+  bytes bigint;
+  mime text;
+  size_label text;
+  make_current boolean;
+  normalized_tags text[];
+begin
+  -- Same lock used by project completion: no upload can commit after closure.
+  perform id from public.projects where id=p_project_id and status='active' for update;
+  if not found then raise exception '진행 중인 프로젝트에만 업로드할 수 있습니다.'; end if;
+  select * into actor from public.members where project_id=p_project_id and user_id=auth.uid();
+  if not found then raise exception '프로젝트 참여자만 업로드할 수 있습니다.'; end if;
+  if p_name is null or length(trim(p_name))=0 or length(p_name)>255 or length(coalesce(p_note,''))>2000 then
+    raise exception '파일 이름 또는 메모가 올바르지 않습니다.';
+  end if;
+  if p_type is null or p_type not in ('pdf','doc','img','ppt','xls','zip') then raise exception '잘못된 파일 유형입니다.'; end if;
+  if p_path is null or public.workspace_storage_project(p_path) is distinct from p_project_id or public.workspace_storage_owner(p_path) is distinct from auth.uid()::text then
+    raise exception '업로드 경로가 올바르지 않습니다.';
+  end if;
+  select (metadata->>'size')::bigint,coalesce(metadata->>'mimetype','application/octet-stream')
+    into bytes,mime from storage.objects where bucket_id='workspace-files' and name=p_path for update;
+  if not found or bytes is null or bytes<0 or bytes>52428800 then raise exception '업로드한 파일을 확인할 수 없습니다 (최대 50MB).'; end if;
+  select * into existing from public.file_versions where storage_path=p_path;
+  if found then
+    if p_file_id is not null and existing.file_id<>p_file_id then raise exception '다른 파일에 등록된 원본입니다.'; end if;
+    return jsonb_build_object('file_id',existing.file_id,'version_id',existing.id,'branched',not existing.current);
+  end if;
+  if p_file_id is not null then
+    select * into f from public.files where id=p_file_id and project_id=p_project_id for update;
+    if not found then raise exception '프로젝트의 파일이 아닙니다.'; end if;
+  end if;
+  normalized_tags := public.normalize_workspace_tags(coalesce(p_tags,f.tags,array[]::text[]));
+  if (p_type='img' or mime like 'image/%' or lower(p_name) ~ '\.(png|jpe?g|gif|webp|svg|avif|bmp|heic|tiff?|ico)$'
+    or f.type='img' or exists(select 1 from public.file_versions where file_id=p_file_id and (file_type='img' or mime_type like 'image/%')))
+    and cardinality(normalized_tags)=0 then raise exception '이미지에는 태그를 하나 이상 입력해 주세요.'; end if;
+  size_label := case when bytes>=1048576 then round(bytes/1048576.0,2)::text || ' MB' else round(bytes/1024.0,1)::text || ' KB' end;
+  if p_file_id is null then
+    if p_base_version_id is not null then raise exception '새 파일에는 기준 버전이 없어야 합니다.'; end if;
+    if p_folder_id is not null and not exists(select 1 from public.folders where id=p_folder_id and project_id=p_project_id) then
+      raise exception '프로젝트의 폴더가 아닙니다.';
+    end if;
+    insert into public.files(project_id,name,type,uploader,avatar,date,size,tag,folder_id)
+      values(p_project_id,p_name,p_type,actor.name,actor.avatar,current_date,size_label,'기타',p_folder_id) returning * into f;
+  else
+    select * into f from public.files where id=p_file_id and project_id=p_project_id for update;
+    if not found then raise exception '프로젝트의 파일이 아닙니다.'; end if;
+  end if;
+  update public.files set tags=normalized_tags,tag=coalesce(normalized_tags[1],'기타') where id=f.id;
+  select id into head_id from public.file_versions where file_id=f.id and current;
+  if p_base_version_id is not null and not exists(select 1 from public.file_versions where id=p_base_version_id and file_id=f.id) then
+    raise exception '이 파일의 기준 버전이 아닙니다.';
+  end if;
+  if head_id is not null and p_base_version_id is null then raise exception '기준 버전을 선택해 주세요.'; end if;
+  make_current := head_id is not distinct from p_base_version_id;
+  select count(*)+1 into n from public.file_versions where file_id=f.id;
+  if make_current then update public.file_versions set current=false where file_id=f.id and current; end if;
+  insert into public.file_versions(file_id,version,uploaded_by,date,size,note,current,parent_version_id,storage_path,original_name,mime_type,byte_size,file_type)
+    values(f.id,'v'||n,actor.name,current_date,size_label,coalesce(p_note,''),make_current,p_base_version_id,p_path,p_name,mime,bytes,p_type)
+    returning id into new_id;
+  if make_current then
+    update public.files set type=p_type,uploader=actor.name,avatar=actor.avatar,date=current_date,size=size_label where id=f.id;
+  end if;
+  return jsonb_build_object('file_id',f.id,'version_id',new_id,'branched',not make_current);
+end $$;
+
+
+revoke all on function public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text,text[]) from public,anon;
+grant execute on function public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text,text[]) to authenticated;
+create or replace function public.set_workspace_file_tags(p_file_id bigint,p_tags text[])
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.files%rowtype; normalized_tags text[];
+begin
+  select project_id into pid from public.files where id=p_file_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 태그를 수정할 수 있습니다.'; end if;
+  select * into f from public.files where id=p_file_id for update;
+  normalized_tags := public.normalize_workspace_tags(p_tags);
+  if (f.type='img' or exists(select 1 from public.file_versions where file_id=p_file_id and (file_type='img' or mime_type like 'image/%')))
+    and cardinality(normalized_tags)=0 then raise exception '이미지에는 태그를 하나 이상 입력해 주세요.'; end if;
+  update public.files set tags=normalized_tags,tag=coalesce(normalized_tags[1],'기타') where id=p_file_id;
+end $$;
+revoke all on function public.set_workspace_file_tags(bigint,text[]) from public,anon;
+grant execute on function public.set_workspace_file_tags(bigint,text[]) to authenticated;
+commit;
+
+-- Existing date-only versions intentionally keep an unknown upload time.
+begin;
+alter table public.file_versions add column if not exists uploaded_at timestamptz;
+alter table public.file_versions alter column uploaded_at set default now();
+-- Server-owned timestamp: edits, pins and version promotion preserve it.
+create or replace function public.stamp_workspace_upload_time()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if TG_OP='INSERT' then new.uploaded_at:=now();
+  else new.uploaded_at:=old.uploaded_at; end if;
+  return new;
+end $$;
+drop trigger if exists workspace_upload_time on public.file_versions;
+create trigger workspace_upload_time before insert or update on public.file_versions
+for each row execute function public.stamp_workspace_upload_time();
+commit;
+
+-- Apply after workspace versioning, tags and upload-time migrations.
+begin;
+alter table public.files add column if not exists owner_user_id uuid;
+alter table public.folders add column if not exists owner_user_id uuid;
+-- Only recover an original uploader from the first version's verified storage path.
+-- Names are not reliable identities; legacy folders remain leader-only.
+update public.files f set owner_user_id=public.workspace_storage_owner(v.storage_path)::uuid
+from public.file_versions v
+where f.owner_user_id is null and v.file_id=f.id
+  and v.id=(select min(first.id) from public.file_versions first where first.file_id=f.id)
+  and public.workspace_storage_project(v.storage_path)=f.project_id
+  and public.workspace_storage_owner(v.storage_path) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+create or replace function public.stamp_workspace_owner()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if TG_OP='INSERT' then new.owner_user_id:=auth.uid();
+  else new.owner_user_id:=old.owner_user_id; end if;
+  return new;
+end $$;
+drop trigger if exists workspace_file_owner on public.files;
+create trigger workspace_file_owner before insert or update on public.files
+for each row execute function public.stamp_workspace_owner();
+drop trigger if exists workspace_folder_owner on public.folders;
+create trigger workspace_folder_owner before insert or update on public.folders
+for each row execute function public.stamp_workspace_owner();
+-- Folder mutation must not bypass the RPC's ownership and nonempty checks.
+revoke update,delete on public.folders from anon,authenticated;
+drop policy if exists folders_all on public.folders;
+drop policy if exists workspace_folders_read on public.folders;
+drop policy if exists workspace_folders_insert on public.folders;
+create policy workspace_folders_read on public.folders for select to authenticated using(public.is_project_member(project_id));
+create policy workspace_folders_insert on public.folders for insert to authenticated with check(
+  public.is_project_member(project_id) and exists(select 1 from public.projects p where p.id=folders.project_id and p.status='active')
+);
+
+-- Metadata deletion is atomic. Binary cleanup uses Storage's API, never SQL DELETE
+-- on storage.objects. Keep a durable retry list if the network/API fails.
+create table if not exists public.workspace_delete_queue (
+  storage_path text primary key,
+  project_id text not null references public.projects(id) on delete cascade,
+  deleted_by uuid not null,
+  deleted_at timestamptz not null default now()
+);
+alter table public.workspace_delete_queue enable row level security;
+revoke all on public.workspace_delete_queue from anon,authenticated;
+grant select on public.workspace_delete_queue to authenticated;
+drop policy if exists workspace_cleanup_read on public.workspace_delete_queue;
+create policy workspace_cleanup_read on public.workspace_delete_queue for select to authenticated using(
+  public.is_project_member(project_id) and (deleted_by=auth.uid() or public.is_project_leader(project_id))
+);
+drop policy if exists workspace_deleted_binary_cleanup on storage.objects;
+create policy workspace_deleted_binary_cleanup on storage.objects for delete to authenticated using(
+  bucket_id='workspace-files'
+  and exists(select 1 from public.workspace_delete_queue q where q.storage_path=objects.name)
+  and not exists(select 1 from public.file_versions v where v.storage_path=objects.name)
+);
+create or replace function public.prevent_deleted_workspace_reuse()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if exists(select 1 from public.workspace_delete_queue where storage_path=new.storage_path) then
+    raise exception '삭제 중인 원본은 다시 등록할 수 없습니다.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists workspace_prevent_deleted_reuse on public.file_versions;
+create trigger workspace_prevent_deleted_reuse before insert on public.file_versions
+for each row execute function public.prevent_deleted_workspace_reuse();
+
+create or replace function public.delete_workspace_file(p_file_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.files%rowtype;
+begin
+  select project_id into pid from public.files where id=p_file_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.files where id=p_file_id for update;
+  if not found then raise exception '파일이 존재하지 않습니다.'; end if;
+  if not public.is_project_leader(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장 또는 최초 업로더만 파일을 삭제할 수 있습니다.';
+  end if;
+  insert into public.workspace_delete_queue(storage_path,project_id,deleted_by)
+    select storage_path,pid,auth.uid() from public.file_versions where file_id=p_file_id and storage_path is not null
+    on conflict(storage_path) do nothing;
+  delete from public.files where id=p_file_id;
+end $$;
+create or replace function public.delete_workspace_folder(p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.folders%rowtype;
+begin
+  select project_id into pid from public.folders where id=p_folder_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.folders where id=p_folder_id for update;
+  if not found then raise exception '폴더가 존재하지 않습니다.'; end if;
+  if not public.is_project_leader(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장 또는 생성자만 폴더를 삭제할 수 있습니다.';
+  end if;
+  if exists(select 1 from public.files where folder_id=p_folder_id) then
+    raise exception '파일이 있는 폴더는 삭제할 수 없습니다. 파일을 먼저 삭제해 주세요.';
+  end if;
+  delete from public.folders where id=p_folder_id;
+end $$;
+create or replace function public.finish_workspace_cleanup(p_project_id text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 정리할 수 있습니다.'; end if;
+  delete from public.workspace_delete_queue q where q.project_id=p_project_id
+    and (q.deleted_by=auth.uid() or public.is_project_leader(p_project_id))
+    and not exists(select 1 from storage.objects o where o.bucket_id='workspace-files' and o.name=q.storage_path);
+end $$;
+revoke all on function public.delete_workspace_file(bigint), public.delete_workspace_folder(bigint), public.finish_workspace_cleanup(text) from public,anon;
+grant execute on function public.delete_workspace_file(bigint), public.delete_workspace_folder(bigint), public.finish_workspace_cleanup(text) to authenticated;
+commit;

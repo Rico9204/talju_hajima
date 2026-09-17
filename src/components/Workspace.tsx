@@ -1,4 +1,7 @@
+import { latestFileUploadTime, parseFileTags, validateFileTags, workspaceFileType } from "../lib/workspaceFiles";
 import { useEffect, useState, useRef } from "react";
+import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
+import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
 import { useProject } from "../context/ProjectContext";
 
@@ -39,8 +42,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
-  const [filterTag, setFilterTag] = useState("전체");
+  const [filterTag, setFilterTag] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadTags, setUploadTags] = useState("");
   const [uploadNote, setUploadNote] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -53,7 +57,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   useEffect(() => {
     setCurrentFolderId(null);
     setSelected(null);
-    setFilterTag("전체");
+    setFilterTag(null);
     setCreatingFolder(false);
     setFolderError("");
   }, [project.id]);
@@ -63,21 +67,24 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       setCurrentFolderId(focusFile.folderId);
       setSelected(focusFile.fileId);
       setDetailTab("versions");
-      setFilterTag("전체");
+      setFilterTag(null);
     }
   }, [focusFile]);
 
   const currentFolder = currentFolderId !== null ? folders.find((f) => f.id === currentFolderId) || null : null;
   const scoped = files.filter((f) => f.folderId === currentFolderId);
-  const tags = ["전체", ...Array.from(new Set(scoped.map((f) => f.tag)))];
-  const filtered = filterTag === "전체" ? scoped : scoped.filter((f) => f.tag === filterTag);
+  const tags = [null, ...Array.from(new Set(scoped.flatMap((f) => f.tags)))];
+  const filtered = filterTag === null ? scoped : scoped.filter((f) => f.tags.includes(filterTag));
   const selFile = selected !== null ? files.find((f) => f.id === selected) || null : null;
   const locked = project.status === "done";
+  useEffect(() => {
+    if (filterTag !== null && !scoped.some((f) => f.tags.includes(filterTag))) setFilterTag(null);
+  }, [files, currentFolderId, filterTag]);
 
   function openFolder(id: number | null) {
     setCurrentFolderId(id);
     setSelected(null);
-    setFilterTag("전체");
+    setFilterTag(null);
   }
 
   async function handleAddFolder() {
@@ -96,12 +103,15 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   async function uploadBinary(binary: File) {
     if (locked || uploadingRef.current) return;
+    const parsedTags = parseFileTags(uploadTags);
+    try { validateFileTags(parsedTags, workspaceFileType(binary.name) === "img" || binary.type.startsWith("image/")); }
+    catch (e) { setUploadError((e as Error).message); return; }
     const destination = currentFolder ? `“${currentFolder.name}” 폴더` : "워크스페이스 루트";
     if (!window.confirm(`“${binary.name}” 파일을 ${destination}에 업로드하시겠습니까?`)) return;
     const uploadProject = project.id;
     uploadingRef.current = true; setUploading(true); setUploadError("");
     try {
-      const result = await uploadWorkspaceFile({ file: binary, folderId: currentFolderId, note: uploadNote });
+      const result = await uploadWorkspaceFile({ file: binary, folderId: currentFolderId, note: uploadNote, tags: parsedTags });
       if (activeProjectRef.current === uploadProject) { setSelected(result.fileId); setDetailTab("versions"); setUploadNote(""); }
     } catch (e) {
       if (activeProjectRef.current === uploadProject) setUploadError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "업로드에 실패했습니다.");
@@ -131,6 +141,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </p>
       </div>
 
+      <WorkspaceCleanupNotice />
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-5 text-sm">
         <button
@@ -245,6 +256,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </button>
       )}
 
+      {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" fileCount={scoped.length} onDeleted={() => openFolder(null)} />}
       {uploadError && <p role="alert" className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{uploadError}</p>}
       {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
       {/* Upload zone */}
@@ -270,6 +282,10 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>PDF, DOCX, PPTX, XLSX, ZIP, 이미지 등 모든 형식 지원 · 파일당 최대 50MB</div>
           </div>
 
+          <label className="block mb-3 text-xs">업로드 태그 · 이미지는 필수
+            <input value={uploadTags} onChange={(e) => setUploadTags(e.target.value)} placeholder="예: 디자인, 참고자료 (쉼표로 구분)" list="workspace-tags" className="block w-full mt-1 p-3 rounded-xl" />
+          </label>
+          <datalist id="workspace-tags">{[...new Set(files.flatMap((f) => f.tags))].map((tag) => <option key={tag} value={tag} />)}</datalist>
           <div className="mb-5 flex gap-3">
             <input
               type="text"
@@ -287,7 +303,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       <div className="flex gap-2 mb-5 flex-wrap">
         {tags.map((t) => (
           <button
-            key={t}
+            key={t ?? "all-tags"}
             onClick={() => setFilterTag(t)}
             className="text-xs font-600 px-3 py-1.5 border transition-all"
             style={{
@@ -297,13 +313,13 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               borderRadius: "var(--radius-sm)",
             }}
           >
-            {t}
-            {t !== "전체" && (
+            {t ?? "전체"}
+            {t !== null && (
               <span
                 className="ml-1.5 px-1 py-0.5 text-xs"
                 style={{ background: filterTag === t ? "rgba(255,255,255,0.25)" : "var(--muted)", borderRadius: "2px" }}
               >
-                {scoped.filter((f) => f.tag === t).length}
+                {scoped.filter((f) => f.tags.includes(t)).length}
               </span>
             )}
           </button>
@@ -341,7 +357,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <div className="flex items-center gap-2 mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
                     <span className="text-xs">{f.uploader}</span>
                     <span className="text-xs">·</span>
-                    <span className="text-xs" style={{ fontFamily: "var(--font-jetbrains)" }}>{f.date}</span>
+                    <span className="text-xs" style={{ fontFamily: "var(--font-jetbrains)" }}>{latestFileUploadTime(f)}</span>
                     <span className="text-xs">·</span>
                     <span className="text-xs">{f.size}</span>
                   </div>
@@ -352,7 +368,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     className="text-xs px-1.5 py-0.5 font-600"
                     style={{ background: isSelected ? "rgba(255,255,255,0.2)" : `${tagColors[f.tag] || "#6b7280"}18`, color: isSelected ? "#fff" : tagColors[f.tag] || "#6b7280", borderRadius: "3px" }}
                   >
-                    {f.tag}
+                    {f.tags.join(" · ") || "태그 없음"}
                   </span>
                   <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary)" }}>
                     {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
@@ -386,14 +402,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   {typeColors[selFile.type]?.label}
                 </span>
                 <span className="text-xs px-2 py-0.5 font-600" style={{ background: `${tagColors[selFile.tag] || "#6b7280"}18`, color: tagColors[selFile.tag] || "#6b7280", borderRadius: "3px" }}>
-                  {selFile.tag}
+                  {selFile.tags.join(" · ") || "태그 없음"}
                 </span>
               </div>
               <h3 className="text-sm font-700 mt-2 mb-0.5 leading-snug">{selFile.name}</h3>
               <p className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>
-                {selFile.versions.length}개 버전 · 최근 업로드 {selFile.date}
+                {selFile.versions.length}개 버전 · 최근 업로드 {latestFileUploadTime(selFile)}
               </p>
 
+              <WorkspaceDeleteActions key={`${project.id}:file:${selFile.id}`} item={selFile} kind="file" onDeleted={() => setSelected(null)} />
+              <FileTagEditor key={`${project.id}:${selFile.id}`} file={selFile} />
               {/* Tab toggle */}
               <div className="flex gap-1.5 mb-3 p-1" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                 {(["versions", "comments"] as const).map((t) => (

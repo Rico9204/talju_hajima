@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
-import { versionTree } from "../lib/workspaceFiles";
+import { formatUploadTime, versionTree, parseFileTags, validateFileTags, workspaceFileType } from "../lib/workspaceFiles";
 
 export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
   const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
+  const [tagDraft, setTagDraft] = useState(file.tags.join(", "));
+  useEffect(() => { setTagDraft(file.tags.join(", ")); }, [file.tags.join("\0")]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,14 +73,18 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
           {file.versions.map((v) => <option key={v.id} value={v.id}>{v.version}{v.current ? " · 현재" : ""}{v.pinned ? " · 핀" : ""} · {v.uploadedBy}</option>)}
         </select>
       </label>
+      <label className="block text-xs">버전 업로드 태그 · 이미지는 필수<input aria-label="버전 업로드 태그" value={tagDraft} disabled={busy} onChange={(e) => setTagDraft(e.target.value)} placeholder="쉼표로 태그 구분" className="block w-full mt-1 p-2 rounded-lg" /></label>
       <input aria-label="버전 메모" placeholder="변경 내용 메모" maxLength={2000} value={note} disabled={busy} onChange={(e) => setNote(e.target.value)} className="w-full p-2 text-xs rounded-lg" style={{ background: "var(--card)" }} />
       <input ref={input} type="file" className="hidden" aria-label="새 버전 파일" disabled={busy} onChange={(e) => {
         const binary = e.target.files?.[0]; e.target.value = "";
         if (!binary || locked || pending.current) return;
+        const tags = parseFileTags(tagDraft);
+        try { validateFileTags(tags, workspaceFileType(binary.name) === "img" || binary.type.startsWith("image/")); }
+        catch (e) { setError((e as Error).message); return; }
         const base = file.versions.find((v) => v.id === baseId);
         if (!window.confirm(`“${binary.name}” 파일을 “${file.name}”의 새 버전으로 업로드하시겠습니까?${base ? `\n기준 버전: ${base.version}` : ""}`)) return;
         void run(async () => {
-          const result = await uploadWorkspaceFile({ file: binary, fileId: file.id, folderId: file.folderId, baseVersionId: baseId, note });
+          const result = await uploadWorkspaceFile({ file: binary, fileId: file.id, folderId: file.folderId, baseVersionId: baseId, note, tags });
           if (!mounted.current) return;
           setBaseId(result.versionId); setNote(""); setOnlyPinned(false);
           setMessage(result.branched ? "분기 버전으로 저장했습니다. 검토 후 현재 버전으로 지정할 수 있습니다." : "새 현재 버전으로 저장했습니다.");
@@ -91,7 +97,7 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
     <div className="space-y-3 max-h-[560px] overflow-auto" aria-label="파일 버전 트리">
       {tree.map(({ version: v, depth }) => <div key={v.id} className="border-l-2 pl-3 py-1" style={{ marginLeft: Math.min(depth, 6) * 12, borderColor: v.current ? "var(--primary)" : "var(--border)" }}>
         <div className="flex flex-wrap items-center gap-2 text-xs font-700"><span>{v.version}</span>{v.current && <span style={{ color: "var(--primary)" }}>현재</span>}{v.pinned && <span>📌 핀</span>}</div>
-        <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{v.uploadedBy} · {v.date} · {v.size}</p>
+        <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{v.uploadedBy} · {formatUploadTime(v.uploadedAt, v.date)} · {v.size}</p>
         <p className="text-xs break-all mt-1">{v.originalName ?? file.name}</p>
         {v.parentVersionId !== null && <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>↳ {file.versions.find((parent) => parent.id === v.parentVersionId)?.version ?? "이전 버전"}에서 파생</p>}
         {v.note && <p className="text-xs mt-1 whitespace-pre-wrap break-words">{v.note}</p>}

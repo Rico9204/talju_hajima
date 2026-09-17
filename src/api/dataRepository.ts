@@ -58,9 +58,14 @@ export interface DataRepository {
   listFolders(projectId: string): Promise<Folder[]>;
   createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
 
+  deleteWorkspaceFile(fileId: number): Promise<void>;
+  deleteWorkspaceFolder(folderId: number): Promise<void>;
+  pendingWorkspaceCleanup(projectId: string): Promise<string[]>;
+  cleanupWorkspaceFiles(projectId: string): Promise<void>;
   listFiles(projectId: string): Promise<WorkspaceFile[]>;
   uploadFile(projectId: string, input: import("./types").FileUploadInput): Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion(fileId: number, versionId: number): Promise<void>;
+  setFileTags(fileId: number, tags: string[]): Promise<void>;
   pinFileVersion(fileId: number, versionId: number, pinned: boolean): Promise<void>;
   downloadFileVersion(versionId: number): Promise<Blob>;
   addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string): Promise<FileComment>;

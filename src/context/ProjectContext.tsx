@@ -88,9 +88,14 @@ interface ProjectContextValue {
   isShortTerm: boolean;
   folders: Folder[];
   files: WorkspaceFile[];
+  deleteWorkspaceFile: (id: number) => Promise<void>;
+  deleteWorkspaceFolder: (id: number) => Promise<void>;
+  pendingWorkspaceCleanup: () => Promise<string[]>;
+  cleanupWorkspaceFiles: () => Promise<void>;
   addFolder: (name: string) => Promise<void>;
   uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
+  setFileTags: (fileId: number, tags: string[]) => Promise<void>;
   pinFileVersion: (fileId: number, versionId: number, pinned: boolean) => Promise<void>;
   downloadFileVersion: (versionId: number) => Promise<Blob>;
   addFileComment: (fileId: number, text: string) => Promise<void>;
@@ -738,9 +743,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         isShortTerm: isShortTermProject(project),
         folders,
         files,
+        deleteWorkspaceFile: async (id) => { await dataRepository.deleteWorkspaceFile(id); await refreshFiles(); },
+        deleteWorkspaceFolder: async (id) => { await dataRepository.deleteWorkspaceFolder(id); await refreshFolders(); },
+        pendingWorkspaceCleanup: () => dataRepository.pendingWorkspaceCleanup(project.id),
+        cleanupWorkspaceFiles: () => dataRepository.cleanupWorkspaceFiles(project.id),
         addFolder,
         uploadWorkspaceFile,
         promoteFileVersion,
+        setFileTags: async (fileId, tags) => { await dataRepository.setFileTags(fileId, tags); await refreshFiles(); },
         pinFileVersion,
         downloadFileVersion: (versionId) => dataRepository.downloadFileVersion(versionId),
         addFileComment,

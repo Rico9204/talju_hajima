@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { workspaceFileType,versionTree,workspaceStoragePath } from '../src/lib/workspaceFiles.ts';
+import { workspaceFileType,versionTree,workspaceStoragePath,parseFileTags,validateFileTags } from '../src/lib/workspaceFiles.ts';
+test('tags normalize duplicates and images require a nonempty tag list',()=> {
+  assert.deepEqual(parseFileTags(' 사진, 디자인,사진, , '),['사진','디자인']);
+  assert.throws(()=>validateFileTags([],true),/하나 이상/);
+  assert.doesNotThrow(()=>validateFileTags([],false));
+  assert.throws(()=>validateFileTags(['가'.repeat(31)],false),/30자/);
+});
 test('Unicode project IDs produce ASCII storage keys without changing the original ID',()=> {
   for (const project of ['테스트-mtyks5m2','팀 프로젝트😀','ascii-project']) {
     const path=workspaceStoragePath(project,'user-id','object-id');
