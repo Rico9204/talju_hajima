@@ -1,0 +1,120 @@
+// Run: node tests/workspace-versioning.test.mjs <directory containing @electric-sql/pglite>
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const require = createRequire(resolve(process.argv[2] || '.', 'package.json'));
+const { PGlite } = require('@electric-sql/pglite');
+const db = new PGlite();
+const users = [1,2,3].map(n => `00000000-0000-0000-0000-${String(n).padStart(12,'0')}`);
+await db.exec(`
+create role anon; create role authenticated;
+create schema auth; create schema storage;
+create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+grant usage on schema auth,storage to authenticated;
+create table projects(id text primary key,status text);
+create table members(id uuid primary key,project_id text,user_id uuid,name text,avatar text);
+create table folders(id bigint primary key,project_id text);
+create table files(id bigint generated always as identity primary key,project_id text,name text,type text,uploader text,avatar text,date date,size text,tag text,folder_id bigint);
+create table file_versions(id bigint generated always as identity primary key,file_id bigint references files(id),version text,uploaded_by text,date date,size text,note text,current boolean default true);
+create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint);
+create table storage.objects(id bigint generated always as identity primary key,bucket_id text,name text,metadata jsonb);
+alter table storage.objects enable row level security;
+grant select,insert,update,delete on storage.objects to authenticated;
+grant usage on all sequences in schema storage to authenticated;
+create function is_project_member(pid text) returns boolean language sql security definer set search_path=public as $$ select exists(select 1 from members where project_id=pid and user_id=auth.uid()) $$;
+grant select on projects,members,folders to authenticated;
+grant all on files,file_versions to authenticated;
+alter table files enable row level security;
+alter table file_versions enable row level security;
+create policy files_read on files for select to authenticated using(is_project_member(project_id));
+create policy versions_read on file_versions for select to authenticated using(exists(select 1 from files f where f.id=file_id));
+insert into projects values('p','active'),('other','active');
+insert into folders values(1,'p'),(2,'other');
+insert into files(project_id,name,type,uploader,avatar,date,size,tag) values('p','legacy.pdf','pdf','기존','기',current_date,'1 KB','기타');
+insert into file_versions(file_id,version,uploaded_by,date,size,note,current) values(1,'v1','기존',current_date,'1 KB','',true),(1,'v2','기존',current_date,'2 KB','',true);
+`);
+for (let i=0;i<3;i++) await db.query('insert into members values($1,$2,$1,$3,$4)',[users[i],i===2?'other':'p',`팀원${i}`,'팀']);
+const migration = readFileSync(new URL('../supabase/migration_workspace_versioning.sql',import.meta.url),'utf8');
+await db.exec(migration);
+await db.exec(migration); // Upgrade is repeatable and preserves data.
+let passed=0;
+async function check(name, fn) { await fn(); console.log('PASS '+name); passed++; }
+async function login(i) { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[users[i]]); await db.exec('set role authenticated'); }
+let counter=0;
+async function object(i=0,size=123,mime='application/pdf',project='p') {
+  const path=`${project}/${users[i]}/object-${++counter}`;
+  await db.query('insert into storage.objects(bucket_id,name,metadata) values($1,$2,$3)', ['workspace-files',path,JSON.stringify({size,mimetype:mime})]);
+  return path;
+}
+async function register(path,{fileId=null,base=null,folder=1,name='보고서.pdf',type='pdf',project='p'}={}) {
+  return (await db.query('select register_workspace_version($1,$2,$3,$4,$5,$6,$7,$8) as result',[project,fileId,base,folder,name,type,path,'메모'])).rows[0].result;
+}
+await login(0);
+await check('legacy metadata survives with linked parents and one current version',async()=> {
+  const rows=(await db.query('select * from file_versions order by id')).rows;
+  assert.equal(rows.length,2); assert.equal(rows[1].parent_version_id,rows[0].id);
+  assert.equal(rows[0].current,false); assert.equal(rows[1].current,true); assert.equal(rows[0].storage_path,null);
+});
+const path1=await object(); const first=await register(path1);
+await check('binary registration saves storage metadata',async()=> {
+  const v=(await db.query('select * from file_versions where id=$1',[first.version_id])).rows[0];
+  assert.equal(v.storage_path,path1); assert.equal(v.byte_size,123); assert.equal(v.original_name,'보고서.pdf'); assert.equal(v.current,true);
+});
+await check('retry is idempotent',async()=>assert.deepEqual(await register(path1),first));
+const second=await register(await object(0,456,'image/png'),{fileId:first.file_id,base:first.version_id,name:'화면.png',type:'img'});
+await login(1);
+const branch=await register(await object(1),{fileId:first.file_id,base:first.version_id});
+await check('stale base creates a branch without overwriting the current file',async()=> {
+  assert.equal(branch.branched,true);
+  const v=(await db.query('select * from file_versions where file_id=$1 and current',[first.file_id])).rows;
+  assert.equal(v.length,1); assert.equal(v[0].id,second.version_id);
+});
+await check('promote restores selected bytes and metadata',async()=> {
+  await db.query('select promote_workspace_version($1,$2)',[first.file_id,first.version_id]);
+  assert.equal((await db.query('select type from files where id=$1',[first.file_id])).rows[0].type,'pdf');
+  assert.equal((await db.query('select id from file_versions where file_id=$1 and current',[first.file_id])).rows[0].id,first.version_id);
+});
+await check('pin and unpin persist',async()=> {
+  for (const pinned of [true,false]) {
+    await db.query('select pin_workspace_version($1,$2,$3)',[first.file_id,branch.version_id,pinned]);
+    assert.equal((await db.query('select pinned from file_versions where id=$1',[branch.version_id])).rows[0].pinned,pinned);
+  }
+});
+await check('legacy versions without originals cannot be promoted',()=>assert.rejects(db.query('select promote_workspace_version(1,1)'),/원본/));
+await check('cross-file parents are rejected',async()=>assert.rejects(register(await object(1),{fileId:first.file_id,base:1}),/기준/));
+await check('foreign folder is rejected',async()=>assert.rejects(register(await object(1),{folder:2}),/폴더/));
+await check('foreign upload ownership is rejected',()=>assert.rejects(register(path1),/경로/));
+await check('oversized object cannot be registered',async()=>assert.rejects(register(await object(1,52428801)),/50MB/));
+await check('unuploaded object cannot be registered',()=>assert.rejects(register(`p/${users[1]}/missing`),/확인/));
+await check('direct version and file mutations cannot bypass checks',async()=> {
+  await assert.rejects(db.query('update file_versions set current=false'),/permission denied/);
+  await assert.rejects(db.query("insert into files(project_id) values('p')"),/permission denied/);
+});
+await check('committed originals cannot be deleted or overwritten',async()=> {
+  const res=await db.query('delete from storage.objects where name=$1 returning id',[path1]); assert.equal(res.rows.length,0);
+  const updated=await db.query("update storage.objects set metadata='{}' where name=$1 returning id",[path1]); assert.equal(updated.rows.length,0);
+});
+await check('failed uploads can be cleaned up',async()=> {
+  const path=await object(1); assert.equal((await db.query('delete from storage.objects where name=$1 returning id',[path])).rows.length,1);
+});
+await login(2);
+await check('outsiders cannot read files or originals',async()=> {
+  assert.equal((await db.query('select * from files')).rows.length,0);
+  assert.equal((await db.query("select * from storage.objects where bucket_id='workspace-files'")).rows.length,0);
+});
+await check('outsiders cannot upload to the project',()=>assert.rejects(object(2),/row-level security/));
+await check('outsiders cannot promote or pin',async()=> {
+  await assert.rejects(db.query('select promote_workspace_version($1,$2)',[first.file_id,branch.version_id]),/참여자/);
+  await assert.rejects(db.query('select pin_workspace_version($1,$2,true)',[first.file_id,branch.version_id]),/참여자/);
+});
+await login(0); const beforeClosure=await object();
+await db.exec("reset role; update projects set status='done' where id='p'"); await login(0);
+await check('closed projects reject pending registration and mutations',async()=> {
+  await assert.rejects(register(beforeClosure),/진행 중/);
+  await assert.rejects(db.query('select promote_workspace_version($1,$2)',[first.file_id,branch.version_id]),/진행 중/);
+  await assert.rejects(db.query('select pin_workspace_version($1,$2,true)',[first.file_id,branch.version_id]),/진행 중/);
+  await assert.rejects(object(),/row-level security/);
+});
+await check('closed project history remains readable',async()=>assert.ok((await db.query('select * from storage.objects where name=$1',[path1])).rows.length));
+await db.close(); console.log(`${passed} workspace DB checks passed.`);

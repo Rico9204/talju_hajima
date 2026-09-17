@@ -89,8 +89,10 @@ interface ProjectContextValue {
   folders: Folder[];
   files: WorkspaceFile[];
   addFolder: (name: string) => Promise<void>;
-  addFile: (name: string, size: number, folderId: number | null, note?: string) => Promise<void>;
-  addFileVersion: (fileId: number, note?: string) => Promise<void>;
+  uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
+  promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
+  pinFileVersion: (fileId: number, versionId: number, pinned: boolean) => Promise<void>;
+  downloadFileVersion: (versionId: number) => Promise<Blob>;
   addFileComment: (fileId: number, text: string) => Promise<void>;
   tasks: Task[];
   addTask: (input: NewTaskInput) => Promise<void>;
@@ -423,7 +425,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function refreshFiles() {
     if (!projectId) return;
-    setFiles(await dataRepository.listFiles(projectId));
+    const refreshedFiles = await dataRepository.listFiles(projectId);
+    if (evaluationProjectRef.current === projectId) setFiles(refreshedFiles);
   }
 
   // Used when there's no existing project membership to derive a name from
@@ -493,15 +496,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshFolders();
   }
 
-  async function addFile(name: string, size: number, folderId: number | null, note?: string) {
-    if (!projectId || !currentMember) return;
-    await dataRepository.createFile(projectId, { name, size, folderId, note }, currentMember.name, currentMember.avatar);
+  async function uploadWorkspaceFile(input: import("../api/types").FileUploadInput) {
+    if (!projectId || !currentMember) throw new Error("프로젝트 참여자만 업로드할 수 있습니다.");
+    const result = await dataRepository.uploadFile(projectId, input);
+    await refreshFiles();
+    return result;
+  }
+
+  async function promoteFileVersion(fileId: number, versionId: number) {
+    await dataRepository.promoteFileVersion(fileId, versionId);
     await refreshFiles();
   }
 
-  async function addFileVersion(fileId: number, note?: string) {
-    if (!currentMember) return;
-    await dataRepository.addFileVersion(fileId, currentMember.name, note);
+  async function pinFileVersion(fileId: number, versionId: number, pinned: boolean) {
+    await dataRepository.pinFileVersion(fileId, versionId, pinned);
     await refreshFiles();
   }
 
@@ -728,8 +736,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         folders,
         files,
         addFolder,
-        addFile,
-        addFileVersion,
+        uploadWorkspaceFile,
+        promoteFileVersion,
+        pinFileVersion,
+        downloadFileVersion: (versionId) => dataRepository.downloadFileVersion(versionId),
         addFileComment,
         tasks,
         addTask,

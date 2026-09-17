@@ -57,12 +57,27 @@ export interface TeamData {
 }
 
 export interface FileVersion {
+  id: number;
+  parentVersionId: number | null;
+  storagePath: string | null;
+  originalName: string | null;
+  mimeType: string;
+  byteSize: number | null;
+  pinned: boolean;
   version: string;
   uploadedBy: string;
   date: string;
   size: string;
   note: string;
   current: boolean;
+}
+
+export interface FileUploadInput {
+  file: File;
+  folderId: number | null;
+  fileId?: number;
+  baseVersionId?: number | null;
+  note?: string;
 }
 
 export interface FileComment {

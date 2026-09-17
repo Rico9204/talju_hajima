@@ -1,3 +1,4 @@
+import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType } from "../../lib/workspaceFiles";
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
 import type {
@@ -29,10 +30,6 @@ function slugify(name: string): string {
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function formatSize(bytes: number): string {
-  return bytes > 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(bytes / 1000)} KB`;
 }
 
 function mapProject(row: any): Project {
@@ -93,7 +90,7 @@ function mapFile(row: any): WorkspaceFile {
   const versions = (row.file_versions ?? [])
     .slice()
     .sort((a: any, b: any) => b.id - a.id)
-    .map((v: any) => ({ version: v.version, uploadedBy: v.uploaded_by, date: v.date, size: v.size, note: v.note, current: v.current }));
+    .map((v: any) => ({ id: v.id, parentVersionId: v.parent_version_id ?? null, storagePath: v.storage_path ?? null, originalName: v.original_name ?? null, mimeType: v.mime_type ?? "application/octet-stream", byteSize: v.byte_size ?? null, pinned: v.pinned ?? false, version: v.version, uploadedBy: v.uploaded_by, date: v.date, size: v.size, note: v.note, current: v.current }));
   const comments = (row.file_comments ?? [])
     .slice()
     .sort((a: any, b: any) => a.id - b.id)
@@ -510,64 +507,50 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map(mapFile);
   },
 
-  async createFile(projectId, input, actorName, actorAvatar) {
-    const ext = input.name.split(".").pop()?.toLowerCase() || "doc";
-    const type = (["pdf", "doc", "ppt", "xls", "zip", "img"].includes(ext) ? ext : "doc") as WorkspaceFile["type"];
-    const sizeStr = formatSize(input.size);
-    const today = todayISO();
-
-    const { data: fileRow, error: fileError } = await supabase
-      .from("files")
-      .insert({
-        project_id: projectId,
-        name: input.name,
-        type,
-        uploader: actorName,
-        avatar: actorAvatar,
-        date: today,
-        size: sizeStr,
-        tag: "보고서",
-        folder_id: input.folderId,
-      })
-      .select()
-      .single();
-    if (fileError) throw fileError;
-
-    const { error: versionError } = await supabase.from("file_versions").insert({
-      file_id: fileRow.id,
-      version: "v1",
-      uploaded_by: actorName,
-      date: today,
-      size: sizeStr,
-      note: input.note || "신규 업로드",
-      current: true,
+  async uploadFile(projectId, input) {
+    const file = input.file;
+    if (file.size > MAX_WORKSPACE_FILE_SIZE) throw new Error("파일은 50MB까지 업로드할 수 있습니다.");
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!auth.user) throw new Error("로그인이 필요합니다.");
+    // Immutable random keys preserve every binary exactly, including duplicate filenames.
+    const path = `${projectId}/${auth.user.id}/${crypto.randomUUID()}`;
+    const { error: uploadError } = await supabase.storage.from(WORKSPACE_BUCKET).upload(path, file, {
+      contentType: file.type || "application/octet-stream", upsert: false,
     });
-    if (versionError) throw versionError;
-
-    return mapFile({ ...fileRow, file_versions: [], file_comments: [] });
+    if (uploadError) throw uploadError;
+    const { data, error } = await supabase.rpc("register_workspace_version", {
+      p_project_id: projectId, p_file_id: input.fileId ?? null,
+      p_base_version_id: input.baseVersionId ?? null, p_folder_id: input.folderId,
+      p_name: file.name, p_type: workspaceFileType(file.name), p_path: path,
+      p_note: input.note ?? "",
+    });
+    if (error) {
+      // The delete policy refuses to delete a committed version, even if its
+      // successful response was lost. Only unregistered uploads can be cleaned.
+      await supabase.storage.from(WORKSPACE_BUCKET).remove([path]);
+      throw error;
+    }
+    return { fileId: data.file_id, versionId: data.version_id, branched: data.branched };
   },
 
-  async addFileVersion(fileId, actorName, note) {
-    const [{ count, error: countError }, { data: fileRow, error: fileError }] = await Promise.all([
-      supabase.from("file_versions").select("id", { count: "exact", head: true }).eq("file_id", fileId),
-      supabase.from("files").select("size").eq("id", fileId).single(),
-    ]);
-    if (countError) throw countError;
-    if (fileError) throw fileError;
-
-    const { error: clearError } = await supabase.from("file_versions").update({ current: false }).eq("file_id", fileId);
-    if (clearError) throw clearError;
-
-    const { error } = await supabase.from("file_versions").insert({
-      file_id: fileId,
-      version: `v${(count ?? 0) + 1}`,
-      uploaded_by: actorName,
-      date: todayISO(),
-      size: fileRow.size,
-      note: note || "업데이트",
-      current: true,
-    });
+  async promoteFileVersion(fileId, versionId) {
+    const { error } = await supabase.rpc("promote_workspace_version", { p_file_id: fileId, p_version_id: versionId });
     if (error) throw error;
+  },
+
+  async pinFileVersion(fileId, versionId, pinned) {
+    const { error } = await supabase.rpc("pin_workspace_version", { p_file_id: fileId, p_version_id: versionId, p_pinned: pinned });
+    if (error) throw error;
+  },
+
+  async downloadFileVersion(versionId) {
+    const { data, error } = await supabase.from("file_versions").select("storage_path").eq("id", versionId).single();
+    if (error) throw error;
+    if (!data.storage_path) throw new Error("이전 기록에는 원본 파일이 없습니다. 새 버전을 업로드해 주세요.");
+    const { data: blob, error: downloadError } = await supabase.storage.from(WORKSPACE_BUCKET).download(data.storage_path);
+    if (downloadError) throw downloadError;
+    return blob;
   },
 
   async addFileComment(fileId, actorName, actorAvatar, text) {

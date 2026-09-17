@@ -1,0 +1,47 @@
+# 워크스페이스 파일 버전관리
+
+Supabase를 유지하면서 `Temporary_Merge`의 버전 트리·기준 버전 업로드·현재 버전 전환·핀 기능을 이식했습니다. 실제 파일은 텍스트로 변환하지 않고 비공개 Storage에 저장합니다.
+
+## 적용 순서
+
+1. 기존 DB는 Supabase SQL Editor에서 `supabase/migration_workspace_versioning.sql`을 실행합니다. 새 DB는 갱신된 `supabase/schema.sql`을 사용합니다.
+2. 프런트엔드를 배포합니다. 기존 메타데이터 전용 업로드는 SQL 적용 후 사용할 수 없으므로 함께 배포해야 합니다.
+3. 실제 프로젝트에서 PDF·PPTX·이미지를 업로드하고 다운로드한 파일의 내용이 같은지 확인합니다. 이어 다른 팀원 계정에서 조회하고, 비참여 계정에서 접근이 차단되는지 확인합니다.
+
+이 작업에서는 운영 DB나 Storage를 변경하지 않았습니다. SQL은 `workspace-files` 비공개 버킷과 최대 50MiB 파일 제한을 설정합니다. 프로젝트의 Storage 전체 용량 및 플랫폼 업로드 제한도 충족해야 합니다.
+
+## 사용
+
+- 상단 업로드: 새 파일을 만듭니다. 같은 이름의 파일도 별개 파일로 생성합니다.
+- 파일 선택 → 기준 버전 선택 → 새 버전 업로드: 실제 파일과 메모를 저장합니다.
+- 기준 버전이 현재 버전이면 새 버전이 현재 버전이 됩니다. 다른 사용자가 먼저 현재 버전을 변경했거나 과거 버전을 기준으로 업로드하면 분기로 보존합니다.
+- 현재 버전으로: 선택한 이력을 현재 버전으로 전환합니다. 이후 다른 이력으로 다시 전환할 수 있고 원본 이력은 유지됩니다.
+- 핀 고정 / 해제 및 핀 필터: 중요한 이력을 표시합니다. 핀은 모든 팀원이 공유합니다.
+- PDF와 PNG/JPEG/GIF/WebP/AVIF는 미리보기, 일부 텍스트 형식은 앞부분 미리보기를 제공합니다. PPT/PPTX·Word·Excel·ZIP 등 나머지 형식도 원본 다운로드가 가능합니다. 문서 변환이나 Office 편집기는 제공하지 않습니다.
+- 종료된 프로젝트는 조회·다운로드만 가능합니다.
+
+기존 버전에는 파일 내용이 저장되지 않았으므로 원본을 복구할 수 없습니다. 해당 이력은 ‘원본 없는 기존 기록’으로 남고 그 이력을 기준으로 실제 파일을 새 버전으로 업로드할 수 있습니다.
+
+## 구조와 동시성
+
+컴포넌트는 `ProjectContext`를 통해서만 `DataRepository`를 호출합니다. Storage와 RPC 호출은 Supabase 구현체에 있습니다.
+
+각 버전의 Storage 경로는 `프로젝트 ID/업로더 사용자 ID/무작위 UUID`입니다. 파일명이나 확장자가 같아도 원본을 덮어쓰지 않습니다. 업로드 후 `register_workspace_version`이 Storage 객체를 확인하고 파일·버전 메타데이터를 한 트랜잭션으로 등록합니다. 프로젝트와 파일을 잠그고 기준 버전과 현재 버전을 비교하므로 오래된 기준의 업로드가 다른 사람의 작업을 덮어쓰지 않습니다.
+
+직접 파일·버전 테이블 변경은 차단하고 권한 검사가 있는 RPC만 사용합니다. Storage 접근은 프로젝트 참여자로 제한합니다. 등록된 원본은 클라이언트가 수정·삭제할 수 없고, 등록 실패한 원본만 업로더가 정리할 수 있습니다. 브라우저 종료 등으로 등록 전에 중단된 업로드는 운영자가 미참조 Storage 객체를 확인하여 별도로 정리해야 합니다.
+
+이번 범위에는 로컬 폴더 자동 동기화, 텍스트 자동 병합, 파일 내용 비교는 포함하지 않습니다.
+
+## 검증
+
+```powershell
+node --experimental-strip-types tests/workspace-files.test.mjs
+node --experimental-strip-types tests/workspace-storage.test.mjs
+node tests/workspace-versioning.test.mjs "$env:TEMP/talju-eval-validation"
+npx tsc --noEmit
+npm run build
+```
+
+DB 테스트에는 별도로 설치한 `@electric-sql/pglite`가 필요합니다. Storage 메타데이터·RLS를 모사한 PostgreSQL 테스트이며 실제 Supabase Storage 서비스와의 통합 검증을 대체하지 않습니다. 저장소 전송 테스트는 실제 repository 코드에 가짜 Storage 전송 계층을 연결해 바이너리 바이트 보존과 실패 시 정리를 검증합니다.
+
+`node tests/preview-workspace.mjs`로 운영 데이터에 접근하지 않는 UI 검증 화면을 열 수 있습니다: `http://127.0.0.1:5183/tests/fixtures/workspace.html`.

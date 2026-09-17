@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import FileVersionPanel from "./FileVersionPanel";
 import { useProject } from "../context/ProjectContext";
 
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
@@ -26,7 +27,7 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, addFile, addFileVersion, addFileComment, team } = useProject();
+  const { project, folders, files, addFolder, uploadWorkspaceFile, addFileComment, team } = useProject();
   const authorColor = (name: string) => team.members.find((m) => m.name === name)?.color || "#6b7280";
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -37,6 +38,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [dragOver, setDragOver] = useState(false);
   const [uploadNote, setUploadNote] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const uploadingRef = useRef(false);
+  const activeProjectRef = useRef(project.id);
+  activeProjectRef.current = project.id;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -75,22 +81,27 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setCreatingFolder(false);
   }
 
+  async function uploadBinary(binary: File) {
+    if (locked || uploadingRef.current) return;
+    const uploadProject = project.id;
+    uploadingRef.current = true; setUploading(true); setUploadError("");
+    try {
+      const result = await uploadWorkspaceFile({ file: binary, folderId: currentFolderId, note: uploadNote });
+      if (activeProjectRef.current === uploadProject) { setSelected(result.fileId); setDetailTab("versions"); setUploadNote(""); }
+    } catch (e) {
+      if (activeProjectRef.current === uploadProject) setUploadError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "업로드에 실패했습니다.");
+    } finally { uploadingRef.current = false; setUploading(false); }
+  }
+
   function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    if (locked) return;
+    e.preventDefault(); setDragOver(false);
     const dropped = e.dataTransfer.files[0];
-    if (!dropped) return;
-    addFile(dropped.name, dropped.size, currentFolderId, uploadNote);
-    setUploadNote("");
+    if (dropped) void uploadBinary(dropped);
   }
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    addFile(f.name, f.size, currentFolderId, uploadNote);
-    setUploadNote("");
-    e.target.value = "";
+    const binary = e.target.files?.[0]; e.target.value = "";
+    if (binary) void uploadBinary(binary);
   }
 
   return (
@@ -215,6 +226,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </button>
       )}
 
+      {uploadError && <p role="alert" className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{uploadError}</p>}
+      {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
       {/* Upload zone */}
       {!locked && (
         <>
@@ -228,14 +241,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
           >
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileInput} />
+            <input ref={fileInputRef} type="file" aria-label="새 파일 업로드" disabled={uploading} className="hidden" onChange={handleFileInput} />
             <div className="text-2xl mb-2">⬆</div>
             <div className="text-sm font-600">
               {currentFolder ? `"${currentFolder.name}" 폴더에 업로드` : "워크스페이스 루트에 업로드"} — 드래그하거나 클릭
             </div>
-            <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>PDF, DOCX, PPTX, XLSX, ZIP, 이미지 등 모든 형식 지원</div>
+            <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>PDF, DOCX, PPTX, XLSX, ZIP, 이미지 등 모든 형식 지원 · 파일당 최대 50MB</div>
           </div>
 
           <div className="mb-5 flex gap-3">
@@ -323,7 +336,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     {f.tag}
                   </span>
                   <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary)" }}>
-                    {f.versions[0].version}
+                    {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
                   </span>
                   {f.comments.length > 0 && (
                     <span
@@ -362,17 +375,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 {selFile.versions.length}개 버전 · 최근 업로드 {selFile.date}
               </p>
 
-              {/* Add version */}
-              {!locked && detailTab === "versions" && (
-                <button
-                  onClick={() => { addFileVersion(selFile.id, uploadNote); setUploadNote(""); }}
-                  className="w-full text-xs font-600 py-2 mb-4 border transition-all"
-                  style={{ borderColor: "var(--primary)", color: "var(--primary)", borderRadius: "var(--radius-sm)", background: "transparent" }}
-                >
-                  + 새 버전 업로드
-                </button>
-              )}
-
               {/* Tab toggle */}
               <div className="flex gap-1.5 mb-3 p-1" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                 {(["versions", "comments"] as const).map((t) => (
@@ -393,32 +395,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
 
               {detailTab === "versions" ? (
-                <div className="flex flex-col">
-                  {selFile.versions.map((v, i) => (
-                    <div key={i} className="flex gap-3">
-                      {/* Timeline line */}
-                      <div className="flex flex-col items-center">
-                        <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1" style={{ background: v.current ? "var(--primary)" : "var(--border)" }} />
-                        {i < selFile.versions.length - 1 && <div className="flex-1 w-px mt-1" style={{ background: "var(--border)" }} />}
-                      </div>
-                      <div className="pb-4 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-700" style={{ fontFamily: "var(--font-jetbrains)", color: v.current ? "var(--primary)" : "var(--foreground)" }}>
-                            {v.version}
-                          </span>
-                          {v.current && (
-                            <span className="text-xs px-1.5 py-0.5 font-600" style={{ background: "var(--primary)18", color: "var(--primary)", borderRadius: "3px" }}>
-                              현재
-                            </span>
-                          )}
-                          <span className="text-xs ml-auto" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{v.date}</span>
-                        </div>
-                        <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{v.uploadedBy} · {v.size}</div>
-                        <div className="text-xs mt-1 leading-relaxed" style={{ color: "var(--foreground)" }}>{v.note}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <FileVersionPanel key={`${project.id}:${selFile.id}`} file={selFile} />
               ) : (
                 <div className="flex flex-col gap-3">
                   {selFile.comments.map((c) => (
