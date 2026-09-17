@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { Fragment, useState, useRef, useEffect } from "react";
 import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
+import { belongsToMessageGroup, startsNewChatDay, formatChatDate, formatChatTime } from "../lib/chatDate";
 
 interface FileRef {
   id: number;
@@ -13,22 +14,6 @@ const fileTypeLabel: Record<string, string> = {
   pdf: "PDF", doc: "DOC", ppt: "PPT", xls: "XLS", zip: "ZIP", img: "IMG",
 };
 const chatEmojis = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit", hour12: true });
-  }
-  return d.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
-}
-
-const MESSAGE_GROUP_GAP_MS = 5 * 60 * 1000;
-
-function belongsToMessageGroup(previous: { senderId: string; createdAt: string } | undefined, current: { senderId: string; createdAt: string } | undefined): boolean {
-  if (!previous || !current || previous.senderId !== current.senderId) return false;
-  return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() <= MESSAGE_GROUP_GAP_MS;
-}
 
 export default function TeamChat({
   initialChannel, onOpenFile,
@@ -280,7 +265,15 @@ export default function TeamChat({
                   ? joinsNext ? "2px 14px 14px 2px" : "2px 14px 14px 14px"
                   : "14px 14px 14px 2px";
               return (
-                <div key={m.id} className={`group/message flex flex-col min-w-0 w-full ${joinsPrevious ? "mt-0.5" : "mt-3"}`} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                <Fragment key={m.id}>
+                  {startsNewChatDay(thread[index - 1], m) && (
+                    <div className="flex justify-center w-full mt-4 mb-2">
+                      <time dateTime={m.createdAt} className="px-3 py-1 text-xs rounded-full" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>
+                        {formatChatDate(m.createdAt)}
+                      </time>
+                    </div>
+                  )}
+                <div className={`group/message flex flex-col min-w-0 w-full ${joinsPrevious ? "mt-0.5" : "mt-3"}`} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                   {!mine && !joinsPrevious && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
@@ -401,10 +394,11 @@ export default function TeamChat({
                         })}
                       </div>
                     )}
-                      <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatTime(m.createdAt)}</span>
+                      <time dateTime={m.createdAt} className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatChatTime(m.createdAt)}</time>
                     </div>
                   )}
                 </div>
+                </Fragment>
               );
             })}
             {thread.length === 0 && (
