@@ -11,6 +11,10 @@ Supabase를 유지하면서 `Temporary_Merge`의 버전 트리·기준 버전 �
 
 이 작업에서는 운영 DB나 Storage를 변경하지 않았습니다. SQL은 `workspace-files` 비공개 버킷과 최대 50MiB 파일 제한을 설정합니다. 프로젝트의 Storage 전체 용량 및 플랫폼 업로드 제한도 충족해야 합니다.
 
+### 기존 설치의 RLS 오류 수정
+
+한글 경로 마이그레이션을 적용한 뒤에도 업로드가 `new row violates row-level security policy`로 실패하면 `supabase/migration_workspace_storage_policy_scope.sql`을 적용합니다. 기존 정책의 하위 쿼리에서 `name`이 파일 경로 대신 `projects.name`으로 해석되던 오류를 `objects.name` 명시로 수정합니다. 원본 파일·프로젝트 데이터는 변경하지 않고 기존 참여자·업로더·진행 상태 검사를 유지합니다. 최신 전체 마이그레이션에는 이 수정이 포함되어 있습니다.
+
 ## 사용
 
 - 상단 업로드: 새 파일을 만듭니다. 같은 이름의 파일도 별개 파일로 생성합니다.

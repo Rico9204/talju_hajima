@@ -1336,17 +1336,17 @@ drop policy if exists workspace_binary_read on storage.objects;
 drop policy if exists workspace_binary_insert on storage.objects;
 drop policy if exists workspace_binary_cleanup on storage.objects;
 create policy workspace_binary_read on storage.objects for select to authenticated using (
-  bucket_id='workspace-files' and public.is_project_member(public.workspace_storage_project(name))
+  bucket_id='workspace-files' and public.is_project_member(public.workspace_storage_project(objects.name))
 );
 create policy workspace_binary_insert on storage.objects for insert to authenticated with check (
-  bucket_id='workspace-files' and public.workspace_storage_owner(name)=auth.uid()::text
-  and public.is_project_member(public.workspace_storage_project(name))
-  and exists(select 1 from public.projects p where p.id=public.workspace_storage_project(name) and p.status='active')
+  bucket_id='workspace-files' and public.workspace_storage_owner(objects.name)=auth.uid()::text
+  and public.is_project_member(public.workspace_storage_project(objects.name))
+  and exists(select 1 from public.projects p where p.id=public.workspace_storage_project(objects.name) and p.status='active')
 );
 -- Linked objects are immutable: no update policy, no deletion of stored versions.
 create policy workspace_binary_cleanup on storage.objects for delete to authenticated using (
-  bucket_id='workspace-files' and public.workspace_storage_owner(name)=auth.uid()::text
-  and public.is_project_member(public.workspace_storage_project(name))
-  and not exists(select 1 from public.file_versions v where v.storage_path=name)
+  bucket_id='workspace-files' and public.workspace_storage_owner(objects.name)=auth.uid()::text
+  and public.is_project_member(public.workspace_storage_project(objects.name))
+  and not exists(select 1 from public.file_versions v where v.storage_path=objects.name)
 );
 commit;

@@ -37,6 +37,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const folderPending = useRef(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
+  const detailPanelRef = useRef<HTMLDivElement>(null);
+  const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [filterTag, setFilterTag] = useState("전체");
   const [dragOver, setDragOver] = useState(false);
   const [uploadNote, setUploadNote] = useState("");
@@ -94,6 +96,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   async function uploadBinary(binary: File) {
     if (locked || uploadingRef.current) return;
+    const destination = currentFolder ? `“${currentFolder.name}” 폴더` : "워크스페이스 루트";
+    if (!window.confirm(`“${binary.name}” 파일을 ${destination}에 업로드하시겠습니까?`)) return;
     const uploadProject = project.id;
     uploadingRef.current = true; setUploading(true); setUploadError("");
     try {
@@ -119,9 +123,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="mb-7">
         <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          파일 워킹스페이스 · {project.name}
+          파일 워크스페이스 · {project.name}
         </div>
-        <h1 className="text-3xl font-600" style={{ fontFamily: "var(--font-fraunces)" }}>Workspace</h1>
+        <h1 className="text-2xl font-700">Workspace</h1>
         <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
           폴더 {folders.length}개 · 전체 파일 {files.length}개{locked && " · 종료된 프로젝트 (읽기 전용 보관함)"}
         </p>
@@ -376,7 +380,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         {/* Version panel */}
         <div className="col-span-1 md:col-span-2">
           {selFile ? (
-            <div className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)" }}>
+            <div ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-700 px-2 py-0.5" style={{ background: typeColors[selFile.type]?.bg, color: typeColors[selFile.type]?.color, borderRadius: "3px" }}>
                   {typeColors[selFile.type]?.label}
@@ -395,7 +399,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 {(["versions", "comments"] as const).map((t) => (
                   <button
                     key={t}
-                    onClick={() => setDetailTab(t)}
+                    onClick={() => {
+                      if (t === detailTab) return;
+                      // Keep the scroll container's height when an empty tab
+                      // replaces a long version history near the page bottom.
+                      const height = detailPanelRef.current?.getBoundingClientRect().height;
+                      if (height) setDetailPanelHeight({ key: `${project.id}:${selFile.id}`, height });
+                      setDetailTab(t);
+                    }}
                     className="flex-1 text-xs font-700 py-1.5 transition-all"
                     style={{
                       background: detailTab === t ? "var(--card)" : "transparent",

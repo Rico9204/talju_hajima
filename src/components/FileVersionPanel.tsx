@@ -74,7 +74,9 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
       <input aria-label="버전 메모" placeholder="변경 내용 메모" maxLength={2000} value={note} disabled={busy} onChange={(e) => setNote(e.target.value)} className="w-full p-2 text-xs rounded-lg" style={{ background: "var(--card)" }} />
       <input ref={input} type="file" className="hidden" aria-label="새 버전 파일" disabled={busy} onChange={(e) => {
         const binary = e.target.files?.[0]; e.target.value = "";
-        if (!binary || locked) return;
+        if (!binary || locked || pending.current) return;
+        const base = file.versions.find((v) => v.id === baseId);
+        if (!window.confirm(`“${binary.name}” 파일을 “${file.name}”의 새 버전으로 업로드하시겠습니까?${base ? `\n기준 버전: ${base.version}` : ""}`)) return;
         void run(async () => {
           const result = await uploadWorkspaceFile({ file: binary, fileId: file.id, folderId: file.folderId, baseVersionId: baseId, note });
           if (!mounted.current) return;
