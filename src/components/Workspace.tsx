@@ -396,7 +396,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         {/* Version panel */}
         <div className="col-span-1 md:col-span-2">
           {selFile ? (
-            <div ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
+            <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-700 px-2 py-0.5" style={{ background: typeColors[selFile.type]?.bg, color: typeColors[selFile.type]?.color, borderRadius: "3px" }}>
                   {typeColors[selFile.type]?.label}
@@ -410,8 +410,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 {selFile.versions.length}개 버전 · 최근 업로드 {latestFileUploadTime(selFile)}
               </p>
 
-              <WorkspaceDeleteActions key={`${project.id}:file:${selFile.id}`} item={selFile} kind="file" onDeleted={() => setSelected(null)} />
-              <FileTagEditor key={`${project.id}:${selFile.id}`} file={selFile} />
+              <WorkspaceDeleteActions item={selFile} kind="file" onDeleted={() => setSelected(null)} />
+              <FileTagEditor file={selFile} />
               {/* Tab toggle */}
               <div className="flex gap-1.5 mb-3 p-1" style={{ background: "var(--muted)", borderRadius: "10px" }}>
                 {(["versions", "comments"] as const).map((t) => (
@@ -439,7 +439,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
 
               {detailTab === "versions" ? (
-                <FileVersionPanel key={`${project.id}:${selFile.id}`} file={selFile} />
+                <FileVersionPanel file={selFile} />
               ) : (
                 <div className="flex flex-col gap-3">
                   {selFile.comments.map((c) => (

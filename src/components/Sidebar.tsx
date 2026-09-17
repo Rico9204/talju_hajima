@@ -19,7 +19,6 @@ const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "tasks", label: "과제 보드", icon: "≡" },
   { id: "schedule", label: "일정", icon: "▤" },
   { id: "workspace", label: "워크스페이스", icon: "⬡" },
-  { id: "collector", label: "정보 수집", icon: "⌕" },
   { id: "evaluation", label: "동료 평가", icon: "★" },
 ];
 

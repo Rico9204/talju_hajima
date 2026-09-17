@@ -5,7 +5,6 @@ import TaskBoard from "./components/TaskBoard";
 import PeerEvaluation from "./components/PeerEvaluation";
 import Workspace, { type WorkspaceFocus } from "./components/Workspace";
 import TeamChat from "./components/TeamChat";
-import DataCollector from "./components/DataCollector";
 import Schedule from "./components/Schedule";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
@@ -14,7 +13,7 @@ import Landing from "./components/Landing";
 import { ProjectProvider } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
-export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "collector" | "evaluation";
+export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation";
 
 function RequireAuth() {
   const { session, loading } = useAuth();
@@ -90,7 +89,6 @@ function AppRoutes() {
         <Route path="schedule" element={<Schedule />} />
         <Route path="workspace" element={<WorkspaceRoute />} />
         <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
-        <Route path="collector" element={<DataCollector />} />
         <Route path="evaluation" element={<PeerEvaluation />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
