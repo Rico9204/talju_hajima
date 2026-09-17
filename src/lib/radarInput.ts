@@ -6,12 +6,12 @@ export function radarAxisAt(dx: number, dy: number, axes: number): number {
 
 /** Polygon contours, including the space between spokes, map to the same score. */
 export function radarScoreAt(dx: number, dy: number, axis: number, axes: number, radius: number): number {
-  if (radius <= 0 || axes < 3) return 1;
+  if (radius <= 0 || axes < 3) return 0;
   const angle = axis * Math.PI * 2 / axes;
   const forward = dx * Math.sin(angle) - dy * Math.cos(angle);
   const sideways = dx * Math.cos(angle) + dy * Math.sin(angle);
   const slope = Math.tan(Math.PI / axes);
   // Keep a drag on its starting axis even when the pointer crosses another sector.
   const lateral = Math.min(Math.abs(sideways), Math.max(0, forward) * slope);
-  return Math.max(1, Math.min(10, Math.round((forward + lateral * slope) / radius * 10)));
+  return Math.max(0, Math.min(10, Math.round((forward + lateral * slope) / radius * 10)));
 }

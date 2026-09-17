@@ -95,7 +95,7 @@ export default function PentagonChart({
   const displayValues = onValueChange ? targetValues : animatedValues;
   const dataPoints = displayValues.map((v, i) => polarPoint(cx, cy, maxR * (v / MAX_VALUE), angles[i]));
 
-  function limitFor(index: number) { return Math.max(1, Math.min(MAX_VALUE, limits?.[index] ?? MAX_VALUE)); }
+  function limitFor(index: number) { return Math.max(0, Math.min(MAX_VALUE, limits?.[index] ?? MAX_VALUE)); }
   function updatePointer(event: ReactPointerEvent<SVGElement>, axis: number) {
     const matrix = svgRef.current?.getScreenCTM();
     if (!editable || !matrix || maxR <= 0) return;
@@ -157,18 +157,18 @@ export default function PentagonChart({
           stroke={onValueChange ? "var(--card)" : undefined} strokeWidth={2}
           role={onValueChange ? "slider" : undefined}
           aria-label={onValueChange ? data[i].label + " 오각형 점수" : undefined}
-          aria-valuemin={onValueChange ? 1 : undefined} aria-valuemax={onValueChange ? limitFor(i) : undefined}
+          aria-valuemin={onValueChange ? 0 : undefined} aria-valuemax={onValueChange ? limitFor(i) : undefined}
           aria-valuenow={onValueChange ? targetValues[i] : undefined} aria-disabled={onValueChange ? disabled : undefined}
           tabIndex={editable ? 0 : undefined} style={{ cursor: editable ? "grab" : "default" }}
           onPointerDown={(event) => startDrag(event, i)}
           onKeyDown={(event) => {
             if (!editable) return;
-            const value = event.key === "Home" ? 1 : event.key === "End" ? limitFor(i)
+            const value = event.key === "Home" ? 0 : event.key === "End" ? limitFor(i)
               : ["ArrowUp", "ArrowRight"].includes(event.key) ? targetValues[i] + 1
               : ["ArrowDown", "ArrowLeft"].includes(event.key) ? targetValues[i] - 1 : null;
             if (value !== null) {
               event.preventDefault();
-              onValueChange?.(i, Math.max(1, Math.min(limitFor(i), value)));
+              onValueChange?.(i, Math.max(0, Math.min(limitFor(i), value)));
             }
           }} />
       ))}

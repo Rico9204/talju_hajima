@@ -217,6 +217,10 @@ export const supabaseDataRepository: DataRepository = {
   async completeProject(projectId) {
     const { error } = await supabase.rpc("complete_evaluation_project", { p_project_id: projectId });
     if (error) throw error;
+    const { data, error: readError } = await supabase.from("projects").select("*").eq("id", projectId).single();
+    if (readError) throw readError;
+    if (data.status !== "done") throw new Error("프로젝트 종료가 저장되지 않았습니다. DB의 프로젝트 종료 함수와 트리거를 확인해 주세요.");
+    return mapProject(data);
   },
   async listProjects() {
     const { data, error } = await supabase.from("projects").select("*").order("created_at", { ascending: true });

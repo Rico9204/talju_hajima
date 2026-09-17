@@ -29,6 +29,7 @@ for (let i=0;i<5;i++) {
 }
 await db.exec(readFileSync(new URL("../supabase/migration_peer_evaluations.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
 let passed = 0;
+await db.exec(readFileSync(new URL("../supabase/migration_project_completion.sql",import.meta.url),"utf8"));
 async function check(name, fn) { await fn(); passed++; console.log("PASS " + name); }
 async function login(i) { await db.exec("reset role"); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[i===null?"":ids[i]]); await db.exec("set role authenticated"); }
 const entries = [ids[1],ids[2]].map((recipient_id)=>({recipient_id,role:5,deadline:5,communication:5,collaboration:5,quality:5,comment:"피드백"}));
@@ -67,6 +68,9 @@ await login(null);
 await check("unauthenticated request cannot submit",()=>assert.rejects(submit(),/참여자/));
 await login(0);
 await check("leader can complete project",()=>db.query("select complete_evaluation_project('long')"));
+await check("completion persists in a fresh project query",async()=>assert.equal((await db.query("select status from projects where id='long'")).rows[0].status,"done"));
+await check("repeated completion is idempotent",()=>db.query("select complete_evaluation_project('long')"));
+await check("missing project is rejected",()=>assert.rejects(db.query("select complete_evaluation_project('missing')"),/찾을 수/));
 await check("completed project rejects midterm",()=>assert.rejects(submit(),/상태/));
 await check("final can be submitted independently of midterm",()=>submit("final"));
 await check("final updates reputation",async()=> {
@@ -105,5 +109,31 @@ await login(5);
 await check("normal mode restores final status restriction",()=>assert.rejects(submit("final",prototypeEntries,"short"),/상태/));
 await check("normal mode restores short project restriction",()=>assert.rejects(submit("midterm",prototypeEntries,"short"),/2주/));
 await check("normal mode hides teammates premature final evaluations",async()=>assert.equal((await db.query("select * from peer_evaluations where phase='final' and evaluator_id=$1",[ids[4]])).rows.length,1));
+await db.exec("reset role");
+await db.exec(readFileSync(new URL("../supabase/migration_evaluation_zero_scores.sql",import.meta.url),"utf8"));
+await login(2);
+const zeroEntries = [ids[0], ids[1]].map((recipient_id, i) => ({
+  recipient_id, role: i * 10, deadline: i * 10, communication: i * 10,
+  collaboration: i * 10, quality: i * 10, comment: "",
+}));
+await check("zero score migration preserves normal phase gating",()=>assert.rejects(submit("midterm",zeroEntries),/상태/));
+await check("negative scores are rejected",()=>assert.rejects(submit("final",[{...zeroEntries[0],role:-1},zeroEntries[1]]),/정수/));
+await check("zero scores still require balanced totals",()=>assert.rejects(submit("final",[{...zeroEntries[0],role:0},{...zeroEntries[1],role:0}]),/총점/));
+await check("zero and ten scores save successfully",()=>submit("final",zeroEntries));
+await check("zero scores persist and contribute to averages",async()=> {
+  const row=(await db.query("select * from peer_evaluations where evaluator_id=$1 and recipient_id=$2 and phase='final'",[ids[2],ids[0]])).rows[0];
+  for (const key of ['role','deadline','communication','collaboration','quality']) assert.equal(row[key],0);
+  const member=(await db.query("select score,eval_count from members where id=$1",[ids[0]])).rows[0];
+  assert.equal(Number(member.score),0); assert.equal(member.eval_count,1);
+});
+await db.exec("reset role");
+await db.exec(`
+  create function block_project_completion() returns trigger language plpgsql as $$
+  begin return old; end $$;
+  create trigger block_completion before update on projects for each row execute function block_project_completion();
+`);
+await login(3);
+await check("a trigger suppressing completion cannot report success",()=>assert.rejects(db.query("select complete_evaluation_project('short')"),/저장되지/));
+await check("failed completion remains active after reload",async()=>assert.equal((await db.query("select status from projects where id='short'")).rows[0].status,"active"));
 await db.close();
 console.log(passed + " database integration checks passed.");

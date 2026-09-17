@@ -11,7 +11,7 @@ const criteria = [
   { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
 ] as const;
 
-// Each person still gets a 1-10 score per criterion, but the sum across all
+// Each person still gets a 0-10 score per criterion, but the sum across all
 // peers for a given criterion must land exactly on a shared pool:
 // pool = peers.length * POOL_PER_PEER. Enforced at submit time via
 // `allBalanced`, not by capping any individual person's score below 10.
@@ -19,14 +19,14 @@ const POOL_PER_PEER = 5;
 
 type Scores = Record<string, number>;
 
-// One continuous track over a fixed min..max range (1..10 per person) —
+// One continuous track over a fixed min..max range (0..10 per person) —
 // click anywhere or drag across it and the value snaps to whichever zone
-// the pointer is over. The scale always shows the same 1..max range, but
+// the pointer is over. The scale always shows the same 0..max range, but
 // zones above `limit` (the shared-pool ceiling for this peer right now)
 // are dimmed and unselectable, so the visible scale stays consistent while
 // what you can actually pick shrinks as the pool gets used up.
 function ScoreTrack({
-  value, min = 1, max = 10, limit, onChange, disabled, label,
+  value, min = 0, max = 10, limit, onChange, disabled, label,
 }: { value: number; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean; label: string }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const steps = max - min + 1;
@@ -225,9 +225,11 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     finally { setBusy(false); onBusyChange(false); }
   }
   async function closeProject() {
-    setBusy(true); setError("");
+    if (busy || !isLeader || project.status !== "active") return;
+    setBusy(true); onBusyChange(true); setError("");
     try { await completeProject(); }
-    catch (e) { setError(errorMessage(e)); setBusy(false); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); onBusyChange(false); }
   }
 
   const selectedPeer = Math.max(0, peers.findIndex((peer) => peer.id === selectedPeerId));
@@ -245,11 +247,11 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   function scoreFor(id: typeof criteria[number]["id"], index: number) { return entries[index]?.[id] ?? 1; }
   function maxAllowed(id: typeof criteria[number]["id"], index: number) {
     const others = entries.reduce((sum, entry, i) => sum + (i === index ? 0 : entry[id]), 0);
-    return Math.max(1, Math.min(10, pool - others));
+    return Math.max(0, Math.min(10, pool - others));
   }
   function handleScoreClick(id: typeof criteria[number]["id"], value: number) {
     if (!selectedEntry || isSubmitted || busy) return;
-    const score = Math.max(1, Math.min(value, maxAllowed(id, selectedPeer)));
+    const score = Math.max(0, Math.min(value, maxAllowed(id, selectedPeer)));
     setDraft((prev) => ({ ...prev, [selectedEntry.recipient_id]: { ...selectedEntry, [id]: score } }));
   }
   function updateComment(comment: string) {
@@ -325,7 +327,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             ? "최종 평가(총괄) · 동료 평가 작성"
             : midtermSkipped
             ? "2주 미만 단기 프로젝트 · 중간 점검 생략"
-            : `중간 점검(형성적) · 항목별 1~10점, 단 동료 전체 합은 ${peers.length}명 × ${POOL_PER_PEER}점 = ${pool}점`}
+            : `중간 점검(형성적) · 항목별 0~10점, 단 동료 전체 합은 ${peers.length}명 × ${POOL_PER_PEER}점 = ${pool}점`}
         </p>
       </div>
 
@@ -367,7 +369,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
       </div>}
       {!data && !error && <p role="status" className="mb-4">평가를 불러오는 중…</p>}
       {!currentMember && <p className="mb-4">팀 참여 정보를 확인해 주세요.</p>}
-      {!prototype && isLeader && phase === "midterm" && <div className="mb-4">
+      {!prototype && isLeader && project.status === "active" && phase === "midterm" && <div className="mb-4">
         {!confirmClose ? <button type="button" disabled={busy} onClick={() => setConfirmClose(true)}>프로젝트 종료 및 최종 평가 열기</button> :
           <div><p>프로젝트를 종료하면 중간 평가가 마감됩니다. 종료하시겠습니까?</p>
           <button type="button" disabled={busy} onClick={closeProject}>프로젝트 종료</button>

@@ -879,11 +879,11 @@ create table if not exists public.peer_evaluations (
   evaluator_id uuid not null references public.members(id),
   recipient_id uuid not null references public.members(id),
   phase text not null check (phase in ('midterm', 'final')),
-  role integer not null check(role between 1 and 10),
-  deadline integer not null check(deadline between 1 and 10),
-  communication integer not null check(communication between 1 and 10),
-  collaboration integer not null check(collaboration between 1 and 10),
-  quality integer not null check(quality between 1 and 10),
+  role integer not null check(role between 0 and 10),
+  deadline integer not null check(deadline between 0 and 10),
+  communication integer not null check(communication between 0 and 10),
+  collaboration integer not null check(collaboration between 0 and 10),
+  quality integer not null check(quality between 0 and 10),
   comment text not null default '' check(char_length(comment) <= 150),
   created_at timestamptz not null default now(),
   check(evaluator_id <> recipient_id),
@@ -942,8 +942,8 @@ begin
     cross join unnest(array['role','deadline','communication','collaboration','quality']) k
     where jsonb_typeof(e->k) is distinct from 'number'
        or (e->>k)::numeric <> trunc((e->>k)::numeric)
-       or (e->>k)::numeric not between 1 and 10
-  ) then raise exception '점수는 1~10 사이의 정수여야 합니다.'; end if;
+       or (e->>k)::numeric not between 0 and 10
+  ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
   if exists (
     select 1 from jsonb_array_elements(p_entries) e
     cross join unnest(array['role','deadline','communication','collaboration','quality']) k
@@ -977,8 +977,12 @@ create or replace function public.complete_evaluation_project(p_project_id text)
 returns void language plpgsql security definer set search_path = public as $$
 begin
   perform id from public.projects where id = p_project_id for update;
+  if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
   if not public.is_project_leader(p_project_id) then raise exception '팀장만 프로젝트를 종료할 수 있습니다.'; end if;
   update public.projects set status = 'done' where id = p_project_id and status = 'active';
+  if not exists (select 1 from public.projects where id = p_project_id and status = 'done') then
+    raise exception '프로젝트 종료 상태가 저장되지 않았습니다. 프로젝트 트리거를 확인해 주세요.';
+  end if;
 end;
 $$;
 revoke all on function public.complete_evaluation_project(text) from public, anon;
@@ -1033,8 +1037,8 @@ begin
     cross join unnest(array['role','deadline','communication','collaboration','quality']) k
     where jsonb_typeof(e->k) is distinct from 'number'
        or (e->>k)::numeric <> trunc((e->>k)::numeric)
-       or (e->>k)::numeric not between 1 and 10
-  ) then raise exception '점수는 1~10 사이의 정수여야 합니다.'; end if;
+       or (e->>k)::numeric not between 0 and 10
+  ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
   if exists (
     select 1 from jsonb_array_elements(p_entries) e
     cross join unnest(array['role','deadline','communication','collaboration','quality']) k

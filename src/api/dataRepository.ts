@@ -33,7 +33,7 @@ export interface DataRepository {
   getEvaluationMode(): Promise<boolean>;
   getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
   submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]): Promise<void>;
-  completeProject(projectId: string): Promise<void>;
+  completeProject(projectId: string): Promise<Project>;
   listProjects(): Promise<Project[]>;
   listMyProjectIds(): Promise<string[]>;
   getProjectById(projectId: string): Promise<Project | null>;

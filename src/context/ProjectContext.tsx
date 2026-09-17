@@ -711,8 +711,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           await dataRepository.submitEvaluations(project.id, phase, entries);
         },
         completeProject: async () => {
-          await dataRepository.completeProject(project.id);
-          setProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: "done" } : p));
+          const completed = await dataRepository.completeProject(project.id);
+          setProjects((prev) => prev.map((p) => p.id === completed.id ? completed : p));
         },
         projects,
         project,

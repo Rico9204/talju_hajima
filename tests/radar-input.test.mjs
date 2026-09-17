@@ -26,7 +26,9 @@ test('side midpoints use their contour score and scores stay within bounds', () 
       assert.equal(radarScoreAt(x, y, radarAxisAt(x, y, 5), 5, 94), score);
     }
   }
-  assert.equal(radarScoreAt(0, 0, 0, 5, 94), 1);
+  for (let axis = 0; axis < 5; axis++) {
+    assert.equal(radarScoreAt(0, 0, axis, 5, 94), 0);
+  }
   assert.equal(radarScoreAt(0, -200, 0, 5, 94), 10);
-  assert.equal(radarScoreAt(0, 200, 0, 5, 94), 1);
+  assert.equal(radarScoreAt(0, 200, 0, 5, 94), 0);
 });
