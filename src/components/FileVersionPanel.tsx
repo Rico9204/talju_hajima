@@ -1,14 +1,13 @@
+import FileUploadDialog from "./FileUploadDialog";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
-import { formatUploadTime, versionTree, parseFileTags, validateFileTags, workspaceFileType } from "../lib/workspaceFiles";
+import { formatUploadTime, versionTree } from "../lib/workspaceFiles";
 
 export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
   const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
-  const [tagDraft, setTagDraft] = useState(file.tags.join(", "));
-  useEffect(() => { setTagDraft(file.tags.join(", ")); }, [file.tags.join("\0")]);
-  const [note, setNote] = useState("");
+  const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -64,6 +63,13 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
   const tree = versionTree(file.versions).filter(({ version }) => !onlyPinned || version.pinned);
   const actionClass = "text-xs px-2.5 py-1.5 rounded-lg border disabled:opacity-40";
   return <div>
+    {pendingUpload && <FileUploadDialog file={pendingUpload} initialTags={file.tags} destination={`“${file.name}” 새 버전 · 기준: ${file.versions.find((v) => v.id === baseId)?.version ?? "첫 버전"}`} onCancel={() => setPendingUpload(null)} onConfirm={async (tags, note) => {
+      if (locked) throw new Error("종료된 프로젝트에는 업로드할 수 없습니다.");
+      const result = await uploadWorkspaceFile({ file: pendingUpload, fileId: file.id, folderId: file.folderId, baseVersionId: baseId, note, tags });
+      if (!mounted.current) return;
+      setPendingUpload(null); setBaseId(result.versionId); setOnlyPinned(false);
+      setMessage(result.branched ? "분기 버전으로 저장했습니다. 검토 후 현재 버전으로 지정할 수 있습니다." : "새 현재 버전으로 저장했습니다.");
+    }} />}
     {error && <p role="alert" className="text-sm p-3 mb-3 rounded-lg bg-red-50 text-red-700">{error}</p>}
     {message && <p role="status" className="text-xs p-3 mb-3 rounded-lg" style={{ background: "var(--secondary)" }}>{message}</p>}
     {!locked && <div className="p-3 mb-4 rounded-xl space-y-2" style={{ background: "var(--muted)" }}>
@@ -73,22 +79,10 @@ export default function FileVersionPanel({ file }: { file: WorkspaceFile }) {
           {file.versions.map((v) => <option key={v.id} value={v.id}>{v.version}{v.current ? " · 현재" : ""}{v.pinned ? " · 핀" : ""} · {v.uploadedBy}</option>)}
         </select>
       </label>
-      <label className="block text-xs">버전 업로드 태그 · 이미지는 필수<input aria-label="버전 업로드 태그" value={tagDraft} disabled={busy} onChange={(e) => setTagDraft(e.target.value)} placeholder="쉼표로 태그 구분" className="block w-full mt-1 p-2 rounded-lg" /></label>
-      <input aria-label="버전 메모" placeholder="변경 내용 메모" maxLength={2000} value={note} disabled={busy} onChange={(e) => setNote(e.target.value)} className="w-full p-2 text-xs rounded-lg" style={{ background: "var(--card)" }} />
       <input ref={input} type="file" className="hidden" aria-label="새 버전 파일" disabled={busy} onChange={(e) => {
         const binary = e.target.files?.[0]; e.target.value = "";
         if (!binary || locked || pending.current) return;
-        const tags = parseFileTags(tagDraft);
-        try { validateFileTags(tags, workspaceFileType(binary.name) === "img" || binary.type.startsWith("image/")); }
-        catch (e) { setError((e as Error).message); return; }
-        const base = file.versions.find((v) => v.id === baseId);
-        if (!window.confirm(`“${binary.name}” 파일을 “${file.name}”의 새 버전으로 업로드하시겠습니까?${base ? `\n기준 버전: ${base.version}` : ""}`)) return;
-        void run(async () => {
-          const result = await uploadWorkspaceFile({ file: binary, fileId: file.id, folderId: file.folderId, baseVersionId: baseId, note, tags });
-          if (!mounted.current) return;
-          setBaseId(result.versionId); setNote(""); setOnlyPinned(false);
-          setMessage(result.branched ? "분기 버전으로 저장했습니다. 검토 후 현재 버전으로 지정할 수 있습니다." : "새 현재 버전으로 저장했습니다.");
-        });
+        setPendingUpload(binary);
       }} />
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>

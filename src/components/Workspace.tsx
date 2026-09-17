@@ -1,5 +1,6 @@
-import { latestFileUploadTime, parseFileTags, validateFileTags, workspaceFileType } from "../lib/workspaceFiles";
-import { useEffect, useState, useRef } from "react";
+import FileUploadDialog from "./FileUploadDialog";
+import { latestFileUploadTime } from "../lib/workspaceFiles";
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
@@ -44,17 +45,42 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [uploadTags, setUploadTags] = useState("");
-  const [uploadNote, setUploadNote] = useState("");
+  const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
   const uploadingRef = useRef(false);
   const activeProjectRef = useRef(project.id);
   activeProjectRef.current = project.id;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+
+  // Keep enough scrollable space when filters, deletion or a shorter detail
+  // panel remove content. Observe child-driven changes as well as React renders.
+  useLayoutEffect(() => {
+    const element = workspaceRef.current;
+    if (!element) return;
+    let width = 0;
+    let height = 0;
+    function retainHeight() {
+      if (!element) return;
+      const nextWidth = element.getBoundingClientRect().width;
+      if (nextWidth !== width) {
+        width = nextWidth;
+        height = 0;
+        element.style.minHeight = "";
+      }
+      height = Math.max(height, Math.ceil(element.getBoundingClientRect().height));
+      const minimum = `${height}px`;
+      if (element.style.minHeight !== minimum) element.style.minHeight = minimum;
+    }
+    retainHeight();
+    const observer = new ResizeObserver(retainHeight);
+    observer.observe(element);
+    return () => { observer.disconnect(); element.style.minHeight = ""; };
+  }, [project.id]);
 
   useEffect(() => {
+    setPendingUpload(null);
     setCurrentFolderId(null);
     setSelected(null);
     setFilterTag(null);
@@ -101,36 +127,32 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     } finally { folderPending.current = false; setFolderBusy(false); }
   }
 
-  async function uploadBinary(binary: File) {
-    if (locked || uploadingRef.current) return;
-    const parsedTags = parseFileTags(uploadTags);
-    try { validateFileTags(parsedTags, workspaceFileType(binary.name) === "img" || binary.type.startsWith("image/")); }
-    catch (e) { setUploadError((e as Error).message); return; }
-    const destination = currentFolder ? `“${currentFolder.name}” 폴더` : "워크스페이스 루트";
-    if (!window.confirm(`“${binary.name}” 파일을 ${destination}에 업로드하시겠습니까?`)) return;
+  async function uploadBinary(binary: File, tags: string[], note: string) {
+    if (locked) throw new Error("종료된 프로젝트에는 업로드할 수 없습니다.");
+    if (uploadingRef.current) return;
     const uploadProject = project.id;
-    uploadingRef.current = true; setUploading(true); setUploadError("");
+    uploadingRef.current = true; setUploading(true);
     try {
-      const result = await uploadWorkspaceFile({ file: binary, folderId: currentFolderId, note: uploadNote, tags: parsedTags });
-      if (activeProjectRef.current === uploadProject) { setSelected(result.fileId); setDetailTab("versions"); setUploadNote(""); }
+      const result = await uploadWorkspaceFile({ file: binary, folderId: currentFolderId, note, tags });
+      if (activeProjectRef.current === uploadProject) { setSelected(result.fileId); setDetailTab("versions"); setPendingUpload(null); }
     } catch (e) {
-      if (activeProjectRef.current === uploadProject) setUploadError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "업로드에 실패했습니다.");
+      throw e;
     } finally { uploadingRef.current = false; setUploading(false); }
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault(); setDragOver(false);
     const dropped = e.dataTransfer.files[0];
-    if (dropped) void uploadBinary(dropped);
+    if (dropped && !locked && !uploadingRef.current) setPendingUpload(dropped);
   }
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
     const binary = e.target.files?.[0]; e.target.value = "";
-    if (binary) void uploadBinary(binary);
+    if (binary && !locked && !uploadingRef.current) setPendingUpload(binary);
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+    <div ref={workspaceRef} className="p-4 md:p-8 max-w-5xl mx-auto" style={{ overflowAnchor: "none" }}>
       <div className="mb-7">
         <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           파일 워크스페이스 · {project.name}
@@ -141,6 +163,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </p>
       </div>
 
+      {pendingUpload && <FileUploadDialog key={project.id} file={pendingUpload} destination={currentFolder ? `“${currentFolder.name}” 폴더` : "워크스페이스 루트"} onCancel={() => setPendingUpload(null)} onConfirm={(tags, note) => uploadBinary(pendingUpload, tags, note)} />}
       <WorkspaceCleanupNotice />
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-5 text-sm">
@@ -257,7 +280,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       )}
 
       {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" fileCount={scoped.length} onDeleted={() => openFolder(null)} />}
-      {uploadError && <p role="alert" className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{uploadError}</p>}
       {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
       {/* Upload zone */}
       {!locked && (
@@ -282,20 +304,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>PDF, DOCX, PPTX, XLSX, ZIP, 이미지 등 모든 형식 지원 · 파일당 최대 50MB</div>
           </div>
 
-          <label className="block mb-3 text-xs">업로드 태그 · 이미지는 필수
-            <input value={uploadTags} onChange={(e) => setUploadTags(e.target.value)} placeholder="예: 디자인, 참고자료 (쉼표로 구분)" list="workspace-tags" className="block w-full mt-1 p-3 rounded-xl" />
-          </label>
-          <datalist id="workspace-tags">{[...new Set(files.flatMap((f) => f.tags))].map((tag) => <option key={tag} value={tag} />)}</datalist>
-          <div className="mb-5 flex gap-3">
-            <input
-              type="text"
-              value={uploadNote}
-              onChange={(e) => setUploadNote(e.target.value)}
-              placeholder="업로드 메모 (버전 노트)..."
-              className="flex-1 text-sm px-3 py-2 border outline-none"
-              style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
-            />
-          </div>
         </>
       )}
 

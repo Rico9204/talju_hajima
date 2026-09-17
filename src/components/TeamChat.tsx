@@ -121,7 +121,7 @@ export default function TeamChat({
 
   const chan = channels.find((c) => c.id === active) || channels[0];
   const thread = chatMessages[active] || [];
-  const lastMineId = [...thread].reverse().find((m) => m.senderId === currentMember.id)?.id;
+  const latestMessageId = thread[thread.length - 1]?.id;
 
   function memberFor(id: string) {
     return team.members.find((m) => m.id === id);
@@ -367,10 +367,10 @@ export default function TeamChat({
                   )}
                   {!joinsNext && (
                     <div className="flex items-center gap-1.5 mt-1 px-1">
-                    {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
+                    {m.id === latestMessageId && chan.type === "dm" && readers.length > 0 && (
                       <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>
                     )}
-                    {mine && m.id === lastMineId && chan.type === "group" && readers.length > 0 && (
+                    {m.id === latestMessageId && chan.type === "group" && readers.length > 0 && (
                       <div className="flex items-center -space-x-1.5" title={`읽음: ${readers.map((reader) => reader.name).join(", ")}`}>
                         {readers.map((reader) => {
                           return (
