@@ -1,3 +1,5 @@
+export type ProjectApprovalStatus = "pending" | "approved" | "rejected";
+
 export interface Project {
   id: string;
   name: string;
@@ -6,6 +8,9 @@ export interface Project {
   status: "active" | "done";
   startDate?: string;
   endDate?: string;
+  approvalStatus: ProjectApprovalStatus;
+  completedAt?: string;
+  requestedAdminId?: string;
 }
 
 export interface NewProjectInput {
@@ -14,6 +19,14 @@ export interface NewProjectInput {
   period: string;
   startDate?: string;
   endDate?: string;
+  requestedAdminId?: string;
+}
+
+export interface AdminProfileSummary {
+  id: string;
+  displayName: string;
+  org: string | null;
+  email: string | null;
 }
 
 export type ProfileLinkType = "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other";
@@ -36,6 +49,9 @@ export interface Member {
   avatar: string;
   avatarUrl: string | null;
   contact: string | null;
+  // Admin-only (see gwanhan.md) — the org/section a leader searches by when
+  // routing a new project's approval to this admin. Null for non-admins.
+  org: string | null;
   bannerColor: string | null;
   bannerImageUrl: string | null;
   links: ProfileLink[];

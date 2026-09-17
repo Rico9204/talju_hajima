@@ -45,7 +45,7 @@ function daysUntil(dateStr: string, today: string) {
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
 export default function Schedule() {
-  const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent } = useProject();
+  const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent } = useProject();
   const today = todayISO();
   const defaultMonth = scheduleEvents[0]?.date.slice(0, 7) || today.slice(0, 7);
   const [month, setMonth] = useState(defaultMonth);
@@ -60,6 +60,14 @@ export default function Schedule() {
   const [scope, setScope] = useState<ScheduleEventScope>("personal");
   const [visibility, setVisibility] = useState<ScheduleEventVisibility>("private");
   const [hideTitle, setHideTitle] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function runAction(action: () => Promise<void>) {
+    if (busy) return; setBusy(true); setActionError(null);
+    try { await action(); } catch (err) { setActionError(err && typeof err === "object" && "message" in err ? String(err.message) : "일정을 저장하지 못했습니다."); }
+    finally { setBusy(false); }
+  }
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const locked = project.status === "done";
 
@@ -74,6 +82,7 @@ export default function Schedule() {
     setScope("personal");
     setVisibility("private");
     setHideTitle(false);
+    setEditingId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
@@ -88,6 +97,31 @@ export default function Schedule() {
 
   function toggleMember(id: string) {
     setSelectedMembers((prev) => (prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id]));
+  }
+
+  function canEdit(e: ScheduleEvent): boolean {
+    if (e.scope === "team") return isLeader;
+    return e.ownerMemberId === currentMember?.id;
+  }
+
+  function startEdit(e: ScheduleEvent) {
+    if (locked || !canEdit(e)) return;
+    setEditingId(e.id);
+    setTitle(e.title);
+    setDate(e.date);
+    setType(e.type);
+    setScope(e.scope);
+    setVisibility(e.visibility ?? "private");
+    setHideTitle(e.hideTitle);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setTitle("");
+    setDate("");
+    setScope("personal");
+    setVisibility("private");
+    setHideTitle(false);
   }
 
   const visibleToMe = scheduleEvents.filter(
@@ -109,9 +143,20 @@ export default function Schedule() {
 
   const agenda = selectedDay ? events.filter((e) => e.date === selectedDay) : events;
 
-  async function handleAdd() {
+  async function handleSubmit() {
     if (!title.trim() || !date.trim() || locked) return;
     if (scope === "team" && !isLeader) return;
+    if (editingId !== null) {
+      await updateScheduleEvent(editingId, {
+        title: title.trim(),
+        date: date.trim(),
+        type,
+        visibility: scope === "personal" ? visibility : undefined,
+        hideTitle: scope === "personal" && visibility === "shared" ? hideTitle : undefined,
+      });
+      cancelEdit();
+      return;
+    }
     await addScheduleEvent({
       title: title.trim(),
       date: date.trim(),
@@ -122,6 +167,12 @@ export default function Schedule() {
     });
     setTitle("");
     setDate("");
+  }
+
+  async function handleDelete() {
+    if (editingId === null) return;
+    await removeScheduleEvent(editingId);
+    cancelEdit();
   }
 
   return (
@@ -237,18 +288,31 @@ export default function Schedule() {
         <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
           {!locked && (
             <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-              <h2 className="text-sm font-700 mb-3">일정 추가</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-700">{editingId !== null ? "일정 수정" : "일정 추가"}</h2>
+                {editingId !== null && (
+                  <button
+                    onClick={cancelEdit}
+                    className="text-xs font-600 px-2.5 py-1"
+                    style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                  >
+                    취소
+                  </button>
+                )}
+              </div>
 
               <div className="flex gap-2 mb-2">
                 {(["personal", "team"] as ScheduleEventScope[]).map((s) => (
                   <button
                     key={s}
+                    disabled={editingId !== null}
                     onClick={() => setScope(s)}
                     className="flex-1 py-2 text-xs font-700 transition-all"
                     style={{
                       background: scope === s ? "var(--primary)" : "var(--muted)",
                       color: scope === s ? "#fff" : "var(--muted-foreground)",
                       borderRadius: "20px",
+                      opacity: editingId !== null ? 0.6 : 1,
                     }}
                   >
                     {s === "personal" ? "개인 일정" : "팀 일정"}
@@ -329,17 +393,31 @@ export default function Schedule() {
                     </label>
                   )}
 
-                  <button
-                    onClick={handleAdd}
-                    className="w-full py-2.5 text-sm font-700 transition-all"
-                    style={{
-                      background: title.trim() && date.trim() ? "var(--primary)" : "var(--muted)",
-                      color: title.trim() && date.trim() ? "#fff" : "var(--muted-foreground)",
-                      borderRadius: "40px",
-                    }}
-                  >
-                    일정 추가
-                  </button>
+                  {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+                  <div className="flex gap-2">
+                    {editingId !== null && (
+                      <button
+                        disabled={busy}
+                        onClick={() => runAction(handleDelete)}
+                        className="px-4 py-2.5 text-sm font-700 transition-all"
+                        style={{ background: "#ef444418", color: "#ef4444", borderRadius: "40px" }}
+                      >
+                        삭제
+                      </button>
+                    )}
+                    <button
+                      disabled={busy || !title.trim() || !date}
+                      onClick={() => runAction(handleSubmit)}
+                      className="flex-1 py-2.5 text-sm font-700 transition-all"
+                      style={{
+                        background: title.trim() && date.trim() ? "var(--primary)" : "var(--muted)",
+                        color: title.trim() && date.trim() ? "#fff" : "var(--muted-foreground)",
+                        borderRadius: "40px",
+                      }}
+                    >
+                      {editingId !== null ? "저장" : "일정 추가"}
+                    </button>
+                  </div>
                 </>
               )}
             </div>
@@ -421,8 +499,19 @@ export default function Schedule() {
                 const meta = typeMeta[e.type];
                 const d = daysUntil(e.date, today);
                 const isMine = e.scope === "personal" && e.ownerMemberId === currentMember?.id;
+                const editable = !locked && canEdit(e);
                 return (
-                  <div key={e.id} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                  <div
+                    key={e.id}
+                    onClick={editable ? () => startEdit(e) : undefined}
+                    className="flex items-center justify-between p-2.5 transition-all"
+                    style={{
+                      background: editingId === e.id ? "var(--secondary)" : "var(--muted)",
+                      borderRadius: "10px",
+                      cursor: editable ? "pointer" : "default",
+                      outline: editingId === e.id ? "1.5px solid var(--primary)" : "none",
+                    }}
+                  >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color, opacity: e.scope === "personal" && e.visibility === "private" ? 0.5 : 1 }} />
                       <div className="min-w-0">
@@ -435,17 +524,25 @@ export default function Schedule() {
                       </div>
                     </div>
                     {!locked && (
-                      <span
-                        className="text-xs font-700 px-2 py-0.5 shrink-0"
-                        style={{
-                          background: d >= 0 && d <= 7 ? `${meta.color}20` : "var(--card)",
-                          color: d >= 0 && d <= 7 ? meta.color : "var(--muted-foreground)",
-                          borderRadius: "20px",
-                          fontFamily: "var(--font-jetbrains)",
-                        }}
-                      >
-                        {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {editable && (
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted-foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                          </svg>
+                        )}
+                        <span
+                          className="text-xs font-700 px-2 py-0.5 shrink-0"
+                          style={{
+                            background: d >= 0 && d <= 7 ? `${meta.color}20` : "var(--card)",
+                            color: d >= 0 && d <= 7 ? meta.color : "var(--muted-foreground)",
+                            borderRadius: "20px",
+                            fontFamily: "var(--font-jetbrains)",
+                          }}
+                        >
+                          {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
+                        </span>
+                      </div>
                     )}
                   </div>
                 );

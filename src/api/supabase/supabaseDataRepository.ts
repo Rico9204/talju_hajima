@@ -15,6 +15,7 @@ import type {
   ScheduleEvent,
   ChatMessage,
   ChatReaction,
+  AdminProfileSummary,
 } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
@@ -41,6 +42,9 @@ function mapProject(row: any): Project {
     status: row.status,
     startDate: row.start_date ?? undefined,
     endDate: row.end_date ?? undefined,
+    approvalStatus: row.approval_status ?? "approved",
+    completedAt: row.completed_at ?? undefined,
+    requestedAdminId: row.requested_admin_id ?? undefined,
   };
 }
 
@@ -61,6 +65,7 @@ function mapMember(row: any, profile?: any): Member {
     avatar: profile?.avatar_initial || row.avatar,
     avatarUrl: profile?.avatar_url ?? row.avatar_url ?? null,
     contact: profile?.contact ?? null,
+    org: profile?.org ?? null,
     bannerColor: profile?.banner_color ?? null,
     bannerImageUrl: profile?.banner_image_url ?? null,
     links: Array.isArray(profile?.links) ? profile.links : [],
@@ -184,6 +189,11 @@ function mapMessage(row: any): ChatMessage {
 import { summarizeEvaluations } from "../../lib/evaluationSummary";
 
 export const supabaseDataRepository: DataRepository = {
+  async isCurrentUserAdmin() {
+    const { data, error } = await supabase.rpc("is_admin");
+    if (error) throw error;
+    return data === true;
+  },
   async getMyEvaluationSummary() {
     const { data: auth, error: authError } = await supabase.auth.getUser();
     if (authError) throw authError;
@@ -258,6 +268,7 @@ export const supabaseDataRepository: DataRepository = {
         status: "active",
         start_date: input.startDate ?? null,
         end_date: input.endDate ?? null,
+        requested_admin_id: input.requestedAdminId ?? null,
       })
       .select()
       .single();
@@ -300,7 +311,17 @@ export const supabaseDataRepository: DataRepository = {
   async deleteProject(projectId) {
     // teams/members/folders/files/tasks all cascade-delete via their FK to
     // projects, so removing the project row is enough.
-    const { error } = await supabase.from("projects").delete().eq("id", projectId);
+    const { error } = await supabase.rpc("delete_managed_project", { p_project_id: projectId });
+    if (error) throw error;
+  },
+
+  async approveProject(projectId) {
+    const { error } = await supabase.rpc("review_project", { p_project_id: projectId, p_status: "approved" });
+    if (error) throw error;
+  },
+
+  async rejectProject(projectId) {
+    const { error } = await supabase.rpc("review_project", { p_project_id: projectId, p_status: "rejected" });
     if (error) throw error;
   },
 
@@ -375,10 +396,10 @@ export const supabaseDataRepository: DataRepository = {
     return mapMember(data, profile);
   },
 
-  async getTeam(projectId): Promise<TeamData> {
+  async getTeam(projectId, adminView = false): Promise<TeamData> {
     const [teamResult, memberResult] = await Promise.all([
       supabase.from("teams").select("*").eq("project_id", projectId).maybeSingle(),
-      supabase.rpc("visible_evaluation_members", { p_project_id: projectId }).order("is_leader", { ascending: false }),
+      supabase.rpc(adminView ? "admin_project_members" : "visible_evaluation_members", { p_project_id: projectId }).order("is_leader", { ascending: false }),
     ]);
     if (teamResult.error) throw teamResult.error;
     if (memberResult.error) throw memberResult.error;
@@ -413,7 +434,8 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.student !== undefined) updates.student = patch.student.trim();
     if (patch.school !== undefined) updates.school = patch.school.trim();
     if (patch.avatarUrl !== undefined) updates.avatar_url = patch.avatarUrl;
-    if (patch.contact !== undefined) updates.contact = patch.contact;
+    if (patch.contact !== undefined) updates.contact = patch.contact?.trim() || null;
+    if (patch.org !== undefined) updates.org = patch.org?.trim() || null;
     if (patch.bannerColor !== undefined) updates.banner_color = patch.bannerColor;
     if (patch.bannerImageUrl !== undefined) updates.banner_image_url = patch.bannerImageUrl;
     if (patch.links !== undefined) updates.links = patch.links;
@@ -469,6 +491,19 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
+  async kickMember(memberId) {
+    const { error } = await supabase.rpc("kick_project_member", { p_member_id: memberId });
+    if (error) throw error;
+  },
+
+  async searchAdmins(query): Promise<AdminProfileSummary[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    const { data, error } = await supabase.rpc("search_admin_profiles", { q: trimmed });
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({ id: row.id, displayName: row.display_name, org: row.org, email: row.email }));
+  },
+
   async listFolders(projectId) {
     const { data, error } = await supabase.from("folders").select("*").eq("project_id", projectId).order("id", { ascending: true });
     if (error) throw error;
@@ -511,6 +546,11 @@ export const supabaseDataRepository: DataRepository = {
     const { data, error } = await supabase.from("workspace_delete_queue").select("storage_path").eq("project_id", projectId).order("storage_path").limit(100);
     if (error) throw error;
     return (data ?? []).map((row) => row.storage_path as string);
+  },
+  async listWorkspaceCleanupProjects() {
+    const { data, error } = await supabase.from("workspace_delete_queue").select("project_id").limit(1000);
+    if (error) throw error;
+    return [...new Set((data ?? []).map((row) => row.project_id as string))];
   },
   async cleanupWorkspaceFiles(projectId) {
     // Drain in bounded API batches. Failed requests leave the durable retry list.
@@ -837,6 +877,18 @@ export const supabaseDataRepository: DataRepository = {
       .single();
     if (error) throw error;
     return mapScheduleEvent(data);
+  },
+
+  async updateScheduleEvent(eventId, patch) {
+    const updates: Record<string, unknown> = {};
+    if (patch.title !== undefined) updates.title = patch.title.trim();
+    if (patch.date !== undefined) updates.date = patch.date;
+    if (patch.type !== undefined) updates.type = patch.type;
+    if (patch.visibility !== undefined) updates.visibility = patch.visibility;
+    if (patch.hideTitle !== undefined) updates.hide_title = patch.hideTitle;
+    if (Object.keys(updates).length === 0) return;
+    const { error } = await supabase.from("schedule_events").update(updates).eq("id", eventId);
+    if (error) throw error;
   },
 
   async removeScheduleEvent(eventId) {

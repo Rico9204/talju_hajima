@@ -14,10 +14,13 @@ import type {
   TaskComment,
   ScheduleEvent,
   NewScheduleEventInput,
+  ScheduleEventType,
+  ScheduleEventVisibility,
   Member,
   ProfileLink,
   ChatMessage,
   ChatReaction,
+  AdminProfileSummary,
 } from "./types";
 
 /**
@@ -29,6 +32,8 @@ import type {
  * `./index.ts` at it — nothing outside this folder needs to change.
  */
 export interface DataRepository {
+  isCurrentUserAdmin(): Promise<boolean>;
+  listWorkspaceCleanupProjects(): Promise<string[]>;
   getMyEvaluationSummary(): Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
   getEvaluationMode(): Promise<boolean>;
   getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
@@ -45,11 +50,15 @@ export interface DataRepository {
     actorAvatar: string,
     input: { school: string; major: string; student: string }
   ): Promise<Member>;
+  approveProject(projectId: string): Promise<void>;
+  rejectProject(projectId: string): Promise<void>;
+  kickMember(memberId: string): Promise<void>;
+  searchAdmins(query: string): Promise<AdminProfileSummary[]>;
 
-  getTeam(projectId: string): Promise<TeamData>;
+  getTeam(projectId: string, adminView?: boolean): Promise<TeamData>;
   updateMyProfile(patch: Partial<{
     name: string; major: string; student: string; school: string; avatarUrl: string | null;
-    contact: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
+    contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
   }>): Promise<void>;
   uploadAvatar(file: File): Promise<string>;
   uploadBannerImage(file: File): Promise<string>;
@@ -89,6 +98,10 @@ export interface DataRepository {
 
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
   addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
+  updateScheduleEvent(
+    eventId: number,
+    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+  ): Promise<void>;
   removeScheduleEvent(eventId: number): Promise<void>;
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;

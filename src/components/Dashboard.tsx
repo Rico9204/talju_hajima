@@ -137,6 +137,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       sub: "마감일 있는 미완료 과제" + (taskSummary.overdue ? " · 기한 초과 " + taskSummary.overdue + "개" : ""),
     } : stat),
   };
+  const isPending = project.approvalStatus === "pending";
+  const isRejected = project.approvalStatus === "rejected";
+  const bannerText = isPending
+    ? "관리자 승인 대기 중이에요. 승인되기 전까지는 대시보드 외 다른 기능을 사용할 수 없어요."
+    : isRejected
+      ? "관리자가 이 프로젝트 생성을 반려했어요. 자세한 사항은 관리자에게 문의해주세요."
+      : data.banner;
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
@@ -145,9 +152,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       <div
         className="relative mb-6 overflow-hidden"
         style={{
-          background: isDone
-            ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
-            : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)",
+          background: isRejected
+            ? "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #991b1b 100%)"
+            : isPending
+              ? "linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)"
+              : isDone
+                ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
+                : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)",
           borderRadius: "calc(var(--radius) + 4px)",
           padding: "32px 36px",
           boxShadow: isDone ? "0 8px 32px rgba(22,163,74,0.3)" : "0 8px 32px rgba(37,99,235,0.3)",
@@ -173,24 +184,26 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           <h1 className="text-2xl font-700 mb-1" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
             안녕하세요, {currentMember?.name ?? "참여자"}님
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{data.banner}</p>
+          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{bannerText}</p>
 
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => onNavigate(data.ctaPrimary.page)}
-              className="px-5 py-2.5 text-sm font-700 transition-all"
-              style={{ background: "#fff", color: isDone ? "#16a34a" : "var(--primary)", borderRadius: "40px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
-            >
-              {data.ctaPrimary.label}
-            </button>
-            <button
-              onClick={() => onNavigate("tasks")}
-              className="px-5 py-2.5 text-sm font-600 transition-all"
-              style={{ background: "rgba(255,255,255,0.15)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.25)" }}
-            >
-              과제 보드
-            </button>
-          </div>
+          {!isPending && !isRejected && (
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => onNavigate(data.ctaPrimary.page)}
+                className="px-5 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#fff", color: isDone ? "#16a34a" : "var(--primary)", borderRadius: "40px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
+              >
+                {data.ctaPrimary.label}
+              </button>
+              <button
+                onClick={() => onNavigate("tasks")}
+                className="px-5 py-2.5 text-sm font-600 transition-all"
+                style={{ background: "rgba(255,255,255,0.15)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.25)" }}
+              >
+                과제 보드
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

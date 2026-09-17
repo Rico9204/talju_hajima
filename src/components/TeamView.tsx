@@ -1,11 +1,22 @@
 import { useEffect, useState } from "react";
-import { useProject } from "../context/ProjectContext";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, transferLeadership, currentMember, isLeader } = useProject();
+  const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader } = useProject();
+  const { isAdmin } = useProjectManagement();
   const [selected, setSelected] = useState<number>(0);
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
+  const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function runAction(action: () => Promise<void>, done: () => void) {
+    if (busy) return; setBusy(true); setActionError(null);
+    try { await action(); done(); }
+    catch (err) { setActionError(err && typeof err === "object" && "message" in err ? String(err.message) : "처리에 실패했습니다."); }
+    finally { setBusy(false); }
+  }
+  const [pendingFinish, setPendingFinish] = useState(false);
 
   useEffect(() => {
     setSelected(0);
@@ -36,16 +47,30 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   }
 
   const sel = members[selected] || members[0];
+  const canManage = isLeader || isAdmin;
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
+  const canKick = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && sel.id !== currentMember?.id && !sel.isLeader;
+  const canFinish = canManage && project.status === "active";
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
-      <div className="mb-6">
-        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          팀 구성원
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            팀 구성원
+          </div>
+          <h1 className="text-2xl font-700">{team.teamLabel}</h1>
+          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
         </div>
-        <h1 className="text-2xl font-700">{team.teamLabel}</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+        {canFinish && (
+          <button
+            onClick={() => { setActionError(null); setPendingFinish(true); }}
+            className="text-xs font-700 px-3.5 py-2 shrink-0 transition-all"
+            style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
+          >
+            프로젝트 종료
+          </button>
+        )}
       </div>
 
       {/* Member cards grid */}
@@ -135,6 +160,15 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                       style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
                     >
                       🧭 팀장 권한 위임
+                    </button>
+                  )}
+                  {canKick && (
+                    <button
+                      onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
+                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
+                      style={{ background: "#ef444412", color: "#ef4444", borderRadius: "20px" }}
+                    >
+                      ✕ 팀에서 제외
                     </button>
                   )}
                 </div>
@@ -233,6 +267,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
               <strong>{pendingTransfer.name}</strong>님에게 팀장 권한이 넘어가고, 나는 팀원으로 전환됩니다. 이 작업은 즉시 적용됩니다.
             </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
             <div className="flex gap-2">
               <button
                 onClick={() => setPendingTransfer(null)}
@@ -247,6 +282,66 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}
               >
                 위임하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingKick && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>✕</div>
+            <h3 className="font-700 mb-1">팀에서 제외할까요?</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              <strong>{pendingKick.name}</strong>님이 이 프로젝트에서 제외됩니다. 이 작업은 되돌릴 수 없습니다.
+            </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingKick(null)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => runAction(() => kickMember(pendingKick.id), () => { setSelected(0); setPendingKick(null); })}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
+              >
+                제외하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingFinish && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#22c55e18", borderRadius: "12px" }}>✓</div>
+            <h3 className="font-700 mb-1">프로젝트를 종료할까요?</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              종료하면 프로젝트가 읽기 전용으로 전환되며 종료 평가를 작성할 수 있습니다.
+            </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingFinish(false)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => runAction(markProjectDone, () => setPendingFinish(false))}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#22c55e", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(34,197,94,0.3)" }}
+              >
+                종료하기
               </button>
             </div>
           </div>

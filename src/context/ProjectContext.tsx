@@ -13,6 +13,8 @@ import type {
   TaskPriority,
   ScheduleEvent,
   NewScheduleEventInput,
+  ScheduleEventType,
+  ScheduleEventVisibility,
   Member,
   ProfileLink,
   ChatMessage,
@@ -21,6 +23,7 @@ import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/s
 import { useAuth } from "./AuthContext";
 import CreateProjectModal from "../components/CreateProjectModal";
 import JoinProjectModal from "../components/JoinProjectModal";
+import AdminPanel from "../components/AdminPanel";
 
 export type {
   Project,
@@ -79,11 +82,13 @@ interface ProjectContextValue {
   deleteProject: (projectId: string) => Promise<void>;
   lookupProject: (projectId: string) => Promise<Project | null>;
   joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
+  markProjectDone: () => Promise<void>;
+  kickMember: (memberId: string) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
   updateMyProfile: (patch: {
     name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
-    contact?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
+    contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
   }) => Promise<void>;
   isShortTerm: boolean;
   folders: Folder[];
@@ -117,6 +122,10 @@ interface ProjectContextValue {
   toggleTaskPersonalSchedule: (taskId: number, checked: boolean) => Promise<void>;
   scheduleEvents: ScheduleEvent[];
   addScheduleEvent: (input: NewScheduleEventInput) => Promise<void>;
+  updateScheduleEvent: (
+    id: number,
+    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+  ) => Promise<void>;
   removeScheduleEvent: (id: number) => Promise<void>;
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
@@ -158,16 +167,52 @@ function StatusScreen({ kind, message }: { kind: "loading" | "error"; message?: 
 // state now that every account starts with zero memberships) — this is the
 // one place `ProjectProvider` needs to render project-creating UI itself,
 // since it replaces `children` (and therefore the whole routed app,
-// including Sidebar) before any project exists to select.
+// including Sidebar) before any project exists to select. For an admin
+// account specifically, zero projects is the *expected* steady state (an
+// admin who only ever reviews other people's projects never needs one of
+// their own) — AdminPanel doesn't depend on any project being selected, so
+// it's rendered directly here instead of being unreachable behind Layout.
 function EmptyProjectsScreen({
-  addProject, lookupProject, joinProject,
+  isAdmin, signOut, addProject, lookupProject, joinProject,
 }: {
+  isAdmin: boolean;
+  signOut: () => void;
   addProject: (input: NewProjectInput) => Promise<string>;
   lookupProject: (projectId: string) => Promise<Project | null>;
   joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+
+  if (isAdmin) {
+    return (
+      <div className="h-full w-full overflow-y-auto" style={{ background: "var(--background)" }}>
+        <div className="flex items-center justify-between px-6 pt-6 max-w-5xl mx-auto">
+          <div className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+            아직 직접 만든 프로젝트가 없어요 — 관리자는 없어도 괜찮아요.
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="text-xs font-700 px-3.5 py-2"
+              style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+            >
+              내 프로젝트 만들기
+            </button>
+            <button
+              onClick={signOut}
+              className="text-xs font-600 px-3.5 py-2"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+            >
+              로그아웃
+            </button>
+          </div>
+        </div>
+        <AdminPanel />
+        {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input) => addProject(input)} />}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
@@ -209,8 +254,56 @@ function EmptyProjectsScreen({
   );
 }
 
+const ProjectManagementContext = createContext<{
+  isAdmin: boolean;
+  retryFileCleanup: () => Promise<void>;
+  cleanupProjectFiles: typeof dataRepository.cleanupWorkspaceFiles;
+  listProjects: typeof dataRepository.listProjects;
+  approveProject: typeof dataRepository.approveProject;
+  rejectProject: typeof dataRepository.rejectProject;
+  deleteProject: typeof dataRepository.deleteProject;
+  getAdminTeam: (projectId: string) => Promise<TeamData>;
+  kickMember: typeof dataRepository.kickMember;
+  searchAdmins: typeof dataRepository.searchAdmins;
+} | null>(null);
+const managementActions = {
+  retryFileCleanup: async () => {
+    for (const id of await dataRepository.listWorkspaceCleanupProjects()) await dataRepository.cleanupWorkspaceFiles(id);
+  },
+  cleanupProjectFiles: (id: string) => dataRepository.cleanupWorkspaceFiles(id),
+  listProjects: () => dataRepository.listProjects(),
+  approveProject: (id: string) => dataRepository.approveProject(id),
+  rejectProject: (id: string) => dataRepository.rejectProject(id),
+  deleteProject: (id: string) => dataRepository.deleteProject(id),
+  getAdminTeam: (id: string) => dataRepository.getTeam(id, true),
+  kickMember: (id: string) => dataRepository.kickMember(id),
+  searchAdmins: (query: string) => dataRepository.searchAdmins(query),
+};
+export function useProjectManagement() {
+  const context = useContext(ProjectManagementContext);
+  if (!context) throw new Error("ProjectProvider is required");
+  return context;
+}
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
+  const [identity, setIdentity] = useState<{ id: string; admin: boolean } | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true; setRoleError(null);
+    if (!session) { setIdentity(null); return; }
+    const id = session.user.id;
+    dataRepository.isCurrentUserAdmin().then(admin => { if (active) setIdentity({ id, admin }); })
+      .catch(() => { if (active) setRoleError("관리자 권한을 확인하지 못했습니다. DB 마이그레이션 적용 여부와 연결을 확인한 뒤 새로고침해 주세요."); });
+    return () => { active = false; };
+  }, [session?.user.id]);
+  if (session && roleError) return <StatusScreen kind="error" message={roleError} />;
+  if (session && identity?.id !== session.user.id) return <StatusScreen kind="loading" />;
+  const isAdmin = !!session && identity?.id === session.user.id && identity.admin;
+  return <ProjectManagementContext.Provider value={{ ...managementActions, isAdmin }}><ProjectDataProvider>{children}</ProjectDataProvider></ProjectManagementContext.Provider>;
+}
+function ProjectDataProvider({ children }: { children: ReactNode }) {
+  const { session, signOut } = useAuth();
+  const { isAdmin } = useProjectManagement();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const evaluationProjectRef = useRef(projectId);
@@ -532,16 +625,29 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
+  async function markProjectDone() {
+    if (!projectId || !(isLeader || isAdmin)) return;
+    await dataRepository.completeProject(projectId);
+    const updated = await dataRepository.getProjectById(projectId);
+    if (updated) setProjects((prev) => prev.map((p) => (p.id === projectId ? updated : p)));
+  }
+
+  async function kickMember(memberId: string) {
+    if (!projectId || !(isLeader || isAdmin)) return;
+    await dataRepository.kickMember(memberId);
+    setTeam(await dataRepository.getTeam(projectId));
+  }
+
   async function updateMyProfile(patch: {
     name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
-    contact?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
+    contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
   }) {
     if (!projectId || !currentMember) return;
     const avatarUrl = patch.avatarFile ? await dataRepository.uploadAvatar(patch.avatarFile) : undefined;
     const bannerImageUrl = patch.bannerImageFile ? await dataRepository.uploadBannerImage(patch.bannerImageFile) : patch.bannerImageUrl;
     await dataRepository.updateMyProfile({
       name: patch.name, major: patch.major, student: patch.student, school: patch.school, avatarUrl,
-      contact: patch.contact, bannerColor: patch.bannerColor, bannerImageUrl, links: patch.links,
+      contact: patch.contact, org: patch.org, bannerColor: patch.bannerColor, bannerImageUrl, links: patch.links,
     });
     setTeam(await dataRepository.getTeam(projectId));
   }
@@ -657,6 +763,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshScheduleEvents();
   }
 
+  async function updateScheduleEvent(
+    id: number,
+    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+  ) {
+    await dataRepository.updateScheduleEvent(id, patch);
+    await refreshScheduleEvents();
+  }
+
   async function removeScheduleEvent(id: number) {
     await dataRepository.removeScheduleEvent(id);
     await refreshScheduleEvents();
@@ -749,7 +863,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   // screen (RequireAuth handles the redirect; there's nothing to load here).
   if (!session) return <>{children}</>;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
-  if (projects.length === 0) return <EmptyProjectsScreen addProject={addProject} lookupProject={lookupProject} joinProject={joinProject} />;
+  if (projects.length === 0)
+    return <EmptyProjectsScreen isAdmin={isAdmin} signOut={signOut} addProject={addProject} lookupProject={lookupProject} joinProject={joinProject} />;
   if (!initialized || loadedProjectId !== projectId) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
@@ -791,6 +906,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         deleteProject,
         lookupProject,
         joinProject,
+        markProjectDone,
+        kickMember,
         team: liveTeam,
         transferLeadership,
         updateMyProfile,
@@ -833,6 +950,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         toggleTaskPersonalSchedule,
         scheduleEvents,
         addScheduleEvent,
+        updateScheduleEvent,
         removeScheduleEvent,
         chatUnread,
         chatUnreadTotal,

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { Page } from "../App";
-import { useProject } from "../context/ProjectContext";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
 import { detectLink } from "../lib/links";
@@ -22,9 +22,13 @@ const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "evaluation", label: "동료 평가", icon: "★" },
 ];
 
+const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
+
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
   const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile } = useProject();
   const { user, signOut, updatePassword } = useAuth();
+  const { isAdmin } = useProjectManagement();
+  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
   const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
@@ -52,6 +56,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   const [profileMajor, setProfileMajor] = useState("");
   const [profileStudent, setProfileStudent] = useState("");
   const [profileContact, setProfileContact] = useState("");
+  const [profileOrg, setProfileOrg] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [bannerColor, setBannerColor] = useState("#2563eb");
@@ -90,6 +95,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     setProfileMajor(currentMember?.major ?? "");
     setProfileStudent(currentMember?.student ?? "");
     setProfileContact(currentMember?.contact ?? "");
+    setProfileOrg(currentMember?.org ?? "");
     setAvatarFile(null);
     setAvatarPreview(null);
     setBannerColor(currentMember?.bannerColor ?? currentMember?.color ?? "#2563eb");
@@ -144,6 +150,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         student: profileStudent.trim() || undefined,
         avatarFile: avatarFile ?? undefined,
         contact: profileContact.trim() || null,
+        org: isAdmin ? profileOrg.trim() || null : undefined,
         bannerColor,
         bannerImageFile: bannerImageFile ?? undefined,
         bannerImageUrl: bannerCleared ? null : undefined,
@@ -323,7 +330,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
                   >
                     {p.status === "active" ? "진행 중" : "완료"}
                   </span>
-                  {isCurrent && isLeader && (
+                  {isCurrent && isAdmin && (
                     <span
                       role="button"
                       tabIndex={0}
@@ -389,7 +396,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           메뉴
         </div>
         <div className="flex flex-col gap-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const active = currentPage === item.id;
             return (
               <button
@@ -470,8 +477,8 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     {createOpen && (
       <CreateProjectModal
         onCancel={() => setCreateOpen(false)}
-        onCreate={(input) => {
-          addProject(input);
+        onCreate={async (input) => {
+          await addProject(input);
           setCreateOpen(false);
           onNavigate("dashboard");
         }}
@@ -551,9 +558,9 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               <div className="h-px mb-3" style={{ background: "var(--border)" }} />
               {profileEditOpen ? (
                 <>
-                  <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학과", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact]].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
+                  <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학과", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact], ...(isAdmin ? [["소속(관리자 검색용)", profileOrg, setProfileOrg]] : [])].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
                 </>
-              ) : <div className="space-y-3 text-sm">{[["학과", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email]].map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}</div>}
+              ) : <div className="space-y-3 text-sm">{[["학과", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email], ...(isAdmin ? [["소속", profileOrg || currentMember?.org || "미입력 — 조장이 승인 요청 시 검색할 수 없어요"]] : [])].map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}</div>}
               <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{profileLinks.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
               {profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
               {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
