@@ -1215,6 +1215,25 @@ on conflict(id) do update set public=false,file_size_limit=52428800;
 revoke insert,update,delete on public.files,public.file_versions from anon,authenticated;
 grant select on public.files,public.file_versions to authenticated;
 
+-- Decode new ASCII-only paths; keep existing three-segment paths readable.
+create or replace function public.workspace_storage_project(p_path text)
+returns text language plpgsql immutable set search_path=public as $$
+begin
+  if array_length(string_to_array(p_path,'/'),1)=4 and split_part(p_path,'/',1)='v2' then
+    return convert_from(decode(split_part(p_path,'/',2),'hex'),'UTF8');
+  elsif array_length(string_to_array(p_path,'/'),1)=3 then
+    return split_part(p_path,'/',1);
+  end if;
+  return null;
+exception when others then return null;
+end $$;
+create or replace function public.workspace_storage_owner(p_path text)
+returns text language sql immutable set search_path=public as $$
+  select case when array_length(string_to_array(p_path,'/'),1)=4 and split_part(p_path,'/',1)='v2'
+    then split_part(p_path,'/',3)
+    when array_length(string_to_array(p_path,'/'),1)=3 then split_part(p_path,'/',2) end;
+$$;
+
 create or replace function public.register_workspace_version(
   p_project_id text,p_file_id bigint,p_base_version_id bigint,p_folder_id bigint,
   p_name text,p_type text,p_path text,p_note text
@@ -1240,7 +1259,7 @@ begin
     raise exception '파일 이름 또는 메모가 올바르지 않습니다.';
   end if;
   if p_type is null or p_type not in ('pdf','doc','img','ppt','xls','zip') then raise exception '잘못된 파일 유형입니다.'; end if;
-  if p_path is null or split_part(p_path,'/',1)<>p_project_id or split_part(p_path,'/',2)<>auth.uid()::text then
+  if p_path is null or public.workspace_storage_project(p_path) is distinct from p_project_id or public.workspace_storage_owner(p_path) is distinct from auth.uid()::text then
     raise exception '업로드 경로가 올바르지 않습니다.';
   end if;
   select (metadata->>'size')::bigint,coalesce(metadata->>'mimetype','application/octet-stream')
@@ -1317,17 +1336,17 @@ drop policy if exists workspace_binary_read on storage.objects;
 drop policy if exists workspace_binary_insert on storage.objects;
 drop policy if exists workspace_binary_cleanup on storage.objects;
 create policy workspace_binary_read on storage.objects for select to authenticated using (
-  bucket_id='workspace-files' and public.is_project_member(split_part(name,'/',1))
+  bucket_id='workspace-files' and public.is_project_member(public.workspace_storage_project(name))
 );
 create policy workspace_binary_insert on storage.objects for insert to authenticated with check (
-  bucket_id='workspace-files' and split_part(name,'/',2)=auth.uid()::text
-  and public.is_project_member(split_part(name,'/',1))
-  and exists(select 1 from public.projects p where p.id=split_part(name,'/',1) and p.status='active')
+  bucket_id='workspace-files' and public.workspace_storage_owner(name)=auth.uid()::text
+  and public.is_project_member(public.workspace_storage_project(name))
+  and exists(select 1 from public.projects p where p.id=public.workspace_storage_project(name) and p.status='active')
 );
 -- Linked objects are immutable: no update policy, no deletion of stored versions.
 create policy workspace_binary_cleanup on storage.objects for delete to authenticated using (
-  bucket_id='workspace-files' and split_part(name,'/',2)=auth.uid()::text
-  and public.is_project_member(split_part(name,'/',1))
+  bucket_id='workspace-files' and public.workspace_storage_owner(name)=auth.uid()::text
+  and public.is_project_member(public.workspace_storage_project(name))
   and not exists(select 1 from public.file_versions v where v.storage_path=name)
 );
 commit;

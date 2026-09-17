@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
-import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType } from '../src/lib/workspaceFiles.ts';
+import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath } from '../src/lib/workspaceFiles.ts';
 
 // Execute the real repository against an in-memory Storage transport; no live credentials.
 function repository(fake) {
@@ -11,7 +11,7 @@ function repository(fake) {
   const module={exports:{}};
   new Function('require','module','exports',outputText)((path)=> {
     if(path.endsWith('/supabase')) return {supabase:fake};
-    if(path.endsWith('/workspaceFiles')) return {MAX_WORKSPACE_FILE_SIZE,WORKSPACE_BUCKET,workspaceFileType};
+    if(path.endsWith('/workspaceFiles')) return {MAX_WORKSPACE_FILE_SIZE,WORKSPACE_BUCKET,workspaceFileType,workspaceStoragePath};
     if(path.endsWith('/evaluationSummary')) return {};
     throw new Error(`Unexpected dependency ${path}`);
   },module,module.exports);
@@ -24,7 +24,7 @@ function transport() {
     storage:{from:(bucket)=> {
       assert.equal(bucket,'workspace-files');
       return {
-        upload:async(path,file,options)=> { assert.equal(options.upsert,false); objects.set(path,new Blob([await file.arrayBuffer()],{type:options.contentType})); return {error:null}; },
+        upload:async(path,file,options)=> { assert.equal(options.upsert,false); assert.match(path,/^[a-zA-Z0-9/-]+$/); objects.set(path,new Blob([await file.arrayBuffer()],{type:options.contentType})); return {error:null}; },
         download:async(path)=>({data:objects.get(path),error:null}),
         remove:async(paths)=>{ for(const path of paths) if(![...records.values()].includes(path)) objects.delete(path); return {error:null}; },
       };
@@ -38,7 +38,7 @@ test('PDF, PPTX, image and text bytes survive actual upload/download repository 
   const {fake}=transport(); const repo=repository(fake);
   const payload=Uint8Array.from([0,255,128,13,10,0,80,75,3,4,239,191,189]);
   for(const [name,type] of [['발표.pptx','application/vnd.openxmlformats-officedocument.presentationml.presentation'],['문서.pdf','application/pdf'],['사진.png','image/png'],['기록.txt','text/plain']]) {
-    const result=await repo.uploadFile('project',{file:new File([payload],name,{type}),folderId:null});
+    const result=await repo.uploadFile('테스트-mtyks5m2',{file:new File([payload],name,{type}),folderId:null});
     const blob=await repo.downloadFileVersion(result.versionId);
     assert.deepEqual(new Uint8Array(await blob.arrayBuffer()),payload);
   }
@@ -57,4 +57,24 @@ test('oversized file rejected before storage upload',async()=> {
   const {fake,objects}=transport();
   await assert.rejects(repository(fake).uploadFile('p',{file:{size:MAX_WORKSPACE_FILE_SIZE+1},folderId:null}),/50MB/);
   assert.equal(objects.size,0);
+});
+test('folder creation persists trimmed metadata and is returned on a new list query',async()=> {
+  const rows=[];
+  const fake={from:(table)=> {
+    assert.equal(table,'folders');
+    return {
+      select:(_columns,options)=>({eq:(_key,project)=>options?.count ? Promise.resolve({count:rows.length,error:null}) : {order:async()=>({data:rows.filter(row=>row.project_id===project),error:null})}}),
+      insert:(row)=>({select:()=>({single:async()=>{const saved={...row,id:7};rows.push(saved);return {data:saved,error:null};}})}),
+    };
+  }};
+  const repo=repository(fake);
+  const created=await repo.createFolder('p','  발표 자료  ','팀원');
+  assert.equal(created.name,'발표 자료'); assert.equal(created.id,7);
+  assert.deepEqual(await repo.listFolders('p'),[created]);
+  assert.deepEqual(await repo.listFolders('other'),[]);
+  await assert.rejects(repo.createFolder('p','   ','팀원'),/비어/);
+});
+test('folder DB failures propagate instead of returning a success value',async()=> {
+  const fake={from:()=>({select:()=>({eq:async()=>({count:0,error:null})}),insert:()=>({select:()=>({single:async()=>({data:null,error:new Error('폴더 저장 거부')})})})})};
+  await assert.rejects(repository(fake).createFolder('p','발표 자료','팀원'),/저장 거부/);
 });

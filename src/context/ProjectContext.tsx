@@ -420,7 +420,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function refreshFolders() {
     if (!projectId) return;
-    setFolders(await dataRepository.listFolders(projectId));
+    const refreshedFolders = await dataRepository.listFolders(projectId);
+    if (evaluationProjectRef.current === projectId) setFolders(refreshedFolders);
   }
 
   async function refreshFiles() {
@@ -491,9 +492,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   async function addFolder(name: string) {
-    if (!projectId || !name.trim() || !currentMember) return;
-    await dataRepository.createFolder(projectId, name, currentMember.name);
-    await refreshFolders();
+    if (!projectId || !currentMember) throw new Error("프로젝트 참여자만 폴더를 만들 수 있습니다.");
+    if (!name.trim()) throw new Error("폴더 이름을 입력해 주세요.");
+    if (project.status === "done") throw new Error("종료된 프로젝트에는 폴더를 만들 수 없습니다.");
+    const created = await dataRepository.createFolder(projectId, name, currentMember.name);
+    if (evaluationProjectRef.current === projectId) setFolders((prev) => prev.some((folder) => folder.id === created.id) ? prev : [...prev, created]);
   }
 
   async function uploadWorkspaceFile(input: import("../api/types").FileUploadInput) {

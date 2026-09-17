@@ -1,4 +1,4 @@
-import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType } from "../../lib/workspaceFiles";
+import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath } from "../../lib/workspaceFiles";
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
 import type {
@@ -514,7 +514,7 @@ export const supabaseDataRepository: DataRepository = {
     if (authError) throw authError;
     if (!auth.user) throw new Error("로그인이 필요합니다.");
     // Immutable random keys preserve every binary exactly, including duplicate filenames.
-    const path = `${projectId}/${auth.user.id}/${crypto.randomUUID()}`;
+    const path = workspaceStoragePath(projectId, auth.user.id, crypto.randomUUID());
     const { error: uploadError } = await supabase.storage.from(WORKSPACE_BUCKET).upload(path, file, {
       contentType: file.type || "application/octet-stream", upsert: false,
     });

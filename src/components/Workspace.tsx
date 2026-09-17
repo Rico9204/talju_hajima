@@ -32,6 +32,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState("");
+  const folderPending = useRef(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
   const [filterTag, setFilterTag] = useState("전체");
@@ -50,6 +53,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setSelected(null);
     setFilterTag("전체");
     setCreatingFolder(false);
+    setFolderError("");
   }, [project.id]);
 
   useEffect(() => {
@@ -74,11 +78,18 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setFilterTag("전체");
   }
 
-  function handleAddFolder() {
-    if (!newFolderName.trim() || locked) return;
-    addFolder(newFolderName);
-    setNewFolderName("");
-    setCreatingFolder(false);
+  async function handleAddFolder() {
+    if (!newFolderName.trim() || locked || folderPending.current) return;
+    const targetProject = project.id;
+    folderPending.current = true; setFolderBusy(true); setFolderError("");
+    try {
+      await addFolder(newFolderName);
+      if (activeProjectRef.current === targetProject) {
+        setNewFolderName(""); setCreatingFolder(false);
+      }
+    } catch (e) {
+      if (activeProjectRef.current === targetProject) setFolderError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "폴더 생성에 실패했습니다. 다시 시도해 주세요.");
+    } finally { folderPending.current = false; setFolderBusy(false); }
   }
 
   async function uploadBinary(binary: File) {
@@ -152,19 +163,22 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             )}
           </div>
 
+          {folderError && <p role="alert" className="mb-3 text-sm text-red-700">{folderError}</p>}
           {creatingFolder && (
             <div className="flex gap-2 mb-3">
               <input
                 autoFocus
+                disabled={folderBusy}
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddFolder()}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleAddFolder(); }}
                 placeholder="폴더 이름 (예: 발표 자료)"
                 className="flex-1 text-sm px-3 py-2 border outline-none"
                 style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
               />
               <button
                 onClick={handleAddFolder}
+                disabled={folderBusy || !newFolderName.trim()}
                 className="text-xs font-700 px-4 py-2"
                 style={{
                   background: newFolderName.trim() ? "var(--primary)" : "var(--muted)",
@@ -172,10 +186,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   borderRadius: "var(--radius-sm)",
                 }}
               >
-                만들기
+                {folderBusy ? "생성 중…" : "만들기"}
               </button>
               <button
-                onClick={() => { setCreatingFolder(false); setNewFolderName(""); }}
+                disabled={folderBusy}
+                onClick={() => { setCreatingFolder(false); setNewFolderName(""); setFolderError(""); }}
                 className="text-xs font-600 px-3 py-2"
                 style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}
               >

@@ -3,6 +3,11 @@ import type { FileVersion, WorkspaceFile } from "../api/types";
 export const MAX_WORKSPACE_FILE_SIZE = 50 * 1024 * 1024;
 export const WORKSPACE_BUCKET = "workspace-files";
 
+export function workspaceStoragePath(projectId: string, userId: string, objectId: string): string {
+  const encoded = Array.from(new TextEncoder().encode(projectId), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `v2/${encoded}/${userId}/${objectId}`;
+}
+
 export function workspaceFileType(name: string): WorkspaceFile["type"] {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "heic"].includes(ext)) return "img";

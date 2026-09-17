@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { workspaceFileType,versionTree } from '../src/lib/workspaceFiles.ts';
+import { workspaceFileType,versionTree,workspaceStoragePath } from '../src/lib/workspaceFiles.ts';
+test('Unicode project IDs produce ASCII storage keys without changing the original ID',()=> {
+  for (const project of ['테스트-mtyks5m2','팀 프로젝트😀','ascii-project']) {
+    const path=workspaceStoragePath(project,'user-id','object-id');
+    assert.match(path,/^[a-zA-Z0-9/-]+$/);
+    assert.equal(Buffer.from(path.split('/')[1],'hex').toString('utf8'),project);
+  }
+});
 test('binary and text extensions have the correct badges',()=> {
   for (const [name,type] of [['자료.PPTX','ppt'],['사진.jpeg','img'],['문서.pdf','pdf'],['표.xlsx','xls'],['기록.txt','doc'],['압축.zip','zip']]) assert.equal(workspaceFileType(name),type);
 });
