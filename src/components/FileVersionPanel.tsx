@@ -7,15 +7,51 @@ import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
 import { formatUploadTime, versionTree } from "../lib/workspaceFiles";
 
+function highlightOfficeHtml(html: string, query: string): string {
+  const term = query.trim();
+  if (!term) return html;
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matcher = new RegExp(escaped, "gi");
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const parent = node.parentElement?.tagName;
+    if (node.textContent?.trim() && parent !== "SCRIPT" && parent !== "STYLE") textNodes.push(node as Text);
+  }
+  for (const textNode of textNodes) {
+    if (!matcher.test(textNode.data)) {
+      matcher.lastIndex = 0;
+      continue;
+    }
+    matcher.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    for (const match of textNode.data.matchAll(matcher)) {
+      const start = match.index ?? 0;
+      fragment.append(textNode.data.slice(cursor, start));
+      const mark = document.createElement("mark");
+      mark.textContent = match[0];
+      fragment.append(mark);
+      cursor = start + match[0].length;
+    }
+    fragment.append(textNode.data.slice(cursor));
+    textNode.replaceWith(fragment);
+  }
+  return document.body.innerHTML;
+}
+
 export default function FileVersionPanel({ file, searchQuery = "" }: { file: WorkspaceFile; searchQuery?: string }) {
-  const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion, indexFileVersion } = useProject();
+  const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [onlyPinned, setOnlyPinned] = useState(false);
-  const [preview, setPreview] = useState<{ url?: string; text?: string; kind: string; name: string } | null>(null);
+  const [preview, setPreview] = useState<{ url?: string; text?: string; html?: string; kind: string; name: string } | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
   const input = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
   const mounted = useRef(true);
@@ -37,6 +73,21 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
   function closePreview() {
     if (preview?.url) { URL.revokeObjectURL(preview.url); urls.current.delete(preview.url); }
     setPreview(null);
+    setPreviewZoom(1);
+  }
+
+  function openPreviewInNewWindow() {
+    if (!preview) return;
+    if (preview.url) {
+      window.open(preview.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const body = preview.kind === "office"
+      ? highlightOfficeHtml(preview.html ?? "", searchQuery)
+      : `<pre style="white-space:pre-wrap;word-break:break-word;font:14px system-ui,sans-serif;line-height:1.6">${(preview.text ?? "").replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[character] ?? character))}</pre>`;
+    const url = URL.createObjectURL(new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>${preview.name}</title><style>body{margin:32px;color:#1f2937;background:#fff}table{border-collapse:collapse}td,th{border:1px solid #d1d5db;padding:6px 10px;text-align:left}img{max-width:100%;height:auto}</style></head><body>${body}</body></html>`], { type: "text/html" }));
+    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
   async function openVersion(v: FileVersion, download: boolean) {
@@ -60,12 +111,31 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
     } else if (["txt", "md", "csv", "json", "log", "xml", "yaml", "yml"].includes(ext ?? "")) {
       const text = await blob.slice(0, 200_000).text();
       if (mounted.current) setPreview({ text: text + (blob.size > 200_000 ? "\n… 미리보기는 앞부분만 표시합니다." : ""), kind: "text", name });
+    } else if (["docx", "xlsx", "xlsm", "pptx"].includes(ext ?? "")) {
+      let text = v.searchText ?? "";
+      let html = "";
+      try {
+        const { parseOffice } = await import("officeparser");
+        const parserName = ext === "xlsm" ? name.replace(/\.xlsm$/i, ".xlsx") : name;
+        const officeFile = new File([blob], parserName, { type: v.mimeType });
+        const document = await parseOffice(officeFile, { includeRawContent: false });
+        html = (await document.to("html")).value;
+        if (!text) text = (await document.to("text")).value;
+      } catch {
+        if (!text) {
+          const { extractWorkspaceText } = await import("../lib/extractWorkspaceText");
+          const extracted = await extractWorkspaceText(new File([blob], name, { type: v.mimeType }));
+          text = extracted.text;
+        }
+      }
+      if (mounted.current) {
+        setPreview({ html, text: text || "이 Office 파일에서 미리 볼 수 있는 텍스트를 찾지 못했습니다.", kind: html ? "office" : "text", name });
+      }
     } else setMessage("이 형식은 다운로드하여 해당 프로그램에서 열 수 있습니다.");
   }
 
   const tree = versionTree(file.versions).filter(({ version }) => !onlyPinned || version.pinned);
   const currentVersion = file.versions.find((v) => v.current);
-  const statusLabel = { pending: "본문 미추출", ready: "본문 검색 가능", partial: "본문 일부만 검색 가능", failed: "본문 추출 실패", unsupported: "본문 추출 미지원" };
   const actionClass = "text-xs px-2.5 py-1.5 rounded-lg border disabled:opacity-40";
   return <div>
     {pendingUpload && <FileUploadDialog file={pendingUpload} initialTags={file.tags} destination={`“${file.name}” 새 버전 · 기준: ${file.versions.find((v) => v.id === baseId)?.version ?? "첫 버전"}`} onCancel={() => setPendingUpload(null)} onConfirm={async (tags, note) => {
@@ -92,11 +162,6 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
-    {currentVersion && <section className="mb-4 p-3 rounded-xl border" style={{ borderColor: "var(--border)" }}>
-      <p className="text-xs mb-2">현재 버전 · {statusLabel[currentVersion.searchStatus ?? "pending"]}</p>
-      {currentVersion.searchStatus === "ready" && !currentVersion.searchText && <p className="text-xs">추출 가능한 텍스트가 없습니다. 스캔 문서는 OCR이 필요합니다.</p>}
-      {currentVersion.searchText && <details open={!!searchQuery.trim()}><summary className="text-xs cursor-pointer">추출 본문 보기</summary><pre className="text-xs whitespace-pre-wrap break-words max-h-64 overflow-auto mt-2"><SearchHighlight text={currentVersion.searchText} query={searchQuery} /></pre></details>}
-    </section>}
     <label className="flex items-center gap-2 text-xs mb-3"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} />핀한 버전만 보기</label>
     <div className="space-y-3 max-h-[560px] overflow-auto" aria-label="파일 버전 트리">
       {tree.map(({ version: v, depth }) => <div key={v.id} className="border-l-2 pl-3 py-1" style={{ marginLeft: Math.min(depth, 6) * 12, borderColor: v.current ? "var(--primary)" : "var(--border)" }}>
@@ -109,7 +174,6 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
         <div className="flex flex-wrap gap-1.5 mt-2">
           {v.storagePath && <><button className={actionClass} disabled={busy} onClick={() => void run(() => openVersion(v, false))}>미리보기</button><button className={actionClass} disabled={busy} onClick={() => void run(() => openVersion(v, true))}>다운로드</button></>}
           {!locked && <>
-            {v.storagePath && <button className={actionClass} disabled={busy} onClick={() => void run(() => indexFileVersion(v))}>{v.searchStatus === "ready" || v.searchStatus === "partial" ? "본문 다시 추출" : "검색용 본문 추출"}</button>}
             {!v.current && v.storagePath && <button className={actionClass} disabled={busy} onClick={() => void run(async () => { await promoteFileVersion(file.id, v.id); if (mounted.current) { setBaseId(v.id); setMessage(`${v.version}을 현재 버전으로 지정했습니다.`); } })}>현재 버전으로</button>}
             <button className={actionClass} disabled={busy} onClick={() => void run(() => pinFileVersion(file.id, v.id, !v.pinned))}>{v.pinned ? "핀 해제" : "핀 고정"}</button>
             <button className={actionClass} disabled={busy} onClick={() => { setBaseId(v.id); setMessage(`${v.version} 기준으로 업로드할 파일을 선택해 주세요.`); input.current?.click(); }}>여기서 새 버전</button>
@@ -118,11 +182,28 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
       </div>)}
       {tree.length === 0 && <p className="text-xs py-4">{onlyPinned ? "핀한 버전이 없습니다." : "아직 버전이 없습니다."}</p>}
     </div>
-    {preview && <section className="mt-4 border rounded-xl p-3" aria-label="버전 미리보기">
-      <div className="flex justify-between gap-2 text-xs mb-2"><span className="break-all">{preview.name}</span><button onClick={closePreview}>닫기</button></div>
-      {preview.kind === "image" && <img src={preview.url} alt={preview.name} className="w-full max-h-96 object-contain" />}
-      {preview.kind === "pdf" && <Suspense fallback={<p className="text-xs">PDF를 불러오는 중…</p>}><PdfSearchPreview source={preview.url!} query={searchQuery} /></Suspense>}
-      {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-96 overflow-auto"><SearchHighlight text={preview.text ?? ""} query={searchQuery} /></pre>}
-    </section>}
+    {preview && <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.48)", backdropFilter: "blur(4px)" }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}>
+      <section className="w-full max-w-6xl max-h-[92vh] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)" }}>
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
+          <div className="min-w-0">
+            <div className="text-xs font-700" style={{ color: "var(--primary)" }}>파일 미리보기</div>
+            <div className="text-sm font-700 truncate mt-0.5">{preview.name}</div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button type="button" onClick={openPreviewInNewWindow} className="h-8 px-2.5 border rounded text-xs font-600">새 창에서 보기</button>
+            <button type="button" onClick={() => setPreviewZoom((value) => Math.max(0.75, Number((value - 0.25).toFixed(2))))} aria-label="미리보기 축소" className="w-8 h-8 border rounded">−</button>
+            <button type="button" onClick={() => setPreviewZoom(1)} className="min-w-14 h-8 border rounded text-xs">{Math.round(previewZoom * 100)}%</button>
+            <button type="button" onClick={() => setPreviewZoom((value) => Math.min(2, Number((value + 0.25).toFixed(2))))} aria-label="미리보기 확대" className="w-8 h-8 border rounded">+</button>
+            <button type="button" onClick={closePreview} aria-label="미리보기 닫기" className="ml-2 w-8 h-8 text-lg">×</button>
+          </div>
+        </div>
+        <div className="overflow-auto p-5">
+          {preview.kind === "image" && <img src={preview.url} alt={preview.name} className="mx-auto max-w-full object-contain" style={{ maxHeight: "72vh", transform: `scale(${previewZoom})`, transformOrigin: "center top" }} />}
+          {preview.kind === "pdf" && <Suspense fallback={<p className="text-xs">PDF를 불러오는 중…</p>}><PdfSearchPreview source={preview.url!} query={searchQuery} zoom={previewZoom} /></Suspense>}
+          {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-[72vh] overflow-auto p-4" style={{ background: "var(--muted)", transform: `scale(${previewZoom})`, transformOrigin: "top left" }}><SearchHighlight text={preview.text ?? ""} query={searchQuery} /></pre>}
+          {preview.kind === "office" && <iframe title={`${preview.name} 문서 미리보기`} sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;min-height:100%;background:#fff}body{zoom:${previewZoom};width:calc(100% / ${previewZoom});box-sizing:border-box;padding:24px;font:14px system-ui,sans-serif;color:#1f2937;line-height:1.6}table{border-collapse:collapse;max-width:none;overflow:auto}td,th{border:1px solid #d1d5db;padding:6px 10px;text-align:left}h1,h2,h3{margin-top:1.2em}img{max-width:100%;height:auto}mark{background:#facc15;color:#422006;border-radius:2px;padding:0 2px}</style></head><body>${highlightOfficeHtml(preview.html ?? "", searchQuery)}</body></html>`} className="w-full border" style={{ height: "72vh", borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "#fff" }} />}
+        </div>
+      </section>
+    </div>}
   </div>;
 }

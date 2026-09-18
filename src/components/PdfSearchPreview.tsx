@@ -4,7 +4,7 @@ import { getDocument } from "../lib/pdfEngine";
 import { matchRanges } from "../lib/workspaceSearch";
 import "./pdfSearchPreview.css";
 
-export default function PdfSearchPreview({ source, query }: { source: string; query: string }) {
+export default function PdfSearchPreview({ source, query, zoom = 1 }: { source: string; query: string; zoom?: number }) {
   const host = useRef<HTMLDivElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
@@ -37,7 +37,7 @@ export default function PdfSearchPreview({ source, query }: { source: string; qu
     void (async () => {
       const page = await pdf.getPage(pageNumber);
       if (cancelled) return;
-      const scale = Math.min(1.5, width / page.getViewport({ scale: 1 }).width);
+      const scale = Math.min(1.5, width / page.getViewport({ scale: 1 }).width) * zoom;
       const viewport = page.getViewport({ scale });
       const wrapper = document.createElement("div");
       wrapper.className = "workspace-pdf-page";
@@ -71,7 +71,7 @@ export default function PdfSearchPreview({ source, query }: { source: string; qu
       setBusy(false);
     })().catch(() => { if (!cancelled) { setError("이 페이지를 표시하지 못했습니다."); setBusy(false); } });
     return () => { cancelled = true; render?.cancel(); layer?.cancel(); element.replaceChildren(); };
-  }, [pdf, pageNumber, width, query]);
+  }, [pdf, pageNumber, width, query, zoom]);
   return <div>
     <div className="flex items-center justify-between gap-2 text-xs mb-2">
       <button disabled={!pdf || pageNumber <= 1} onClick={() => setPageNumber((n) => n - 1)} className="disabled:opacity-40">← 이전</button>
