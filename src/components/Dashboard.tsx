@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { dashboardActivity } from "../lib/dashboardActivity";
 import { useEffect, useState } from "react";
 import { summarizeDashboardTasks } from "../lib/dashboardTasks";
@@ -312,16 +313,16 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                 <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>최근 3일 이내 등록·수정된 일정이나 자료가 없습니다.</div>
               )}
               {data.activity.map((a) => (
-                <div key={a.id} className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0" style={{ background: `${a.color}20`, color: a.color }}>
+                <Link key={a.id} to={a.href} className="flex items-center gap-2.5 rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-[var(--muted)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm leading-none shrink-0" aria-hidden="true" style={{ background: `${a.color}20`, color: a.color }}>
                     {a.avatar}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-700">{a.who} </span>
-                    <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{a.action}</span>
-                    <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
+                  <div className="flex-1 min-w-0 text-xs leading-5">
+                    <span className="font-700">{a.who} </span>
+                    <span style={{ color: "var(--muted-foreground)" }}>{a.action}</span>
+                    <div className="text-xs leading-4 mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
