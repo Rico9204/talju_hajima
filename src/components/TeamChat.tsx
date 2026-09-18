@@ -207,13 +207,13 @@ export default function TeamChat({
           className={`${mobileShowThread ? "hidden" : "flex"} md:flex md:col-span-2 min-h-0 flex-col`}
           style={{ borderRight: "1px solid var(--border)" }}
         >
-          <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)" }}>채널</div>
+          <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="text-xs font-600 uppercase tracking-widest shrink-0" style={{ color: "var(--muted-foreground)" }}>채널</div>
             <input
               value={channelSearch}
               onChange={(e) => setChannelSearch(e.target.value)}
               placeholder="채널 검색"
-              className="w-full text-xs px-3 py-1.5 border outline-none"
+              className="w-28 min-w-0 text-xs px-3 py-1.5 border outline-none"
               style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
             />
           </div>
