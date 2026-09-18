@@ -76,13 +76,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
       {/* Member cards grid */}
       <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
         {members.map((m, i) => (
-          <div
+          <button
             key={i}
-            role="button"
-            tabIndex={0}
             onClick={() => setSelected(i)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(i); } }}
-            className="flex flex-col items-center p-4 shrink-0 transition-all cursor-pointer"
+            className="flex flex-col items-center p-4 shrink-0 transition-all"
             style={{
               background: selected === i ? "var(--primary)" : "var(--card)",
               borderRadius: "var(--radius)",
@@ -91,10 +88,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               color: selected === i ? "#fff" : "var(--foreground)",
             }}
           >
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); openMemberProfile(m.id); }}
-              title={`${m.name} 프로필 보기`}
+            <div
               className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
               style={{ background: m.avatarUrl ? "var(--card)" : selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
             >
@@ -102,7 +96,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               {m.isLeader && (
                 <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
               )}
-            </button>
+            </div>
             <div className="text-xs font-700">{m.name}</div>
             <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
               {m.role}
@@ -118,7 +112,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             )}
             {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: selected === i ? "#fff" : "#22c55e" }} />}
-          </div>
+          </button>
         ))}
       </div>
 
