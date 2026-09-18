@@ -89,7 +89,7 @@ const emptyDashboardData: ProjectDashboardData = {
 };
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
+  const { project, team, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
   const isDone = project.status === "done";
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -120,7 +120,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   const data = {
     ...source,
     banner: isDone ? "프로젝트가 종료되었습니다. 종료 평가를 작성하고 받은 평가를 확인해 주세요." :
-      source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." : source.banner,
+      source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." :
+      // 팀원 초대를 안내하는 신규 프로젝트 문구는 이미 2명 이상 모이면 의미가
+      // 없으므로 숨긴다.
+      source.banner.startsWith("새 프로젝트가 만들어졌어요") && team.members.length >= 2 ? "" : source.banner,
     ctaPrimary: isDone ? { label: "종료 평가로 이동 →", page: "evaluation" as Page } : source.ctaPrimary,
     deadlines: taskSummary.deadlines,
     activity: dashboardActivity(files, scheduleEvents, currentMember?.id, now),
@@ -200,7 +203,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           <h1 className="text-2xl font-700 mb-1" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
             안녕하세요, {currentMember?.name ?? "참여자"}님
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{bannerText}</p>
+          {bannerText && <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{bannerText}</p>}
 
           {!isPending && !isRejected && (
             <div className="flex gap-3 mt-4">
