@@ -26,6 +26,7 @@ export default function TeamChat({
   const [input, setInput] = useState("");
   const [channelSearch, setChannelSearch] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [fileMentionSearch, setFileMentionSearch] = useState("");
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
@@ -71,6 +72,11 @@ export default function TeamChat({
     ? channels.filter((c) => c.name.toLowerCase().includes(channelSearchTrimmed))
     : channels;
 
+  const fileMentionSearchTrimmed = fileMentionSearch.trim().toLowerCase();
+  const filteredMentionFiles = fileMentionSearchTrimmed
+    ? files.filter((f) => f.name.toLowerCase().includes(fileMentionSearchTrimmed))
+    : files;
+
   const initialChannelId = currentMember && initialChannel ? dmChannelId(currentMember.id, initialChannel) : "all";
   const [active, setActive] = useState<string>(initialChannelId);
   // Below md there's only room for one pane at a time — picking a channel
@@ -91,6 +97,7 @@ export default function TeamChat({
     markChannelMessagesRead(channelId);
     setPendingFile(null);
     setPickerOpen(false);
+    setFileMentionSearch("");
     setEmojiPickerOpen(false);
     setReactionPickerMessageId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,6 +171,7 @@ export default function TeamChat({
   function pickFile(f: WorkspaceFile) {
     setPendingFile({ id: f.id, name: f.name, type: f.type, folderId: f.folderId, folderName: folderNameOf(f.folderId) });
     setPickerOpen(false);
+    setFileMentionSearch("");
   }
 
   function send() {
@@ -463,7 +471,15 @@ export default function TeamChat({
                 <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
                   워크스페이스 파일 언급하기
                 </div>
-                {files.map((f) => (
+                <input
+                  value={fileMentionSearch}
+                  onChange={(e) => setFileMentionSearch(e.target.value)}
+                  placeholder="파일 검색"
+                  autoFocus
+                  className="w-full text-xs px-3 py-1.5 border outline-none mb-1.5"
+                  style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                />
+                {filteredMentionFiles.map((f) => (
                   <button
                     key={f.id}
                     onClick={() => pickFile(f)}
@@ -482,8 +498,10 @@ export default function TeamChat({
                     </div>
                   </button>
                 ))}
-                {files.length === 0 && (
-                  <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>워크스페이스에 업로드된 파일이 없어요</div>
+                {filteredMentionFiles.length === 0 && (
+                  <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
+                    {files.length === 0 ? "워크스페이스에 업로드된 파일이 없어요" : "검색 결과가 없어요"}
+                  </div>
                 )}
               </div>
             )}
