@@ -99,9 +99,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshDate); };
   }, []);
   const taskSummary = summarizeDashboardTasks(tasks, now);
-  const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
-  useEffect(() => { setExpandedColumns({}); }, [project.id]);
+  const [columnSearch, setColumnSearch] = useState<Record<string, string>>({});
+  useEffect(() => { setColumnSearch({}); }, [project.id]);
   const [deadlineSearch, setDeadlineSearch] = useState("");
+  const [activitySearch, setActivitySearch] = useState("");
   const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
   const evaluationKey = project.id + ":" + project.status;
   useEffect(() => {
@@ -139,10 +140,18 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       sub: "마감일 있는 미완료 과제" + (taskSummary.overdue ? " · 기한 초과 " + taskSummary.overdue + "개" : ""),
     } : stat),
   };
+  // "다가오는 마감"은 7일 이내(기한 초과 포함)로 임박한 것만 보여준다 —
+  // 전체 미완료 과제 수는 대시보드 상단 "남은 마감" 통계 카드가 따로 담당.
+  const upcomingDeadlines = data.deadlines.filter((d) => d.days <= 7);
   const deadlineSearchTrimmed = deadlineSearch.trim().toLowerCase();
-  const showDeadlineSearch = data.deadlines.length > 5;
-  const searchableDeadlines = data.deadlines.filter(
+  const showDeadlineSearch = upcomingDeadlines.length > 5;
+  const searchableDeadlines = upcomingDeadlines.filter(
     (d) => !deadlineSearchTrimmed || d.label.toLowerCase().includes(deadlineSearchTrimmed)
+  );
+  const activitySearchTrimmed = activitySearch.trim().toLowerCase();
+  const showActivitySearch = data.activity.length > 5;
+  const searchableActivity = data.activity.filter(
+    (a) => !activitySearchTrimmed || `${a.who}${a.action}`.toLowerCase().includes(activitySearchTrimmed)
   );
   const isPending = project.approvalStatus === "pending";
   const isRejected = project.approvalStatus === "rejected";
@@ -254,31 +263,41 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               { status: "review", label: "검토", color: "#f59e0b" },
             ] as const).map((column) => {
               const items = tasks.filter((task) => task.status === column.status);
-              const expanded = expandedColumns[column.status] ?? false;
-              const visibleItems = expanded ? items : items.slice(0, 3);
+              const searchTrimmed = (columnSearch[column.status] ?? "").trim().toLowerCase();
+              const filteredItems = searchTrimmed
+                ? items.filter((task) => task.title.toLowerCase().includes(searchTrimmed))
+                : items;
+              const showSearch = items.length > 5;
               return <section key={column.status} aria-label={column.label + " 과제"}>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <h3 className="text-sm font-700" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
-                  {items.length > 3 && <button type="button"
-                    aria-label={column.label + (expanded ? " 과제 접기" : " 과제 더보기")}
-                    aria-expanded={expanded} aria-controls={"dashboard-tasks-" + column.status}
-                    onClick={() => setExpandedColumns((previous) => ({ ...previous, [column.status]: !previous[column.status] }))}
-                    className="text-xs underline" style={{ color: "var(--primary)" }}>
-                    {expanded ? "접기" : "더보기"}
-                  </button>}
+                  {showSearch && (
+                    <input
+                      value={columnSearch[column.status] ?? ""}
+                      onChange={(e) => setColumnSearch((previous) => ({ ...previous, [column.status]: e.target.value }))}
+                      placeholder="과제 검색"
+                      className="w-28 min-w-0 text-xs px-3 py-1 border outline-none"
+                      style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                    />
+                  )}
                 </div>
-                {items.length ? <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2">
-                  {visibleItems.map((task) => <li key={task.id}>
-                    <Link
-                      to={`/tasks/${task.id}`}
-                      className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
-                      style={{ background: "var(--muted)", borderRadius: "10px" }}
-                    >
-                      <span className="text-sm break-words min-w-0">{task.title}</span>
-                      {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
-                    </Link>
-                  </li>)}
-                </ul> : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
+                {items.length ? (
+                  <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2 max-h-[140px] overflow-y-auto pr-1">
+                    {filteredItems.map((task) => <li key={task.id}>
+                      <Link
+                        to={`/tasks/${task.id}`}
+                        className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+                        style={{ background: "var(--muted)", borderRadius: "10px" }}
+                      >
+                        <span className="text-sm break-words min-w-0">{task.title}</span>
+                        {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+                      </Link>
+                    </li>)}
+                    {filteredItems.length === 0 && (
+                      <li className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</li>
+                    )}
+                  </ul>
+                ) : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
               </section>;
             })}
           </div>
@@ -325,7 +344,11 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               ))}
               {searchableDeadlines.length === 0 && (
                 <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                  {data.deadlines.length === 0 ? "마감일이 지정된 미완료 과제가 없습니다." : "검색 결과가 없어요"}
+                  {data.deadlines.length === 0
+                    ? "마감일이 지정된 미완료 과제가 없습니다."
+                    : upcomingDeadlines.length === 0
+                      ? "7일 이내로 임박한 마감이 없어요."
+                      : "검색 결과가 없어요"}
                 </div>
               )}
             </div>
@@ -334,11 +357,22 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           {/* Recent activity */}
           <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
             <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
-            <div className="flex flex-col gap-3 max-h-80 overflow-y-auto overflow-x-hidden pr-1">
-              {data.activity.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>최근 3일 이내 등록·수정된 일정이나 자료가 없습니다.</div>
+            {showActivitySearch && (
+              <input
+                value={activitySearch}
+                onChange={(e) => setActivitySearch(e.target.value)}
+                placeholder="활동 검색"
+                className="w-full text-xs px-3 py-1.5 border outline-none mb-2.5"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+            <div className="flex flex-col gap-3 max-h-[165px] overflow-y-auto overflow-x-hidden pr-1">
+              {searchableActivity.length === 0 && (
+                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
+                  {data.activity.length === 0 ? "최근 3일 이내 등록·수정된 일정이나 자료가 없습니다." : "검색 결과가 없어요"}
+                </div>
               )}
-              {data.activity.map((a) => (
+              {searchableActivity.map((a) => (
                 <Link key={a.id} to={a.href} className="flex items-center gap-2.5 rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-[var(--muted)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm leading-none shrink-0" aria-hidden="true" style={{ background: `${a.color}20`, color: a.color }}>
                     {a.avatar}
