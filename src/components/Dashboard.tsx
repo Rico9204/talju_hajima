@@ -334,7 +334,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           {/* Recent activity */}
           <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
             <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
-            <div className="flex flex-col gap-3 max-h-80 overflow-y-auto pr-1">
+            <div className="flex flex-col gap-3 max-h-80 overflow-y-auto overflow-x-hidden pr-1">
               {data.activity.length === 0 && (
                 <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>최근 3일 이내 등록·수정된 일정이나 자료가 없습니다.</div>
               )}
@@ -344,8 +344,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                     {a.avatar}
                   </div>
                   <div className="flex-1 min-w-0 text-xs leading-5">
-                    <span className="font-700">{a.who} </span>
-                    <span style={{ color: "var(--muted-foreground)" }}>{a.action}</span>
+                    <div className="truncate"><span className="font-700">{a.who} </span><span style={{ color: "var(--muted-foreground)" }}>{a.action}</span></div>
                     <div className="text-xs leading-4 mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
                   </div>
                 </Link>
