@@ -1,4 +1,27 @@
-import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileComment, Task, TaskStatus, Member, ChatMessage } from "./types";
+import type { EvaluationPhase, EvaluationEntry, EvaluationData } from "./types";
+import type {
+  Project,
+  NewProjectInput,
+  TeamData,
+  Folder,
+  WorkspaceFile,
+  FileComment,
+  Task,
+  NewTaskInput,
+  TaskStatus,
+  TaskPriority,
+  ChecklistItem,
+  TaskComment,
+  ScheduleEvent,
+  NewScheduleEventInput,
+  ScheduleEventType,
+  ScheduleEventVisibility,
+  Member,
+  ProfileLink,
+  ChatMessage,
+  ChatReaction,
+  AdminProfileSummary,
+} from "./types";
 
 /**
  * Every persistence-touching operation the app needs, independent of which
@@ -9,6 +32,13 @@ import type { Project, NewProjectInput, TeamData, Folder, WorkspaceFile, FileCom
  * `./index.ts` at it — nothing outside this folder needs to change.
  */
 export interface DataRepository {
+  isCurrentUserAdmin(): Promise<boolean>;
+  listWorkspaceCleanupProjects(): Promise<string[]>;
+  getMyEvaluationSummary(): Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
+  getEvaluationMode(): Promise<boolean>;
+  getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
+  submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]): Promise<void>;
+  completeProject(projectId: string): Promise<Project>;
   listProjects(): Promise<Project[]>;
   listMyProjectIds(): Promise<string[]>;
   getProjectById(projectId: string): Promise<Project | null>;
@@ -18,27 +48,61 @@ export interface DataRepository {
     projectId: string,
     actorName: string,
     actorAvatar: string,
-    input: { major: string; student: string }
+    input: { school: string; major: string; student: string }
   ): Promise<Member>;
+  approveProject(projectId: string): Promise<void>;
+  rejectProject(projectId: string): Promise<void>;
+  kickMember(memberId: string): Promise<void>;
+  searchAdmins(query: string): Promise<AdminProfileSummary[]>;
 
-  getTeam(projectId: string): Promise<TeamData>;
+  getTeam(projectId: string, adminView?: boolean): Promise<TeamData>;
+  updateMyProfile(patch: Partial<{
+    name: string; major: string; student: string; school: string; avatarUrl: string | null;
+    contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
+  }>): Promise<void>;
+  uploadAvatar(file: File): Promise<string>;
+  uploadBannerImage(file: File): Promise<string>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;
   createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
 
+  deleteWorkspaceFile(fileId: number): Promise<void>;
+  deleteWorkspaceFolder(folderId: number): Promise<void>;
+  pendingWorkspaceCleanup(projectId: string): Promise<string[]>;
+  cleanupWorkspaceFiles(projectId: string): Promise<void>;
   listFiles(projectId: string): Promise<WorkspaceFile[]>;
-  createFile(
-    projectId: string,
-    input: { name: string; size: number; folderId: number | null; note?: string; content?: string; fileData?: string },
-    actorName: string,
-    actorAvatar: string
-  ): Promise<WorkspaceFile>;
-  addFileVersion(fileId: number, actorName: string, note?: string): Promise<void>;
+  uploadFile(projectId: string, input: import("./types").FileUploadInput): Promise<{ fileId: number; versionId: number; branched: boolean }>;
+  promoteFileVersion(fileId: number, versionId: number): Promise<void>;
+  setFileVersionText(versionId: number, extracted: import("../lib/workspaceSearch").ExtractedText): Promise<void>;
+  setFileTags(fileId: number, tags: string[]): Promise<void>;
+  pinFileVersion(fileId: number, versionId: number, pinned: boolean): Promise<void>;
+  downloadFileVersion(versionId: number): Promise<Blob>;
+  setFileCommentReaction(commentId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
   addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string): Promise<FileComment>;
 
   listTasks(projectId: string): Promise<Task[]>;
+  createTask(projectId: string, input: NewTaskInput): Promise<Task>;
   updateTaskStatus(taskId: number, status: TaskStatus): Promise<void>;
+  updateTaskDetails(
+    taskId: number,
+    patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
+  ): Promise<void>;
+  deleteTask(taskId: number): Promise<void>;
+  addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
+  toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
+  addTaskComment(taskId: number, actorMemberId: string, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  setTaskCommentReaction(commentId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
+  subscribeToTaskCommentReactions(projectId: string, onChange: () => void): () => void;
+  setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
+
+  listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
+  addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
+  updateScheduleEvent(
+    eventId: number,
+    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+  ): Promise<void>;
+  removeScheduleEvent(eventId: number): Promise<void>;
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
   sendMessage(
@@ -48,6 +112,12 @@ export interface DataRepository {
     input: { text: string; fileId?: number }
   ): Promise<ChatMessage>;
   markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
-  subscribeToMessages(projectId: string, onInsert: (m: ChatMessage) => void): () => void;
+  setMessageReaction(projectId: string, messageId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
+  subscribeToMessages(
+    projectId: string,
+    onInsert: (m: ChatMessage) => void,
+    onReaction: (change: { active: boolean; reaction: ChatReaction }) => void
+  ): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
+  subscribeToPresence(projectId: string, memberId: string, onChange: (onlineMemberIds: Set<string>) => void): () => void;
 }

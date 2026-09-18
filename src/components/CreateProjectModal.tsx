@@ -1,46 +1,73 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NewProjectInput } from "../context/ProjectContext";
-
-type PeriodMode = "text" | "calendar";
+import { useProjectManagement } from "../context/ProjectContext";
+import type { AdminProfileSummary } from "../api/types";
 
 export default function CreateProjectModal({
   onCancel, onCreate,
-}: { onCancel: () => void; onCreate: (input: NewProjectInput) => void }) {
+}: { onCancel: () => void; onCreate: (input: NewProjectInput) => void | Promise<unknown> }) {
+  const dataRepository = useProjectManagement();
+  const { isAdmin } = dataRepository;
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
-  const [periodMode, setPeriodMode] = useState<PeriodMode>("text");
-  const [periodText, setPeriodText] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [adminQuery, setAdminQuery] = useState("");
+  const [adminResults, setAdminResults] = useState<AdminProfileSummary[]>([]);
+  const [selectedAdmin, setSelectedAdmin] = useState<AdminProfileSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [searchingAdmins, setSearchingAdmins] = useState(false);
 
-  const periodTextTrimmed = periodText.trim();
-  const periodTextInvalid = periodMode === "text" && periodTextTrimmed.length > 0 && !/\d/.test(periodTextTrimmed);
-  const canSubmit = name.trim().length > 0 && !periodTextInvalid;
+  const datesValid = !!startDate && !!endDate && new Date(endDate) >= new Date(startDate);
+  const canSubmit = name.trim().length > 0 && datesValid && (isAdmin || !!selectedAdmin);
+
+  useEffect(() => {
+    if (isAdmin || selectedAdmin) return;
+    const trimmed = adminQuery.trim();
+    if (!trimmed) {
+      setAdminResults([]);
+      setSearchingAdmins(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingAdmins(true);
+    setError(null);
+    const timer = setTimeout(() => {
+      dataRepository
+        .searchAdmins(trimmed)
+        .then((results) => {
+          if (!cancelled) setAdminResults(results);
+        })
+        .catch(() => { if (!cancelled) { setAdminResults([]); setError("관리자 검색에 실패했습니다. 다시 시도해 주세요."); } })
+        .finally(() => {
+          if (!cancelled) setSearchingAdmins(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [adminQuery, isAdmin, selectedAdmin]);
 
   function formatDateKR(dateStr: string): string {
     const [y, m, d] = dateStr.split("-").map(Number);
     return `${y}년 ${m}월 ${d}일`;
   }
 
-  function resolvedPeriod(): string {
-    if (periodMode === "calendar") {
-      if (startDate && endDate) return `${formatDateKR(startDate)} ~ ${formatDateKR(endDate)}`;
-      if (startDate) return `${formatDateKR(startDate)} 시작`;
-      return "";
-    }
-    return periodText;
-  }
-
-  function submit() {
-    if (!canSubmit) return;
-    const useDates = periodMode === "calendar" && startDate && endDate;
-    onCreate({
+  async function submit() {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true); setError(null);
+    try { await onCreate({
       name,
       org,
-      period: resolvedPeriod(),
-      startDate: useDates ? startDate : undefined,
-      endDate: useDates ? endDate : undefined,
-    });
+      period: `${formatDateKR(startDate)} ~ ${formatDateKR(endDate)}`,
+      startDate,
+      endDate,
+      requestedAdminId: selectedAdmin?.id,
+    }); onCancel();
+    } catch (err) { setError(err && typeof err === "object" && "message" in err ? String(err.message) : "프로젝트 생성에 실패했습니다."); }
+    finally { setSubmitting(false); }
   }
 
   return (
@@ -86,82 +113,108 @@ export default function CreateProjectModal({
           style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
         />
 
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-xs font-600 block">진행 기간</label>
-          <div className="flex gap-1 p-0.5" style={{ background: "var(--muted)", borderRadius: "20px" }}>
-            {(["text", "calendar"] as PeriodMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setPeriodMode(m)}
-                className="text-xs font-600 px-2.5 py-1 transition-all"
-                style={{
-                  background: periodMode === m ? "var(--card)" : "transparent",
-                  color: periodMode === m ? "var(--primary)" : "var(--muted-foreground)",
-                  borderRadius: "16px",
-                  boxShadow: periodMode === m ? "var(--shadow-card)" : "none",
-                }}
-              >
-                {m === "text" ? "직접 입력" : "달력 선택"}
-              </button>
-            ))}
+        <label className="text-xs font-600 block mb-1.5">
+          진행 기간 <span style={{ color: "#ef4444" }}>*</span>
+        </label>
+        <div className="flex flex-col gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-8 shrink-0" style={{ color: "var(--muted-foreground)" }}>시작</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="flex-1 min-w-0 text-sm px-3 py-2.5 outline-none"
+              style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-jetbrains)" }}
+            />
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-8 shrink-0" style={{ color: "var(--muted-foreground)" }}>종료</span>
+            <input
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="flex-1 min-w-0 text-sm px-3 py-2.5 outline-none"
+              style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-jetbrains)" }}
+            />
+          </div>
+          {startDate && endDate && (() => {
+            const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000);
+            return (
+              <p className="text-xs" style={{ color: days < 0 ? "#ef4444" : days < 14 ? "#f59e0b" : "var(--muted-foreground)" }}>
+                {days >= 0 ? `총 ${days}일` : "종료일이 시작일보다 빠릅니다"}
+                {days >= 0 && days < 14 && " · 2주 미만이라 중간 점검이 자동으로 생략됩니다"}
+              </p>
+            );
+          })()}
         </div>
 
-        {periodMode === "text" ? (
-          <>
-            <input
-              value={periodText}
-              onChange={(e) => setPeriodText(e.target.value)}
-              placeholder="예: 2026-2학기 · 9월 ~ 12월"
-              className="w-full text-sm px-3 py-2.5 outline-none"
-              style={{
-                border: `2px solid ${periodTextInvalid ? "#ef4444" : "var(--border)"}`,
-                borderRadius: "10px",
-                background: "var(--muted)",
-                fontFamily: "var(--font-outfit)",
-              }}
-            />
-            <p className="text-xs mt-1 mb-5" style={{ color: periodTextInvalid ? "#ef4444" : "var(--muted-foreground)" }}>
-              {periodTextInvalid ? "연도·월 등 숫자가 포함된 기간을 입력해주세요." : "연도나 월 등 숫자를 포함해 입력해주세요."}
+        {!isAdmin && (
+          <div className="mb-5">
+            <label className="text-xs font-600 block mb-1.5">
+              승인 요청 관리자 <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            {selectedAdmin ? (
+              <div
+                className="flex items-center justify-between gap-2 px-3 py-2.5"
+                style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-700 truncate">{selectedAdmin.displayName}</div>
+                  <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                    {selectedAdmin.org || selectedAdmin.email}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedAdmin(null); setAdminQuery(""); }}
+                  className="text-xs font-600 px-2 py-1 shrink-0"
+                  style={{ color: "var(--muted-foreground)" }}
+                >
+                  변경
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  value={adminQuery}
+                  onChange={(e) => setAdminQuery(e.target.value)}
+                  placeholder="관리자 소속·이름·이메일로 검색"
+                  className="w-full text-sm px-3 py-2.5 outline-none"
+                  style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
+                />
+                {adminQuery.trim() && (
+                  <div className="mt-1.5 max-h-40 overflow-y-auto" style={{ border: "1px solid var(--border)", borderRadius: "10px" }}>
+                    {searchingAdmins ? (
+                      <div className="text-xs px-3 py-2" style={{ color: "var(--muted-foreground)" }}>검색 중…</div>
+                    ) : adminResults.length === 0 ? (
+                      <div className="text-xs px-3 py-2" style={{ color: "var(--muted-foreground)" }}>일치하는 관리자가 없어요.</div>
+                    ) : (
+                      adminResults.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => { setSelectedAdmin(a); setAdminResults([]); }}
+                          className="w-full text-left px-3 py-2 transition-all"
+                          style={{ background: "var(--card)" }}
+                        >
+                          <div className="text-xs font-700">{a.displayName}</div>
+                          <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{a.org || a.email}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            <p className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>
+              프로젝트는 "승인 대기" 상태로 만들어지고, 지정한 관리자가 승인해야 팀 관리·채팅·과제 등을 사용할 수 있어요.
             </p>
-          </>
-        ) : (
-          <div className="flex flex-col gap-2 mb-5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs w-8 shrink-0" style={{ color: "var(--muted-foreground)" }}>시작</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="flex-1 min-w-0 text-sm px-3 py-2.5 outline-none"
-                style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-jetbrains)" }}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs w-8 shrink-0" style={{ color: "var(--muted-foreground)" }}>종료</span>
-              <input
-                type="date"
-                value={endDate}
-                min={startDate || undefined}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="flex-1 min-w-0 text-sm px-3 py-2.5 outline-none"
-                style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-jetbrains)" }}
-              />
-            </div>
-            {startDate && endDate && (() => {
-              const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000);
-              return (
-                <p className="text-xs" style={{ color: days < 14 ? "#f59e0b" : "var(--muted-foreground)" }}>
-                  {days >= 0 ? `총 ${days}일` : "종료일이 시작일보다 빠릅니다"}
-                  {days >= 0 && days < 14 && " · 2주 미만이라 중간 점검이 자동으로 생략됩니다"}
-                </p>
-              );
-            })()}
           </div>
         )}
 
-        <div className="flex gap-2">
+        {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
+        <div className="flex gap-2 mt-5">
           <button
             onClick={onCancel}
             className="flex-1 py-2.5 text-sm font-600"
@@ -171,6 +224,7 @@ export default function CreateProjectModal({
           </button>
           <button
             onClick={submit}
+            disabled={!canSubmit || submitting}
             className="flex-1 py-2.5 text-sm font-700 transition-all"
             style={{
               background: canSubmit ? "var(--primary)" : "var(--border)",

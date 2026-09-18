@@ -1,23 +1,16 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { Page } from "../App";
-import { useProject } from "../context/ProjectContext";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
+import { isValidDepartmentName } from "../lib/validators";
+import { detectLink } from "../lib/links";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
+import Avatar from "./Avatar";
+import BrandIcon, { type KnownLinkType } from "./BrandIcon";
+import MyEvaluationSummary from "./MyEvaluationSummary";
 
-const PROFILE_STORAGE_KEY = "collabpeer-profile";
-
-function hasImageAvatar(value?: string | null) {
-  return !!value && (value.startsWith("data:image/") || value.startsWith("http://") || value.startsWith("https://"));
-}
-
-type ProfileDraft = {
-  name: string;
-  major: string;
-  grade: string;
-  avatar: string;
-  bio: string;
-};
+const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -25,124 +18,67 @@ const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "chat", label: "팀 채팅", icon: "◐" },
   { id: "tasks", label: "과제 보드", icon: "≡" },
   { id: "schedule", label: "일정", icon: "▤" },
-  { id: "workspace", label: "워킹스페이스", icon: "⬡" },
-  { id: "collector", label: "정보 수집", icon: "⌕" },
+  { id: "workspace", label: "워크스페이스", icon: "⬡" },
   { id: "evaluation", label: "동료 평가", icon: "★" },
 ];
 
+const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
+
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
-  const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember } = useProject();
-  const { signOut } = useAuth();
+  const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile } = useProject();
+  const { user, signOut, updatePassword } = useAuth();
+  const { isAdmin } = useProjectManagement();
+  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
   const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
-  const [passwordNotice, setPasswordNotice] = useState("");
-  const [profileDraft, setProfileDraft] = useState<ProfileDraft>({
-    name: myName,
-    major: currentMember?.major ?? "",
-    grade: currentMember?.student ?? "1학년",
-    avatar: myAvatar,
-    bio: "",
-  });
   const [codeCopied, setCodeCopied] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Below the md breakpoint the sidebar is hidden behind a hamburger button
+  // and takes over the full screen when opened (there's no room for a
+  // permanent 240px rail on a phone). At md and up this state is unused —
+  // the aside is always shown inline.
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  function navigate(p: Page) {
+    setMobileOpen(false);
+    onNavigate(p);
+  }
+
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileSchool, setProfileSchool] = useState("");
+  const [profileMajor, setProfileMajor] = useState("");
+  const [profileStudent, setProfileStudent] = useState("");
+  const [profileContact, setProfileContact] = useState("");
+  const [profileOrg, setProfileOrg] = useState("");
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [bannerColor, setBannerColor] = useState("#2563eb");
+  const [bannerImageFile, setBannerImageFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [bannerCleared, setBannerCleared] = useState(false);
+  const [profileLinks, setProfileLinks] = useState<{ id: string; type: "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other"; url: string; label: string }[]>([]);
+  const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ next: "", confirm: "" });
+  const [passwordNotice, setPasswordNotice] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
-    if (!saved) {
-      setProfileDraft((prev) => ({
-        ...prev,
-        name: myName,
-        major: currentMember?.major ?? prev.major,
-        grade: currentMember?.student ?? prev.grade ?? "1학년",
-        avatar: myAvatar,
-      }));
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(saved) as Partial<ProfileDraft>;
-      setProfileDraft((prev) => ({
-        ...prev,
-        name: parsed.name || myName,
-        major: parsed.major || currentMember?.major || prev.major,
-        grade: parsed.grade || currentMember?.student || prev.grade || "1학년",
-        avatar: parsed.avatar || myAvatar,
-        bio: parsed.bio || prev.bio,
-      }));
-    } catch {
-      setProfileDraft((prev) => ({
-        ...prev,
-        name: myName,
-        major: currentMember?.major ?? prev.major,
-        grade: currentMember?.student ?? prev.grade ?? "1학년",
-        avatar: myAvatar,
-      }));
-    }
-  }, [currentMember?.id, myName, myRole, myAvatar, currentMember?.major, currentMember?.student]);
-
-  function updateProfileField<K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) {
-    setProfileDraft((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function handleAvatarUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateProfileField("avatar", reader.result);
-      }
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
     };
-    reader.readAsDataURL(file);
-  }
-
-  function saveProfile() {
-    const payload: ProfileDraft = {
-      ...profileDraft,
-      name: profileDraft.name.trim() || myName,
-      major: profileDraft.major.trim(),
-      grade: profileDraft.grade.trim() || "1학년",
-      avatar: profileDraft.avatar.trim() || myAvatar,
-      bio: profileDraft.bio.trim(),
-    };
-
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(payload));
-    setProfileDraft(payload);
-    setProfileOpen(false);
-  }
-
-  function submitPasswordChange() {
-    if (!passwordForm.current.trim() || !passwordForm.next.trim() || !passwordForm.confirm.trim()) {
-      setPasswordNotice("모든 비밀번호 입력란을 채워주세요.");
-      return;
-    }
-
-    if (passwordForm.next.length < 8) {
-      setPasswordNotice("새 비밀번호는 8자 이상이어야 합니다.");
-      return;
-    }
-
-    if (passwordForm.next !== passwordForm.confirm) {
-      setPasswordNotice("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
-      return;
-    }
-
-    setPasswordNotice("비밀번호가 성공적으로 변경되었습니다.");
-    setPasswordForm({ current: "", next: "", confirm: "" });
-    setTimeout(() => {
-      setPasswordOpen(false);
-      setPasswordNotice("");
-    }, 1000);
-  }
+  }, [avatarPreview, bannerPreview]);
 
   async function confirmDelete() {
     setDeleting(true);
@@ -152,12 +88,132 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     onNavigate("dashboard");
   }
 
+  function openProfile() {
+    setProfileEditOpen(false);
+    setProfileName(currentMember?.name ?? "");
+    setProfileSchool(currentMember?.school ?? "");
+    setProfileMajor(currentMember?.major ?? "");
+    setProfileStudent(currentMember?.student ?? "");
+    setProfileContact(currentMember?.contact ?? "");
+    setProfileOrg(currentMember?.org ?? "");
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    setBannerColor(currentMember?.bannerColor ?? currentMember?.color ?? "#2563eb");
+    setBannerImageFile(null);
+    setBannerPreview(null);
+    setBannerCleared(false);
+    setProfileLinks(currentMember?.links ?? []);
+    setNewLinkUrl("");
+    setProfileError(null);
+    setProfileOpen(true);
+  }
+
+  function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  }
+
+  function handleBannerPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    setBannerImageFile(file);
+    setBannerPreview(URL.createObjectURL(file));
+    setBannerCleared(false);
+  }
+
+  function addProfileLink() {
+    const raw = newLinkUrl.trim();
+    if (!raw) return;
+    const detected = detectLink(raw);
+    setProfileLinks((links) => [...links, {
+      id: crypto.randomUUID(), type: detected.type, label: detected.label,
+      url: raw.includes("://") ? raw : `https://${raw}`,
+    }]);
+    setNewLinkUrl("");
+  }
+
+  async function saveProfile() {
+    const majorTrimmed = profileMajor.trim();
+    if (majorTrimmed && !isValidDepartmentName(majorTrimmed)) {
+      setProfileError("학과 이름은 한글/영문으로 입력해주세요.");
+      return;
+    }
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await updateMyProfile({
+        name: profileName.trim() || undefined,
+        school: profileSchool.trim() || undefined,
+        major: majorTrimmed || undefined,
+        student: profileStudent.trim() || undefined,
+        avatarFile: avatarFile ?? undefined,
+        contact: profileContact.trim() || null,
+        org: isAdmin ? profileOrg.trim() || null : undefined,
+        bannerColor,
+        bannerImageFile: bannerImageFile ?? undefined,
+        bannerImageUrl: bannerCleared ? null : undefined,
+        links: profileLinks,
+      });
+      // Keep the card open so the member can immediately verify the saved
+      // profile. Only leave edit mode and show the refreshed read view.
+      setProfileEditOpen(false);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : "저장하지 못했습니다.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function submitPasswordChange() {
+    if (passwordForm.next.length < 6) {
+      setPasswordNotice("비밀번호는 6자 이상이어야 합니다.");
+      return;
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordNotice("새 비밀번호와 확인이 일치하지 않습니다.");
+      return;
+    }
+    setChangingPassword(true);
+    const result = await updatePassword(passwordForm.next);
+    setChangingPassword(false);
+    if (result.error) {
+      setPasswordNotice(result.error);
+      return;
+    }
+    setPasswordNotice("비밀번호가 변경되었습니다.");
+    setPasswordForm({ next: "", confirm: "" });
+    setTimeout(() => {
+      setPasswordOpen(false);
+      setPasswordNotice("");
+    }, 1200);
+  }
+
+
   return (
     <>
+    {/* Always reachable on mobile, even while the sidebar itself is hidden. */}
+    <button
+      onClick={() => setMobileOpen(true)}
+      className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
+      style={{ background: "var(--card)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)" }}
+      aria-label="메뉴 열기"
+    >
+      ☰
+    </button>
     <aside
-      className="flex flex-col w-60 h-full shrink-0 p-4"
+      className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto`}
       style={{ background: "var(--background)" }}
     >
+      <button
+        onClick={() => setMobileOpen(false)}
+        className="md:hidden self-end w-9 h-9 flex items-center justify-center text-lg mb-2"
+        style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+        aria-label="메뉴 닫기"
+      >
+        ✕
+      </button>
       {/* Logo card */}
       <div
         className="px-4 py-4 mb-5 relative"
@@ -252,7 +308,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               return (
                 <button
                   key={p.id}
-                  onClick={() => { setProjectId(p.id); setSwitcherOpen(false); }}
+                  onClick={() => { setProjectId(p.id); setSwitcherOpen(false); setMobileOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
                   style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
                 >
@@ -274,7 +330,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
                   >
                     {p.status === "active" ? "진행 중" : "완료"}
                   </span>
-                  {isCurrent && isLeader && (
+                  {isCurrent && isAdmin && (
                     <span
                       role="button"
                       tabIndex={0}
@@ -340,12 +396,12 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           메뉴
         </div>
         <div className="flex flex-col gap-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const active = currentPage === item.id;
             return (
               <button
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => navigate(item.id)}
                 className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
                 style={{
                   borderRadius: "10px",
@@ -389,41 +445,20 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           boxShadow: "var(--shadow-card)",
         }}
       >
-        <button
-          type="button"
-          onClick={() => setProfileOpen(true)}
-          className="w-full flex items-center gap-2.5 text-left"
-        >
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 overflow-hidden"
-            style={{
-              background: "var(--accent)",
-              color: "#fff",
-              boxShadow: "0 4px 10px rgba(245,158,11,0.3)",
-            }}
-          >
-            {hasImageAvatar(profileDraft.avatar) ? (
-              <img
-                src={profileDraft.avatar}
-                alt="profile"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span>{(profileDraft.avatar || myAvatar).slice(0, 1).toUpperCase() || "?"}</span>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-700">{profileDraft.name || myName}</div>
+        <div className="flex items-center gap-2.5">
+          <button type="button" onClick={openProfile} className="shrink-0" title="프로필 설정">
+            <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} />
+          </button>
+          <button type="button" onClick={openProfile} className="flex-1 min-w-0 text-left">
+            <div className="text-sm font-700">{myName}</div>
             <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-              {profileDraft.role || myRole} · 이 프로젝트
+              {myRole} · 이 프로젝트
             </div>
-          </div>
+          </button>
           <div
             className="w-2 h-2 rounded-full shrink-0"
             style={{ background: "#22c55e" }}
           />
-        </button>
-        <div className="flex justify-end mt-2">
           <button
             onClick={signOut}
             title="로그아웃"
@@ -442,8 +477,8 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     {createOpen && (
       <CreateProjectModal
         onCancel={() => setCreateOpen(false)}
-        onCreate={(input) => {
-          addProject(input);
+        onCreate={async (input) => {
+          await addProject(input);
           setCreateOpen(false);
           onNavigate("dashboard");
         }}
@@ -459,222 +494,6 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           onNavigate("dashboard");
         }}
       />
-    )}
-    {profileOpen && (
-      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}>
-        <div className="w-[420px] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-xs font-700 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>PROFILE</div>
-              <h3 className="text-lg font-700 mt-1">프로필 설정</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => setProfileOpen(false)}
-              className="w-8 h-8 flex items-center justify-center text-lg"
-              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4 mb-5">
-            <div
-              className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-700 overflow-hidden"
-              style={{ background: "var(--accent)", color: "#fff" }}
-            >
-              {hasImageAvatar(profileDraft.avatar) ? (
-                <img
-                  src={profileDraft.avatar}
-                  alt="profile preview"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span>{(profileDraft.avatar || myAvatar).slice(0, 1).toUpperCase() || "?"}</span>
-              )}
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>프로필 이미지</label>
-              <div className="flex items-center gap-2">
-                <label
-                  className="inline-flex items-center justify-center px-3 py-2 text-sm font-600 cursor-pointer"
-                  style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}
-                >
-                  이미지 선택
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarUpload}
-                    className="hidden"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setPasswordOpen(true)}
-                  className="px-3 py-2 text-sm font-600"
-                  style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "10px" }}
-                >
-                  비밀번호 변경
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => updateProfileField("avatar", myAvatar)}
-                className="mt-2 text-xs font-600 block"
-                style={{ color: "var(--muted-foreground)" }}
-              >
-                기본 이미지로 변경
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>이름</label>
-              <input
-                value={profileDraft.name}
-                onChange={(e) => updateProfileField("name", e.target.value)}
-                className="w-full px-3 py-2.5 text-sm"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학과</label>
-                <input
-                  value={profileDraft.major}
-                  onChange={(e) => updateProfileField("major", e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학년</label>
-                <select
-                  value={profileDraft.grade}
-                  onChange={(e) => updateProfileField("grade", e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-                >
-                  {["1학년", "2학년", "3학년", "4학년", "5학년", "6학년"].map((year) => (
-                    <option key={year} value={year}>{year}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>소개</label>
-              <textarea
-                value={profileDraft.bio}
-                onChange={(e) => updateProfileField("bio", e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2.5 text-sm resize-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-2 mt-5">
-            <button
-              type="button"
-              onClick={() => setProfileOpen(false)}
-              className="flex-1 py-2.5 text-sm font-600"
-              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              onClick={saveProfile}
-              className="flex-1 py-2.5 text-sm font-700"
-              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
-            >
-              저장
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-    {passwordOpen && (
-      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}>
-        <div className="w-[380px] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-700">비밀번호 변경</h3>
-            <button
-              type="button"
-              onClick={() => {
-                setPasswordOpen(false);
-                setPasswordNotice("");
-              }}
-              className="w-8 h-8 flex items-center justify-center text-lg"
-              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>현재 비밀번호</label>
-              <input
-                type="password"
-                value={passwordForm.current}
-                onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
-                className="w-full px-3 py-2.5 text-sm"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호</label>
-              <input
-                type="password"
-                value={passwordForm.next}
-                onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
-                className="w-full px-3 py-2.5 text-sm"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호 확인</label>
-              <input
-                type="password"
-                value={passwordForm.confirm}
-                onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
-                className="w-full px-3 py-2.5 text-sm"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-          </div>
-
-          {passwordNotice && (
-            <div className="mt-3 text-xs font-600" style={{ color: passwordNotice.includes("성공") ? "#22c55e" : "#ef4444" }}>
-              {passwordNotice}
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-5">
-            <button
-              type="button"
-              onClick={() => {
-                setPasswordOpen(false);
-                setPasswordNotice("");
-              }}
-              className="flex-1 py-2.5 text-sm font-600"
-              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              onClick={submitPasswordChange}
-              className="flex-1 py-2.5 text-sm font-700"
-              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
-            >
-              변경
-            </button>
-          </div>
-        </div>
-      </div>
     )}
     {pendingDelete && (
       <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
@@ -708,6 +527,112 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
             >
               {deleting ? "삭제 중…" : "삭제하기"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {profileOpen && (
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setProfileOpen(false)}>
+        <div className="w-[660px] max-w-[95vw] overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="relative h-28" style={bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl) ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }}>
+            <div className="absolute top-3 right-3 flex items-center gap-2">
+              {profileEditOpen && <div className="flex items-center gap-1.5 p-1.5" style={{ background: "rgba(255,255,255,.94)", borderRadius: "12px", boxShadow: "0 4px 12px rgba(15,18,53,.16)" }}>
+                {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-4 h-4" title={`${color} 배경`} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid #111827" : "1px solid rgba(255,255,255,.7)" }} />)}
+                <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "8px" }}>🖼️<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>
+                {(bannerPreview || currentMember?.bannerImageUrl) && <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} title="배너 사진 제거" className="w-6 h-6 text-xs" style={{ background: "var(--muted)", borderRadius: "8px" }}>🗑️</button>}
+              </div>}
+              <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>
+              <button type="button" onClick={() => setProfileOpen(false)} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
+            <section className="relative z-10 px-5 pb-5">
+              <div className="flex items-end -mt-9 mb-4">
+                <div className="relative z-20">
+                  <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
+                  {profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>}
+                </div>
+              </div>
+              <h2 className="text-xl font-800 mb-3">{profileName || myName}</h2>
+              <div className="h-px mb-3" style={{ background: "var(--border)" }} />
+              {profileEditOpen ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학과", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact], ...(isAdmin ? [["소속(관리자 검색용)", profileOrg, setProfileOrg]] : [])].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
+                </>
+              ) : <div className="space-y-3 text-sm">{[["학과", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email], ...(isAdmin ? [["소속", profileOrg || currentMember?.org || "미입력 — 조장이 승인 요청 시 검색할 수 없어요"]] : [])].map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}</div>}
+              <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{profileLinks.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
+              {profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
+              {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
+            </section>
+            <MyEvaluationSummary chart />
+          </div>
+        </div>
+      </div>
+    )}
+    {passwordOpen && (
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setPasswordOpen(false)}>
+        <div className="w-[380px] max-w-[92vw] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-700">비밀번호 변경</h3>
+            <button
+              type="button"
+              onClick={() => { setPasswordOpen(false); setPasswordNotice(""); }}
+              className="w-8 h-8 flex items-center justify-center text-lg"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호</label>
+              <input
+                type="password"
+                value={passwordForm.next}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
+                placeholder="6자 이상"
+                className="w-full px-3 py-2.5 text-sm outline-none"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호 확인</label>
+              <input
+                type="password"
+                value={passwordForm.confirm}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
+                onKeyDown={(e) => e.key === "Enter" && submitPasswordChange()}
+                className="w-full px-3 py-2.5 text-sm outline-none"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+              />
+            </div>
+          </div>
+
+          {passwordNotice && (
+            <div className="mt-3 text-xs font-600" style={{ color: passwordNotice.includes("변경되었습니다") ? "#22c55e" : "#ef4444" }}>
+              {passwordNotice}
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-5">
+            <button
+              type="button"
+              onClick={() => { setPasswordOpen(false); setPasswordNotice(""); }}
+              className="flex-1 py-2.5 text-sm font-600"
+              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={submitPasswordChange}
+              disabled={changingPassword}
+              className="flex-1 py-2.5 text-sm font-700"
+              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
+            >
+              {changingPassword ? "변경 중…" : "변경하기"}
             </button>
           </div>
         </div>

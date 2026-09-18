@@ -5,16 +5,16 @@ import TaskBoard from "./components/TaskBoard";
 import PeerEvaluation from "./components/PeerEvaluation";
 import Workspace, { type WorkspaceFocus } from "./components/Workspace";
 import TeamChat from "./components/TeamChat";
-import DataCollector from "./components/DataCollector";
 import Schedule from "./components/Schedule";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
-import { ProjectProvider } from "./context/ProjectContext";
+import AdminPanel from "./components/AdminPanel";
+import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
-export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "collector" | "evaluation";
+export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "admin";
 
 function RequireAuth() {
   const { session, loading } = useAuth();
@@ -32,16 +32,31 @@ function RequireAuth() {
 function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useProjectManagement();
+  const { project } = useProject();
   const currentPage = (location.pathname.split("/")[1] || "dashboard") as Page;
+
+  // Non-approved projects (created by a non-admin, awaiting review) are
+  // locked to the dashboard page for everyone except an admin.
+  if (!isAdmin && (project.approvalStatus === "pending" || project.approvalStatus === "rejected") && currentPage !== "dashboard") {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
       <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} />
-      <main className="flex-1 overflow-y-auto">
+      {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
         <Outlet />
       </main>
     </div>
   );
+}
+
+function RequireAdmin() {
+  const { isAdmin } = useProjectManagement();
+  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  return <AdminPanel />;
 }
 
 function DashboardRoute() {
@@ -89,8 +104,8 @@ function AppRoutes() {
         <Route path="schedule" element={<Schedule />} />
         <Route path="workspace" element={<WorkspaceRoute />} />
         <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
-        <Route path="collector" element={<DataCollector />} />
         <Route path="evaluation" element={<PeerEvaluation />} />
+        <Route path="admin" element={<RequireAdmin />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
