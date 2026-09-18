@@ -97,24 +97,37 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   }
 
   function openProfile() {
+    if (currentMember) openMemberProfile(currentMember.id);
+  }
+
+  // The edit-draft state below (banner color, name fields, links…) has to
+  // stay in sync with `currentMember` no matter which of the many avatars
+  // across the app opened this modal for "myself" — only the bottom-left
+  // trigger used to populate it, so viewing your own profile via any other
+  // avatar (chat, comments, team view…) showed stale/default values (e.g.
+  // the banner color reverting to the useState default instead of the
+  // saved one). Re-sync every time the modal opens on the signed-in user's
+  // own id instead of relying on a single entry point.
+  useEffect(() => {
+    if (viewedMemberId !== currentMember?.id || !currentMember) return;
     setProfileEditOpen(false);
-    setProfileName(currentMember?.name ?? "");
-    setProfileSchool(currentMember?.school ?? "");
-    setProfileMajor(currentMember?.major ?? "");
-    setProfileStudent(currentMember?.student ?? "");
-    setProfileContact(currentMember?.contact ?? "");
-    setProfileOrg(currentMember?.org ?? "");
+    setProfileName(currentMember.name ?? "");
+    setProfileSchool(currentMember.school ?? "");
+    setProfileMajor(currentMember.major ?? "");
+    setProfileStudent(currentMember.student ?? "");
+    setProfileContact(currentMember.contact ?? "");
+    setProfileOrg(currentMember.org ?? "");
     setAvatarFile(null);
     setAvatarPreview(null);
-    setBannerColor(currentMember?.bannerColor ?? currentMember?.color ?? "#2563eb");
+    setBannerColor(currentMember.bannerColor ?? currentMember.color ?? "#2563eb");
     setBannerImageFile(null);
     setBannerPreview(null);
     setBannerCleared(false);
-    setProfileLinks(currentMember?.links ?? []);
+    setProfileLinks(currentMember.links ?? []);
     setNewLinkUrl("");
     setProfileError(null);
-    if (currentMember) openMemberProfile(currentMember.id);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewedMemberId, currentMember?.id]);
 
   function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
