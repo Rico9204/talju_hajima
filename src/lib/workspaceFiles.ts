@@ -20,7 +20,7 @@ export function workspaceFileType(name: string): WorkspaceFile["type"] {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "heic", "tif", "tiff", "ico"].includes(ext)) return "img";
   if (["ppt", "pptx", "odp"].includes(ext)) return "ppt";
-  if (["xls", "xlsx", "csv", "ods"].includes(ext)) return "xls";
+  if (["xls", "xlsx", "xlsm", "csv", "ods"].includes(ext)) return "xls";
   if (["zip", "7z", "rar", "gz"].includes(ext)) return "zip";
   return ext === "pdf" ? "pdf" : "doc";
 }

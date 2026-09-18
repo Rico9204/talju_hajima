@@ -112,6 +112,8 @@ create table if not exists files (
   id bigint generated always as identity primary key,
   project_id text not null references projects(id) on delete cascade,
   name text not null,
+  content text,
+  file_data text,
   type text not null check (type in ('pdf', 'doc', 'img', 'ppt', 'xls', 'zip')),
   uploader text not null,
   avatar text not null,
