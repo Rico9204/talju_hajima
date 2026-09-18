@@ -100,6 +100,8 @@ interface ProjectContextValue {
   addFolder: (name: string) => Promise<void>;
   uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
+  // No longer called anywhere after the pdf-workspace-search merge — FileVersionPanel now
+  // extracts text on-demand when a preview is opened instead of via a manual index button.
   indexFileVersion: (version: import("../api/types").FileVersion) => Promise<void>;
   setFileTags: (fileId: number, tags: string[]) => Promise<void>;
   pinFileVersion: (fileId: number, versionId: number, pinned: boolean) => Promise<void>;
@@ -921,6 +923,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         addFolder,
         uploadWorkspaceFile,
         promoteFileVersion,
+        // Unused since the pdf-workspace-search merge — see the type declaration above.
         indexFileVersion: async (version) => {
           const blob = await dataRepository.downloadFileVersion(version.id);
           const { extractWorkspaceText } = await import("../lib/extractWorkspaceText");

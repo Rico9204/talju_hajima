@@ -1,3 +1,6 @@
 [tools]
 node = "22"
+# Project package manager is pnpm (pnpm-lock.yaml is authoritative). package-lock.json
+# was committed by the feature/pdf-workspace-search merge (someone ran npm install) and
+# should be regenerated with pnpm and removed once reconciled.
 "npm:pnpm" = "10.34.3"
