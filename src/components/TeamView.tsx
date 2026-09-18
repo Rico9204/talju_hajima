@@ -67,7 +67,18 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             팀 구성원
           </div>
           <h1 className="text-2xl font-700">{team.teamLabel}</h1>
-          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+          <div className="flex items-center justify-between gap-3 mt-1">
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+            {showMemberSearch && (
+              <input
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="팀원 검색"
+                className="w-40 min-w-0 shrink-0 text-xs px-3 py-1.5 border outline-none"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+          </div>
         </div>
         {canFinish && (
           <button
@@ -81,15 +92,6 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
       </div>
 
       {/* Member cards grid */}
-      {showMemberSearch && (
-        <input
-          value={memberSearch}
-          onChange={(e) => setMemberSearch(e.target.value)}
-          placeholder="팀원 검색"
-          className="w-full max-w-xs text-xs px-3 py-1.5 border outline-none mb-2.5"
-          style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-        />
-      )}
       <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
         {filteredMembers.map((m) => {
           const isSelected = sel.id === m.id;
@@ -170,35 +172,43 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 </div>
                 <div className="text-sm font-600 mt-0.5" style={{ color: sel.color }}>{sel.role}</div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
-                <div className="text-xs mt-1" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
-                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                  {sel.id !== currentMember?.id && onMessage && (
-                    <button
-                      onClick={() => onMessage(sel.id)}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
-                    >
-                      ◐ 메시지 보내기
-                    </button>
-                  )}
-                  {canTransfer && (
-                    <button
-                      onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
-                    >
-                      🧭 팀장 권한 위임
-                    </button>
-                  )}
-                  {canKick && (
-                    <button
-                      onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: "#ef444412", color: "#ef4444", borderRadius: "20px" }}
-                    >
-                      ✕ 팀에서 제외
-                    </button>
-                  )}
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <div className="text-xs" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {sel.id !== currentMember?.id && onMessage && (
+                      <button
+                        onClick={() => onMessage(sel.id)}
+                        title="메시지 보내기"
+                        aria-label="메시지 보내기"
+                        className="w-7 h-7 flex items-center justify-center text-sm transition-all"
+                        style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "50%" }}
+                      >
+                        ◐
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
+                        title="팀장 권한 위임"
+                        aria-label="팀장 권한 위임"
+                        className="w-7 h-7 flex items-center justify-center text-sm transition-all"
+                        style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "50%" }}
+                      >
+                        🧭
+                      </button>
+                    )}
+                    {canKick && (
+                      <button
+                        onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
+                        title="팀에서 제외"
+                        aria-label="팀에서 제외"
+                        className="w-7 h-7 flex items-center justify-center text-sm transition-all"
+                        style={{ background: "#ef444412", color: "#ef4444", borderRadius: "50%" }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
