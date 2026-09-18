@@ -38,7 +38,7 @@ function shortDue(due: string): string {
   return parts.length === 3 ? `${parts[1]}/${parts[2]}` : due;
 }
 
-export default function TaskBoard() {
+export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}) {
   const {
     project, team, isLeader, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
@@ -61,6 +61,11 @@ export default function TaskBoard() {
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  // 대시보드 현황판/다가오는 마감에서 특정 과제로 딥링크했을 때 상세 패널을 연다.
+  useEffect(() => {
+    if (focusTaskId != null) setSelectedTaskId(focusTaskId);
+  }, [focusTaskId]);
 
   const filterOptions = [{ id: "all", label: "전체" }, ...team.members.map((m) => ({ id: m.id, label: m.name }))];
   const filtered = filter === "all" ? tasks : tasks.filter((t) => t.assigneeIds.includes(filter));

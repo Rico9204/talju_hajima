@@ -262,9 +262,15 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   </button>}
                 </div>
                 {items.length ? <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2">
-                  {visibleItems.map((task) => <li key={task.id} className="flex items-center justify-between gap-3 px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
-                    <span className="text-sm break-words min-w-0">{task.title}</span>
-                    {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+                  {visibleItems.map((task) => <li key={task.id}>
+                    <Link
+                      to={`/tasks/${task.id}`}
+                      className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+                      style={{ background: "var(--muted)", borderRadius: "10px" }}
+                    >
+                      <span className="text-sm break-words min-w-0">{task.title}</span>
+                      {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+                    </Link>
                   </li>)}
                 </ul> : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
               </section>;
@@ -279,7 +285,12 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>
             <div className="flex flex-col gap-2.5">
               {data.deadlines.map((d) => (
-                <div key={d.id} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                <Link
+                  key={d.id}
+                  to={`/tasks/${d.id}`}
+                  className="flex items-center justify-between p-2.5 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
+                  style={{ background: "var(--muted)", borderRadius: "10px" }}
+                >
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
                     <div><div className="text-xs font-500">{d.label}</div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{d.due}</div></div>
@@ -295,7 +306,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   >
                     {d.badge}
                   </span>
-                </div>
+                </Link>
               ))}
               {data.deadlines.length === 0 && (
                 <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
