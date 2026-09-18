@@ -53,6 +53,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   const [showTeam, setShowTeam] = useState(true);
   const [showPersonal, setShowPersonal] = useState(true);
   const [selectedMembers, setSelectedMembers] = useState<string[]>(team.members.map((m) => m.id));
+  const [memberSearch, setMemberSearch] = useState("");
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -142,6 +143,16 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     (e) => e.scope === "team" || e.visibility === "shared" || e.ownerMemberId === currentMember?.id
   );
 
+  // 개인 일정 필터의 팀원 목록: 전체 팀원이 아니라, 나에게 보이는 개인 일정을
+  // 실제로 하나라도 가진 사람만 표시. 검색어로 추가로 좁힘.
+  const membersWithPersonalEvents = new Set(
+    visibleToMe.filter((e) => e.scope === "personal" && e.ownerMemberId).map((e) => e.ownerMemberId as string)
+  );
+  const memberSearchTrimmed = memberSearch.trim().toLowerCase();
+  const filterableMembers = team.members
+    .filter((m) => membersWithPersonalEvents.has(m.id))
+    .filter((m) => !memberSearchTrimmed || m.name.toLowerCase().includes(memberSearchTrimmed));
+
   const events = visibleToMe
     .filter((e) => {
       if (e.scope === "team") return showTeam;
@@ -156,6 +167,14 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   }, {});
 
   const agenda = selectedDay ? events.filter((e) => e.date === selectedDay) : events;
+  // 검색창은 팀원 목록과 일정 목록에 같이 쓰인다: 팀원이나 일정이 많아지면
+  // (팀원 6명 초과 또는 일정 5개 초과) 나타나고, 같은 검색어로 일정 제목도
+  // 걸러준다. displayTitle을 쓰는 이유는 비공개 처리된 제목("바쁨")을 검색
+  // 결과에서 원문으로 노출시키지 않기 위함.
+  const showSearch = membersWithPersonalEvents.size > 6 || agenda.length > 5;
+  const searchableAgenda = agenda.filter(
+    (e) => !memberSearchTrimmed || displayTitle(e).toLowerCase().includes(memberSearchTrimmed) || ownerName(e).toLowerCase().includes(memberSearchTrimmed)
+  );
 
   async function handleSubmit() {
     if (!title.trim() || !date.trim() || locked) return;
@@ -478,38 +497,55 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
               </div>
             </div>
 
+            {showSearch && (
+              <input
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="팀원 · 일정 검색"
+                className="w-full text-xs px-3 py-1.5 border outline-none mb-3"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+
             {showPersonal && (
-              <div className="flex gap-2 flex-wrap mb-4 pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
-                {team.members.map((m) => {
-                  const checked = selectedMembers.includes(m.id);
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => toggleMember(m.id)}
-                      aria-pressed={checked}
-                      className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0 transition-all"
-                      style={{
-                        background: checked ? `${m.color}18` : "var(--muted)",
-                        color: checked ? m.color : "var(--muted-foreground)",
-                        borderRadius: "20px",
-                        opacity: checked ? 1 : 0.5,
-                      }}
-                    >
-                      <span
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
-                        style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
+              <div className="mb-4 pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
+                <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto pr-1">
+                  {filterableMembers.map((m) => {
+                    const checked = selectedMembers.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => toggleMember(m.id)}
+                        aria-pressed={checked}
+                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0 transition-all"
+                        style={{
+                          background: checked ? `${m.color}18` : "var(--muted)",
+                          color: checked ? m.color : "var(--muted-foreground)",
+                          borderRadius: "20px",
+                          opacity: checked ? 1 : 0.5,
+                        }}
                       >
-                        {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-                      </span>
-                      {m.name}
-                    </button>
-                  );
-                })}
+                        <span
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
+                          style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
+                        >
+                          {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                        </span>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                  {filterableMembers.length === 0 && (
+                    <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>
+                      {memberSearchTrimmed ? "검색 결과가 없어요" : "개인 일정을 가진 팀원이 없어요"}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
-            <div className="flex flex-col gap-2.5">
-              {agenda.map((e) => {
+            <div className="flex flex-col gap-2.5 max-h-[215px] overflow-y-auto pr-1">
+              {searchableAgenda.map((e) => {
                 const meta = typeMeta[e.type];
                 const d = daysUntil(e.date, today);
                 const isMine = e.scope === "personal" && e.ownerMemberId === currentMember?.id;
@@ -561,8 +597,10 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                   </div>
                 );
               })}
-              {agenda.length === 0 && (
-                <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>등록된 일정이 없어요</div>
+              {searchableAgenda.length === 0 && (
+                <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
+                  {agenda.length === 0 ? "등록된 일정이 없어요" : "검색 결과가 없어요"}
+                </div>
               )}
             </div>
           </div>
