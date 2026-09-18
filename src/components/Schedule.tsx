@@ -44,7 +44,7 @@ function daysUntil(dateStr: string, today: string) {
 
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
-export default function Schedule() {
+export default function Schedule({ focusEventId }: { focusEventId?: number } = {}) {
   const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent } = useProject();
   const today = todayISO();
   const defaultMonth = scheduleEvents[0]?.date.slice(0, 7) || today.slice(0, 7);
@@ -85,6 +85,20 @@ export default function Schedule() {
     setEditingId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  const focusedEvent = scheduleEvents.find(event => event.id === focusEventId);
+  useEffect(() => {
+    if (!focusedEvent) return;
+    if (focusedEvent.scope === "personal" && focusedEvent.visibility !== "shared" && focusedEvent.ownerMemberId !== currentMember?.id) return;
+    setMonth(focusedEvent.date.slice(0, 7));
+    setSelectedDay(focusedEvent.date);
+    setShowTeam(true);
+    setShowPersonal(true);
+    if (focusedEvent.ownerMemberId) {
+      const owner = focusedEvent.ownerMemberId;
+      setSelectedMembers(previous => previous.includes(owner) ? previous : [...previous, owner]);
+    }
+  }, [project.id, focusedEvent?.id, focusedEvent?.date, focusedEvent?.ownerMemberId, focusedEvent?.scope, focusedEvent?.visibility, currentMember?.id]);
 
   function ownerName(e: ScheduleEvent): string {
     return team.members.find((m) => m.id === e.ownerMemberId)?.name ?? "알 수 없음";
@@ -509,7 +523,7 @@ export default function Schedule() {
                       background: editingId === e.id ? "var(--secondary)" : "var(--muted)",
                       borderRadius: "10px",
                       cursor: editable ? "pointer" : "default",
-                      outline: editingId === e.id ? "1.5px solid var(--primary)" : "none",
+                      outline: editingId === e.id || focusEventId === e.id ? "1.5px solid var(--primary)" : "none",
                     }}
                   >
                     <div className="flex items-center gap-2 min-w-0">
