@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Task, TaskStatus, TaskPriority, Member } from "../context/ProjectContext";
+import { useProject, type Task, type TaskStatus, type TaskPriority, type Member } from "../context/ProjectContext";
 import { memberInfo } from "./TaskBoard";
 import Avatar from "./Avatar";
 
@@ -48,6 +48,7 @@ export default function TaskDetailPanel({
   onToggleTeamSchedule,
   onTogglePersonalSchedule,
 }: Props) {
+  const { openMemberProfile } = useProject();
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
@@ -143,12 +144,15 @@ export default function TaskDetailPanel({
                       className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0"
                       style={{ background: `${info.color}18`, color: info.color, borderRadius: "20px" }}
                     >
-                      <span
+                      <button
+                        type="button"
+                        onClick={() => openMemberProfile(id)}
+                        title={`${info.name} 프로필 보기`}
                         className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
                         style={{ background: info.avatarUrl ? "var(--card)" : `${info.color}30`, color: info.color }}
                       >
                         {info.avatarUrl ? <img src={info.avatarUrl} alt={info.name} className="w-full h-full object-cover" /> : info.avatar}
-                      </span>
+                      </button>
                       {info.name}
                     </div>
                   );
@@ -344,12 +348,20 @@ export default function TaskDetailPanel({
                 const liveMember = c.memberId ? members.find((m) => m.id === c.memberId) : undefined;
                 return (
                 <div key={c.id} className="group/comment flex items-start gap-2.5">
-                  <Avatar
-                    url={liveMember?.avatarUrl ?? null}
-                    initial={liveMember?.avatar ?? c.avatar}
-                    color={liveMember?.color ?? "#2563eb"}
-                    size={28}
-                  />
+                  <button
+                    type="button"
+                    onClick={() => liveMember && openMemberProfile(liveMember.id)}
+                    disabled={!liveMember}
+                    title={liveMember ? `${liveMember.name} 프로필 보기` : undefined}
+                    className="shrink-0"
+                  >
+                    <Avatar
+                      url={liveMember?.avatarUrl ?? null}
+                      initial={liveMember?.avatar ?? c.avatar}
+                      color={liveMember?.color ?? "#2563eb"}
+                      size={28}
+                    />
+                  </button>
                   <div className="relative flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-700">{c.author}</span>

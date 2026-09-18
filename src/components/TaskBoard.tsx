@@ -43,7 +43,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     project, team, isLeader, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
     toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
-    toggleTaskTeamSchedule, toggleTaskPersonalSchedule,
+    toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -200,9 +200,15 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                             {shownAssignees.map((id) => {
                               const info = memberInfo(team.members, id);
                               return (
-                                <div key={id} title={info.name} style={{ border: "2px solid var(--card)", borderRadius: "50%" }}>
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); openMemberProfile(id); }}
+                                  title={`${info.name} 프로필 보기`}
+                                  style={{ border: "2px solid var(--card)", borderRadius: "50%" }}
+                                >
                                   <Avatar url={info.avatarUrl} initial={info.avatar} color={info.color} size={20} />
-                                </div>
+                                </button>
                               );
                             })}
                             {extraCount > 0 && (

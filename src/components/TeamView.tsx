@@ -3,7 +3,7 @@ import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader } = useProject();
+  const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader, openMemberProfile } = useProject();
   const { isAdmin } = useProjectManagement();
   const [selected, setSelected] = useState<number>(0);
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
@@ -76,10 +76,13 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
       {/* Member cards grid */}
       <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
         {members.map((m, i) => (
-          <button
+          <div
             key={i}
+            role="button"
+            tabIndex={0}
             onClick={() => setSelected(i)}
-            className="flex flex-col items-center p-4 shrink-0 transition-all"
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(i); } }}
+            className="flex flex-col items-center p-4 shrink-0 transition-all cursor-pointer"
             style={{
               background: selected === i ? "var(--primary)" : "var(--card)",
               borderRadius: "var(--radius)",
@@ -88,7 +91,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               color: selected === i ? "#fff" : "var(--foreground)",
             }}
           >
-            <div
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); openMemberProfile(m.id); }}
+              title={`${m.name} 프로필 보기`}
               className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
               style={{ background: m.avatarUrl ? "var(--card)" : selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
             >
@@ -96,7 +102,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               {m.isLeader && (
                 <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
               )}
-            </div>
+            </button>
             <div className="text-xs font-700">{m.name}</div>
             <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
               {m.role}
@@ -112,7 +118,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             )}
             {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: selected === i ? "#fff" : "#22c55e" }} />}
-          </button>
+          </div>
         ))}
       </div>
 
@@ -122,9 +128,15 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
           {/* Left: profile */}
           <div className="col-span-1 md:col-span-2">
             <div className="flex items-start gap-4 mb-5">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden" style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}>
+              <button
+                type="button"
+                onClick={() => openMemberProfile(sel.id)}
+                title={`${sel.name} 프로필 보기`}
+                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden"
+                style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}
+              >
                 {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
-              </div>
+              </button>
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-700">{sel.name}</h2>

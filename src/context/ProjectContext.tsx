@@ -138,6 +138,13 @@ interface ProjectContextValue {
   currentMember: Member | null;
   isLeader: boolean;
   loading: boolean;
+  // Which member's profile card (Sidebar's bottom-left avatar modal) is
+  // currently open, if any — set from anywhere a member's avatar is
+  // clickable (chat, comments, task cards, team view) so the same modal
+  // opens for them, not just for the signed-in user's own avatar.
+  viewedMemberId: string | null;
+  openMemberProfile: (memberId: string) => void;
+  closeMemberProfile: () => void;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -319,6 +326,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // project only. Eagerly loaded for every channel once the team is known
   // (see the effect below) and kept live via the realtime subscription.
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [viewedMemberId, setViewedMemberId] = useState<string | null>(null);
   // A project-scoped Realtime Presence channel supplies the member ids that
   // currently have this project open in one or more browser tabs.
   const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
@@ -964,6 +972,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         currentMember,
         isLeader,
         loading,
+        viewedMemberId,
+        openMemberProfile: setViewedMemberId,
+        closeMemberProfile: () => setViewedMemberId(null),
       }}
     >
       {children}

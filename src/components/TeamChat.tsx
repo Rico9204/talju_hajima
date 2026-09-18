@@ -21,6 +21,7 @@ export default function TeamChat({
   const {
     project, files, folders, team, currentMember,
     chatMessages, chatUnread, sendChatMessage, toggleChatReaction, markChannelMessagesRead,
+    openMemberProfile,
   } = useProject();
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -226,14 +227,20 @@ export default function TeamChat({
             >
               ←
             </button>
-            <div className="w-8 h-8 relative shrink-0">
+            <button
+              type="button"
+              onClick={() => chan.memberId && openMemberProfile(chan.memberId)}
+              disabled={!chan.memberId}
+              className="w-8 h-8 relative shrink-0"
+              title={chan.type === "dm" ? `${chan.name} 프로필 보기` : undefined}
+            >
               <div className="w-full h-full rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
                 {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
               </div>
               {chan.type === "dm" && chan.online && (
                 <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
               )}
-            </div>
+            </button>
             <div>
               <div className="text-sm font-700">{chan.name}</div>
               <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
