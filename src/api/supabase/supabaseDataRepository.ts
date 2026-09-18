@@ -57,8 +57,13 @@ function mapMember(row: any, profile?: any): Member {
     userId: row.user_id ?? null,
     name: profile?.display_name || row.name,
     role: row.role,
+    school: profile?.school || row.school || "",
     major: profile?.major || row.major,
     student: profile?.student || row.student,
+    contact: profile?.contact || row.contact || "",
+    bannerColor: profile?.banner_color ?? row.banner_color ?? null,
+    bannerImageUrl: profile?.banner_image_url ?? row.banner_image_url ?? null,
+    links: [],
     avatar: profile?.avatar_initial || row.avatar,
     avatarUrl: profile?.avatar_url ?? row.avatar_url ?? null,
     tasks: { done: row.tasks_done, total: row.tasks_total },
@@ -116,7 +121,15 @@ function mapChecklistItem(row: any): ChecklistItem {
 }
 
 function mapTaskComment(row: any): TaskComment {
-  return { id: row.id, author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+  return {
+    id: row.id,
+    author: row.author,
+    avatar: row.avatar,
+    date: row.date,
+    text: row.text,
+    memberId: row.member_id ?? null,
+    reactions: (row.task_comment_reactions ?? []).map((r: any) => ({ commentId: row.id, memberId: r.member_id, emoji: r.emoji })),
+  };
 }
 
 function mapTask(row: any): Task {
@@ -160,6 +173,7 @@ function mapMessage(row: any): ChatMessage {
     fileId: row.file_id,
     createdAt: row.created_at,
     readBy: (row.message_reads ?? []).map((r: any) => r.member_id),
+    reactions: (row.chat_reactions ?? []).map((r: any) => ({ messageId: row.id, memberId: r.member_id, emoji: r.emoji })),
   };
 }
 
@@ -645,6 +659,10 @@ export const supabaseDataRepository: DataRepository = {
     return mapTaskComment(data);
   },
 
+  // 이 구현체는 api/index.ts에서 더 이상 참조되지 않음(nestDataRepository로 교체됨) — 컴파일만
+  // 되게 최소 스텁으로 채워둠.
+  async toggleTaskCommentReaction() {},
+
   async setTaskScheduleLink(taskId, field, eventId) {
     const column = field === "team" ? "team_schedule_event_id" : "personal_schedule_event_id";
     const { error } = await supabase.from("tasks").update({ [column]: eventId }).eq("id", taskId);
@@ -680,6 +698,14 @@ export const supabaseDataRepository: DataRepository = {
     return mapScheduleEvent(data);
   },
 
+  async updateScheduleEvent(eventId, patch) {
+    const { error } = await supabase
+      .from("schedule_events")
+      .update({ title: patch.title, date: patch.date, type: patch.type })
+      .eq("id", eventId);
+    if (error) throw error;
+  },
+
   async removeScheduleEvent(eventId) {
     const { error } = await supabase.from("schedule_events").delete().eq("id", eventId);
     if (error) throw error;
@@ -712,6 +738,8 @@ export const supabaseDataRepository: DataRepository = {
     const { error } = await supabase.from("message_reads").upsert(rows, { onConflict: "message_id,member_id", ignoreDuplicates: true });
     if (error) throw error;
   },
+
+  async toggleMessageReaction() {},
 
   subscribeToMessages(projectId, onInsert) {
     const channel = supabase

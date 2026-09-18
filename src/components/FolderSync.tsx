@@ -21,7 +21,8 @@ interface BaselineEntry {
 }
 
 // 제품개발/frontend의 폴더 연동(ProjectWorkspacePage.runSync + FolderSyncTab)을 이 앱의 화면
-// 형식(페이지 하나 = 화면 하나, var(--token) 인라인 스타일)에 맞춰 이식.
+// 형식(var(--token) 인라인 스타일)에 맞춰 이식. 원래는 사이드바 메뉴의 별도 페이지였는데,
+// 워크스페이스 화면 안(파일 업로드 존 바로 위)에 섹션으로 옮겨졌다 — Workspace.tsx 참고.
 export default function FolderSync() {
   const { project, folders } = useProject();
   const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -251,15 +252,12 @@ export default function FolderSync() {
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="mb-7">
-        <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          로컬 폴더 연동 · {project.name}
-        </div>
-        <h1 className="text-3xl font-600" style={{ fontFamily: "var(--font-fraunces)" }}>Folder Sync</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
-          이 브라우저 탭이 열려있는 동안만 동기화됩니다. 워크스페이스와는 별개의 실시간 파일 연동 기능이에요.
-        </p>
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-700">로컬 폴더 연동</h2>
+        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+          이 브라우저 탭이 열려있는 동안만 동기화돼요
+        </span>
       </div>
 
       {error && (

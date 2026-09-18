@@ -12,6 +12,7 @@ import type {
   ChecklistItem,
   TaskComment,
   ScheduleEvent,
+  ScheduleEventType,
   NewScheduleEventInput,
   Member,
   ChatMessage,
@@ -35,11 +36,11 @@ export interface DataRepository {
     projectId: string,
     actorName: string,
     actorAvatar: string,
-    input: { major: string; student: string }
+    input: { school?: string; major: string; student: string }
   ): Promise<Member>;
 
   getTeam(projectId: string): Promise<TeamData>;
-  updateMyProfile(patch: Partial<{ name: string; major: string; student: string; avatarUrl: string | null }>): Promise<void>;
+  updateMyProfile(patch: Partial<{ name: string; school: string; major: string; student: string; avatarUrl: string | null }>): Promise<void>;
   uploadAvatar(file: File): Promise<string>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
@@ -69,10 +70,15 @@ export interface DataRepository {
   addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
   toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
   addTaskComment(taskId: number, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  toggleTaskCommentReaction(commentId: number, emoji: string): Promise<void>;
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
 
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
   addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
+  updateScheduleEvent(
+    eventId: number,
+    patch: Partial<{ title: string; date: string; type: ScheduleEventType }>
+  ): Promise<void>;
   removeScheduleEvent(eventId: number): Promise<void>;
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
@@ -83,6 +89,7 @@ export interface DataRepository {
     input: { text: string; fileId?: number }
   ): Promise<ChatMessage>;
   markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
+  toggleMessageReaction(projectId: string, messageId: number, emoji: string): Promise<void>;
   subscribeToMessages(projectId: string, onInsert: (m: ChatMessage) => void): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
 }

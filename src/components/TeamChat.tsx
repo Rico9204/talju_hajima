@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
 
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
+
 interface FileRef {
   id: number;
   name: string;
@@ -27,11 +29,12 @@ export default function TeamChat({
 }: { initialChannel?: string; onOpenFile?: (fileId: number, folderId: number | null) => void }) {
   const {
     project, files, folders, team, currentMember,
-    chatMessages, chatUnread, sendChatMessage, markChannelMessagesRead,
+    chatMessages, chatUnread, sendChatMessage, markChannelMessagesRead, toggleMessageReaction,
   } = useProject();
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
@@ -238,6 +241,57 @@ export default function TeamChat({
                       </div>
                     </button>
                   )}
+                  <div className="relative flex items-center gap-1 mt-1">
+                    {m.reactions.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {[...new Set(m.reactions.map((r) => r.emoji))].map((emoji) => {
+                          const reactions = m.reactions.filter((r) => r.emoji === emoji);
+                          const reactedByMe = reactions.some((r) => r.memberId === currentMember.id);
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleMessageReaction(m.id, emoji)}
+                              className="flex items-center gap-1 px-1.5 py-0.5 text-xs"
+                              style={{
+                                background: reactedByMe ? "var(--secondary)" : "var(--muted)",
+                                border: reactedByMe ? "1px solid var(--primary)" : "1px solid transparent",
+                                borderRadius: "10px",
+                              }}
+                              title={reactions.map((r) => memberFor(r.memberId)?.name ?? "?").join(", ")}
+                            >
+                              <span>{emoji}</span>
+                              <span style={{ color: "var(--muted-foreground)" }}>{reactions.length}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setReactionPickerMessageId((id) => (id === m.id ? null : m.id))}
+                      className="w-5 h-5 flex items-center justify-center text-xs shrink-0"
+                      style={{ color: "var(--muted-foreground)" }}
+                      title="반응 추가"
+                    >
+                      +
+                    </button>
+                    {reactionPickerMessageId === m.id && (
+                      <div
+                        className={`absolute bottom-full ${mine ? "right-0" : "left-0"} mb-1 flex items-center gap-0.5 p-1 z-10`}
+                        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}
+                      >
+                        {REACTION_EMOJIS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => { toggleMessageReaction(m.id, emoji); setReactionPickerMessageId(null); }}
+                            className="w-7 h-7 text-sm transition-transform hover:scale-110"
+                            title={`${emoji} 반응`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5 mt-1 px-1">
                     {mine && m.id === lastMineId && chan.type === "dm" && chan.memberId && m.readBy.includes(chan.memberId) && (
                       <span className="text-xs font-600" style={{ color: "var(--primary)" }}>읽음</span>

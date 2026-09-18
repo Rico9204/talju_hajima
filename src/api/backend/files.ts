@@ -82,6 +82,11 @@ export function listFilePins(projectId: string, fileId: string) {
   return apiClient.get<FileVersionPin[]>(`/projects/${projectId}/files/${fileId}/pins`);
 }
 
+// 파일 목록에서 "핀 N" 배지를 보여주기 위한 파일별 핀 개수 (listBranches와 같은 용도).
+export function listPinCounts(projectId: string) {
+  return apiClient.get<{ fileId: string; count: number }[]>(`/projects/${projectId}/files/pins`);
+}
+
 export function createFilePin(projectId: string, fileId: string, versionId: string, label?: string) {
   return apiClient.post<FileVersionPin>(`/projects/${projectId}/files/${fileId}/pins`, { versionId, label });
 }

@@ -10,6 +10,7 @@ import {
   listFilePins,
   listFileVersions,
   listFiles,
+  listPinCounts,
   promoteVersion as promoteVersionApi,
   setFileTag,
   syncFiles,
@@ -21,6 +22,7 @@ import {
   type ProjectFile,
 } from "../api/backend/files";
 import { MAX_FILE_SIZE } from "../lib/folderSync";
+import FolderSync from "./FolderSync";
 
 // 제품개발/frontend의 워크스페이스(ProjectWorkspacePage의 파일 로딩/승격 로직 + WorkspaceTab의
 // 폴더/버전 트리/핀/태그/댓글/동시 동기화 표시 UI)를 이 앱의 화면 형식(페이지 하나 = 화면 하나,
@@ -101,6 +103,146 @@ function rootCoversPath(root: string, path: string): boolean {
   return root === "" || path === root || path.startsWith(`${root}/`);
 }
 
+interface DiffLine {
+  type: "add" | "remove" | "same";
+  text: string;
+}
+
+type DisplayDiffItem =
+  | { kind: "line"; type: "add" | "remove"; text: string }
+  | { kind: "change"; oldText: string; newText: string };
+
+// 한 줄을 고쳐 쓴 경우, 줄 단위 diff는 그걸 표현할 방법이 없어서 항상 "그 줄 삭제 + 새 줄 추가"
+// 두 개로 쪼개져 나온다(수정이라는 연산 자체가 없음). 화면에서 서로 이어진 remove 한 줄 +
+// add 한 줄을 "그 줄이 이렇게 바뀜"으로 묶어 보여주면 실제로는 한 곳을 고친 건데 두 개의 별개
+// 변경처럼 보이는 걸 줄일 수 있다.
+function groupChangedLines(lines: DiffLine[]): DisplayDiffItem[] {
+  const result: DisplayDiffItem[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    if (cur.type === "remove" && next?.type === "add") {
+      result.push({ kind: "change", oldText: cur.text, newText: next.text });
+      i += 2;
+    } else {
+      result.push({ kind: "line", type: cur.type as "add" | "remove", text: cur.text });
+      i += 1;
+    }
+  }
+  return result;
+}
+
+// 간단한 LCS 기반 라인 diff. 버전 미리보기에서 "수정 사항만" 보여주기 위한 용도라, 별도
+// 라이브러리 없이 직접 구현 (파일이 커봤자 이 앱의 업로드 제한(10MB) 수준이라 O(n*m)로 충분).
+// CRLF(\r\n)로 저장된 버전과 LF(\n)로 저장된 버전을 비교하면, "\n" 기준으로만 나눴을 때 CRLF
+// 쪽 줄 끝에 보이지 않는 "\r"이 남아서 눈엔 똑같아 보이는 줄이 서로 다른 문자열로 비교된다 —
+// 그 결과가 "삭제 후 내용이 똑같은 줄을 다시 추가"처럼 보이는 diff. 줄바꿈 문자를 통일해서 나눠
+// 이 문제를 원천에서 막는다.
+function splitLines(text: string): string[] {
+  const lines = text.split(/\r\n|\r|\n/);
+  // 파일이 개행으로 끝나면 split이 마지막에 빈 문자열 원소를 하나 더 만든다 — 한쪽 버전만
+  // 파일 끝 개행 유무가 다르면(에디터가 저장할 때 자동으로 붙이거나 떼거나), 실제 내용은
+  // 같은데 "빈 줄이 추가/삭제됨"처럼 보이는 원인이 된다. 그 인공적인 빈 원소 하나만 제거.
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+// 줄 diff와 (아래) 줄 안 단어 diff가 똑같은 LCS 로직을 쓰므로, 비교 대상 배열만 바꿔 끼울 수
+// 있게 공통 코어로 뽑아둠.
+function computeLcsDiff(a: string[], b: string[]): DiffLine[] {
+  const n = a.length;
+  const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const result: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      result.push({ type: "same", text: a[i] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      result.push({ type: "remove", text: a[i] });
+      i++;
+    } else {
+      result.push({ type: "add", text: b[j] });
+      j++;
+    }
+  }
+  while (i < n) {
+    result.push({ type: "remove", text: a[i] });
+    i++;
+  }
+  while (j < m) {
+    result.push({ type: "add", text: b[j] });
+    j++;
+  }
+  return collapseNoOpPairs(result);
+}
+
+// LCS diff는 줄 내용이 중복될 때 종종 "지우고 똑같은 내용을 바로 다시 씀" 같은 잘못된 정렬을
+// 만든다 — 실제로는 안 바뀐 줄인데 remove+add 쌍으로 나오는 것. 같은 변경 덩어리(remove들 뒤에
+// add들이 이어지는 구간) 안에서 텍스트가 완전히 같은 remove/add를 찾아 서로 상쇄시켜서 진짜
+// 바뀐 줄만 남긴다.
+function collapseNoOpPairs(lines: DiffLine[]): DiffLine[] {
+  const result: DiffLine[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].type === "same") {
+      result.push(lines[i]);
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < lines.length && lines[j].type !== "same") j++;
+    const block = lines.slice(i, j);
+
+    const removeIdxByText = new Map<string, number[]>();
+    block.forEach((l, idx) => {
+      if (l.type !== "remove") return;
+      const arr = removeIdxByText.get(l.text) ?? [];
+      arr.push(idx);
+      removeIdxByText.set(l.text, arr);
+    });
+
+    const skip = new Set<number>();
+    block.forEach((l, idx) => {
+      if (l.type !== "add") return;
+      const candidates = removeIdxByText.get(l.text);
+      if (candidates && candidates.length > 0) {
+        skip.add(candidates.shift()!);
+        skip.add(idx);
+      }
+    });
+
+    block.forEach((l, idx) => {
+      if (!skip.has(idx)) result.push(l);
+    });
+    i = j;
+  }
+  return result;
+}
+
+function diffLines(oldText: string, newText: string): DiffLine[] {
+  return computeLcsDiff(splitLines(oldText), splitLines(newText));
+}
+
+// 공백(연속 공백 포함)을 그대로 토큰으로 남겨서, 토큰을 이어붙이면 원래 줄이 그대로 복원되게
+// 만든다 — 그래야 "단어 단위로만 비교하고 화면엔 원래 띄어쓰기 그대로 보여주기"가 가능함.
+function tokenizeWords(line: string): string[] {
+  return line.split(/(\s+)/).filter((t) => t !== "");
+}
+
+function diffWords(oldLine: string, newLine: string): DiffLine[] {
+  return computeLcsDiff(tokenizeWords(oldLine), tokenizeWords(newLine));
+}
+
 // 버전 트리 한 노드 + 그 자식들을 재귀적으로 그림 (index.css의 .version-tree가 <li>/<ul> 중첩을
 // 보고 위쪽 가로/세로 연결선을 그려서 나뭇가지처럼 보이게 함). 카드를 클릭하면 그 버전이 "포커스"가
 // 되어 메모/내용/버튼이 펼쳐지고, 조상·바로 아래 분기만 밝게, 나머지는 흐리게 표시된다.
@@ -113,10 +255,12 @@ function VersionNode({
   memberNameById,
   focusedVersionId,
   highlightIds,
+  versionsById,
   onFocus,
   onPromote,
   onCreatePin,
   onUploadToPin,
+  onShowFull,
 }: {
   version: FileVersion;
   childrenByParent: Map<string | null, FileVersion[]>;
@@ -126,10 +270,12 @@ function VersionNode({
   memberNameById: Map<string, string>;
   focusedVersionId: string | null;
   highlightIds: Set<string>;
+  versionsById: Map<string, FileVersion>;
   onFocus: (versionId: string) => void;
   onPromote: (versionId: string) => void;
   onCreatePin: (versionId: string) => void;
   onUploadToPin: (pinId: string) => void;
+  onShowFull: (version: FileVersion) => void;
 }) {
   const isCurrent = version.id === currentVersionId;
   const isOpenBranch = openBranchIds.has(version.id);
@@ -138,6 +284,12 @@ function VersionNode({
   const isDimmed = highlightIds.size > 0 && !highlightIds.has(version.id);
   const children = childrenByParent.get(version.id) ?? [];
   const cardRef = useRef<HTMLDivElement>(null);
+  const parentVersion = version.parentVersionId ? versionsById.get(version.parentVersionId) : null;
+  // parentVersion이 없으면(맨 첫 버전) 비교 대상이 없으니 전체를 추가된 내용으로 취급.
+  const changedLines = expanded
+    ? diffLines(parentVersion?.content ?? "", version.content).filter((l) => l.type !== "same")
+    : [];
+  const displayChanges = groupChangedLines(changedLines);
 
   useEffect(() => {
     if (expanded) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
@@ -189,12 +341,83 @@ function VersionNode({
                 "{version.note}"
               </div>
             )}
-            <pre
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-600" style={{ color: isCurrent ? "rgba(255,255,255,0.75)" : "var(--muted-foreground)" }}>
+                수정 사항 {displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShowFull(version);
+                }}
+                className="w-5 h-5 flex items-center justify-center text-xs font-700 shrink-0"
+                style={{
+                  borderRadius: "6px",
+                  background: isCurrent ? "rgba(255,255,255,0.2)" : "var(--card)",
+                  color: isCurrent ? "#fff" : "var(--primary)",
+                  border: isCurrent ? "none" : "1px solid var(--border)",
+                }}
+                title="전문 보기"
+              >
+                +
+              </button>
+            </div>
+            <div
               className="text-xs whitespace-pre-wrap p-2 max-h-28 overflow-y-auto text-left"
-              style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--muted)", color: isCurrent ? "#fff" : "var(--foreground)" }}
+              style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--muted)", color: isCurrent ? "#fff" : "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
             >
-              {version.content}
-            </pre>
+              {displayChanges.length === 0 ? (
+                <span style={{ opacity: 0.7 }}>{parentVersion ? "이전 버전과 내용이 같아요." : "수정 이력이 없는 첫 버전이에요."}</span>
+              ) : (
+                displayChanges.map((item, i) =>
+                  item.kind === "change" ? (
+                    (() => {
+                      const words = diffWords(item.oldText, item.newText);
+                      return (
+                        <div key={i} className="mb-1">
+                          <div style={{ color: isCurrent ? "rgba(255,255,255,0.75)" : "var(--foreground)", opacity: 0.85 }}>
+                            -{" "}
+                            {words
+                              .filter((w) => w.type !== "add")
+                              .map((w, wi) =>
+                                w.type === "remove" ? (
+                                  <span key={wi} style={{ background: isCurrent ? "rgba(239,68,68,0.35)" : "#fecaca", color: isCurrent ? "#fff" : "#991b1b", textDecoration: "line-through" }}>
+                                    {w.text}
+                                  </span>
+                                ) : (
+                                  <span key={wi}>{w.text}</span>
+                                ),
+                              )}
+                          </div>
+                          <div style={{ color: isCurrent ? "#fff" : "var(--foreground)" }}>
+                            +{" "}
+                            {words
+                              .filter((w) => w.type !== "remove")
+                              .map((w, wi) =>
+                                w.type === "add" ? (
+                                  <span key={wi} style={{ background: isCurrent ? "rgba(34,197,94,0.35)" : "#bbf7d0", color: isCurrent ? "#fff" : "#166534" }}>
+                                    {w.text}
+                                  </span>
+                                ) : (
+                                  <span key={wi}>{w.text}</span>
+                                ),
+                              )}
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div
+                      key={i}
+                      style={{ color: item.type === "add" ? (isCurrent ? "#bbf7d0" : "#16a34a") : isCurrent ? "#fecaca" : "#dc2626" }}
+                    >
+                      {item.type === "add" ? "+ " : "- "}
+                      {item.text || " "}
+                    </div>
+                  ),
+                )
+              )}
+            </div>
             {!isCurrent && (
               <button
                 onClick={() => onPromote(version.id)}
@@ -242,10 +465,12 @@ function VersionNode({
               memberNameById={memberNameById}
               focusedVersionId={focusedVersionId}
               highlightIds={highlightIds}
+              versionsById={versionsById}
               onFocus={onFocus}
               onPromote={onPromote}
               onCreatePin={onCreatePin}
               onUploadToPin={onUploadToPin}
+              onShowFull={onShowFull}
             />
           ))}
         </ul>
@@ -263,6 +488,7 @@ export default function Workspace() {
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [branches, setBranches] = useState<FileBranches[]>([]);
+  const [pinCounts, setPinCounts] = useState<Map<string, number>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   const [currentDir, setCurrentDir] = useState<string | null>(null);
@@ -286,14 +512,16 @@ export default function Workspace() {
   const [activePresence, setActivePresence] = useState<ActivePresence[]>([]);
   const [pins, setPins] = useState<FileVersionPin[]>([]);
   const [focusedVersionId, setFocusedVersionId] = useState<string | null>(null);
+  const [fullTextVersion, setFullTextVersion] = useState<FileVersion | null>(null);
   const uploadTargetPinIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newVersionInputRef = useRef<HTMLInputElement>(null);
 
   async function refresh(): Promise<ProjectFile[]> {
-    const [filesRes, branchesRes] = await Promise.all([listFiles(project.id), listBranches(project.id)]);
+    const [filesRes, branchesRes, pinCountsRes] = await Promise.all([listFiles(project.id), listBranches(project.id), listPinCounts(project.id)]);
     setFiles(filesRes.data);
     setBranches(branchesRes.data);
+    setPinCounts(new Map(pinCountsRes.data.map((p) => [p.fileId, p.count])));
     return filesRes.data;
   }
 
@@ -462,6 +690,7 @@ export default function Workspace() {
 
   useEffect(() => {
     setFocusedVersionId(null);
+    setFullTextVersion(null);
     if (!selectedFileId) {
       setVersions([]);
       setComments([]);
@@ -517,11 +746,16 @@ export default function Workspace() {
     }
   }
 
+  async function refreshPinCounts() {
+    const { data } = await listPinCounts(project.id);
+    setPinCounts(new Map(data.map((p) => [p.fileId, p.count])));
+  }
+
   async function handleCreatePin(versionId: string) {
     if (!selectedFileId) return;
     try {
       await createFilePin(project.id, selectedFileId, versionId);
-      await refreshVersionsAndPins();
+      await Promise.all([refreshVersionsAndPins(), refreshPinCounts()]);
     } catch {
       setUploadError("핀 생성에 실패했습니다.");
     }
@@ -531,7 +765,7 @@ export default function Workspace() {
     if (!selectedFileId) return;
     try {
       await deleteFilePin(project.id, selectedFileId, pinId);
-      await refreshVersionsAndPins();
+      await Promise.all([refreshVersionsAndPins(), refreshPinCounts()]);
     } catch {
       setUploadError("핀 삭제에 실패했습니다.");
     }
@@ -645,6 +879,8 @@ export default function Workspace() {
           </span>
         ))}
       </div>
+
+      <FolderSync />
 
       {/* 업로드 존 */}
       <div
@@ -840,6 +1076,11 @@ export default function Workspace() {
                       분기 {fileBranchCount}
                     </span>
                   )}
+                  {(pinCounts.get(f.id) ?? 0) > 0 && (
+                    <span className="text-xs font-700 px-2 py-0.5 shrink-0" style={{ borderRadius: "20px", background: isSelected ? "rgba(255,255,255,0.25)" : "#8b5cf618", color: isSelected ? "#fff" : "#8b5cf6" }}>
+                      📌 {pinCounts.get(f.id)}
+                    </span>
+                  )}
                 </button>
                 {editingTagFileId === f.id ? (
                   <input
@@ -960,10 +1201,12 @@ export default function Workspace() {
                           memberNameById={memberNameById}
                           focusedVersionId={effectiveFocusId}
                           highlightIds={highlightIds}
+                          versionsById={versionsById}
                           onFocus={setFocusedVersionId}
                           onPromote={(versionId) => handlePromote(selectedFile.id, versionId)}
                           onCreatePin={handleCreatePin}
                           onUploadToPin={handleUploadToPin}
+                          onShowFull={setFullTextVersion}
                         />
                       ))}
                     </ul>
@@ -1027,6 +1270,42 @@ export default function Workspace() {
           <option key={t} value={t} />
         ))}
       </datalist>
+
+      {fullTextVersion && (
+        <div
+          onClick={() => setFullTextVersion(null)}
+          className="fixed inset-0 flex items-center justify-center z-50 p-6"
+          style={{ background: "rgba(15,23,42,0.5)" }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl max-h-[80vh] flex flex-col"
+            style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.28)" }}
+          >
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <div className="text-sm font-700">전문 보기</div>
+                <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  {memberNameById.get(fullTextVersion.authorId) ?? fullTextVersion.authorId} · {formatDate(fullTextVersion.createdAt)}
+                </div>
+              </div>
+              <button
+                onClick={() => setFullTextVersion(null)}
+                className="w-8 h-8 flex items-center justify-center text-lg"
+                style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+              >
+                ×
+              </button>
+            </div>
+            <pre
+              className="flex-1 overflow-auto text-xs whitespace-pre-wrap p-4 m-0"
+              style={{ color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
+            >
+              {fullTextVersion.content}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

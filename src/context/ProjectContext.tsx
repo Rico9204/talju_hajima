@@ -11,6 +11,7 @@ import type {
   TaskStatus,
   TaskPriority,
   ScheduleEvent,
+  ScheduleEventType,
   NewScheduleEventInput,
   Member,
   ChatMessage,
@@ -70,10 +71,10 @@ interface ProjectContextValue {
   addProject: (input: NewProjectInput) => Promise<string>;
   deleteProject: (projectId: string) => Promise<void>;
   lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
+  joinProject: (projectId: string, input: { school?: string; major: string; student: string }) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
-  updateMyProfile: (patch: { name?: string; major?: string; student?: string; avatarFile?: File }) => Promise<void>;
+  updateMyProfile: (patch: { name?: string; school?: string; major?: string; student?: string; avatarFile?: File }) => Promise<void>;
   isShortTerm: boolean;
   folders: Folder[];
   files: WorkspaceFile[];
@@ -92,16 +93,19 @@ interface ProjectContextValue {
   addTaskChecklistItem: (taskId: number, text: string) => Promise<void>;
   toggleTaskChecklistItem: (taskId: number, itemId: number, done: boolean) => Promise<void>;
   addTaskComment: (taskId: number, text: string) => Promise<void>;
+  toggleTaskCommentReaction: (commentId: number, emoji: string) => Promise<void>;
   toggleTaskTeamSchedule: (taskId: number, checked: boolean) => Promise<void>;
   toggleTaskPersonalSchedule: (taskId: number, checked: boolean) => Promise<void>;
   scheduleEvents: ScheduleEvent[];
   addScheduleEvent: (input: NewScheduleEventInput) => Promise<void>;
+  updateScheduleEvent: (id: number, patch: Partial<{ title: string; date: string; type: ScheduleEventType }>) => Promise<void>;
   removeScheduleEvent: (id: number) => Promise<void>;
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
   chatMessages: Record<string, ChatMessage[]>;
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<void>;
   markChannelMessagesRead: (channelId: string) => Promise<void>;
+  toggleMessageReaction: (messageId: number, emoji: string) => Promise<void>;
   currentMember: Member | null;
   isLeader: boolean;
   loading: boolean;
@@ -142,7 +146,7 @@ function EmptyProjectsScreen({
 }: {
   addProject: (input: NewProjectInput) => Promise<string>;
   lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { major: string; student: string }) => Promise<void>;
+  joinProject: (projectId: string, input: { school?: string; major: string; student: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -285,25 +289,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setChatMessages({});
     if (!projectId) return;
 
+    // nestDataRepository의 subscribeToMessages는 폴링 기반이라 매번 그 메시지의 "현재 전체
+    // 상태"(리액션/읽음 포함)를 다시 넘겨준다 — 그래서 새 메시지 추가뿐 아니라 기존 메시지 갱신도
+    // 이 콜백 하나로 처리한다(upsert). subscribeToReads는 이제 메시지 upsert에 흡수되어 안 씀.
     const unsubMessages = dataRepository.subscribeToMessages(projectId, (msg) => {
       setChatMessages((prev) => {
         const list = prev[msg.channelId] ?? [];
-        if (list.some((m) => m.id === msg.id)) return prev;
-        return { ...prev, [msg.channelId]: [...list, msg] };
-      });
-    });
-    const unsubReads = dataRepository.subscribeToReads(projectId, ({ messageId, memberId }) => {
-      setChatMessages((prev) => {
-        const next: Record<string, ChatMessage[]> = {};
-        for (const [cid, list] of Object.entries(prev)) {
-          next[cid] = list.map((m) => (m.id === messageId && !m.readBy.includes(memberId) ? { ...m, readBy: [...m.readBy, memberId] } : m));
-        }
-        return next;
+        const idx = list.findIndex((m) => m.id === msg.id);
+        const nextList = idx === -1 ? [...list, msg] : list.map((m, i) => (i === idx ? msg : m));
+        return { ...prev, [msg.channelId]: nextList };
       });
     });
     return () => {
       unsubMessages();
-      unsubReads();
     };
   }, [projectId]);
 
@@ -372,7 +370,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return dataRepository.getProjectById(targetId);
   }
 
-  async function joinProject(targetId: string, input: { major: string; student: string }) {
+  async function joinProject(targetId: string, input: { school?: string; major: string; student: string }) {
     const { name, avatar } = await accountIdentity();
     await dataRepository.joinProject(targetId, name, avatar, input);
     // `projects` is filtered to "my projects" (see the load effect above),
@@ -388,10 +386,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
-  async function updateMyProfile(patch: { name?: string; major?: string; student?: string; avatarFile?: File }) {
+  async function updateMyProfile(patch: { name?: string; school?: string; major?: string; student?: string; avatarFile?: File }) {
     if (!projectId || !currentMember) return;
     const avatarUrl = patch.avatarFile ? await dataRepository.uploadAvatar(patch.avatarFile) : undefined;
-    await dataRepository.updateMyProfile({ name: patch.name, major: patch.major, student: patch.student, avatarUrl });
+    await dataRepository.updateMyProfile({ name: patch.name, school: patch.school, major: patch.major, student: patch.student, avatarUrl });
     setTeam(await dataRepository.getTeam(projectId));
   }
 
@@ -479,6 +477,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     await refreshTasks();
   }
 
+  async function toggleTaskCommentReaction(commentId: number, emoji: string) {
+    if (!currentMember) return;
+    await dataRepository.toggleTaskCommentReaction(commentId, emoji);
+    await refreshTasks();
+  }
+
   async function addScheduleEvent(input: NewScheduleEventInput) {
     if (!projectId || !currentMember) return;
     if (input.scope === "team" && !isLeader) return;
@@ -488,6 +492,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   async function removeScheduleEvent(id: number) {
     await dataRepository.removeScheduleEvent(id);
+    await refreshScheduleEvents();
+  }
+
+  async function updateScheduleEvent(id: number, patch: Partial<{ title: string; date: string; type: ScheduleEventType }>) {
+    await dataRepository.updateScheduleEvent(id, patch);
     await refreshScheduleEvents();
   }
 
@@ -552,6 +561,17 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }));
   }
 
+  async function toggleMessageReaction(messageId: number, emoji: string) {
+    if (!projectId || !currentMember) return;
+    await dataRepository.toggleMessageReaction(projectId, messageId, emoji);
+    // 폴링이 4초 안에 알아서 반영하긴 하지만, 클릭한 사람은 바로 보고 싶어할 테니 그 채널만
+    // 즉시 다시 불러온다.
+    const channelId = Object.entries(chatMessages).find(([, list]) => list.some((m) => m.id === messageId))?.[0];
+    if (!channelId) return;
+    const fresh = await dataRepository.listMessages(projectId, channelId);
+    setChatMessages((prev) => ({ ...prev, [channelId]: fresh }));
+  }
+
   if (error) return <StatusScreen kind="error" message={error} />;
   // Not logged in — let the router render /login instead of a loading/empty
   // screen (RequireAuth handles the redirect; there's nothing to load here).
@@ -599,16 +619,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         addTaskChecklistItem,
         toggleTaskChecklistItem,
         addTaskComment,
+        toggleTaskCommentReaction,
         toggleTaskTeamSchedule,
         toggleTaskPersonalSchedule,
         scheduleEvents,
         addScheduleEvent,
+        updateScheduleEvent,
         removeScheduleEvent,
         chatUnread,
         chatUnreadTotal,
         chatMessages,
         sendChatMessage,
         markChannelMessagesRead,
+        toggleMessageReaction,
         currentMember,
         isLeader,
         loading,

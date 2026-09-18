@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useProject } from "../context/ProjectContext";
-import { createCalendarEvent, listCalendarEvents, type CalendarEvent, type CalendarEventType } from "../api/backend/calendar";
+import {
+  createCalendarEvent,
+  deleteCalendarEvent,
+  listCalendarEvents,
+  updateCalendarEvent,
+  type CalendarEvent,
+  type CalendarEventType,
+} from "../api/backend/calendar";
 
 // 제품개발/frontend의 일정(구글 캘린더 스타일 라벨 바 달력, ScheduleTab.tsx)을 이 앱의 화면 형식
 // (페이지 하나 = 화면 하나, var(--token) 인라인 스타일)에 맞춰 그대로 이식. talju_hajima 원래의
@@ -171,6 +178,9 @@ export default function Schedule() {
   const [monthDate, setMonthDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [dayPopup, setDayPopup] = useState<{ dateKey: string; rect: DOMRect } | null>(null);
+  // 편집 대상 — "일정 추가" 폼을 이 값이 있는 동안 "일정 수정" 폼으로 재사용한다(아래
+  // startEdit/cancelEdit/handleSubmit 참고), 목록 안에 별도 편집 폼을 두지 않음.
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
 
   async function refresh() {
     const { data } = await listCalendarEvents(project.id);
@@ -180,21 +190,54 @@ export default function Schedule() {
   useEffect(() => {
     setMonthDate(new Date());
     setSelectedDate(null);
+    setEditingEventId(null);
     refresh().catch(() => setError("일정을 불러오지 못했습니다."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
-  async function handleAdd() {
+  function resetForm() {
+    setTitle("");
+    setDate("");
+    setEndDate("");
+    setType("meeting");
+    setColor(typeMeta.meeting.color);
+    setEditingEventId(null);
+  }
+
+  function startEdit(e: CalendarEvent) {
+    if (e.source !== "manual") return;
+    setEditingEventId(e.id);
+    setTitle(e.title);
+    setDate(e.date.slice(0, 10));
+    setEndDate(e.endDate ? e.endDate.slice(0, 10) : "");
+    setType(e.refType ?? "other");
+    setColor(e.color ?? typeMeta[e.refType ?? "other"].color);
+  }
+
+  async function handleSubmit() {
     if (!title.trim() || !date) return;
     setError(null);
     try {
-      await createCalendarEvent(project.id, { title: title.trim(), date, endDate: endDate || undefined, color, type });
-      setTitle("");
-      setDate("");
-      setEndDate("");
+      if (editingEventId) {
+        await updateCalendarEvent(project.id, editingEventId, { title: title.trim(), date, endDate: endDate || null, color, type });
+      } else {
+        await createCalendarEvent(project.id, { title: title.trim(), date, endDate: endDate || undefined, color, type });
+      }
+      resetForm();
       await refresh();
     } catch {
-      setError("일정 추가에 실패했습니다.");
+      setError(editingEventId ? "일정 수정에 실패했습니다." : "일정 추가에 실패했습니다.");
+    }
+  }
+
+  async function handleDelete(eventId: string) {
+    setError(null);
+    try {
+      await deleteCalendarEvent(project.id, eventId);
+      if (editingEventId === eventId) resetForm();
+      await refresh();
+    } catch {
+      setError("일정 삭제에 실패했습니다.");
     }
   }
 
@@ -320,7 +363,14 @@ export default function Schedule() {
         {/* 일정 추가 + 전체 일정 목록 */}
         <div className="lg:col-span-2 flex flex-col gap-5">
           <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <h2 className="text-sm font-700 mb-3">일정 추가</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-700">{editingEventId ? "일정 수정" : "일정 추가"}</h2>
+              {editingEventId && (
+                <button onClick={resetForm} className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>
+                  취소
+                </button>
+              )}
+            </div>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -370,11 +420,11 @@ export default function Schedule() {
               </label>
             </div>
             <button
-              onClick={handleAdd}
+              onClick={handleSubmit}
               className="w-full py-2.5 text-sm font-700"
               style={{ borderRadius: "40px", background: title.trim() && date ? "var(--primary)" : "var(--muted)", color: title.trim() && date ? "#fff" : "var(--muted-foreground)" }}
             >
-              일정 추가
+              {editingEventId ? "일정 수정" : "일정 추가"}
             </button>
           </div>
 
@@ -392,8 +442,21 @@ export default function Schedule() {
                 const c = eventColor(e);
                 const meta = e.refType ? typeMeta[e.refType] : typeMeta.other;
                 const d = daysUntil(e.date.slice(0, 10));
+                const editable = e.source === "manual";
+                const isEditing = editingEventId === e.id;
+
                 return (
-                  <div key={e.id} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                  <div
+                    key={e.id}
+                    onClick={() => editable && startEdit(e)}
+                    className="flex items-center justify-between p-2.5 gap-2 transition-all"
+                    style={{
+                      background: isEditing ? "var(--secondary)" : "var(--muted)",
+                      borderRadius: "10px",
+                      border: isEditing ? "1.5px solid var(--primary)" : "1.5px solid transparent",
+                      cursor: editable ? "pointer" : "default",
+                    }}
+                  >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c }} />
                       <div className="min-w-0">
@@ -404,12 +467,27 @@ export default function Schedule() {
                         </div>
                       </div>
                     </div>
-                    <span
-                      className="text-xs font-700 px-2 py-0.5 shrink-0"
-                      style={{ borderRadius: "20px", background: d >= 0 && d <= 7 ? `${c}20` : "var(--card)", color: d >= 0 && d <= 7 ? c : "var(--muted-foreground)" }}
-                    >
-                      {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {editable && (
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            handleDelete(e.id);
+                          }}
+                          className="w-6 h-6 flex items-center justify-center text-xs"
+                          style={{ background: "var(--card)", color: "#ef4444", borderRadius: "50%" }}
+                          title="삭제"
+                        >
+                          ×
+                        </button>
+                      )}
+                      <span
+                        className="text-xs font-700 px-2 py-0.5 shrink-0"
+                        style={{ borderRadius: "20px", background: d >= 0 && d <= 7 ? `${c}20` : "var(--card)", color: d >= 0 && d <= 7 ? c : "var(--muted-foreground)" }}
+                      >
+                        {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
+                      </span>
+                    </div>
                   </div>
                 );
               })}

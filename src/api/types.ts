@@ -16,13 +16,27 @@ export interface NewProjectInput {
   endDate?: string;
 }
 
+export type ProfileLinkType = "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other";
+
+export interface ProfileLink {
+  id: string;
+  type: ProfileLinkType;
+  url: string;
+  label: string;
+}
+
 export interface Member {
   id: string;
   userId: string | null;
   name: string;
   role: string;
+  school: string;
   major: string;
   student: string;
+  contact: string;
+  bannerColor: string | null;
+  bannerImageUrl: string | null;
+  links: ProfileLink[];
   avatar: string;
   avatarUrl: string | null;
   tasks: { done: number; total: number };
@@ -90,12 +104,20 @@ export interface ChecklistItem {
   done: boolean;
 }
 
+export interface TaskCommentReaction {
+  commentId: number;
+  memberId: string;
+  emoji: string;
+}
+
 export interface TaskComment {
   id: number;
   author: string;
   avatar: string;
   date: string;
   text: string;
+  memberId: string | null;
+  reactions: TaskCommentReaction[];
 }
 
 export interface Task {
@@ -145,6 +167,45 @@ export interface NewScheduleEventInput {
   hideTitle?: boolean;
 }
 
+export interface ChatReaction {
+  messageId: number;
+  memberId: string;
+  emoji: string;
+}
+
+export type EvaluationPhase = "midterm" | "final";
+
+export interface EvaluationEntry {
+  recipientId: string;
+  role: number;
+  deadline: number;
+  communication: number;
+  collaboration: number;
+  quality: number;
+  comment: string;
+}
+
+export interface PeerEvaluationRecord extends EvaluationEntry {
+  id: string;
+  evaluatorId: string;
+  phase: EvaluationPhase;
+  createdAt: string;
+}
+
+export interface EvaluationAverage {
+  available: boolean;
+  count: number;
+  score: number | null;
+  criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null;
+  comments: string[];
+}
+
+export interface EvaluationData {
+  records: PeerEvaluationRecord[];
+  submitted: boolean;
+  average: EvaluationAverage;
+}
+
 export interface ChatMessage {
   id: number;
   channelId: string;
@@ -153,4 +214,5 @@ export interface ChatMessage {
   fileId: number | null;
   createdAt: string;
   readBy: string[];
+  reactions: ChatReaction[];
 }

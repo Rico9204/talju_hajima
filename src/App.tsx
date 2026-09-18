@@ -5,7 +5,6 @@ import TeamView from "./components/TeamView";
 import TaskBoard from "./components/TaskBoard";
 import PeerEvaluation from "./components/PeerEvaluation";
 import Workspace from "./components/Workspace";
-import FolderSync from "./components/FolderSync";
 import TeamChat from "./components/TeamChat";
 import DataCollector from "./components/DataCollector";
 import Schedule from "./components/Schedule";
@@ -24,7 +23,6 @@ export type Page =
   | "tasks"
   | "schedule"
   | "workspace"
-  | "foldersync"
   | "collector"
   | "evaluation";
 
@@ -92,7 +90,7 @@ function AppRoutes() {
         <Route path="tasks" element={<TaskBoard />} />
         <Route path="schedule" element={<Schedule />} />
         <Route path="workspace" element={<Workspace />} />
-        <Route path="foldersync" element={<FolderSync />} />
+        <Route path="foldersync" element={<Navigate to="/workspace" replace />} />
         <Route path="collector" element={<DataCollector />} />
         <Route path="evaluation" element={<PeerEvaluation />} />
         <Route path="*" element={<Navigate to="/myprojects" replace />} />

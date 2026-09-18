@@ -2,11 +2,15 @@ import { useEffect, useState, type ChangeEvent } from "react";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
-import { isValidDepartmentName } from "../lib/validators";
 import { createInviteToken } from "../api/backend/nestDataRepository";
+import { addProfileLink, deleteProfileLink } from "../api/backend/profileLinks";
+import { detectLink } from "../lib/links";
+import type { ProfileLink } from "../api/types";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
+import SchoolMajorPicker from "./SchoolMajorPicker";
 import Avatar from "./Avatar";
+import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -15,7 +19,6 @@ const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "tasks", label: "과제 보드", icon: "≡" },
   { id: "schedule", label: "일정", icon: "▤" },
   { id: "workspace", label: "워킹스페이스", icon: "⬡" },
-  { id: "foldersync", label: "폴더 연동", icon: "⇅" },
   { id: "collector", label: "정보 수집", icon: "⌕" },
   { id: "evaluation", label: "동료 평가", icon: "★" },
 ];
@@ -36,12 +39,17 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
+  const [profileSchool, setProfileSchool] = useState("");
   const [profileMajor, setProfileMajor] = useState("");
   const [profileStudent, setProfileStudent] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileLinks, setProfileLinks] = useState<ProfileLink[]>([]);
+  const [newLinkUrl, setNewLinkUrl] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
 
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ next: "", confirm: "" });
@@ -64,12 +72,47 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
 
   function openProfile() {
     setProfileName(currentMember?.name ?? "");
+    setProfileSchool(currentMember?.school ?? "");
     setProfileMajor(currentMember?.major ?? "");
     setProfileStudent(currentMember?.student ?? "");
     setAvatarFile(null);
     setAvatarPreview(null);
     setProfileError(null);
+    setProfileLinks(currentMember?.links ?? []);
+    setNewLinkUrl("");
+    setLinkError(null);
     setProfileOpen(true);
+  }
+
+  async function addLink() {
+    const raw = newLinkUrl.trim();
+    if (!raw || linkBusy) return;
+    const url = raw.includes("://") ? raw : `https://${raw}`;
+    const detected = detectLink(url);
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      const { data } = await addProfileLink({ url, type: detected.type, label: detected.label });
+      setProfileLinks((links) => [...links, data]);
+      setNewLinkUrl("");
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "링크를 추가하지 못했습니다.");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function removeLink(linkId: string) {
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await deleteProfileLink(linkId);
+      setProfileLinks((links) => links.filter((l) => l.id !== linkId));
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "링크를 삭제하지 못했습니다.");
+    } finally {
+      setLinkBusy(false);
+    }
   }
 
   function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
@@ -80,17 +123,13 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   }
 
   async function saveProfile() {
-    const majorTrimmed = profileMajor.trim();
-    if (majorTrimmed && !isValidDepartmentName(majorTrimmed)) {
-      setProfileError("학과 이름은 한글/영문으로 입력해주세요.");
-      return;
-    }
     setSavingProfile(true);
     setProfileError(null);
     try {
       await updateMyProfile({
         name: profileName.trim() || undefined,
-        major: majorTrimmed || undefined,
+        school: profileSchool.trim() || undefined,
+        major: profileMajor.trim() || undefined,
         student: profileStudent.trim() || undefined,
         avatarFile: avatarFile ?? undefined,
       });
@@ -496,14 +535,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               />
             </div>
             <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학과</label>
-              <input
-                value={profileMajor}
-                onChange={(e) => setProfileMajor(e.target.value)}
-                placeholder="예: 컴퓨터공학과"
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: `1px solid ${profileError ? "#ef4444" : "var(--border)"}`, borderRadius: "10px", color: "var(--foreground)" }}
-              />
+              <SchoolMajorPicker school={profileSchool} onSchoolChange={setProfileSchool} major={profileMajor} onMajorChange={setProfileMajor} />
             </div>
             <div>
               <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학번</label>
@@ -514,6 +546,51 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
                 className="w-full px-3 py-2.5 text-sm outline-none"
                 style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
               />
+            </div>
+            <div>
+              <label className="block text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>링크</label>
+              {profileLinks.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {profileLinks.map((link) => (
+                    <span
+                      key={link.id}
+                      className="inline-flex items-center gap-1.5 text-xs font-600 px-2.5 py-1.5"
+                      style={{ background: "var(--muted)", borderRadius: "999px", color: "var(--foreground)" }}
+                    >
+                      {link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={13} />}
+                      <a href={link.url} target="_blank" rel="noreferrer" className="truncate max-w-[140px]">{link.label}</a>
+                      <button
+                        type="button"
+                        onClick={() => removeLink(link.id)}
+                        disabled={linkBusy}
+                        style={{ color: "var(--muted-foreground)" }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  value={newLinkUrl}
+                  onChange={(e) => setNewLinkUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addLink())}
+                  placeholder="예: github.com/me"
+                  className="flex-1 min-w-0 px-3 py-2.5 text-sm outline-none"
+                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+                />
+                <button
+                  type="button"
+                  onClick={addLink}
+                  disabled={!newLinkUrl.trim() || linkBusy}
+                  className="px-3.5 text-sm font-700 shrink-0"
+                  style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}
+                >
+                  추가
+                </button>
+              </div>
+              {linkError && <div className="text-xs mt-1.5" style={{ color: "#ef4444" }}>{linkError}</div>}
             </div>
             <button
               type="button"

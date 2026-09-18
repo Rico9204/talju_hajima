@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { Task, TaskStatus, TaskPriority, Member } from "../context/ProjectContext";
 import { memberInfo } from "./TaskBoard";
 
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
+
 interface Props {
   task: Task;
   members: Member[];
@@ -9,6 +11,7 @@ interface Props {
   priorityLabel: Record<TaskPriority, { label: string; color: string }>;
   isLeader: boolean;
   isAssignee: boolean;
+  currentMemberId: string | null;
   canChangeStatus: boolean;
   locked: boolean;
   onClose: () => void;
@@ -18,6 +21,7 @@ interface Props {
   onToggleChecklist: (itemId: number, done: boolean) => void;
   onAddChecklistItem: (text: string) => void;
   onAddComment: (text: string) => void;
+  onToggleCommentReaction: (commentId: number, emoji: string) => void;
   onToggleTeamSchedule: (checked: boolean) => void;
   onTogglePersonalSchedule: (checked: boolean) => void;
 }
@@ -29,6 +33,7 @@ export default function TaskDetailPanel({
   priorityLabel,
   isLeader,
   isAssignee,
+  currentMemberId,
   canChangeStatus,
   locked,
   onClose,
@@ -38,12 +43,14 @@ export default function TaskDetailPanel({
   onToggleChecklist,
   onAddChecklistItem,
   onAddComment,
+  onToggleCommentReaction,
   onToggleTeamSchedule,
   onTogglePersonalSchedule,
 }: Props) {
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
+  const [reactionPickerCommentId, setReactionPickerCommentId] = useState<number | null>(null);
 
   const doneCount = task.checklist.filter((c) => c.done).length;
   const canEditFields = isLeader && !locked;
@@ -344,6 +351,56 @@ export default function TaskDetailPanel({
                     <p className="text-xs mt-0.5 leading-relaxed px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}>
                       {c.text}
                     </p>
+                    <div className="relative flex items-center gap-1 mt-1">
+                      {c.reactions.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {[...new Set(c.reactions.map((r) => r.emoji))].map((emoji) => {
+                            const reactions = c.reactions.filter((r) => r.emoji === emoji);
+                            const reactedByMe = reactions.some((r) => r.memberId === currentMemberId);
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={() => onToggleCommentReaction(c.id, emoji)}
+                                className="flex items-center gap-1 px-1.5 py-0.5 text-xs"
+                                style={{
+                                  background: reactedByMe ? "var(--secondary)" : "var(--muted)",
+                                  border: reactedByMe ? "1px solid var(--primary)" : "1px solid transparent",
+                                  borderRadius: "10px",
+                                }}
+                              >
+                                <span>{emoji}</span>
+                                <span style={{ color: "var(--muted-foreground)" }}>{reactions.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => setReactionPickerCommentId((id) => (id === c.id ? null : c.id))}
+                        className="w-5 h-5 flex items-center justify-center text-xs shrink-0"
+                        style={{ color: "var(--muted-foreground)" }}
+                        title="반응 추가"
+                      >
+                        +
+                      </button>
+                      {reactionPickerCommentId === c.id && (
+                        <div
+                          className="absolute top-full left-0 mt-1 flex items-center gap-0.5 p-1 z-10"
+                          style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)" }}
+                        >
+                          {REACTION_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => { onToggleCommentReaction(c.id, emoji); setReactionPickerCommentId(null); }}
+                              className="w-7 h-7 text-sm transition-transform hover:scale-110"
+                              title={`${emoji} 반응`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
