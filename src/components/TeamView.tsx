@@ -5,7 +5,8 @@ import PentagonChart from "./PentagonChart";
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
   const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader, openMemberProfile } = useProject();
   const { isAdmin } = useProjectManagement();
-  const [selected, setSelected] = useState<number>(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [memberSearch, setMemberSearch] = useState("");
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
   const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -19,10 +20,16 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const [pendingFinish, setPendingFinish] = useState(false);
 
   useEffect(() => {
-    setSelected(0);
+    setSelectedId(null);
+    setMemberSearch("");
   }, [project.id]);
 
   const members = team.members;
+  const memberSearchTrimmed = memberSearch.trim().toLowerCase();
+  const filteredMembers = memberSearchTrimmed
+    ? members.filter((m) => m.name.toLowerCase().includes(memberSearchTrimmed))
+    : members;
+  const showMemberSearch = members.length > 6;
 
   if (members.length === 0) {
     return (
@@ -46,7 +53,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
     );
   }
 
-  const sel = members[selected] || members[0];
+  const sel = members.find((m) => m.id === selectedId) ?? members[0];
   const canManage = isLeader || isAdmin;
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
   const canKick = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && sel.id !== currentMember?.id && !sel.isLeader;
@@ -74,23 +81,34 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
       </div>
 
       {/* Member cards grid */}
+      {showMemberSearch && (
+        <input
+          value={memberSearch}
+          onChange={(e) => setMemberSearch(e.target.value)}
+          placeholder="팀원 검색"
+          className="w-full max-w-xs text-xs px-3 py-1.5 border outline-none mb-2.5"
+          style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+        />
+      )}
       <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
-        {members.map((m, i) => (
+        {filteredMembers.map((m) => {
+          const isSelected = sel.id === m.id;
+          return (
           <button
-            key={i}
-            onClick={() => setSelected(i)}
+            key={m.id}
+            onClick={() => setSelectedId(m.id)}
             className="flex flex-col items-center p-4 shrink-0 transition-all"
             style={{
-              background: selected === i ? "var(--primary)" : "var(--card)",
+              background: isSelected ? "var(--primary)" : "var(--card)",
               borderRadius: "var(--radius)",
-              boxShadow: selected === i ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
+              boxShadow: isSelected ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
               width: 110,
-              color: selected === i ? "#fff" : "var(--foreground)",
+              color: isSelected ? "#fff" : "var(--foreground)",
             }}
           >
             <div
               className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
-              style={{ background: m.avatarUrl ? "var(--card)" : selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
+              style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
             >
               {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
               {m.isLeader && (
@@ -98,7 +116,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               )}
             </div>
             <div className="text-xs font-700">{m.name}</div>
-            <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+            <div className="text-xs mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
               {m.role}
             </div>
             {m.id === currentMember?.id && m.evalCount > 0 ? (
@@ -107,13 +125,17 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 <span className="text-xs font-700">{m.score.toFixed(1)}</span>
               </div>
             ) : (
-              <div className="text-xs mt-2" style={{ color: selected === i ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
+              <div className="text-xs mt-2" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
                 평가 대기
               </div>
             )}
-            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: selected === i ? "#fff" : "#22c55e" }} />}
+            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: isSelected ? "#fff" : "#22c55e" }} />}
           </button>
-        ))}
+          );
+        })}
+        {filteredMembers.length === 0 && (
+          <div className="text-xs py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+        )}
       </div>
 
       {/* Detail */}
@@ -313,7 +335,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </button>
               <button
                 disabled={busy}
-                onClick={() => runAction(() => kickMember(pendingKick.id), () => { setSelected(0); setPendingKick(null); })}
+                onClick={() => runAction(() => kickMember(pendingKick.id), () => { setSelectedId(null); setPendingKick(null); })}
                 className="flex-1 py-2.5 text-sm font-700 transition-all"
                 style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
               >
