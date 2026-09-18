@@ -15,7 +15,7 @@ const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef44
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
   { id: "team", label: "팀 관리", icon: "◎" },
-  { id: "chat", label: "팀 채팅", icon: "◐" },
+  { id: "chat", label: "채팅", icon: "◐" },
   { id: "tasks", label: "과제 보드", icon: "≡" },
   { id: "schedule", label: "일정", icon: "▤" },
   { id: "workspace", label: "워크스페이스", icon: "⬡" },

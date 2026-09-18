@@ -24,6 +24,7 @@ export default function TeamChat({
     openMemberProfile,
   } = useProject();
   const [input, setInput] = useState("");
+  const [channelSearch, setChannelSearch] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
@@ -32,10 +33,11 @@ export default function TeamChat({
   const scrollStateRef = useRef({ channelId: "", messageCount: 0 });
 
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
-  const channels = currentMember
-    ? [
-        { id: "all", type: "group" as const, name: "팀 전체", avatar: "⬡", avatarUrl: null as string | null, color: "var(--primary)", online: undefined as boolean | undefined, role: undefined as string | undefined, memberId: undefined as string | undefined },
-        ...otherMembers.map((m) => ({
+  // 개인 채팅(팀 채팅 제외)은 최근에 대화한 순서대로 정렬 — 아직 대화가
+  // 없는 상대는 뒤로 밀린다.
+  const dmChannels = currentMember
+    ? otherMembers
+        .map((m) => ({
           id: dmChannelId(currentMember.id, m.id),
           type: "dm" as const,
           name: m.name,
@@ -45,9 +47,29 @@ export default function TeamChat({
           online: m.online,
           role: m.role,
           memberId: m.id,
-        })),
+        }))
+        .sort((a, b) => {
+          const aMsgs = chatMessages[a.id];
+          const bMsgs = chatMessages[b.id];
+          const aLast = aMsgs && aMsgs.length ? aMsgs[aMsgs.length - 1].createdAt : null;
+          const bLast = bMsgs && bMsgs.length ? bMsgs[bMsgs.length - 1].createdAt : null;
+          if (aLast && bLast) return bLast.localeCompare(aLast);
+          if (aLast) return -1;
+          if (bLast) return 1;
+          return 0;
+        })
+    : [];
+  const channels = currentMember
+    ? [
+        { id: "all", type: "group" as const, name: "팀 채팅", avatar: "⬡", avatarUrl: null as string | null, color: "var(--primary)", online: undefined as boolean | undefined, role: undefined as string | undefined, memberId: undefined as string | undefined },
+        ...dmChannels,
       ]
     : [];
+
+  const channelSearchTrimmed = channelSearch.trim().toLowerCase();
+  const filteredChannels = channelSearchTrimmed
+    ? channels.filter((c) => c.name.toLowerCase().includes(channelSearchTrimmed))
+    : channels;
 
   const initialChannelId = currentMember && initialChannel ? dmChannelId(currentMember.id, initialChannel) : "all";
   const [active, setActive] = useState<string>(initialChannelId);
@@ -160,11 +182,11 @@ export default function TeamChat({
     <div className="p-4 md:p-6 max-w-5xl mx-auto flex flex-col h-full md:block md:h-auto">
       <div className="hidden md:block mb-5 shrink-0">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          팀 채팅
+          채팅
         </div>
         <h1 className="text-2xl font-700">Team Chat</h1>
         <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-          {project.name} · 팀 전체 채널과 1:1 대화{project.status === "done" && " · 종료된 프로젝트 대화 기록"}
+          {project.name} · 팀 채팅과 1:1 대화{project.status === "done" && " · 종료된 프로젝트 대화 기록"}
         </p>
       </div>
 
@@ -178,10 +200,17 @@ export default function TeamChat({
           style={{ borderRight: "1px solid var(--border)" }}
         >
           <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>채널</div>
+            <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)" }}>채널</div>
+            <input
+              value={channelSearch}
+              onChange={(e) => setChannelSearch(e.target.value)}
+              placeholder="채널 검색"
+              className="w-full text-xs px-3 py-1.5 border outline-none"
+              style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+            />
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto py-2">
-            {channels.map((c) => {
+            {filteredChannels.map((c) => {
               const isActive = active === c.id;
               const unread = chatUnread[c.id] ?? 0;
               return (
@@ -213,6 +242,9 @@ export default function TeamChat({
                 </button>
               );
             })}
+            {filteredChannels.length === 0 && (
+              <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+            )}
           </div>
         </div>
 
@@ -244,7 +276,7 @@ export default function TeamChat({
             <div>
               <div className="text-sm font-700">{chan.name}</div>
               <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                {chan.type === "group" ? "팀 전체 채널" : chan.role}
+                {chan.type === "group" ? `전체 ${otherMembers.length + 1}명` : chan.role}
               </div>
             </div>
           </div>
