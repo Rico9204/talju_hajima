@@ -36,6 +36,11 @@ export default function TeamChat({
   const [pendingScrollMessageId, setPendingScrollMessageId] = useState<number | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const scrollStateRef = useRef({ channelId: "", messageCount: 0 });
+  const messageSearchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (messageSearchOpen) messageSearchInputRef.current?.focus();
+  }, [messageSearchOpen]);
 
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
   // 개인 채팅(팀 채팅 제외)은 최근에 대화한 순서대로 정렬 — 아직 대화가 없는 상대는 뒤로 밀린다.
@@ -302,36 +307,36 @@ export default function TeamChat({
                   <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
                 )}
               </button>
-              <div className="min-w-0">
+              <div className={`min-w-0 transition-all duration-200 ${messageSearchOpen ? "opacity-0 w-0 overflow-hidden" : "opacity-100"}`}>
                 <div className="text-sm font-700 truncate">{chan.name}</div>
                 <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
                   {chan.type === "group" ? `전체 ${otherMembers.length + 1}명` : chan.role}
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => setMessageSearchOpen((v) => !v)}
-              title="대화 내용 검색"
-              aria-label="대화 내용 검색"
-              className="w-8 h-8 flex items-center justify-center text-sm shrink-0 transition-all"
-              style={{ background: messageSearchOpen ? "var(--primary)" : "var(--muted)", color: messageSearchOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "50%" }}
-            >
-              🔍
-            </button>
-          </div>
-
-          {messageSearchOpen && (
-            <div className="px-5 py-2.5 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-1.5 shrink-0">
               <input
-                autoFocus
+                ref={messageSearchInputRef}
                 value={messageSearch}
                 onChange={(e) => setMessageSearch(e.target.value)}
                 placeholder="대화 내용 검색"
-                className="w-full text-sm px-3 py-2 border outline-none"
+                className={`text-sm py-1.5 border outline-none transition-all duration-200 ${messageSearchOpen ? "w-28 sm:w-36 px-3 opacity-100" : "w-0 px-0 border-0 opacity-0 pointer-events-none"}`}
                 style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
               />
+              <button
+                onClick={() => {
+                  setMessageSearchOpen((v) => !v);
+                  if (messageSearchOpen) setMessageSearch("");
+                }}
+                title="대화 내용 검색"
+                aria-label="대화 내용 검색"
+                className="w-8 h-8 flex items-center justify-center text-sm shrink-0 transition-all"
+                style={{ background: messageSearchOpen ? "var(--primary)" : "var(--muted)", color: messageSearchOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "50%" }}
+              >
+                🔍
+              </button>
             </div>
-          )}
+          </div>
 
           {messageSearchTrimmed ? (
             <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-2">
