@@ -36,6 +36,7 @@ export interface DataRepository {
   listWorkspaceCleanupProjects(): Promise<string[]>;
   getMyEvaluationSummary(): Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
   getEvaluationMode(): Promise<boolean>;
+  setEvaluationMode(enabled: boolean): Promise<void>;
   getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
   submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]): Promise<void>;
   completeProject(projectId: string): Promise<Project>;

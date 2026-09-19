@@ -208,6 +208,10 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
     return data === true;
   },
+  async setEvaluationMode(enabled) {
+    const { error } = await supabase.rpc("set_evaluation_prototype_enabled", { p_enabled: enabled });
+    if (error) throw error;
+  },
   async getEvaluations(projectId, phase) {
     const [records, submissions, average] = await Promise.all([
       supabase.from("peer_evaluations").select("*").eq("project_id", projectId).eq("phase", phase).order("created_at"),

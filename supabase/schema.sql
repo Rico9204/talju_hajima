@@ -991,10 +991,14 @@ revoke all on function public.complete_evaluation_project(text) from public, ano
 grant execute on function public.complete_evaluation_project(text) to authenticated;
 commit;
 
--- Prototype validation only. Set the helper to SELECT false to restore normal gating.
+-- Prototype/test mode toggle. Backed by app_settings (see near the bottom of
+-- this file, after is_admin() is defined) so an admin can flip it at
+-- runtime via set_evaluation_prototype_enabled() instead of editing SQL.
 begin;
 create or replace function public.evaluation_prototype_enabled()
-returns boolean language sql stable as $$ select true $$;
+returns boolean language sql stable as $$
+  select coalesce((select value from public.app_settings where key = 'evaluation_prototype_enabled'), true)
+$$;
 revoke all on function public.evaluation_prototype_enabled() from public, anon;
 grant execute on function public.evaluation_prototype_enabled() to authenticated;
 
@@ -1096,7 +1100,7 @@ begin
  if actor is null then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
  select count(*) into expected from members where project_id=p_project_id and id<>actor and user_id is not null;
  select count(*) into received from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
- if expected<2 or received<expected then
+ if not public.evaluation_prototype_enabled() and (expected<2 or received<expected) then
    return jsonb_build_object('count',0,'score',null,'criteria',null,'comments','[]'::jsonb,'available',false);
  end if;
  select jsonb_build_object('count',count(*),'available',true,
@@ -1997,5 +2001,31 @@ begin
 end $$;
 revoke all on function public.delete_managed_project(text) from public,anon;
 grant execute on function public.delete_managed_project(text) to authenticated;
+
+-- Global app-wide flags. Single row per key today (just the evaluation
+-- prototype/test toggle) — see evaluation_prototype_enabled() near the top
+-- of this file, which reads from here.
+create table if not exists public.app_settings (
+  key text primary key,
+  value boolean not null
+);
+alter table public.app_settings enable row level security;
+insert into public.app_settings (key, value)
+  values ('evaluation_prototype_enabled', true)
+  on conflict (key) do nothing;
+drop policy if exists app_settings_select on public.app_settings;
+create policy app_settings_select on public.app_settings for select to authenticated using (true);
+revoke insert, update, delete on public.app_settings from authenticated;
+
+create or replace function public.set_evaluation_prototype_enabled(p_enabled boolean)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+ if auth.uid() is null or not public.is_admin() then raise exception '관리자만 변경할 수 있습니다.'; end if;
+ insert into public.app_settings (key, value) values ('evaluation_prototype_enabled', p_enabled)
+   on conflict (key) do update set value = excluded.value;
+end $$;
+revoke all on function public.set_evaluation_prototype_enabled(boolean) from public,anon;
+grant execute on function public.set_evaluation_prototype_enabled(boolean) to authenticated;
+
 notify pgrst,'reload schema';
 commit;

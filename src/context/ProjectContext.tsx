@@ -274,6 +274,8 @@ const ProjectManagementContext = createContext<{
   getAdminTeam: (projectId: string) => Promise<TeamData>;
   kickMember: typeof dataRepository.kickMember;
   searchAdmins: typeof dataRepository.searchAdmins;
+  getEvaluationMode: typeof dataRepository.getEvaluationMode;
+  setEvaluationMode: typeof dataRepository.setEvaluationMode;
 } | null>(null);
 const managementActions = {
   retryFileCleanup: async () => {
@@ -287,6 +289,8 @@ const managementActions = {
   getAdminTeam: (id: string) => dataRepository.getTeam(id, true),
   kickMember: (id: string) => dataRepository.kickMember(id),
   searchAdmins: (query: string) => dataRepository.searchAdmins(query),
+  getEvaluationMode: () => dataRepository.getEvaluationMode(),
+  setEvaluationMode: (enabled: boolean) => dataRepository.setEvaluationMode(enabled),
 };
 export function useProjectManagement() {
   const context = useContext(ProjectManagementContext);
