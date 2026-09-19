@@ -602,7 +602,21 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
               ) : <div className="space-y-3 text-sm">{(isSelfProfile
                   ? [["학과 · 학년", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email], ...(isAdmin ? [["소속", profileOrg || currentMember?.org || "미입력 — 조장이 승인 요청 시 검색할 수 없어요"]] : [])]
                   : [["역할", viewedMember.role], ["학과 · 학년", viewedMember.major || "미입력"], ["학번", viewedMember.student || "미입력"], ["연락처", viewedMember.contact || "미입력"]]
-                ).map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}</div>}
+                ).map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}
+                  {!isSelfProfile && (
+                    <div>
+                      <div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>평점 평균</div>
+                      {viewedMember.evalCount > 0 ? (
+                        <div className="flex items-baseline gap-1">
+                          <span className="font-700" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</span>
+                          <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10.0 · 최종 평가 {viewedMember.evalCount}건</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>평균 공개 대기 중</div>
+                      )}
+                    </div>
+                  )}
+                </div>}
               <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{(isSelfProfile ? profileLinks : viewedMember.links).map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{isSelfProfile && profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{isSelfProfile && profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
               {isSelfProfile && profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
               {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}

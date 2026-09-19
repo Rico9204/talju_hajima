@@ -238,7 +238,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
                 협업 평판 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
               </div>
-              {sel.id === currentMember?.id && sel.evalCount > 0 ? (
+              {sel.evalCount > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
@@ -255,7 +255,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 </>
               ) : (
                 <p className="text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                  {sel.id !== currentMember?.id ? "평점은 본인만 조회할 수 있습니다." : "평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다."}
+                  평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다.
                 </p>
               )}
             </div>
@@ -280,7 +280,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
               동료 평가 항목별 점수 (참고)
             </div>
-            {sel.id === currentMember?.id && sel.evalCount > 0 ? (
+            {sel.evalCount > 0 ? (
               <div className="flex justify-center">
                 <PentagonChart
                   data={[
@@ -294,7 +294,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             ) : (
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                {sel.id !== currentMember?.id ? "항목별 평균은 본인만 조회할 수 있습니다." : "최종 평가 평균 공개 후 표시됩니다. 중간 평균은 동료 평가 탭에서 확인하세요."}
+                최종 평가 평균 공개 후 표시됩니다. {sel.id === currentMember?.id && "중간 평균은 동료 평가 탭에서 확인하세요."}
               </div>
             )}
           </div>
