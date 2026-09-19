@@ -34,8 +34,7 @@ export default function TeamChat({
   const scrollStateRef = useRef({ channelId: "", messageCount: 0 });
 
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id);
-  // 개인 채팅(팀 채팅 제외)은 최근에 대화한 순서대로 정렬 — 아직 대화가
-  // 없는 상대는 뒤로 밀린다.
+  // 개인 채팅(팀 채팅 제외)은 최근에 대화한 순서대로 정렬 — 아직 대화가 없는 상대는 뒤로 밀린다.
   const dmChannels = currentMember
     ? otherMembers
         .map((m) => ({
@@ -207,7 +206,7 @@ export default function TeamChat({
           className={`${mobileShowThread ? "hidden" : "flex"} md:flex md:col-span-2 min-h-0 flex-col`}
           style={{ borderRight: "1px solid var(--border)" }}
         >
-          <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="px-4 py-2 flex items-center justify-between gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
             <div className="text-xs font-600 uppercase tracking-widest shrink-0" style={{ color: "var(--muted-foreground)" }}>채널</div>
             <input
               value={channelSearch}

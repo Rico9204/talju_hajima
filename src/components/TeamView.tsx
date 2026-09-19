@@ -172,7 +172,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 </div>
                 <div className="text-sm font-600 mt-0.5" style={{ color: sel.color }}>{sel.role}</div>
                 <div className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
-                <div className="flex items-center justify-between gap-2 mt-1.5">
+                <div className="flex items-center justify-between gap-2 mt-1.5 min-h-[24px]">
                   <div className="text-xs min-w-0 truncate" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {sel.id !== currentMember?.id && onMessage && (
