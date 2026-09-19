@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useProject, type Task, type TaskStatus, type TaskPriority, type Member } from "../context/ProjectContext";
 import { memberInfo } from "./TaskBoard";
 import Avatar from "./Avatar";
@@ -49,6 +49,8 @@ export default function TaskDetailPanel({
   onTogglePersonalSchedule,
 }: Props) {
   const { openMemberProfile } = useProject();
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+  useEffect(() => { setAssigneeSearch(""); }, [task.id]);
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
@@ -57,6 +59,11 @@ export default function TaskDetailPanel({
 
   const doneCount = task.checklist.filter((c) => c.done).length;
   const canEditFields = isLeader && !locked;
+  const showAssigneeSearch = members.length > 8;
+  const assigneeSearchTrimmed = assigneeSearch.trim().toLowerCase();
+  const visibleAssigneeMembers = assigneeSearchTrimmed
+    ? members.filter((m) => m.name.toLowerCase().includes(assigneeSearchTrimmed))
+    : members;
 
   function addTag() {
     const value = tagDraft.trim();
@@ -106,33 +113,47 @@ export default function TaskDetailPanel({
           <div className="mb-4">
             <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>담당자</div>
             {canEditFields ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                {members.map((m) => {
-                  const checked = task.assigneeIds.includes(m.id);
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => toggleAssignee(m.id)}
-                      aria-pressed={checked}
-                      className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0 transition-all"
-                      style={{
-                        background: checked ? `${m.color}18` : "var(--muted)",
-                        color: checked ? m.color : "var(--muted-foreground)",
-                        borderRadius: "20px",
-                        opacity: checked ? 1 : 0.5,
-                      }}
-                    >
-                      <span
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
-                        style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
+              <div>
+                {showAssigneeSearch && (
+                  <input
+                    value={assigneeSearch}
+                    onChange={(e) => setAssigneeSearch(e.target.value)}
+                    placeholder="담당자 검색"
+                    className="w-full text-xs px-3 py-1.5 border outline-none mb-2"
+                    style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                  />
+                )}
+                <div className="flex items-center gap-2 flex-wrap max-h-40 overflow-y-auto pr-1">
+                  {visibleAssigneeMembers.map((m) => {
+                    const checked = task.assigneeIds.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggleAssignee(m.id)}
+                        aria-pressed={checked}
+                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0 transition-all"
+                        style={{
+                          background: checked ? `${m.color}18` : "var(--muted)",
+                          color: checked ? m.color : "var(--muted-foreground)",
+                          borderRadius: "20px",
+                          opacity: checked ? 1 : 0.5,
+                        }}
                       >
-                        {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-                      </span>
-                      {m.name}
-                    </button>
-                  );
-                })}
+                        <span
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
+                          style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
+                        >
+                          {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                        </span>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                  {visibleAssigneeMembers.length === 0 && (
+                    <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-2 flex-wrap">

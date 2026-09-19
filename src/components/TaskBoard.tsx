@@ -47,6 +47,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
   const [assigneeFilterSearch, setAssigneeFilterSearch] = useState("");
+  const [quickAddAssigneeSearch, setQuickAddAssigneeSearch] = useState("");
   const [boardSearch, setBoardSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [addingCol, setAddingCol] = useState<TaskStatus | null>(null);
@@ -63,6 +64,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     setAddingCol(null);
     setNewTitle("");
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
+    setQuickAddAssigneeSearch("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
@@ -77,6 +79,11 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const visibleFilterOptions = assigneeFilterSearchTrimmed
     ? filterOptions.filter((o) => o.id === "all" || o.label.toLowerCase().includes(assigneeFilterSearchTrimmed))
     : filterOptions;
+  const showQuickAddSearch = team.members.length > 8;
+  const quickAddSearchTrimmed = quickAddAssigneeSearch.trim().toLowerCase();
+  const visibleQuickAddMembers = quickAddSearchTrimmed
+    ? team.members.filter((m) => m.name.toLowerCase().includes(quickAddSearchTrimmed))
+    : team.members;
   const showBoardSearch = tasks.length > 8;
   const boardSearchTrimmed = boardSearch.trim().toLowerCase();
   const filtered = tasks.filter(
@@ -90,6 +97,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     setAddingCol(col);
     setNewTitle("");
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
+    setQuickAddAssigneeSearch("");
   }
 
   function toggleNewAssignee(id: string) {
@@ -194,7 +202,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
               </div>
 
               <div className="flex flex-col gap-3 min-h-32">
-                <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1">
+                <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1 scrollbar-dark">
                 {colTasks.map((task) => {
                   const dLeft = daysUntilDue(task.due);
                   const urgent = task.status !== "done" && dLeft !== null && dLeft <= 3;
@@ -333,16 +341,28 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                         className="text-xs px-2.5 py-2 border outline-none"
                         style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
                       />
+                      {showQuickAddSearch && (
+                        <input
+                          value={quickAddAssigneeSearch}
+                          onChange={(e) => setQuickAddAssigneeSearch(e.target.value)}
+                          placeholder="담당자 검색"
+                          className="text-xs px-2.5 py-1.5 border outline-none"
+                          style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                        />
+                      )}
                       <div
                         className="flex flex-col gap-1 max-h-28 overflow-y-auto px-2.5 py-2 border"
                         style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)" }}
                       >
-                        {team.members.map((m) => (
+                        {visibleQuickAddMembers.map((m) => (
                           <label key={m.id} className="flex items-center gap-1.5 text-xs">
                             <input type="checkbox" checked={newAssignees.includes(m.id)} onChange={() => toggleNewAssignee(m.id)} />
                             {m.name}
                           </label>
                         ))}
+                        {visibleQuickAddMembers.length === 0 && (
+                          <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+                        )}
                       </div>
                       <div className="flex gap-1.5">
                         <button
