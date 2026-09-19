@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import Home from "./components/Home";
 import Dashboard from "./components/Dashboard";
 import TeamView from "./components/TeamView";
 import TaskBoard from "./components/TaskBoard";
@@ -26,7 +27,7 @@ function RequireAuth() {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
-  return <Layout />;
+  return <Outlet />;
 }
 
 function Layout() {
@@ -44,7 +45,7 @@ function Layout() {
 
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
-      <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} />
+      <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />
       {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
         <Outlet />
@@ -106,19 +107,22 @@ function AppRoutes() {
       <Route path="login" element={<Login />} />
       <Route path="reset-password" element={<ResetPassword />} />
       <Route element={<RequireAuth />}>
-        <Route path="dashboard" element={<DashboardRoute />} />
-        <Route path="team" element={<TeamViewRoute />} />
-        <Route path="chat" element={<ChatRoute />} />
-        <Route path="chat/:channel" element={<ChatRoute />} />
-        <Route path="tasks" element={<TaskBoardRoute />} />
-        <Route path="tasks/:taskId" element={<TaskBoardRoute />} />
-        <Route path="schedule" element={<ScheduleRoute />} />
-        <Route path="schedule/:eventId" element={<ScheduleRoute />} />
-        <Route path="workspace" element={<WorkspaceRoute />} />
-        <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
-        <Route path="evaluation" element={<PeerEvaluation />} />
-        <Route path="admin" element={<RequireAdmin />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="home" element={<Home />} />
+        <Route element={<Layout />}>
+          <Route path="dashboard" element={<DashboardRoute />} />
+          <Route path="team" element={<TeamViewRoute />} />
+          <Route path="chat" element={<ChatRoute />} />
+          <Route path="chat/:channel" element={<ChatRoute />} />
+          <Route path="tasks" element={<TaskBoardRoute />} />
+          <Route path="tasks/:taskId" element={<TaskBoardRoute />} />
+          <Route path="schedule" element={<ScheduleRoute />} />
+          <Route path="schedule/:eventId" element={<ScheduleRoute />} />
+          <Route path="workspace" element={<WorkspaceRoute />} />
+          <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
+          <Route path="evaluation" element={<PeerEvaluation />} />
+          <Route path="admin" element={<RequireAdmin />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
       </Route>
     </Routes>
   );

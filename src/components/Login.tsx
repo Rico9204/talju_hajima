@@ -34,7 +34,7 @@ export default function Login() {
   // confirmation off, or opened /login directly while authenticated) —
   // there was previously no redirect here at all, so the login button
   // appeared to do nothing.
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to="/home" replace />;
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>

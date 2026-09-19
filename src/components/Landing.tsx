@@ -5,7 +5,7 @@ export default function Landing() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to="/home" replace />;
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
