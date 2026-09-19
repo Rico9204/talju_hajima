@@ -396,11 +396,36 @@ export default function TeamChat({
                       </time>
                     </div>
                   )}
-                <div id={`chat-message-${m.id}`} className={`group/message flex flex-col min-w-0 w-full ${joinsPrevious ? "mt-0.5" : "mt-3"}`} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                <div
+                  id={`chat-message-${m.id}`}
+                  className={`group/message flex w-full min-w-0 items-start gap-2 ${joinsPrevious ? "mt-0.5" : "mt-3"}`}
+                  style={{ justifyContent: mine ? "flex-end" : "flex-start" }}
+                >
+                  {!mine && (
+                    <button
+                      type="button"
+                      onClick={() => sender && openMemberProfile(sender.id)}
+                      disabled={!sender}
+                      className={`w-7 h-7 rounded-full overflow-hidden shrink-0 ${joinsPrevious ? "invisible" : ""}`}
+                      title={sender ? `${sender.name} 프로필 보기` : undefined}
+                    >
+                      <div
+                        className="w-full h-full flex items-center justify-center text-[11px] font-700"
+                        style={{ background: sender?.avatarUrl ? "var(--card)" : `${sender?.color ?? "#94a3b8"}18`, color: sender?.color ?? "var(--muted-foreground)" }}
+                      >
+                        {sender?.avatarUrl ? (
+                          <img src={sender.avatarUrl} alt={sender.name} className="w-full h-full object-cover" />
+                        ) : (
+                          sender?.avatar ?? "?"
+                        )}
+                      </div>
+                    </button>
+                  )}
+                  <div className="flex flex-col min-w-0 max-w-[75%]" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                   {!mine && !joinsPrevious && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
-                  <div className="relative flex flex-col min-w-0 max-w-[75%]" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                  <div className="relative flex flex-col min-w-0" style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                       {m.text && (
                         <div
                           className="px-3.5 py-2.5 text-sm max-w-none leading-relaxed break-words"
@@ -520,6 +545,7 @@ export default function TeamChat({
                       <time dateTime={m.createdAt} className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatChatTime(m.createdAt)}</time>
                     </div>
                   )}
+                  </div>
                 </div>
                 </Fragment>
               );
