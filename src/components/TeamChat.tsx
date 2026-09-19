@@ -1,6 +1,7 @@
 import { Fragment, useState, useRef, useEffect } from "react";
 import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
 import { belongsToMessageGroup, startsNewChatDay, formatChatDate, formatChatTime } from "../lib/chatDate";
+import SearchHighlight from "./SearchHighlight";
 
 interface FileRef {
   id: number;
@@ -30,6 +31,9 @@ export default function TeamChat({
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<number | null>(null);
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearch, setMessageSearch] = useState("");
+  const [pendingScrollMessageId, setPendingScrollMessageId] = useState<number | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const scrollStateRef = useRef({ channelId: "", messageCount: 0 });
 
@@ -99,6 +103,8 @@ export default function TeamChat({
     setFileMentionSearch("");
     setEmojiPickerOpen(false);
     setReactionPickerMessageId(null);
+    setMessageSearchOpen(false);
+    setMessageSearch("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, initialChannel, currentMember?.id]);
 
@@ -116,6 +122,16 @@ export default function TeamChat({
 
     scrollStateRef.current = { channelId: active, messageCount };
   }, [active, chatMessages[active]?.length]);
+
+  // 검색 결과에서 메시지를 클릭하면 검색을 닫고(원래 스레드 뷰로 돌아가고)
+  // 그 메시지로 스크롤한다 — 검색 뷰에는 실제 메시지 DOM이 없어서 뷰가
+  // 다시 그려진 다음에 스크롤해야 한다.
+  useEffect(() => {
+    if (pendingScrollMessageId === null || messageSearch) return;
+    const el = document.getElementById(`chat-message-${pendingScrollMessageId}`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setPendingScrollMessageId(null);
+  }, [pendingScrollMessageId, messageSearch]);
 
   // Selecting a channel marks its current messages as read, but a message
   // received while that channel is already open must be read as well.
@@ -155,6 +171,11 @@ export default function TeamChat({
   function memberFor(id: string) {
     return team.members.find((m) => m.id === id);
   }
+
+  const messageSearchTrimmed = messageSearch.trim();
+  const messageSearchResults = messageSearchTrimmed
+    ? thread.filter((m) => m.text?.toLowerCase().includes(messageSearchTrimmed.toLowerCase()))
+    : [];
 
   function folderNameOf(folderId: number | null) {
     return folderId === null ? "루트" : folders.find((f) => f.id === folderId)?.name || "폴더";
@@ -257,37 +278,88 @@ export default function TeamChat({
 
         {/* Thread */}
         <div className={`${mobileShowThread ? "flex" : "hidden"} md:flex md:col-span-3 min-h-0 min-w-0 flex-col`}>
-          <div className="flex items-center gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-            <button
-              onClick={() => setMobileShowThread(false)}
-              className="md:hidden w-8 h-8 flex items-center justify-center text-base shrink-0"
-              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
-              aria-label="채널 목록으로"
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              onClick={() => chan.memberId && openMemberProfile(chan.memberId)}
-              disabled={!chan.memberId}
-              className="w-8 h-8 relative shrink-0"
-              title={chan.type === "dm" ? `${chan.name} 프로필 보기` : undefined}
-            >
-              <div className="w-full h-full rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
-                {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
-              </div>
-              {chan.type === "dm" && chan.online && (
-                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
-              )}
-            </button>
-            <div>
-              <div className="text-sm font-700">{chan.name}</div>
-              <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                {chan.type === "group" ? `전체 ${otherMembers.length + 1}명` : chan.role}
+          <div className="flex items-center justify-between gap-2.5 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                onClick={() => setMobileShowThread(false)}
+                className="md:hidden w-8 h-8 flex items-center justify-center text-base shrink-0"
+                style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+                aria-label="채널 목록으로"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={() => chan.memberId && openMemberProfile(chan.memberId)}
+                disabled={!chan.memberId}
+                className="w-8 h-8 relative shrink-0"
+                title={chan.type === "dm" ? `${chan.name} 프로필 보기` : undefined}
+              >
+                <div className="w-full h-full rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
+                  {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
+                </div>
+                {chan.type === "dm" && chan.online && (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
+                )}
+              </button>
+              <div className="min-w-0">
+                <div className="text-sm font-700 truncate">{chan.name}</div>
+                <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                  {chan.type === "group" ? `전체 ${otherMembers.length + 1}명` : chan.role}
+                </div>
               </div>
             </div>
+            <button
+              onClick={() => setMessageSearchOpen((v) => !v)}
+              title="대화 내용 검색"
+              aria-label="대화 내용 검색"
+              className="w-8 h-8 flex items-center justify-center text-sm shrink-0 transition-all"
+              style={{ background: messageSearchOpen ? "var(--primary)" : "var(--muted)", color: messageSearchOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "50%" }}
+            >
+              🔍
+            </button>
           </div>
 
+          {messageSearchOpen && (
+            <div className="px-5 py-2.5 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+              <input
+                autoFocus
+                value={messageSearch}
+                onChange={(e) => setMessageSearch(e.target.value)}
+                placeholder="대화 내용 검색"
+                className="w-full text-sm px-3 py-2 border outline-none"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            </div>
+          )}
+
+          {messageSearchTrimmed ? (
+            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-2">
+              {messageSearchResults.map((m) => {
+                const sender = memberFor(m.senderId);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => { setPendingScrollMessageId(m.id); setMessageSearch(""); setMessageSearchOpen(false); }}
+                    className="text-left p-3 transition-all"
+                    style={{ background: "var(--muted)", borderRadius: "10px" }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-700">{sender?.name ?? "알 수 없음"}</span>
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{formatChatTime(m.createdAt)}</span>
+                    </div>
+                    <div className="text-sm break-words" style={{ color: "var(--foreground)" }}>
+                      <SearchHighlight text={m.text} query={messageSearch} />
+                    </div>
+                  </button>
+                );
+              })}
+              {messageSearchResults.length === 0 && (
+                <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+              )}
+            </div>
+          ) : (
           <div ref={threadRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto px-5 py-4 flex flex-col gap-1">
             {thread.map((m, index) => {
               const mine = m.senderId === currentMember.id;
@@ -319,7 +391,7 @@ export default function TeamChat({
                       </time>
                     </div>
                   )}
-                <div className={`group/message flex flex-col min-w-0 w-full ${joinsPrevious ? "mt-0.5" : "mt-3"}`} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
+                <div id={`chat-message-${m.id}`} className={`group/message flex flex-col min-w-0 w-full ${joinsPrevious ? "mt-0.5" : "mt-3"}`} style={{ alignItems: mine ? "flex-end" : "flex-start" }}>
                   {!mine && !joinsPrevious && (
                     <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>{sender?.name ?? "알 수 없음"}</span>
                   )}
@@ -451,6 +523,7 @@ export default function TeamChat({
               <div className="flex-1 flex items-center justify-center text-xs" style={{ color: "var(--muted-foreground)" }}>아직 대화가 없어요</div>
             )}
           </div>
+          )}
 
           <div className="shrink-0 relative" style={{ borderTop: "1px solid var(--border)" }}>
             {emojiPickerOpen && (
