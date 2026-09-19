@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import { Page } from "../App";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
@@ -9,13 +9,23 @@ import JoinProjectModal from "./JoinProjectModal";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 import MyEvaluationSummary from "./MyEvaluationSummary";
+import PentagonChart from "./PentagonChart";
 
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
-const navItems: { id: Page; label: string; icon: string }[] = [
+const navItems: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
   { id: "team", label: "팀 관리", icon: "◎" },
-  { id: "chat", label: "팀 채팅", icon: "◐" },
+  {
+    id: "chat",
+    label: "채팅",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      </svg>
+    ),
+  },
   { id: "tasks", label: "과제 보드", icon: "≡" },
   { id: "schedule", label: "일정", icon: "▤" },
   { id: "workspace", label: "워크스페이스", icon: "⬡" },
@@ -25,7 +35,10 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
 
 export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
-  const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile } = useProject();
+  const {
+    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile,
+    team, viewedMemberId, openMemberProfile, closeMemberProfile,
+  } = useProject();
   const { user, signOut, updatePassword } = useAuth();
   const { isAdmin } = useProjectManagement();
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
@@ -49,7 +62,12 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     onNavigate(p);
   }
 
-  const [profileOpen, setProfileOpen] = useState(false);
+  // The profile modal below is shared: viewedMemberId is set from anywhere
+  // a member's avatar is clickable (this Sidebar's own bottom-left avatar,
+  // or another member's avatar in chat/comments/team view/etc.), and the
+  // edit affordances only render when it's the signed-in user's own id.
+  const isSelfProfile = viewedMemberId !== null && viewedMemberId === currentMember?.id;
+  const viewedMember = viewedMemberId === currentMember?.id ? currentMember : team.members.find((m) => m.id === viewedMemberId) ?? null;
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileSchool, setProfileSchool] = useState("");
@@ -89,24 +107,37 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   }
 
   function openProfile() {
+    if (currentMember) openMemberProfile(currentMember.id);
+  }
+
+  // The edit-draft state below (banner color, name fields, links…) has to
+  // stay in sync with `currentMember` no matter which of the many avatars
+  // across the app opened this modal for "myself" — only the bottom-left
+  // trigger used to populate it, so viewing your own profile via any other
+  // avatar (chat, comments, team view…) showed stale/default values (e.g.
+  // the banner color reverting to the useState default instead of the
+  // saved one). Re-sync every time the modal opens on the signed-in user's
+  // own id instead of relying on a single entry point.
+  useEffect(() => {
+    if (viewedMemberId !== currentMember?.id || !currentMember) return;
     setProfileEditOpen(false);
-    setProfileName(currentMember?.name ?? "");
-    setProfileSchool(currentMember?.school ?? "");
-    setProfileMajor(currentMember?.major ?? "");
-    setProfileStudent(currentMember?.student ?? "");
-    setProfileContact(currentMember?.contact ?? "");
-    setProfileOrg(currentMember?.org ?? "");
+    setProfileName(currentMember.name ?? "");
+    setProfileSchool(currentMember.school ?? "");
+    setProfileMajor(currentMember.major ?? "");
+    setProfileStudent(currentMember.student ?? "");
+    setProfileContact(currentMember.contact ?? "");
+    setProfileOrg(currentMember.org ?? "");
     setAvatarFile(null);
     setAvatarPreview(null);
-    setBannerColor(currentMember?.bannerColor ?? currentMember?.color ?? "#2563eb");
+    setBannerColor(currentMember.bannerColor ?? currentMember.color ?? "#2563eb");
     setBannerImageFile(null);
     setBannerPreview(null);
     setBannerCleared(false);
-    setProfileLinks(currentMember?.links ?? []);
+    setProfileLinks(currentMember.links ?? []);
     setNewLinkUrl("");
     setProfileError(null);
-    setProfileOpen(true);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewedMemberId, currentMember?.id]);
 
   function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -137,7 +168,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
   async function saveProfile() {
     const majorTrimmed = profileMajor.trim();
     if (majorTrimmed && !isValidDepartmentName(majorTrimmed)) {
-      setProfileError("학과 이름은 한글/영문으로 입력해주세요.");
+      setProfileError("학과 · 학년은 한글/영문으로 입력해주세요. (예: 컴퓨터공학과 3학년)");
       return;
     }
     setSavingProfile(true);
@@ -532,40 +563,92 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         </div>
       </div>
     )}
-    {profileOpen && (
-      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setProfileOpen(false)}>
+    {viewedMember && (
+      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closeMemberProfile}>
         <div className="w-[660px] max-w-[95vw] overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
-          <div className="relative h-28" style={bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl) ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }}>
+          <div
+            className="relative h-28"
+            style={
+              isSelfProfile
+                ? bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl)
+                  ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+                  : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }
+                : viewedMember.bannerImageUrl
+                  ? { backgroundImage: `url(${viewedMember.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+                  : { background: `linear-gradient(135deg, ${viewedMember.bannerColor ?? viewedMember.color}, ${viewedMember.bannerColor ?? viewedMember.color}88)` }
+            }
+          >
             <div className="absolute top-3 right-3 flex items-center gap-2">
-              {profileEditOpen && <div className="flex items-center gap-1.5 p-1.5" style={{ background: "rgba(255,255,255,.94)", borderRadius: "12px", boxShadow: "0 4px 12px rgba(15,18,53,.16)" }}>
+              {isSelfProfile && profileEditOpen && <div className="flex items-center gap-1.5 p-1.5" style={{ background: "rgba(255,255,255,.94)", borderRadius: "12px", boxShadow: "0 4px 12px rgba(15,18,53,.16)" }}>
                 {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-4 h-4" title={`${color} 배경`} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid #111827" : "1px solid rgba(255,255,255,.7)" }} />)}
                 <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "8px" }}>🖼️<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>
                 {(bannerPreview || currentMember?.bannerImageUrl) && <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} title="배너 사진 제거" className="w-6 h-6 text-xs" style={{ background: "var(--muted)", borderRadius: "8px" }}>🗑️</button>}
               </div>}
-              <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>
-              <button type="button" onClick={() => setProfileOpen(false)} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
+              {isSelfProfile && <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>}
+              <button type="button" onClick={closeMemberProfile} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
             <section className="relative z-10 px-5 pb-5">
               <div className="flex items-end -mt-9 mb-4">
                 <div className="relative z-20">
-                  <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}><Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={70} /></div>
-                  {profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>}
+                  <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}>
+                    <Avatar
+                      url={isSelfProfile ? avatarPreview ?? currentMember?.avatarUrl : viewedMember.avatarUrl}
+                      initial={isSelfProfile ? myAvatar : viewedMember.avatar}
+                      color={(isSelfProfile ? currentMember?.color : viewedMember.color) ?? "#f59e0b"}
+                      size={70}
+                    />
+                  </div>
+                  {isSelfProfile && profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>}
                 </div>
               </div>
-              <h2 className="text-xl font-800 mb-3">{profileName || myName}</h2>
+              <h2 className="text-xl font-800 mb-3">{isSelfProfile ? profileName || myName : viewedMember.name}</h2>
               <div className="h-px mb-3" style={{ background: "var(--border)" }} />
-              {profileEditOpen ? (
+              {isSelfProfile && profileEditOpen ? (
                 <>
-                  <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학과", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact], ...(isAdmin ? [["소속(관리자 검색용)", profileOrg, setProfileOrg]] : [])].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
+                  <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학과 · 학년", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact], ...(isAdmin ? [["소속(관리자 검색용)", profileOrg, setProfileOrg]] : [])].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
                 </>
-              ) : <div className="space-y-3 text-sm">{[["학과", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email], ...(isAdmin ? [["소속", profileOrg || currentMember?.org || "미입력 — 조장이 승인 요청 시 검색할 수 없어요"]] : [])].map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}</div>}
-              <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{profileLinks.map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
-              {profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { setProfileOpen(false); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
+              ) : <div className="space-y-3 text-sm">{(isSelfProfile
+                  ? [["학과 · 학년", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email], ...(isAdmin ? [["소속", profileOrg || currentMember?.org || "미입력 — 조장이 승인 요청 시 검색할 수 없어요"]] : [])]
+                  : [["역할", viewedMember.role], ["학과 · 학년", viewedMember.major || "미입력"], ["학번", viewedMember.student || "미입력"], ["연락처", viewedMember.contact || "미입력"]]
+                ).map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}
+                </div>}
+              <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{(isSelfProfile ? profileLinks : viewedMember.links).map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{isSelfProfile && profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{isSelfProfile && profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
+              {isSelfProfile && profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
               {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
             </section>
-            <MyEvaluationSummary chart />
+            {isSelfProfile ? (
+              <MyEvaluationSummary chart />
+            ) : (
+              <section aria-label={`${viewedMember.name} 평가 요약`} className="p-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)" }}>
+                <h2 className="text-sm font-700 mb-3">협업 평판</h2>
+                {viewedMember.evalCount > 0 ? (
+                  <>
+                    <div className="flex items-baseline gap-1.5 mb-3">
+                      <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10 · 최종 평가 {viewedMember.evalCount}건</span>
+                    </div>
+                    <div className="flex justify-center">
+                      <PentagonChart
+                        size={230}
+                        data={[
+                          { label: "역할 이행", value: viewedMember.criteriaScores.role },
+                          { label: "약속·마감 준수", value: viewedMember.criteriaScores.deadline },
+                          { label: "의사소통", value: viewedMember.criteriaScores.communication },
+                          { label: "협업 태도", value: viewedMember.criteriaScores.collaboration },
+                          { label: "결과물 품질", value: viewedMember.criteriaScores.quality },
+                        ]}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+                    평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다.
+                  </p>
+                )}
+              </section>
+            )}
           </div>
         </div>
       </div>

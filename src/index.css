@@ -67,8 +67,31 @@ html, body, #root {
 }
 
 * {
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 *::-webkit-scrollbar {
-  display: none;
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* 기본 스크롤바보다 더 진하게 표시해야 하는 영역(예: 과제 보드 컬럼)에 사용. */
+.scrollbar-dark {
+  scrollbar-color: var(--muted-foreground) transparent;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+}
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground);
 }

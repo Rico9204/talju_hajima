@@ -344,7 +344,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}
-        <div className="col-span-1 md:col-span-3 flex flex-col gap-2">
+        <div className="col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1">
           {filtered.map((f) => {
             const tc = typeColors[f.type] || typeColors.doc;
             const isSelected = selected === f.id;

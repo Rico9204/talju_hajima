@@ -3,9 +3,10 @@ import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader } = useProject();
+  const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader, openMemberProfile } = useProject();
   const { isAdmin } = useProjectManagement();
-  const [selected, setSelected] = useState<number>(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [memberSearch, setMemberSearch] = useState("");
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
   const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -19,10 +20,16 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const [pendingFinish, setPendingFinish] = useState(false);
 
   useEffect(() => {
-    setSelected(0);
+    setSelectedId(null);
+    setMemberSearch("");
   }, [project.id]);
 
   const members = team.members;
+  const memberSearchTrimmed = memberSearch.trim().toLowerCase();
+  const filteredMembers = memberSearchTrimmed
+    ? members.filter((m) => m.name.toLowerCase().includes(memberSearchTrimmed))
+    : members;
+  const showMemberSearch = members.length > 6;
 
   if (members.length === 0) {
     return (
@@ -46,7 +53,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
     );
   }
 
-  const sel = members[selected] || members[0];
+  const sel = members.find((m) => m.id === selectedId) ?? members[0];
   const canManage = isLeader || isAdmin;
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
   const canKick = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && sel.id !== currentMember?.id && !sel.isLeader;
@@ -60,7 +67,18 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             팀 구성원
           </div>
           <h1 className="text-2xl font-700">{team.teamLabel}</h1>
-          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+          <div className="flex items-center justify-between gap-3 mt-1">
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+            {showMemberSearch && (
+              <input
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="팀원 검색"
+                className="w-40 min-w-0 shrink-0 text-xs px-3 py-1.5 border outline-none"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+          </div>
         </div>
         {canFinish && (
           <button
@@ -75,22 +93,24 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
       {/* Member cards grid */}
       <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
-        {members.map((m, i) => (
+        {filteredMembers.map((m) => {
+          const isSelected = sel.id === m.id;
+          return (
           <button
-            key={i}
-            onClick={() => setSelected(i)}
+            key={m.id}
+            onClick={() => setSelectedId(m.id)}
             className="flex flex-col items-center p-4 shrink-0 transition-all"
             style={{
-              background: selected === i ? "var(--primary)" : "var(--card)",
+              background: isSelected ? "var(--primary)" : "var(--card)",
               borderRadius: "var(--radius)",
-              boxShadow: selected === i ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
+              boxShadow: isSelected ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
               width: 110,
-              color: selected === i ? "#fff" : "var(--foreground)",
+              color: isSelected ? "#fff" : "var(--foreground)",
             }}
           >
             <div
               className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
-              style={{ background: m.avatarUrl ? "var(--card)" : selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
+              style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
             >
               {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
               {m.isLeader && (
@@ -98,7 +118,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               )}
             </div>
             <div className="text-xs font-700">{m.name}</div>
-            <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+            <div className="text-xs mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
               {m.role}
             </div>
             {m.id === currentMember?.id && m.evalCount > 0 ? (
@@ -107,13 +127,17 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 <span className="text-xs font-700">{m.score.toFixed(1)}</span>
               </div>
             ) : (
-              <div className="text-xs mt-2" style={{ color: selected === i ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
+              <div className="text-xs mt-2" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
                 평가 대기
               </div>
             )}
-            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: selected === i ? "#fff" : "#22c55e" }} />}
+            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: isSelected ? "#fff" : "#22c55e" }} />}
           </button>
-        ))}
+          );
+        })}
+        {filteredMembers.length === 0 && (
+          <div className="text-xs py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+        )}
       </div>
 
       {/* Detail */}
@@ -122,10 +146,16 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
           {/* Left: profile */}
           <div className="col-span-1 md:col-span-2">
             <div className="flex items-start gap-4 mb-5">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden" style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}>
+              <button
+                type="button"
+                onClick={() => openMemberProfile(sel.id)}
+                title={`${sel.name} 프로필 보기`}
+                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden"
+                style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}
+              >
                 {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
-              </div>
-              <div>
+              </button>
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-700">{sel.name}</h2>
                   {sel.isLeader && (
@@ -141,36 +171,48 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   </span>
                 </div>
                 <div className="text-sm font-600 mt-0.5" style={{ color: sel.color }}>{sel.role}</div>
-                <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
-                <div className="text-xs mt-1" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
-                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                  {sel.id !== currentMember?.id && onMessage && (
-                    <button
-                      onClick={() => onMessage(sel.id)}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
-                    >
-                      ◐ 메시지 보내기
-                    </button>
-                  )}
-                  {canTransfer && (
-                    <button
-                      onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
-                    >
-                      🧭 팀장 권한 위임
-                    </button>
-                  )}
-                  {canKick && (
-                    <button
-                      onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: "#ef444412", color: "#ef4444", borderRadius: "20px" }}
-                    >
-                      ✕ 팀에서 제외
-                    </button>
-                  )}
+                <div className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
+                <div className="flex items-center justify-between gap-2 mt-1.5 min-h-[24px]">
+                  <div className="text-xs min-w-0 truncate" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {sel.id !== currentMember?.id && onMessage && (
+                      <button
+                        onClick={() => onMessage(sel.id)}
+                        title="메시지 보내기"
+                        aria-label="메시지 보내기"
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="22" y1="2" x2="11" y2="13" />
+                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                        채팅
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
+                        title="팀장 권한 위임"
+                        aria-label="팀장 권한 위임"
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
+                      >
+                        🧭 위임
+                      </button>
+                    )}
+                    {canKick && (
+                      <button
+                        onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
+                        title="팀에서 제외"
+                        aria-label="팀에서 제외"
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#ef444412", color: "#ef4444", borderRadius: "20px" }}
+                      >
+                        ✕ 제외
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -196,7 +238,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
                 협업 평판 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
               </div>
-              {sel.id === currentMember?.id && sel.evalCount > 0 ? (
+              {sel.evalCount > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
@@ -213,7 +255,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 </>
               ) : (
                 <p className="text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                  {sel.id !== currentMember?.id ? "평점은 본인만 조회할 수 있습니다." : "평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다."}
+                  평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다.
                 </p>
               )}
             </div>
@@ -238,7 +280,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
               동료 평가 항목별 점수 (참고)
             </div>
-            {sel.id === currentMember?.id && sel.evalCount > 0 ? (
+            {sel.evalCount > 0 ? (
               <div className="flex justify-center">
                 <PentagonChart
                   data={[
@@ -252,7 +294,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             ) : (
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                {sel.id !== currentMember?.id ? "항목별 평균은 본인만 조회할 수 있습니다." : "최종 평가 평균 공개 후 표시됩니다. 중간 평균은 동료 평가 탭에서 확인하세요."}
+                최종 평가 평균 공개 후 표시됩니다. {sel.id === currentMember?.id && "중간 평균은 동료 평가 탭에서 확인하세요."}
               </div>
             )}
           </div>
@@ -307,7 +349,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </button>
               <button
                 disabled={busy}
-                onClick={() => runAction(() => kickMember(pendingKick.id), () => { setSelected(0); setPendingKick(null); })}
+                onClick={() => runAction(() => kickMember(pendingKick.id), () => { setSelectedId(null); setPendingKick(null); })}
                 className="flex-1 py-2.5 text-sm font-700 transition-all"
                 style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
               >

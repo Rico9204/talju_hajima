@@ -5,7 +5,7 @@ import { useProject } from "../context/ProjectContext";
 const emojis = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
 
 export default function WorkspaceComments({ file }: { file: WorkspaceFile }) {
-  const { project, team, currentMember, addFileComment, setFileCommentReaction } = useProject();
+  const { project, team, currentMember, addFileComment, setFileCommentReaction, openMemberProfile } = useProject();
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<number | "draft" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,9 +27,16 @@ export default function WorkspaceComments({ file }: { file: WorkspaceFile }) {
       const name = member?.name ?? comment.author;
       const reactions = comment.reactions ?? [];
       return <div key={comment.id} className="flex items-start gap-2.5">
-        <div title={name} className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-700 shrink-0" style={{ background: "var(--secondary)", color: member?.color ?? "var(--primary)" }}>
+        <button
+          type="button"
+          onClick={() => member && openMemberProfile(member.id)}
+          disabled={!member}
+          title={member ? `${name} 프로필 보기` : name}
+          className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-700 shrink-0"
+          style={{ background: "var(--secondary)", color: member?.color ?? "var(--primary)" }}
+        >
           {member?.avatarUrl ? <img src={member.avatarUrl} alt={`${name} 프로필`} className="w-full h-full object-cover" /> : member?.avatar || comment.avatar || name.slice(0, 1)}
-        </div>
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-700">{name}</span><time style={{ color: "var(--muted-foreground)" }}>{comment.date}</time></div>
           <p className="text-xs mt-1 leading-relaxed px-3 py-2 rounded-xl whitespace-pre-wrap break-words" style={{ background: "var(--muted)" }}>{comment.text}</p>

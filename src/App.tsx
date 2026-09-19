@@ -85,6 +85,11 @@ function ScheduleRoute() {
   return <Schedule focusEventId={eventId ? Number(eventId) : undefined} />;
 }
 
+function TaskBoardRoute() {
+  const { taskId } = useParams();
+  return <TaskBoard focusTaskId={taskId ? Number(taskId) : undefined} />;
+}
+
 function WorkspaceRoute() {
   const { folderId, fileId } = useParams();
   const focusFile: WorkspaceFocus | null =
@@ -105,7 +110,8 @@ function AppRoutes() {
         <Route path="team" element={<TeamViewRoute />} />
         <Route path="chat" element={<ChatRoute />} />
         <Route path="chat/:channel" element={<ChatRoute />} />
-        <Route path="tasks" element={<TaskBoard />} />
+        <Route path="tasks" element={<TaskBoardRoute />} />
+        <Route path="tasks/:taskId" element={<TaskBoardRoute />} />
         <Route path="schedule" element={<ScheduleRoute />} />
         <Route path="schedule/:eventId" element={<ScheduleRoute />} />
         <Route path="workspace" element={<WorkspaceRoute />} />

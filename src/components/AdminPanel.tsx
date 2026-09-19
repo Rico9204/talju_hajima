@@ -20,6 +20,8 @@ export default function AdminPanel() {
   const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
   const [viewingMembers, setViewingMembers] = useState<Project | null>(null);
   const [cleanupNotice, setCleanupNotice] = useState("");
+  const [evalMode, setEvalMode] = useState<boolean | null>(null);
+  const [evalModeBusy, setEvalModeBusy] = useState(false);
 
   async function retryCleanup() {
     setBusyId("cleanup"); setError(null); setCleanupNotice("");
@@ -43,7 +45,22 @@ export default function AdminPanel() {
 
   useEffect(() => {
     refresh();
+    dataRepository.getEvaluationMode().then(setEvalMode).catch(() => setEvalMode(null));
   }, []);
+
+  async function toggleEvalMode() {
+    if (evalMode === null || evalModeBusy) return;
+    setEvalModeBusy(true);
+    setError(null);
+    try {
+      await dataRepository.setEvaluationMode(!evalMode);
+      setEvalMode(!evalMode);
+    } catch (err) {
+      setError(err && typeof err === "object" && "message" in err ? String(err.message) : "요청을 처리하지 못했습니다.");
+    } finally {
+      setEvalModeBusy(false);
+    }
+  }
 
   async function approve(id: string) {
     setBusyId(id);
@@ -109,6 +126,30 @@ export default function AdminPanel() {
       </div>
 
       {error && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
+
+      <div className="mb-4 flex items-center justify-between gap-3 p-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div>
+          <div className="text-sm font-700">동료평가 테스트 모드</div>
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+            켜져 있으면 프로젝트 상태·기간, 전원 제출 여부와 무관하게 평가 제출과 평판 조회가 가능해요. 실제 운영 시에는 꺼주세요.
+          </p>
+        </div>
+        <button
+          onClick={toggleEvalMode}
+          disabled={evalMode === null || evalModeBusy}
+          role="switch"
+          aria-checked={evalMode === true}
+          className="text-xs font-700 px-4 py-2 shrink-0 transition-all"
+          style={{
+            background: evalMode ? "#22c55e18" : "var(--muted)",
+            color: evalMode ? "#22c55e" : "var(--muted-foreground)",
+            borderRadius: "20px",
+          }}
+        >
+          {evalMode === null ? "불러오는 중…" : evalModeBusy ? "변경 중…" : evalMode ? "켜짐" : "꺼짐"}
+        </button>
+      </div>
+
       <div className="mb-4 flex items-center gap-3 text-xs">
         <button disabled={busyId !== null} onClick={retryCleanup} className="rounded-full px-3 py-2" style={{ background: "var(--muted)", color: "var(--primary)" }}>원본 파일 정리 재시도</button>
         {cleanupNotice && <span role="status">{cleanupNotice}</span>}

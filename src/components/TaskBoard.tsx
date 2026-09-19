@@ -38,14 +38,17 @@ function shortDue(due: string): string {
   return parts.length === 3 ? `${parts[1]}/${parts[2]}` : due;
 }
 
-export default function TaskBoard() {
+export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}) {
   const {
     project, team, isLeader, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
     toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
-    toggleTaskTeamSchedule, toggleTaskPersonalSchedule,
+    toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
+  const [assigneeFilterSearch, setAssigneeFilterSearch] = useState("");
+  const [quickAddAssigneeSearch, setQuickAddAssigneeSearch] = useState("");
+  const [boardSearch, setBoardSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [addingCol, setAddingCol] = useState<TaskStatus | null>(null);
   const [newTitle, setNewTitle] = useState("");
@@ -55,21 +58,46 @@ export default function TaskBoard() {
 
   useEffect(() => {
     setFilter("all");
+    setAssigneeFilterSearch("");
+    setBoardSearch("");
     setSelectedTaskId(null);
     setAddingCol(null);
     setNewTitle("");
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
+    setQuickAddAssigneeSearch("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
+  // 대시보드 현황판/다가오는 마감에서 특정 과제로 딥링크했을 때 상세 패널을 연다.
+  useEffect(() => {
+    if (focusTaskId != null) setSelectedTaskId(focusTaskId);
+  }, [focusTaskId]);
+
   const filterOptions = [{ id: "all", label: "전체" }, ...team.members.map((m) => ({ id: m.id, label: m.name }))];
-  const filtered = filter === "all" ? tasks : tasks.filter((t) => t.assigneeIds.includes(filter));
+  const showAssigneeFilterSearch = team.members.length > 8;
+  const assigneeFilterSearchTrimmed = assigneeFilterSearch.trim().toLowerCase();
+  const visibleFilterOptions = assigneeFilterSearchTrimmed
+    ? filterOptions.filter((o) => o.id === "all" || o.label.toLowerCase().includes(assigneeFilterSearchTrimmed))
+    : filterOptions;
+  const showQuickAddSearch = team.members.length > 8;
+  const quickAddSearchTrimmed = quickAddAssigneeSearch.trim().toLowerCase();
+  const visibleQuickAddMembers = quickAddSearchTrimmed
+    ? team.members.filter((m) => m.name.toLowerCase().includes(quickAddSearchTrimmed))
+    : team.members;
+  const showBoardSearch = tasks.length > 8;
+  const boardSearchTrimmed = boardSearch.trim().toLowerCase();
+  const filtered = tasks.filter(
+    (t) =>
+      (filter === "all" || t.assigneeIds.includes(filter)) &&
+      (!boardSearchTrimmed || t.title.toLowerCase().includes(boardSearchTrimmed))
+  );
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
 
   function startQuickAdd(col: TaskStatus) {
     setAddingCol(col);
     setNewTitle("");
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
+    setQuickAddAssigneeSearch("");
   }
 
   function toggleNewAssignee(id: string) {
@@ -110,9 +138,29 @@ export default function TaskBoard() {
         </div>
       </div>
 
-      {/* Filter pills */}
+      {/* Search + filter pills */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {showBoardSearch && (
+          <input
+            value={boardSearch}
+            onChange={(e) => setBoardSearch(e.target.value)}
+            placeholder="과제 제목 검색"
+            className="w-48 min-w-0 text-xs px-3 py-1.5 border outline-none"
+            style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
+          />
+        )}
+        {showAssigneeFilterSearch && (
+          <input
+            value={assigneeFilterSearch}
+            onChange={(e) => setAssigneeFilterSearch(e.target.value)}
+            placeholder="담당자 검색"
+            className="w-40 min-w-0 text-xs px-3 py-1.5 border outline-none"
+            style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
+          />
+        )}
+      </div>
       <div className="flex gap-2 mb-6 flex-wrap">
-        {filterOptions.map((a) => (
+        {visibleFilterOptions.map((a) => (
           <button
             key={a.id}
             onClick={() => setFilter(a.id)}
@@ -127,12 +175,16 @@ export default function TaskBoard() {
             {a.label}
           </button>
         ))}
+        {visibleFilterOptions.length === 0 && (
+          <div className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+        )}
       </div>
 
       {/* Kanban */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {columns.map((col) => {
           const colTasks = filtered.filter((t) => t.status === col.id);
+          const colTasksUnfiltered = tasks.filter((t) => t.status === col.id).length;
           return (
             <div key={col.id}>
               {/* Column header */}
@@ -150,6 +202,7 @@ export default function TaskBoard() {
               </div>
 
               <div className="flex flex-col gap-3 min-h-32">
+                <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1 scrollbar-dark">
                 {colTasks.map((task) => {
                   const dLeft = daysUntilDue(task.due);
                   const urgent = task.status !== "done" && dLeft !== null && dLeft <= 3;
@@ -195,9 +248,15 @@ export default function TaskBoard() {
                             {shownAssignees.map((id) => {
                               const info = memberInfo(team.members, id);
                               return (
-                                <div key={id} title={info.name} style={{ border: "2px solid var(--card)", borderRadius: "50%" }}>
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); openMemberProfile(id); }}
+                                  title={`${info.name} 프로필 보기`}
+                                  style={{ border: "2px solid var(--card)", borderRadius: "50%" }}
+                                >
                                   <Avatar url={info.avatarUrl} initial={info.avatar} color={info.color} size={20} />
-                                </div>
+                                </button>
                               );
                             })}
                             {extraCount > 0 && (
@@ -264,9 +323,10 @@ export default function TaskBoard() {
 
                 {colTasks.length === 0 && (
                   <div className="p-4 text-center text-xs" style={{ border: `2px dashed ${col.color}40`, color: "var(--muted-foreground)", borderRadius: "var(--radius)" }}>
-                    과제 없음
+                    {colTasksUnfiltered === 0 ? "과제 없음" : "검색 결과가 없어요"}
                   </div>
                 )}
+                </div>
 
                 {/* Quick add */}
                 {isLeader && !locked && (
@@ -281,16 +341,28 @@ export default function TaskBoard() {
                         className="text-xs px-2.5 py-2 border outline-none"
                         style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
                       />
+                      {showQuickAddSearch && (
+                        <input
+                          value={quickAddAssigneeSearch}
+                          onChange={(e) => setQuickAddAssigneeSearch(e.target.value)}
+                          placeholder="담당자 검색"
+                          className="text-xs px-2.5 py-1.5 border outline-none"
+                          style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                        />
+                      )}
                       <div
                         className="flex flex-col gap-1 max-h-28 overflow-y-auto px-2.5 py-2 border"
                         style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)" }}
                       >
-                        {team.members.map((m) => (
+                        {visibleQuickAddMembers.map((m) => (
                           <label key={m.id} className="flex items-center gap-1.5 text-xs">
                             <input type="checkbox" checked={newAssignees.includes(m.id)} onChange={() => toggleNewAssignee(m.id)} />
                             {m.name}
                           </label>
                         ))}
+                        {visibleQuickAddMembers.length === 0 && (
+                          <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+                        )}
                       </div>
                       <div className="flex gap-1.5">
                         <button
