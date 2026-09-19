@@ -197,6 +197,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const [refresh, setRefresh] = useState(0);
   const [confirmClose, setConfirmClose] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(true);
   useEffect(() => {
     if (!active) return;
     let mounted = true;
@@ -287,9 +288,21 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.06)", right: -40, top: -60 }} />
             <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.05)", right: 80, bottom: -40 }} />
             <div className="relative">
-            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
-              {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}
-            </div>
+            <button
+              type="button"
+              onClick={() => setSummaryCollapsed((v) => !v)}
+              aria-expanded={!summaryCollapsed}
+              className="flex items-center justify-between w-full text-left mb-3"
+            >
+              <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.7)" }}>
+                {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}
+              </span>
+              <span className="text-xs font-700 shrink-0 ml-3" style={{ color: "rgba(255,255,255,0.85)" }}>
+                {summaryCollapsed ? "펼치기 ▾" : "접기 ▴"}
+              </span>
+            </button>
+            {!summaryCollapsed && (
+              <>
             {!isDone && <div className="mb-4 text-sm">
               <h2 className="font-700 text-lg">내 중간 피드백 평균</h2>
               <p>{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"}</p>
@@ -330,6 +343,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
               </>
             ) : (
               <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "평균 공개 대기 중입니다. 평가자가 1명이거나 제출이 진행 중이면 점수를 표시하지 않습니다."}</p>
+            )}
+              </>
             )}
             </div>
           </div>);
