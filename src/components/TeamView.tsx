@@ -155,7 +155,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               >
                 {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
               </button>
-              <div>
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-700">{sel.name}</h2>
                   {sel.isLeader && (
