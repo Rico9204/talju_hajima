@@ -171,19 +171,23 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   </span>
                 </div>
                 <div className="text-sm font-600 mt-0.5" style={{ color: sel.color }}>{sel.role}</div>
-                <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
-                <div className="flex items-center justify-between gap-2 mt-1">
-                  <div className="text-xs" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
+                <div className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
+                <div className="flex items-center justify-between gap-2 mt-1.5">
+                  <div className="text-xs min-w-0 truncate" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {sel.id !== currentMember?.id && onMessage && (
                       <button
                         onClick={() => onMessage(sel.id)}
                         title="메시지 보내기"
                         aria-label="메시지 보내기"
-                        className="w-7 h-7 flex items-center justify-center text-sm transition-all"
-                        style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "50%" }}
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
                       >
-                        ◐
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="22" y1="2" x2="11" y2="13" />
+                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                        채팅
                       </button>
                     )}
                     {canTransfer && (
@@ -191,10 +195,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                         onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
                         title="팀장 권한 위임"
                         aria-label="팀장 권한 위임"
-                        className="w-7 h-7 flex items-center justify-center text-sm transition-all"
-                        style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "50%" }}
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
                       >
-                        🧭
+                        🧭 위임
                       </button>
                     )}
                     {canKick && (
@@ -202,10 +206,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                         onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
                         title="팀에서 제외"
                         aria-label="팀에서 제외"
-                        className="w-7 h-7 flex items-center justify-center text-sm transition-all"
-                        style={{ background: "#ef444412", color: "#ef4444", borderRadius: "50%" }}
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#ef444412", color: "#ef4444", borderRadius: "20px" }}
                       >
-                        ✕
+                        ✕ 제외
                       </button>
                     )}
                   </div>
