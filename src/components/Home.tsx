@@ -4,111 +4,208 @@ import { useProject } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
+import BoardView from "./BoardView";
+import Avatar from "./Avatar";
+import ProfileModal from "./ProfileModal";
 
 const statusStyle: Record<"active" | "done", { label: string; bg: string; color: string }> = {
   active: { label: "진행 중", bg: "#22c55e18", color: "#22c55e" },
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
+type HomeTab = "projects" | "board";
+
 export default function Home() {
-  const { projects, setProjectId, addProject, lookupProject, joinProject } = useProject();
+  const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile } = useProject();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const myName = currentMember?.name ?? "참여자";
+  const myAvatar = currentMember?.avatar ?? "?";
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<HomeTab>("projects");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   function enterProject(id: string) {
     setProjectId(id);
     navigate("/dashboard");
   }
 
+  function selectTab(tab: HomeTab) {
+    setActiveTab(tab);
+    setMobileOpen(false);
+  }
+
   return (
-    <div className="h-full w-full overflow-y-auto" style={{ background: "var(--background)" }}>
-      <div className="max-w-5xl mx-auto px-6 py-8 md:px-8">
-        <div className="flex items-center justify-between mb-8">
+    <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
+        style={{ background: "var(--card)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)" }}
+        aria-label="메뉴 열기"
+      >
+        ☰
+      </button>
+
+      <aside
+        className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto`}
+        style={{ background: "var(--background)" }}
+      >
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden self-end w-9 h-9 flex items-center justify-center text-lg mb-2"
+          style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+          aria-label="메뉴 닫기"
+        >
+          ✕
+        </button>
+
+        <div className="px-4 py-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
           <div className="flex items-center gap-3 min-w-0">
             <div
-              className="w-10 h-10 flex items-center justify-center text-sm font-800 shrink-0"
-              style={{ background: "var(--primary)", color: "#fff", borderRadius: "12px", boxShadow: "0 6px 16px rgba(37,99,235,0.3)" }}
+              className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
+              style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(37,99,235,0.35)" }}
             >
               CP
             </div>
             <div className="min-w-0">
-              <div className="text-lg font-800">CollabPeer</div>
-              <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{user?.email}</div>
+              <div className="text-sm font-700 leading-none">CollabPeer</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>v2.4.1</div>
             </div>
           </div>
+        </div>
+
+        <div className="text-xs font-600 uppercase tracking-widest px-2 mb-2" style={{ color: "var(--muted-foreground)" }}>
+          메뉴
+        </div>
+        <nav className="flex-1 flex flex-col gap-1">
           <button
-            onClick={signOut}
-            className="text-xs font-600 px-3.5 py-2 shrink-0"
-            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+            onClick={() => selectTab("projects")}
+            className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all"
+            style={{ borderRadius: "10px", background: activeTab === "projects" ? "var(--primary)" : "transparent", color: activeTab === "projects" ? "#fff" : "var(--foreground)" }}
           >
-            로그아웃
+            <span className="flex items-center gap-2.5">
+              <span>📁</span>
+              <span>내 프로젝트</span>
+            </span>
+            <span
+              className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+              style={{ background: activeTab === "projects" ? "rgba(255,255,255,0.2)" : "var(--muted)", color: activeTab === "projects" ? "#fff" : "var(--muted-foreground)", borderRadius: "20px" }}
+            >
+              {projects.length}
+            </span>
           </button>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 mb-4">
-          <h1 className="text-xl font-700">내 프로젝트</h1>
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => setJoinOpen(true)}
-              className="text-xs font-700 px-3.5 py-2"
-              style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
-            >
-              참여하기
-            </button>
-            <button
-              onClick={() => setCreateOpen(true)}
-              className="text-xs font-700 px-3.5 py-2"
-              style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
-            >
-              새 프로젝트
-            </button>
-          </div>
-        </div>
-
-        {projects.length === 0 ? (
-          <div
-            className="p-8 text-center border-2 border-dashed"
-            style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+          <button
+            onClick={() => selectTab("board")}
+            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
+            style={{ borderRadius: "10px", background: activeTab === "board" ? "var(--primary)" : "transparent", color: activeTab === "board" ? "#fff" : "var(--foreground)" }}
           >
-            참여 중인 프로젝트가 없어요
+            <span>💬</span>
+            <span>게시판</span>
+          </button>
+        </nav>
+
+        {/* User card */}
+        <div className="mt-4 px-4 py-3" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <div className="flex items-center gap-2.5">
+            <button type="button" onClick={() => currentMember && openMemberProfile(currentMember.id)} className="shrink-0" title="프로필 설정">
+              <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} />
+            </button>
+            <button type="button" onClick={() => currentMember && openMemberProfile(currentMember.id)} className="flex-1 min-w-0 text-left">
+              <div className="text-sm font-700">{myName}</div>
+              <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{user?.email}</div>
+            </button>
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: "#22c55e" }} />
+            <button
+              onClick={signOut}
+              title="로그아웃"
+              className="w-7 h-7 flex items-center justify-center shrink-0 transition-all"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map((p) => {
-              const st = statusStyle[p.status];
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => enterProject(p.id)}
-                  className="text-left p-5 transition-all"
-                  style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
+        <div className="max-w-5xl mx-auto">
+          {activeTab === "board" ? (
+            <BoardView />
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-6">
+                <div>
+                  <h1 className="text-xl font-700">내 프로젝트</h1>
+                  <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>참여 중인 팀 협업 프로젝트 목록입니다.</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => setJoinOpen(true)}
+                    className="text-xs font-700 px-3.5 py-2"
+                    style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
+                  >
+                    참여하기
+                  </button>
+                  <button
+                    onClick={() => setCreateOpen(true)}
+                    className="text-xs font-700 px-3.5 py-2"
+                    style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+                  >
+                    새 프로젝트
+                  </button>
+                </div>
+              </div>
+
+              {projects.length === 0 ? (
+                <div
+                  className="p-8 text-center border-2 border-dashed"
+                  style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
                 >
-                  <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
-                    <span className="text-xs font-700 px-2 py-0.5" style={{ background: st.bg, color: st.color, borderRadius: "20px" }}>
-                      {st.label}
-                    </span>
-                    {p.approvalStatus === "pending" && (
-                      <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#f0a50018", color: "#f0a500", borderRadius: "20px" }}>
-                        승인 대기
-                      </span>
-                    )}
-                    {p.approvalStatus === "rejected" && (
-                      <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}>
-                        반려됨
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-base font-700 truncate mb-1">{p.name}</div>
-                  <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                  참여 중인 프로젝트가 없어요
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {projects.map((p) => {
+                    const st = statusStyle[p.status];
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => enterProject(p.id)}
+                        className="text-left p-5 transition-all"
+                        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                      >
+                        <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                          <span className="text-xs font-700 px-2 py-0.5" style={{ background: st.bg, color: st.color, borderRadius: "20px" }}>
+                            {st.label}
+                          </span>
+                          {p.approvalStatus === "pending" && (
+                            <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#f0a50018", color: "#f0a500", borderRadius: "20px" }}>
+                              승인 대기
+                            </span>
+                          )}
+                          {p.approvalStatus === "rejected" && (
+                            <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}>
+                              반려됨
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-base font-700 truncate mb-1">{p.name}</div>
+                        <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
+                        <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </main>
 
       {createOpen && (
         <CreateProjectModal
@@ -132,6 +229,7 @@ export default function Home() {
           }}
         />
       )}
+      <ProfileModal />
     </div>
   );
 }
