@@ -543,6 +543,60 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  // Live task board / schedule / workspace updates — a teammate's change
+  // (new task, moved deadline, uploaded file…) shows up immediately instead
+  // of waiting for the next visit or the 30s activity poll below.
+  useEffect(() => {
+    if (!projectId) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = dataRepository.subscribeToTasks(projectId, () => {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void refreshTasks();
+      }, 75);
+    });
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = dataRepository.subscribeToScheduleEvents(projectId, () => {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void refreshScheduleEvents();
+      }, 75);
+    });
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = dataRepository.subscribeToFiles(projectId, () => {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = undefined;
+        void refreshFiles();
+      }, 75);
+    });
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
   // Keep the current user's Presence entry while a project is open. Supabase
   // broadcasts a sync event whenever a teammate joins, leaves, reconnects,
   // or opens an additional tab.

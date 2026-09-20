@@ -100,6 +100,9 @@ export interface DataRepository {
   addTaskComment(taskId: number, actorMemberId: string, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
   setTaskCommentReaction(commentId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
   subscribeToTaskCommentReactions(projectId: string, onChange: () => void): () => void;
+  subscribeToTasks(projectId: string, onChange: () => void): () => void;
+  subscribeToScheduleEvents(projectId: string, onChange: () => void): () => void;
+  subscribeToFiles(projectId: string, onChange: () => void): () => void;
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
 
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;

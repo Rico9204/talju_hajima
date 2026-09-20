@@ -884,6 +884,59 @@ export const supabaseDataRepository: DataRepository = {
     };
   },
 
+  // Live updates for the task board/schedule/workspace so a teammate's
+  // change shows up without waiting for the next visit or a manual refresh.
+  // No payload mapping — a change of any kind just triggers a full reload of
+  // that project's list, same approach as subscribeToTaskCommentReactions.
+  subscribeToTasks(projectId, onChange) {
+    const channel = supabase
+      .channel(`tasks:${projectId}`, { config: { private: true } })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "tasks", filter: `project_id=eq.${projectId}` }, onChange)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "tasks", filter: `project_id=eq.${projectId}` }, onChange)
+      // DELETE doesn't support a server-side filter; RLS still limits delivery.
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "tasks" }, onChange)
+      .subscribe((status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("과제 실시간 채널 연결에 실패했습니다:", error?.message ?? status);
+        }
+      });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
+  subscribeToScheduleEvents(projectId, onChange) {
+    const channel = supabase
+      .channel(`schedule_events:${projectId}`, { config: { private: true } })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "schedule_events", filter: `project_id=eq.${projectId}` }, onChange)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "schedule_events", filter: `project_id=eq.${projectId}` }, onChange)
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "schedule_events" }, onChange)
+      .subscribe((status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("일정 실시간 채널 연결에 실패했습니다:", error?.message ?? status);
+        }
+      });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
+  subscribeToFiles(projectId, onChange) {
+    const channel = supabase
+      .channel(`files:${projectId}`, { config: { private: true } })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "files", filter: `project_id=eq.${projectId}` }, onChange)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "files", filter: `project_id=eq.${projectId}` }, onChange)
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "files" }, onChange)
+      .subscribe((status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error("워크스페이스 실시간 채널 연결에 실패했습니다:", error?.message ?? status);
+        }
+      });
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
   async setTaskScheduleLink(taskId, field, eventId) {
     const column = field === "team" ? "team_schedule_event_id" : "personal_schedule_event_id";
     const { error } = await supabase.from("tasks").update({ [column]: eventId }).eq("id", taskId);
