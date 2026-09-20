@@ -45,7 +45,7 @@ function daysUntil(dateStr: string, today: string) {
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
 export default function Schedule({ focusEventId }: { focusEventId?: number } = {}) {
-  const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent } = useProject();
+  const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent, markSectionViewed } = useProject();
   const today = todayISO();
   const defaultMonth = scheduleEvents[0]?.date.slice(0, 7) || today.slice(0, 7);
   const [month, setMonth] = useState(defaultMonth);
@@ -86,6 +86,11 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setEditingId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  useEffect(() => {
+    if (currentMember) void markSectionViewed("schedule");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, currentMember?.id]);
 
   const focusedEvent = scheduleEvents.find(event => event.id === focusEventId);
   useEffect(() => {

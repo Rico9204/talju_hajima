@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
-import { useProject } from "../context/ProjectContext";
+import { useProject, type WorkspaceFile } from "../context/ProjectContext";
 
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
   pdf: { bg: "#ef444418", color: "#ef4444", label: "PDF" },
@@ -34,7 +34,7 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, uploadWorkspaceFile } = useProject();
+  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isLeader, deleteWorkspaceFile, markSectionViewed } = useProject();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -42,6 +42,10 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [folderError, setFolderError] = useState("");
   const folderPending = useRef(false);
   const [selected, setSelected] = useState<number | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState("");
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
@@ -89,7 +93,15 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setFilterTag(null);
     setCreatingFolder(false);
     setFolderError("");
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkDeleteError("");
   }, [project.id]);
+
+  useEffect(() => {
+    if (currentMember) void markSectionViewed("workspace");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, currentMember?.id]);
 
   useEffect(() => {
     if (focusFile) {
@@ -115,6 +127,36 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setCurrentFolderId(id);
     setSelected(null);
     setFilterTag(null);
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkDeleteError("");
+  }
+
+  function canDeleteFile(f: WorkspaceFile): boolean {
+    return !locked && !!currentMember && (isLeader || (!!f.ownerUserId && f.ownerUserId === currentMember.userId));
+  }
+
+  function toggleSelected(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkDelete() {
+    if (bulkDeleting || selectedIds.size === 0) return;
+    if (!window.confirm(`선택한 파일 ${selectedIds.size}개를 삭제하시겠습니까?\n모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다.`)) return;
+    setBulkDeleting(true);
+    setBulkDeleteError("");
+    const ids = Array.from(selectedIds);
+    const results = await Promise.allSettled(ids.map((id) => deleteWorkspaceFile(id)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    setSelectedIds(new Set());
+    setSelectMode(false);
+    setBulkDeleting(false);
+    if (failed > 0) setBulkDeleteError(`${failed}개 파일을 삭제하지 못했습니다. 다시 시도해 주세요.`);
   }
 
   async function handleAddFolder() {
@@ -342,24 +384,75 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         ))}
       </div>
 
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+          파일 {filtered.length}개
+        </div>
+        <div className="flex items-center gap-2">
+          {selectMode && selectedIds.size > 0 && (
+            <button
+              onClick={() => void bulkDelete()}
+              disabled={bulkDeleting}
+              className="text-xs font-700 px-3 py-1.5 disabled:opacity-50"
+              style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
+            >
+              {bulkDeleting ? "삭제 중…" : `선택 삭제 (${selectedIds.size})`}
+            </button>
+          )}
+          {filtered.some(canDeleteFile) && (
+            <button
+              onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); setBulkDeleteError(""); }}
+              title={selectMode ? "선택 취소" : "여러 파일 선택해서 삭제"}
+              aria-label={selectMode ? "선택 취소" : "여러 파일 선택해서 삭제"}
+              className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
+              style={{ background: selectMode ? "#ef4444" : "#ef444418", borderRadius: "20px" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={selectMode ? "#fff" : "#ef4444"} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+      {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-700">{bulkDeleteError}</p>}
+
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}
         <div className="col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1">
           {filtered.map((f) => {
             const tc = typeColors[f.type] || typeColors.doc;
-            const isSelected = selected === f.id;
+            const deletable = canDeleteFile(f);
+            const isSelected = selectMode ? selectedIds.has(f.id) : selected === f.id;
             return (
               <button
                 key={f.id}
-                onClick={() => { setSelected(isSelected ? null : f.id); setDetailTab("versions"); }}
+                onClick={() => {
+                  if (selectMode) { if (deletable) toggleSelected(f.id); return; }
+                  setSelected(isSelected ? null : f.id); setDetailTab("versions");
+                }}
                 className="flex items-center gap-3 p-4 border text-left transition-all group"
                 style={{
                   background: isSelected ? "var(--primary)" : "var(--card)",
                   borderColor: isSelected ? "var(--primary)" : "var(--border)",
                   color: isSelected ? "#fff" : "var(--foreground)",
                   borderRadius: "var(--radius)",
+                  opacity: selectMode && !deletable ? 0.5 : 1,
                 }}
               >
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    disabled={!deletable}
+                    onChange={() => deletable && toggleSelected(f.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-4 h-4 shrink-0"
+                    aria-label={`${f.name} 선택`}
+                  />
+                )}
                 {/* Type badge */}
                 <div
                   className="w-9 h-9 flex items-center justify-center text-xs font-700 shrink-0"

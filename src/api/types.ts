@@ -64,6 +64,12 @@ export interface Member {
   color: string;
   criteriaScores: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
   isLeader: boolean;
+  // Only populated for the signed-in member's own row (see
+  // visible_evaluation_members in schema.sql) — used to compute the
+  // sidebar's "new content" badges for tasks/schedule/workspace.
+  tasksViewedAt: string | null;
+  scheduleViewedAt: string | null;
+  workspaceViewedAt: string | null;
 }
 
 export interface TeamData {
@@ -166,6 +172,7 @@ export interface TaskCommentReaction {
 }
 
 export interface Task {
+  createdAt?: string | null;
   id: number;
   title: string;
   assignee: string; // primary assignee (first of assigneeIds) — kept for older display code

@@ -135,6 +135,13 @@ interface ProjectContextValue {
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<void>;
   toggleChatReaction: (messageId: number, emoji: string) => Promise<void>;
   markChannelMessagesRead: (channelId: string) => Promise<void>;
+  tasksUnread: number;
+  scheduleUnread: number;
+  workspaceUnread: number;
+  newTasks: Task[];
+  newScheduleEvents: ScheduleEvent[];
+  newFiles: WorkspaceFile[];
+  markSectionViewed: (section: "tasks" | "schedule" | "workspace") => Promise<void>;
   currentMember: Member | null;
   isLeader: boolean;
   loading: boolean;
@@ -681,6 +688,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     const extractedText = await extractWorkspaceText(input.file).catch(() => ({ text: "", status: "failed" as const }));
     const result = await dataRepository.uploadFile(projectId, { ...input, extractedText });
     await refreshFiles();
+    // Uploading your own file shouldn't leave a "new content" badge for yourself.
+    void markSectionViewed("workspace");
     return result;
   }
 
@@ -715,6 +724,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     if (!projectId || !isLeader) return;
     await dataRepository.createTask(projectId, input);
     await refreshTasks();
+    // Creating your own task shouldn't leave a "new content" badge for yourself.
+    void markSectionViewed("tasks");
   }
 
   async function moveTask(taskId: number, status: TaskStatus) {
@@ -775,6 +786,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     if (input.scope === "team" && !isLeader) return;
     await dataRepository.addScheduleEvent(projectId, currentMember.id, input);
     await refreshScheduleEvents();
+    // Creating your own event shouldn't leave a "new content" badge for yourself.
+    void markSectionViewed("schedule");
   }
 
   async function updateScheduleEvent(
@@ -803,6 +816,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         scope: "team",
       });
       await dataRepository.setTaskScheduleLink(taskId, "team", created.id);
+      void markSectionViewed("schedule");
     } else if (task.teamScheduleEventId) {
       await dataRepository.removeScheduleEvent(task.teamScheduleEventId);
     }
@@ -822,6 +836,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         visibility: "private",
       });
       await dataRepository.setTaskScheduleLink(taskId, "personal", created.id);
+      void markSectionViewed("schedule");
     } else if (task.personalScheduleEventId) {
       await dataRepository.removeScheduleEvent(task.personalScheduleEventId);
     }
@@ -892,6 +907,23 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       : 0;
   }
   const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
+
+  function createdAfter<T extends { createdAt?: string | null }>(items: T[], viewedAt: string | null): T[] {
+    if (!currentMember) return [];
+    const since = viewedAt ? new Date(viewedAt).getTime() : 0;
+    return items.filter((item) => item.createdAt && new Date(item.createdAt).getTime() > since);
+  }
+  const newTasks = createdAfter(tasks, currentMember?.tasksViewedAt ?? null);
+  const newScheduleEvents = createdAfter(scheduleEvents, currentMember?.scheduleViewedAt ?? null);
+  const newFiles = createdAfter(files, currentMember?.workspaceViewedAt ?? null);
+  const tasksUnread = newTasks.length;
+  const scheduleUnread = newScheduleEvents.length;
+  const workspaceUnread = newFiles.length;
+  async function markSectionViewed(section: "tasks" | "schedule" | "workspace") {
+    if (!currentMember) return;
+    await dataRepository.markSectionViewed(project.id, section);
+    if (evaluationProjectRef.current === project.id) setTeam(await dataRepository.getTeam(project.id));
+  }
 
   return (
     <ProjectContext.Provider
@@ -973,6 +1005,13 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         sendChatMessage,
         toggleChatReaction,
         markChannelMessagesRead,
+        tasksUnread,
+        scheduleUnread,
+        workspaceUnread,
+        newTasks,
+        newScheduleEvents,
+        newFiles,
+        markSectionViewed,
         currentMember,
         isLeader,
         loading,

@@ -113,6 +113,7 @@ export interface DataRepository {
     input: { text: string; fileId?: number }
   ): Promise<ChatMessage>;
   markChannelRead(projectId: string, channelId: string, readerMemberId: string, messageIds: number[]): Promise<void>;
+  markSectionViewed(projectId: string, section: "tasks" | "schedule" | "workspace"): Promise<void>;
   setMessageReaction(projectId: string, messageId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
   subscribeToMessages(
     projectId: string,

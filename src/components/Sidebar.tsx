@@ -37,8 +37,12 @@ const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", l
 export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
   const {
     projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile,
-    team, viewedMemberId, openMemberProfile, closeMemberProfile,
+    team, viewedMemberId, openMemberProfile, closeMemberProfile, tasksUnread, scheduleUnread, workspaceUnread,
+    newTasks, newScheduleEvents, newFiles,
   } = useProject();
+  const navUnread: Partial<Record<Page, number>> = { chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
+  const totalUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
+  const [notifOpen, setNotifOpen] = useState(false);
   const { user, signOut, updatePassword } = useAuth();
   const { isAdmin } = useProjectManagement();
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
@@ -255,7 +259,13 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => { setMobileOpen(false); onHome(); }}
+            title="메인 화면으로"
+            aria-label="메인 화면으로"
+            className="flex items-center gap-3 min-w-0 text-left"
+          >
             <div
               className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
               style={{
@@ -276,22 +286,92 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 v2.4.1
               </div>
             </div>
-          </div>
+          </button>
           <button
             type="button"
-            onClick={() => { setMobileOpen(false); onHome(); }}
-            title="메인 화면으로"
-            aria-label="메인 화면으로"
-            className="w-8 h-8 flex items-center justify-center text-sm shrink-0 transition-all"
-            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+            onClick={() => { setNotifOpen((v) => !v); setSwitcherOpen(false); }}
+            title="알림"
+            aria-label="알림"
+            className="w-8 h-8 relative flex items-center justify-center text-sm shrink-0 transition-all"
+            style={{ background: notifOpen ? "var(--primary)" : "var(--muted)", color: notifOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "8px" }}
           >
-            ⌂
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            {totalUnread > 0 && (
+              <span
+                className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-700"
+                style={{ background: "#ef4444", color: "#fff", borderRadius: "20px" }}
+              >
+                {totalUnread > 99 ? "99+" : totalUnread}
+              </span>
+            )}
           </button>
         </div>
 
+        {notifOpen && (
+          <div
+            className="absolute left-4 right-4 top-full mt-1.5 p-1.5 z-30"
+            style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", maxHeight: 360, overflowY: "auto" }}
+          >
+            <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
+              알림
+            </div>
+            {totalUnread === 0 && (
+              <div className="px-2.5 py-4 text-xs text-center" style={{ color: "var(--muted-foreground)" }}>
+                새로운 알림이 없어요
+              </div>
+            )}
+            {chatUnreadTotal > 0 && (
+              <button
+                onClick={() => { setNotifOpen(false); navigate("chat"); }}
+                className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
+                style={{ borderRadius: "8px" }}
+              >
+                <span className="text-xs font-700">💬 새 메시지</span>
+                <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{chatUnreadTotal}건</span>
+              </button>
+            )}
+            {newTasks.length > 0 && (
+              <div className="px-2.5 py-2">
+                <button onClick={() => { setNotifOpen(false); navigate("tasks"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
+                  <span className="text-xs font-700">📋 새 과제</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newTasks.length}건</span>
+                </button>
+                {newTasks.slice(0, 3).map((t) => (
+                  <div key={t.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {t.title}</div>
+                ))}
+              </div>
+            )}
+            {newScheduleEvents.length > 0 && (
+              <div className="px-2.5 py-2">
+                <button onClick={() => { setNotifOpen(false); navigate("schedule"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
+                  <span className="text-xs font-700">🗓 새 일정</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newScheduleEvents.length}건</span>
+                </button>
+                {newScheduleEvents.slice(0, 3).map((e) => (
+                  <div key={e.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {e.hideTitle ? "바쁨" : e.title}</div>
+                ))}
+              </div>
+            )}
+            {newFiles.length > 0 && (
+              <div className="px-2.5 py-2">
+                <button onClick={() => { setNotifOpen(false); navigate("workspace"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
+                  <span className="text-xs font-700">📁 새 파일</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newFiles.length}건</span>
+                </button>
+                {newFiles.slice(0, 3).map((f) => (
+                  <div key={f.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {f.name}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Project switcher */}
         <button
-          onClick={() => setSwitcherOpen((v) => !v)}
+          onClick={() => { setSwitcherOpen((v) => !v); setNotifOpen(false); }}
           className="mt-3 px-3 py-2.5 w-full text-left transition-all"
           style={{ background: "var(--muted)", borderRadius: "10px" }}
         >
@@ -465,12 +545,12 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                   {item.icon}
                 </span>
                 <span className="flex-1">{item.label}</span>
-                {item.id === "chat" && chatUnreadTotal > 0 && (
+                {!!navUnread[item.id] && (
                   <span
                     className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
                     style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
                   >
-                    {chatUnreadTotal}
+                    {navUnread[item.id]}
                   </span>
                 )}
               </button>
