@@ -1,4 +1,5 @@
 import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath, validateFileTags } from "../../lib/workspaceFiles";
+import { formatFileSize as formatAttachmentSize } from "../../lib/boardData";
 import { supabase } from "../../lib/supabase";
 import type { DataRepository } from "../dataRepository";
 import type {
@@ -16,6 +17,9 @@ import type {
   ChatMessage,
   ChatReaction,
   AdminProfileSummary,
+  BoardPost,
+  BoardComment,
+  BoardAttachment,
 } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
@@ -187,6 +191,34 @@ function mapMessage(row: any): ChatMessage {
     createdAt: row.created_at,
     readBy: (row.message_reads ?? []).map((r: any) => r.member_id),
     reactions: (row.message_reactions ?? []).map((r: any) => ({ messageId: row.id, memberId: r.member_id, emoji: r.emoji })),
+  };
+}
+
+async function fetchProfilesById(userIds: string[]): Promise<Record<string, any>> {
+  if (userIds.length === 0) return {};
+  const { data, error } = await supabase.from("profiles").select("*").in("id", userIds);
+  if (error) throw error;
+  return Object.fromEntries((data ?? []).map((p: any) => [p.id, p]));
+}
+
+function mapBoardPost(row: any, profile: any, likedByMe: boolean): BoardPost {
+  return {
+    id: row.id,
+    category: row.category,
+    title: row.title,
+    content: row.content,
+    authorUserId: row.author_user_id,
+    author: profile?.display_name || "탈퇴한 사용자",
+    authorAvatarUrl: profile?.avatar_url ?? null,
+    createdAt: row.created_at,
+    views: row.views,
+    likes: row.likes_count,
+    likedByMe,
+    pinned: row.pinned,
+    tags: row.tags ?? [],
+    attachments: row.attachments ?? [],
+    commentsCount: row.comments_count,
+    comments: [],
   };
 }
 
@@ -1044,6 +1076,155 @@ export const supabaseDataRepository: DataRepository = {
       });
     return () => {
       void supabase.removeChannel(channel);
+    };
+  },
+
+  async listBoardPosts() {
+    const { data: auth } = await supabase.auth.getUser();
+    const myId = auth.user?.id;
+    const [postsResult, likesResult] = await Promise.all([
+      supabase.from("board_posts").select("*").order("pinned", { ascending: false }).order("created_at", { ascending: false }),
+      myId
+        ? supabase.from("board_likes").select("post_id").eq("user_id", myId)
+        : Promise.resolve({ data: [] as { post_id: number }[], error: null }),
+    ]);
+    if (postsResult.error) throw postsResult.error;
+    if (likesResult.error) throw likesResult.error;
+    const likedPostIds = new Set((likesResult.data ?? []).map((r: any) => r.post_id));
+    const rows = postsResult.data ?? [];
+    const profileById = await fetchProfilesById([...new Set(rows.map((r: any) => r.author_user_id))]);
+    return rows.map((row: any) => mapBoardPost(row, profileById[row.author_user_id], likedPostIds.has(row.id)));
+  },
+
+  async createBoardPost(input) {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+    const { data, error } = await supabase
+      .from("board_posts")
+      .insert({
+        category: input.category,
+        title: input.title.trim(),
+        content: input.content,
+        author_user_id: userId,
+        attachments: input.attachments,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    const profileById = await fetchProfilesById([userId]);
+    return mapBoardPost(data, profileById[userId], false);
+  },
+
+  async updateBoardPost(postId, patch) {
+    const updates: Record<string, unknown> = {};
+    if (patch.category !== undefined) updates.category = patch.category;
+    if (patch.title !== undefined) updates.title = patch.title.trim();
+    if (patch.content !== undefined) updates.content = patch.content;
+    if (patch.attachments !== undefined) updates.attachments = patch.attachments;
+    if (Object.keys(updates).length === 0) return;
+    updates.updated_at = new Date().toISOString();
+    const { error } = await supabase.from("board_posts").update(updates).eq("id", postId);
+    if (error) throw error;
+  },
+
+  async deleteBoardPost(postId) {
+    const { error } = await supabase.from("board_posts").delete().eq("id", postId);
+    if (error) throw error;
+  },
+
+  async incrementBoardPostViews(postId) {
+    const { error } = await supabase.rpc("increment_board_post_views", { p_post_id: postId });
+    if (error) throw error;
+  },
+
+  async setBoardPostLike(postId, active) {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+    if (active) {
+      const { error } = await supabase
+        .from("board_likes")
+        .upsert({ post_id: postId, user_id: userId }, { onConflict: "post_id,user_id", ignoreDuplicates: true });
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from("board_likes").delete().eq("post_id", postId).eq("user_id", userId);
+      if (error) throw error;
+    }
+  },
+
+  async getBoardPostComments(postId): Promise<BoardComment[]> {
+    const { data, error } = await supabase
+      .from("board_comments")
+      .select("*")
+      .eq("post_id", postId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    const rows = data ?? [];
+    const profileById = await fetchProfilesById([...new Set(rows.map((r: any) => r.author_user_id))]);
+    const repliesByParent = new Map<number, any[]>();
+    for (const row of rows) {
+      if (row.parent_comment_id !== null) {
+        const list = repliesByParent.get(row.parent_comment_id) ?? [];
+        list.push(row);
+        repliesByParent.set(row.parent_comment_id, list);
+      }
+    }
+    return rows
+      .filter((row: any) => row.parent_comment_id === null)
+      .map((row: any) => ({
+        id: row.id,
+        authorUserId: row.author_user_id,
+        author: profileById[row.author_user_id]?.display_name || "탈퇴한 사용자",
+        authorAvatarUrl: profileById[row.author_user_id]?.avatar_url ?? null,
+        createdAt: row.created_at,
+        content: row.content,
+        replies: (repliesByParent.get(row.id) ?? []).map((reply: any) => ({
+          id: reply.id,
+          authorUserId: reply.author_user_id,
+          author: profileById[reply.author_user_id]?.display_name || "탈퇴한 사용자",
+          authorAvatarUrl: profileById[reply.author_user_id]?.avatar_url ?? null,
+          createdAt: reply.created_at,
+          content: reply.content,
+        })),
+      }));
+  },
+
+  async addBoardComment(postId, content, parentCommentId) {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+    const { error } = await supabase.from("board_comments").insert({
+      post_id: postId,
+      parent_comment_id: parentCommentId ?? null,
+      author_user_id: userId,
+      content: content.trim(),
+    });
+    if (error) throw error;
+  },
+
+  async deleteBoardComment(commentId) {
+    const { error } = await supabase.from("board_comments").delete().eq("id", commentId);
+    if (error) throw error;
+  },
+
+  async uploadBoardAttachment(file): Promise<BoardAttachment> {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+    if (file.size > 20 * 1024 * 1024) throw new Error("첨부파일은 20MB까지 업로드할 수 있습니다.");
+    const ext = file.name.split(".").pop() || "bin";
+    const path = `${userId}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await supabase.storage.from("board-attachments").upload(path, file, { contentType: file.type || "application/octet-stream" });
+    if (error) throw error;
+    const { data } = supabase.storage.from("board-attachments").getPublicUrl(path);
+    return {
+      id: crypto.randomUUID(),
+      name: file.name,
+      size: formatAttachmentSize(file.size),
+      kind: file.type.startsWith("image/") ? "image" : "file",
+      url: data.publicUrl,
+      mimeType: file.type,
     };
   },
 };

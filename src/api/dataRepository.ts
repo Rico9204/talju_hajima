@@ -21,6 +21,11 @@ import type {
   ChatMessage,
   ChatReaction,
   AdminProfileSummary,
+  BoardPost,
+  NewBoardPostInput,
+  BoardCategory,
+  BoardAttachment,
+  BoardComment,
 } from "./types";
 
 /**
@@ -122,4 +127,19 @@ export interface DataRepository {
   ): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
   subscribeToPresence(projectId: string, memberId: string, onChange: (onlineMemberIds: Set<string>) => void): () => void;
+
+  // Main-screen community board — global, not scoped to any project.
+  listBoardPosts(): Promise<BoardPost[]>;
+  createBoardPost(input: NewBoardPostInput): Promise<BoardPost>;
+  updateBoardPost(
+    postId: number,
+    patch: Partial<{ category: BoardCategory; title: string; content: string; attachments: BoardAttachment[] }>
+  ): Promise<void>;
+  deleteBoardPost(postId: number): Promise<void>;
+  incrementBoardPostViews(postId: number): Promise<void>;
+  setBoardPostLike(postId: number, active: boolean): Promise<void>;
+  getBoardPostComments(postId: number): Promise<BoardComment[]>;
+  addBoardComment(postId: number, content: string, parentCommentId?: number): Promise<void>;
+  deleteBoardComment(commentId: number): Promise<void>;
+  uploadBoardAttachment(file: File): Promise<BoardAttachment>;
 }

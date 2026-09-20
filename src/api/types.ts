@@ -221,6 +221,62 @@ export interface NewScheduleEventInput {
   hideTitle?: boolean;
 }
 
+export type BoardCategory = "notice" | "free" | "recruit";
+
+export interface BoardAttachment {
+  id: string;
+  name: string;
+  size: string;
+  kind: "image" | "file";
+  url: string;
+  mimeType?: string;
+}
+
+export interface BoardReply {
+  id: number;
+  authorUserId: string;
+  author: string;
+  authorAvatarUrl: string | null;
+  createdAt: string;
+  content: string;
+}
+
+export interface BoardComment {
+  id: number;
+  authorUserId: string;
+  author: string;
+  authorAvatarUrl: string | null;
+  createdAt: string;
+  content: string;
+  replies: BoardReply[];
+}
+
+export interface BoardPost {
+  id: number;
+  category: BoardCategory;
+  title: string;
+  content: string;
+  authorUserId: string;
+  author: string;
+  authorAvatarUrl: string | null;
+  createdAt: string;
+  views: number;
+  likes: number;
+  likedByMe: boolean;
+  pinned: boolean;
+  tags: string[];
+  attachments: BoardAttachment[];
+  commentsCount: number;
+  comments: BoardComment[];
+}
+
+export interface NewBoardPostInput {
+  category: BoardCategory;
+  title: string;
+  content: string;
+  attachments: BoardAttachment[];
+}
+
 export interface ChatMessage {
   id: number;
   channelId: string;
