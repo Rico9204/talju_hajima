@@ -256,7 +256,13 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => { setMobileOpen(false); onHome(); }}
+            title="메인 화면으로"
+            aria-label="메인 화면으로"
+            className="flex items-center gap-3 min-w-0 text-left"
+          >
             <div
               className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
               style={{
@@ -277,16 +283,6 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 v2.4.1
               </div>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => { setMobileOpen(false); onHome(); }}
-            title="메인 화면으로"
-            aria-label="메인 화면으로"
-            className="w-8 h-8 flex items-center justify-center text-sm shrink-0 transition-all"
-            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
-          >
-            ⌂
           </button>
         </div>
 

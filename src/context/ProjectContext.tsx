@@ -685,6 +685,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     const extractedText = await extractWorkspaceText(input.file).catch(() => ({ text: "", status: "failed" as const }));
     const result = await dataRepository.uploadFile(projectId, { ...input, extractedText });
     await refreshFiles();
+    // Uploading your own file shouldn't leave a "new content" badge for yourself.
+    void markSectionViewed("workspace");
     return result;
   }
 
@@ -719,6 +721,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     if (!projectId || !isLeader) return;
     await dataRepository.createTask(projectId, input);
     await refreshTasks();
+    // Creating your own task shouldn't leave a "new content" badge for yourself.
+    void markSectionViewed("tasks");
   }
 
   async function moveTask(taskId: number, status: TaskStatus) {
@@ -779,6 +783,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     if (input.scope === "team" && !isLeader) return;
     await dataRepository.addScheduleEvent(projectId, currentMember.id, input);
     await refreshScheduleEvents();
+    // Creating your own event shouldn't leave a "new content" badge for yourself.
+    void markSectionViewed("schedule");
   }
 
   async function updateScheduleEvent(
@@ -807,6 +813,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         scope: "team",
       });
       await dataRepository.setTaskScheduleLink(taskId, "team", created.id);
+      void markSectionViewed("schedule");
     } else if (task.teamScheduleEventId) {
       await dataRepository.removeScheduleEvent(task.teamScheduleEventId);
     }
@@ -826,6 +833,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         visibility: "private",
       });
       await dataRepository.setTaskScheduleLink(taskId, "personal", created.id);
+      void markSectionViewed("schedule");
     } else if (task.personalScheduleEventId) {
       await dataRepository.removeScheduleEvent(task.personalScheduleEventId);
     }
