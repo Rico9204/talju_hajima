@@ -7,7 +7,7 @@ import PostDetailView from "./PostDetailView";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import type { BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
-const POSTS_PER_PAGE = 15;
+const POSTS_PER_PAGE = 10;
 type SearchTarget = "title_content" | "title" | "content" | "author";
 
 function errorMessage(error: unknown): string {
@@ -295,6 +295,38 @@ export default function BoardView() {
         })}
       </div>
 
+      <div className="p-4 mb-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <select
+            value={searchTarget}
+            onChange={(e) => setSearchTarget(e.target.value as SearchTarget)}
+            className="text-xs font-700 px-3 py-2 outline-none cursor-pointer border shrink-0"
+            style={{ background: "var(--muted)", color: "var(--foreground)", borderColor: "var(--border)", borderRadius: "8px" }}
+          >
+            <option value="title_content">제목+내용</option>
+            <option value="title">제목</option>
+            <option value="content">내용</option>
+            <option value="author">글쓴이</option>
+          </select>
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 border min-w-0" style={{ background: "var(--background)", borderColor: "var(--border)", borderRadius: "8px" }}>
+            <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>🔍</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="검색어를 입력하세요..."
+              className="flex-1 bg-transparent text-xs outline-none min-w-0"
+              style={{ color: "var(--foreground)" }}
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="text-xs px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>
+                초기화
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {loading ? (
         <p role="status" className="p-12 text-center text-xs" style={{ color: "var(--muted-foreground)" }}>게시글을 불러오는 중…</p>
       ) : paginatedPosts.length === 0 ? (
@@ -388,38 +420,6 @@ export default function BoardView() {
           </div>
         </div>
       )}
-
-      <div className="p-4 mt-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <select
-            value={searchTarget}
-            onChange={(e) => setSearchTarget(e.target.value as SearchTarget)}
-            className="text-xs font-700 px-3 py-2 outline-none cursor-pointer border shrink-0"
-            style={{ background: "var(--muted)", color: "var(--foreground)", borderColor: "var(--border)", borderRadius: "8px" }}
-          >
-            <option value="title_content">제목+내용</option>
-            <option value="title">제목</option>
-            <option value="content">내용</option>
-            <option value="author">글쓴이</option>
-          </select>
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 border min-w-0" style={{ background: "var(--background)", borderColor: "var(--border)", borderRadius: "8px" }}>
-            <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>🔍</span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="검색어를 입력하세요..."
-              className="flex-1 bg-transparent text-xs outline-none min-w-0"
-              style={{ color: "var(--foreground)" }}
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery("")} className="text-xs px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>
-                초기화
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
