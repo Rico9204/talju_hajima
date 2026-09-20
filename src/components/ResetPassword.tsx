@@ -29,7 +29,7 @@ export default function ResetPassword() {
   // an already logged-in user navigating here directly) — there's nothing to
   // reset.
   if (!user) return <Navigate to="/login" replace />;
-  if (done) return <Navigate to="/dashboard" replace />;
+  if (done) return <Navigate to="/home" replace />;
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>

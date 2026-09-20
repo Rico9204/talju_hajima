@@ -34,7 +34,7 @@ const navItems: { id: Page; label: string; icon: ReactNode }[] = [
 
 const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
 
-export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
+export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
   const {
     projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile,
     team, viewedMemberId, openMemberProfile, closeMemberProfile,
@@ -254,27 +254,39 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           boxShadow: "var(--shadow-card)",
         }}
       >
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 flex items-center justify-center text-xs font-800"
-            style={{
-              background: "var(--primary)",
-              color: "#fff",
-              borderRadius: "10px",
-              boxShadow: "0 4px 12px rgba(37,99,235,0.35)",
-            }}
-          >
-            CP
-          </div>
-          <div>
-            <div className="text-sm font-700 leading-none">CollabPeer</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
             <div
-              className="text-xs mt-0.5"
-              style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}
+              className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
+              style={{
+                background: "var(--primary)",
+                color: "#fff",
+                borderRadius: "10px",
+                boxShadow: "0 4px 12px rgba(37,99,235,0.35)",
+              }}
             >
-              v2.4.1
+              CP
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-700 leading-none">CollabPeer</div>
+              <div
+                className="text-xs mt-0.5"
+                style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}
+              >
+                v2.4.1
+              </div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => { setMobileOpen(false); onHome(); }}
+            title="메인 화면으로"
+            aria-label="메인 화면으로"
+            className="w-8 h-8 flex items-center justify-center text-sm shrink-0 transition-all"
+            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+          >
+            ⌂
+          </button>
         </div>
 
         {/* Project switcher */}
