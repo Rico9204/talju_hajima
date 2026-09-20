@@ -138,6 +138,9 @@ interface ProjectContextValue {
   tasksUnread: number;
   scheduleUnread: number;
   workspaceUnread: number;
+  newTasks: Task[];
+  newScheduleEvents: ScheduleEvent[];
+  newFiles: WorkspaceFile[];
   markSectionViewed: (section: "tasks" | "schedule" | "workspace") => Promise<void>;
   currentMember: Member | null;
   isLeader: boolean;
@@ -905,14 +908,17 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   }
   const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
 
-  function countCreatedAfter(items: { createdAt?: string | null }[], viewedAt: string | null): number {
-    if (!currentMember) return 0;
+  function createdAfter<T extends { createdAt?: string | null }>(items: T[], viewedAt: string | null): T[] {
+    if (!currentMember) return [];
     const since = viewedAt ? new Date(viewedAt).getTime() : 0;
-    return items.filter((item) => item.createdAt && new Date(item.createdAt).getTime() > since).length;
+    return items.filter((item) => item.createdAt && new Date(item.createdAt).getTime() > since);
   }
-  const tasksUnread = countCreatedAfter(tasks, currentMember?.tasksViewedAt ?? null);
-  const scheduleUnread = countCreatedAfter(scheduleEvents, currentMember?.scheduleViewedAt ?? null);
-  const workspaceUnread = countCreatedAfter(files, currentMember?.workspaceViewedAt ?? null);
+  const newTasks = createdAfter(tasks, currentMember?.tasksViewedAt ?? null);
+  const newScheduleEvents = createdAfter(scheduleEvents, currentMember?.scheduleViewedAt ?? null);
+  const newFiles = createdAfter(files, currentMember?.workspaceViewedAt ?? null);
+  const tasksUnread = newTasks.length;
+  const scheduleUnread = newScheduleEvents.length;
+  const workspaceUnread = newFiles.length;
   async function markSectionViewed(section: "tasks" | "schedule" | "workspace") {
     if (!currentMember) return;
     await dataRepository.markSectionViewed(project.id, section);
@@ -1002,6 +1008,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         tasksUnread,
         scheduleUnread,
         workspaceUnread,
+        newTasks,
+        newScheduleEvents,
+        newFiles,
         markSectionViewed,
         currentMember,
         isLeader,
