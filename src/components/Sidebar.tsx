@@ -37,8 +37,9 @@ const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", l
 export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
   const {
     projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile,
-    team, viewedMemberId, openMemberProfile, closeMemberProfile,
+    team, viewedMemberId, openMemberProfile, closeMemberProfile, tasksUnread, scheduleUnread, workspaceUnread,
   } = useProject();
+  const navUnread: Partial<Record<Page, number>> = { chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
   const { user, signOut, updatePassword } = useAuth();
   const { isAdmin } = useProjectManagement();
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
@@ -465,12 +466,12 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                   {item.icon}
                 </span>
                 <span className="flex-1">{item.label}</span>
-                {item.id === "chat" && chatUnreadTotal > 0 && (
+                {!!navUnread[item.id] && (
                   <span
                     className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
                     style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
                   >
-                    {chatUnreadTotal}
+                    {navUnread[item.id]}
                   </span>
                 )}
               </button>

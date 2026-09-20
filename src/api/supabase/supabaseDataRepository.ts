@@ -84,6 +84,9 @@ function mapMember(row: any, profile?: any): Member {
       quality: Number(row.criteria_quality),
     },
     isLeader: row.is_leader,
+    tasksViewedAt: row.tasks_viewed_at ?? null,
+    scheduleViewedAt: row.schedule_viewed_at ?? null,
+    workspaceViewedAt: row.workspace_viewed_at ?? null,
   };
 }
 
@@ -141,6 +144,7 @@ function mapTaskComment(row: any): TaskComment {
 
 function mapTask(row: any): Task {
   return {
+    createdAt: row.created_at ?? null,
     id: row.id,
     title: row.title,
     assignee: row.assignee,
@@ -940,6 +944,11 @@ export const supabaseDataRepository: DataRepository = {
     if (messageIds.length === 0) return;
     const rows = messageIds.map((id) => ({ message_id: id, member_id: readerMemberId, project_id: projectId }));
     const { error } = await supabase.from("message_reads").upsert(rows, { onConflict: "message_id,member_id", ignoreDuplicates: true });
+    if (error) throw error;
+  },
+
+  async markSectionViewed(projectId, section) {
+    const { error } = await supabase.rpc("mark_section_viewed", { p_project_id: projectId, p_section: section });
     if (error) throw error;
   },
 

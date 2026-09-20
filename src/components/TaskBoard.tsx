@@ -43,7 +43,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     project, team, isLeader, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
     toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
-    toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile,
+    toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile, markSectionViewed,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
   const [assigneeFilterSearch, setAssigneeFilterSearch] = useState("");
@@ -72,6 +72,11 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   useEffect(() => {
     if (focusTaskId != null) setSelectedTaskId(focusTaskId);
   }, [focusTaskId]);
+
+  useEffect(() => {
+    if (currentMember) void markSectionViewed("tasks");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, currentMember?.id]);
 
   const filterOptions = [{ id: "all", label: "전체" }, ...team.members.map((m) => ({ id: m.id, label: m.name }))];
   const showAssigneeFilterSearch = team.members.length > 8;

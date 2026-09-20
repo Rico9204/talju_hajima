@@ -34,7 +34,7 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isLeader, deleteWorkspaceFile } = useProject();
+  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isLeader, deleteWorkspaceFile, markSectionViewed } = useProject();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -97,6 +97,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setSelectedIds(new Set());
     setBulkDeleteError("");
   }, [project.id]);
+
+  useEffect(() => {
+    if (currentMember) void markSectionViewed("workspace");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, currentMember?.id]);
 
   useEffect(() => {
     if (focusFile) {

@@ -135,6 +135,10 @@ interface ProjectContextValue {
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<void>;
   toggleChatReaction: (messageId: number, emoji: string) => Promise<void>;
   markChannelMessagesRead: (channelId: string) => Promise<void>;
+  tasksUnread: number;
+  scheduleUnread: number;
+  workspaceUnread: number;
+  markSectionViewed: (section: "tasks" | "schedule" | "workspace") => Promise<void>;
   currentMember: Member | null;
   isLeader: boolean;
   loading: boolean;
@@ -893,6 +897,20 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   }
   const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
 
+  function countCreatedAfter(items: { createdAt?: string | null }[], viewedAt: string | null): number {
+    if (!currentMember) return 0;
+    const since = viewedAt ? new Date(viewedAt).getTime() : 0;
+    return items.filter((item) => item.createdAt && new Date(item.createdAt).getTime() > since).length;
+  }
+  const tasksUnread = countCreatedAfter(tasks, currentMember?.tasksViewedAt ?? null);
+  const scheduleUnread = countCreatedAfter(scheduleEvents, currentMember?.scheduleViewedAt ?? null);
+  const workspaceUnread = countCreatedAfter(files, currentMember?.workspaceViewedAt ?? null);
+  async function markSectionViewed(section: "tasks" | "schedule" | "workspace") {
+    if (!currentMember) return;
+    await dataRepository.markSectionViewed(project.id, section);
+    if (evaluationProjectRef.current === project.id) setTeam(await dataRepository.getTeam(project.id));
+  }
+
   return (
     <ProjectContext.Provider
       value={{
@@ -973,6 +991,10 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         sendChatMessage,
         toggleChatReaction,
         markChannelMessagesRead,
+        tasksUnread,
+        scheduleUnread,
+        workspaceUnread,
+        markSectionViewed,
         currentMember,
         isLeader,
         loading,
