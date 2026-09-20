@@ -539,7 +539,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                 </p>
                 {/* Steps — one at a time; a bookmark tab appears for each item once you've reached it.
                     Midterm evaluations add a trailing "종합 코멘트" step; final evaluations only have the 5 criteria. */}
-                <div role="tablist" aria-label="평가 항목" className="flex items-center gap-1.5 mb-4 flex-wrap">
+                <div role="tablist" aria-label="평가 항목" className={isDone ? "flex items-center gap-1 mb-4 flex-wrap" : "grid grid-cols-3 gap-1.5 mb-4"}>
                   {Array.from({ length: totalSteps }, (_, i) => i).map((i) => {
                     if (i > maxCriterionStepSeen) return null;
                     const isActive = i === criterionStep;
@@ -553,14 +553,14 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                         role="tab"
                         aria-selected={isActive}
                         onClick={() => goToCriterionStep(i)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-700 transition-all"
+                        className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-700 transition-all min-w-0"
                         style={{
                           background: isActive ? "var(--primary)" : "var(--secondary)",
                           color: isActive ? "#fff" : "var(--primary)",
                           borderRadius: "10px 10px 3px 3px",
                         }}
                       >
-                        <span>{icon}</span>{label}
+                        <span className="shrink-0">{icon}</span><span className="truncate min-w-0">{label}</span>
                       </button>
                     );
                   })}
