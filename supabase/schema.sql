@@ -2212,10 +2212,15 @@ create policy board_comments_insert on public.board_comments for insert to authe
   with check (
     author_user_id = auth.uid()
     and exists (select 1 from public.board_posts p where p.id = post_id)
-    and (parent_comment_id is null or exists (
-      select 1 from public.board_comments parent
-      where parent.id = parent_comment_id and parent.post_id = board_comments.post_id and parent.parent_comment_id is null
-    ))
+    and (
+      parent_comment_id is null
+      or exists (
+        select 1 from public.board_comments parent
+        where parent.id = parent_comment_id
+          and parent.post_id = post_id
+          and parent.parent_comment_id is null
+      )
+    )
   );
 drop policy if exists board_comments_delete on public.board_comments;
 create policy board_comments_delete on public.board_comments for delete to authenticated
