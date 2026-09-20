@@ -97,7 +97,7 @@ export default function CreatePostView({
     } catch (e) {
       const placeholderEl = editorRef.current?.querySelector(`#${CSS.escape(placeholderId)}`);
       if (placeholderEl) placeholderEl.textContent = "⚠️ 이미지 업로드 실패";
-      setError(e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.");
+      setError(e instanceof Error ? e.message : (e as { message?: string } | null)?.message || "이미지 업로드에 실패했습니다.");
     }
   }
 
@@ -141,7 +141,7 @@ export default function CreatePostView({
       const newAttachments = await Promise.all(files.map((file) => dataRepository.uploadBoardAttachment(file)));
       setAttachments((prev) => [...prev, ...newAttachments]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "파일을 업로드하는 도중 오류가 발생했습니다.");
+      setError(err instanceof Error ? err.message : (err as { message?: string } | null)?.message || "파일을 업로드하는 도중 오류가 발생했습니다.");
     } finally {
       setUploading(false);
       e.target.value = "";

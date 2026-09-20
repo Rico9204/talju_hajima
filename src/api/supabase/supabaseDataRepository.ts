@@ -1203,6 +1203,11 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
+  async deleteBoardComment(commentId) {
+    const { error } = await supabase.from("board_comments").delete().eq("id", commentId);
+    if (error) throw error;
+  },
+
   async uploadBoardAttachment(file): Promise<BoardAttachment> {
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;

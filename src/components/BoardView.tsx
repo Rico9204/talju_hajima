@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
+import { useProjectManagement } from "../context/ProjectContext";
 import { dataRepository } from "../api";
 import CreatePostView from "./CreatePostView";
 import PostDetailView from "./PostDetailView";
@@ -10,11 +11,17 @@ const POSTS_PER_PAGE = 15;
 type SearchTarget = "title_content" | "title" | "content" | "author";
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "요청을 처리하지 못했습니다.";
+  // Supabase's PostgrestError (RLS violations, check-constraint failures…) is
+  // a plain object, not an Error instance — read .message off it directly or
+  // the real reason gets swallowed into this generic fallback.
+  if (error instanceof Error) return error.message;
+  const message = (error as { message?: string } | null)?.message;
+  return message || "요청을 처리하지 못했습니다.";
 }
 
 export default function BoardView() {
   const { user } = useAuth();
+  const { isAdmin } = useProjectManagement();
 
   const [posts, setPosts] = useState<BoardPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +123,16 @@ export default function BoardView() {
     }
   }
 
+  async function handleDeleteComment(postId: number, commentId: number) {
+    setError(null);
+    try {
+      await dataRepository.deleteBoardComment(commentId);
+      await refreshComments(postId);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
   async function handleToggleLike(postId: number) {
     const target = posts.find((p) => p.id === postId) ?? selectedPost;
     if (!target) return;
@@ -196,12 +213,14 @@ export default function BoardView() {
       <PostDetailView
         post={selectedPost}
         currentUserId={user?.id ?? null}
+        isAdmin={isAdmin}
         busy={busy}
         error={error}
         onBack={() => setSelectedPost(null)}
         onEditPost={(post) => setEditingPost(post)}
         onAddComment={handleAddComment}
         onAddReply={handleAddReply}
+        onDeleteComment={handleDeleteComment}
         onToggleLike={handleToggleLike}
         onDeletePost={handleDeletePost}
       />

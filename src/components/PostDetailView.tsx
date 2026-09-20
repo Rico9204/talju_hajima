@@ -5,23 +5,27 @@ import type { BoardPost } from "../api/types";
 export default function PostDetailView({
   post,
   currentUserId,
+  isAdmin,
   busy,
   error,
   onBack,
   onEditPost,
   onAddComment,
   onAddReply,
+  onDeleteComment,
   onToggleLike,
   onDeletePost,
 }: {
   post: BoardPost;
   currentUserId: string | null;
+  isAdmin: boolean;
   busy: boolean;
   error: string | null;
   onBack: () => void;
   onEditPost?: (post: BoardPost) => void;
   onAddComment: (postId: number, content: string) => void;
   onAddReply: (postId: number, commentId: number, content: string, targetAuthor?: string) => void;
+  onDeleteComment: (postId: number, commentId: number) => void;
   onToggleLike: (postId: number) => void;
   onDeletePost: (postId: number) => void;
 }) {
@@ -31,6 +35,13 @@ export default function PostDetailView({
 
   const catInfo = BOARD_CATEGORIES.find((c) => c.id === post.category) ?? BOARD_CATEGORIES[1];
   const isAuthor = !!currentUserId && post.authorUserId === currentUserId;
+  const commentsDisabled = post.category === "notice";
+  function canDeleteComment(authorUserId: string): boolean {
+    return isAdmin || (!!currentUserId && authorUserId === currentUserId);
+  }
+  function confirmDeleteComment(commentId: number) {
+    if (confirm("이 댓글을 삭제하시겠습니까?")) onDeleteComment(post.id, commentId);
+  }
 
   const files = post.attachments.filter((a) => a.kind === "file");
   const isHtml = post.content.includes("<") && post.content.includes(">");
@@ -202,27 +213,29 @@ export default function PostDetailView({
             <span className="text-xs px-2.5 py-0.5 font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>{totalCommentsCount}</span>
           </h3>
 
-          <form onSubmit={handleCommentSubmit} className="mb-6 space-y-2.5">
-            <textarea
-              rows={3}
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              maxLength={2000}
-              placeholder="댓글을 남겨보세요..."
-              className="w-full px-4 py-3 text-xs md:text-sm outline-none resize-none"
-              style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }}
-            />
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={!commentText.trim()}
-                className="px-5 py-2 text-xs font-700 transition-all disabled:opacity-40"
-                style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
-              >
-                댓글 작성
-              </button>
-            </div>
-          </form>
+          {!commentsDisabled && (
+            <form onSubmit={handleCommentSubmit} className="mb-6 space-y-2.5">
+              <textarea
+                rows={3}
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                maxLength={2000}
+                placeholder="댓글을 남겨보세요..."
+                className="w-full px-4 py-3 text-xs md:text-sm outline-none resize-none"
+                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }}
+              />
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={!commentText.trim()}
+                  className="px-5 py-2 text-xs font-700 transition-all disabled:opacity-40"
+                  style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+                >
+                  댓글 작성
+                </button>
+              </div>
+            </form>
+          )}
 
           {post.comments.length === 0 ? (
             <p className="text-xs text-center py-6" style={{ color: "var(--muted-foreground)" }}>
@@ -238,16 +251,18 @@ export default function PostDetailView({
                       <span className="font-700">{c.author}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>{formatDate(c.createdAt)}</span>
-                        <button
-                          onClick={() => {
-                            if (isReplyingToParent) setReplyingTarget(null);
-                            else { setReplyingTarget({ commentId: c.id, targetAuthor: c.author }); setReplyText(""); }
-                          }}
-                          className="text-[11px] font-600 px-2 py-0.5 transition-all hover:bg-blue-500/10"
-                          style={{ color: "var(--primary)", borderRadius: "6px" }}
-                        >
-                          💬 답글
-                        </button>
+                        {!commentsDisabled && (
+                          <button
+                            onClick={() => {
+                              if (isReplyingToParent) setReplyingTarget(null);
+                              else { setReplyingTarget({ commentId: c.id, targetAuthor: c.author }); setReplyText(""); }
+                            }}
+                            className="text-[11px] font-600 px-2 py-0.5 transition-all hover:bg-blue-500/10"
+                            style={{ color: "var(--primary)", borderRadius: "6px" }}
+                          >
+                            💬 답글
+                          </button>
+                        )}
                         <button
                           onClick={() => handleReport("댓글")}
                           className="text-[11px] font-600 px-2 py-0.5 transition-all hover:bg-red-500/10"
@@ -256,6 +271,16 @@ export default function PostDetailView({
                         >
                           🚨 신고
                         </button>
+                        {canDeleteComment(c.authorUserId) && (
+                          <button
+                            onClick={() => confirmDeleteComment(c.id)}
+                            className="text-[11px] font-600 px-2 py-0.5 transition-all hover:bg-red-500/10"
+                            style={{ color: "#ef4444", borderRadius: "6px" }}
+                            title="댓글 삭제하기"
+                          >
+                            🗑️ 삭제
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -297,16 +322,18 @@ export default function PostDetailView({
                                   </div>
                                   <div className="flex items-center gap-2">
                                     <span className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>{formatDate(r.createdAt)}</span>
-                                    <button
-                                      onClick={() => {
-                                        if (isReplyingToThisReply) setReplyingTarget(null);
-                                        else { setReplyingTarget({ commentId: c.id, targetAuthor: r.author, replyId: r.id }); setReplyText(""); }
-                                      }}
-                                      className="text-[10px] font-600 px-1.5 py-0.5 transition-all hover:bg-blue-500/10"
-                                      style={{ color: "var(--primary)", borderRadius: "6px" }}
-                                    >
-                                      💬 답글
-                                    </button>
+                                    {!commentsDisabled && (
+                                      <button
+                                        onClick={() => {
+                                          if (isReplyingToThisReply) setReplyingTarget(null);
+                                          else { setReplyingTarget({ commentId: c.id, targetAuthor: r.author, replyId: r.id }); setReplyText(""); }
+                                        }}
+                                        className="text-[10px] font-600 px-1.5 py-0.5 transition-all hover:bg-blue-500/10"
+                                        style={{ color: "var(--primary)", borderRadius: "6px" }}
+                                      >
+                                        💬 답글
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => handleReport("대댓글")}
                                       className="text-[10px] font-600 px-1.5 py-0.5 transition-all hover:bg-red-500/10"
@@ -315,6 +342,16 @@ export default function PostDetailView({
                                     >
                                       🚨 신고
                                     </button>
+                                    {canDeleteComment(r.authorUserId) && (
+                                      <button
+                                        onClick={() => confirmDeleteComment(r.id)}
+                                        className="text-[10px] font-600 px-1.5 py-0.5 transition-all hover:bg-red-500/10"
+                                        style={{ color: "#ef4444", borderRadius: "6px" }}
+                                        title="대댓글 삭제하기"
+                                      >
+                                        🗑️ 삭제
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                                 <p className="whitespace-pre-wrap leading-relaxed text-[13px] pl-3.5">{r.content}</p>

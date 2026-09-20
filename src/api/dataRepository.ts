@@ -140,5 +140,6 @@ export interface DataRepository {
   setBoardPostLike(postId: number, active: boolean): Promise<void>;
   getBoardPostComments(postId: number): Promise<BoardComment[]>;
   addBoardComment(postId: number, content: string, parentCommentId?: number): Promise<void>;
+  deleteBoardComment(commentId: number): Promise<void>;
   uploadBoardAttachment(file: File): Promise<BoardAttachment>;
 }
