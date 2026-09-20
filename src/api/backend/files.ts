@@ -82,6 +82,19 @@ export function listFilePins(projectId: string, fileId: string) {
   return apiClient.get<FileVersionPin[]>(`/projects/${projectId}/files/${fileId}/pins`);
 }
 
+export interface VersionCalendarEntry {
+  id: string;
+  fileId: string;
+  path: string;
+  authorId: string;
+  createdAt: string;
+}
+
+// 버전 이력 달력용 — fileId를 주면 그 파일만, 안 주면 프로젝트 전체 파일의 업로드 이력.
+export function listVersionCalendar(projectId: string, fileId?: string) {
+  return apiClient.get<VersionCalendarEntry[]>(`/projects/${projectId}/files/versions-calendar`, { params: { fileId } });
+}
+
 // 파일 목록에서 "핀 N" 배지를 보여주기 위한 파일별 핀 개수 (listBranches와 같은 용도).
 export function listPinCounts(projectId: string) {
   return apiClient.get<{ fileId: string; count: number }[]>(`/projects/${projectId}/files/pins`);

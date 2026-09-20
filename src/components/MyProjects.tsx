@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProject } from "../context/ProjectContext";
 import { listMyCalendarEvents, type MyCalendarEvent } from "../api/backend/calendarMe";
+import { createBoardPost } from "../api/backend/board";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
+import Board from "./Board";
 
 const typeMeta: Record<string, { label: string; color: string }> = {
   deadline: { label: "마감", color: "#ef4444" },
@@ -46,6 +48,7 @@ export default function MyProjects() {
   const [events, setEvents] = useState<MyCalendarEvent[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<"create" | "join" | null>(null);
+  const [tab, setTab] = useState<"projects" | "board">("projects");
 
   useEffect(() => {
     listMyCalendarEvents()
@@ -68,7 +71,9 @@ export default function MyProjects() {
           >
             협
           </div>
-          <h1 className="text-3xl font-600" style={{ fontFamily: "var(--font-fraunces)" }}>내 프로젝트</h1>
+          <h1 className="text-3xl font-600" style={{ fontFamily: "var(--font-fraunces)" }}>
+            {tab === "projects" ? "내 프로젝트" : "게시판"}
+          </h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -89,13 +94,29 @@ export default function MyProjects() {
         </div>
       </div>
 
+      <div className="flex gap-1.5 mb-6 p-1 w-fit" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+        {([["projects", "내 프로젝트"], ["board", "게시판"]] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className="text-sm font-700 px-4 py-1.5 transition-all"
+            style={{ background: tab === id ? "var(--card)" : "transparent", color: tab === id ? "var(--primary)" : "var(--muted-foreground)", borderRadius: "7px", boxShadow: tab === id ? "var(--shadow-card)" : "none" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* CreateProjectModal/JoinProjectModal은 이 앱 전역에서 항상 fixed inset-0 전체화면
           오버레이로 뜨는 패턴이라(Sidebar와 동일하게), 여기서도 그 패턴을 그대로 따름 */}
       {openPanel === "create" && (
         <CreateProjectModal
           onCancel={() => setOpenPanel(null)}
-          onCreate={async (input) => {
-            await addProject(input);
+          onCreate={async (input, recruitMessage) => {
+            const id = await addProject(input);
+            if (recruitMessage && id) {
+              await createBoardPost({ title: `[팀원 모집] ${input.name}`, content: recruitMessage, projectId: id }).catch(() => {});
+            }
             setOpenPanel(null);
             navigate("/dashboard");
           }}
@@ -113,6 +134,9 @@ export default function MyProjects() {
         />
       )}
 
+      {tab === "board" ? (
+        <Board />
+      ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {projects.map((p) => {
           const projectEvents = events.filter((e) => e.projectId === p.id).sort((a, b) => a.date.localeCompare(b.date));
@@ -168,6 +192,7 @@ export default function MyProjects() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

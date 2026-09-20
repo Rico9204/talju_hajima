@@ -11,6 +11,7 @@ import {
   listFileVersions,
   listFiles,
   listPinCounts,
+  listVersionCalendar,
   promoteVersion as promoteVersionApi,
   setFileTag,
   syncFiles,
@@ -20,8 +21,10 @@ import {
   type FileVersion,
   type FileVersionPin,
   type ProjectFile,
+  type VersionCalendarEntry,
 } from "../api/backend/files";
 import { MAX_FILE_SIZE } from "../lib/folderSync";
+import { classifyMajor } from "../api/backend/majors";
 import FolderSync from "./FolderSync";
 
 // 제품개발/frontend의 워크스페이스(ProjectWorkspacePage의 파일 로딩/승격 로직 + WorkspaceTab의
@@ -241,6 +244,335 @@ function tokenizeWords(line: string): string[] {
 
 function diffWords(oldLine: string, newLine: string): DiffLine[] {
   return computeLcsDiff(tokenizeWords(oldLine), tokenizeWords(newLine));
+}
+
+// "페이지" 보기 — 분기 트리 대신, 한 번에 버전 하나만 "페이지"처럼 보여주고 이전/다음 버튼으로
+// 넘긴다. 어느 분기인지는 무시하고 오직 저장된 시각 순서로만 넘어간다(공학 전공이 아닌 팀원
+// 기본값 — Workspace()의 viewMode 토글 참고). 시작 페이지는 항상 "현재 버전".
+function VersionPageFlip({
+  versions,
+  currentVersionId,
+  memberNameById,
+  onPromote,
+  onShowFull,
+}: {
+  versions: FileVersion[];
+  currentVersionId: string | null;
+  memberNameById: Map<string, string>;
+  onPromote: (versionId: string) => void;
+  onShowFull: (version: FileVersion) => void;
+}) {
+  const chronological = useMemo(
+    () => [...versions].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [versions],
+  );
+  const currentIndex = Math.max(
+    0,
+    chronological.findIndex((v) => v.id === currentVersionId),
+  );
+  const [pageIndex, setPageIndex] = useState(currentIndex);
+  const [expanded, setExpanded] = useState(true);
+
+  // 파일을 바꿔 고르거나(선택된 버전 목록 자체가 바뀜) 새로고침되면, 다시 "현재 버전" 페이지로.
+  useEffect(() => {
+    setPageIndex(currentIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVersionId, versions.length]);
+
+  const version = chronological[pageIndex];
+  if (!version) {
+    return <div className="text-xs text-center py-6" style={{ color: "var(--muted-foreground)" }}>버전이 없어요.</div>;
+  }
+  const prev = pageIndex > 0 ? chronological[pageIndex - 1] : null;
+  const isCurrent = version.id === currentVersionId;
+  const changes = groupChangedLines(diffLines(prev?.content ?? "", version.content).filter((l) => l.type !== "same"));
+
+  return (
+    <div>
+      <div
+        className="p-3 mb-2"
+        style={{ borderRadius: "10px", background: isCurrent ? "var(--primary)" : "var(--muted)", color: isCurrent ? "#fff" : "var(--foreground)" }}
+      >
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-xs font-700 truncate">{memberNameById.get(version.authorId) ?? version.authorId}</span>
+            <span className="text-xs shrink-0" style={{ color: isCurrent ? "rgba(255,255,255,0.75)" : "var(--muted-foreground)" }}>
+              {formatDate(version.createdAt)}
+            </span>
+          </div>
+          {isCurrent && (
+            <span className="text-xs px-1.5 py-0.5 font-600 shrink-0" style={{ borderRadius: "4px", background: "rgba(255,255,255,0.25)" }}>
+              지금 쓰는 내용
+            </span>
+          )}
+        </div>
+        {version.note && (
+          <div className="text-xs italic mb-1.5" style={{ color: isCurrent ? "rgba(255,255,255,0.85)" : "var(--muted-foreground)" }}>
+            "{version.note}"
+          </div>
+        )}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs font-600 mb-1.5"
+          style={{ color: isCurrent ? "#fff" : "var(--primary)" }}
+        >
+          {!prev ? "맨 처음 저장한 내용" : changes.length === 0 ? "달라진 내용 없음" : `${changes.length}군데 수정됨`} {expanded ? "▲" : "▼"}
+        </button>
+        {expanded && (
+          <div
+            className="text-xs whitespace-pre-wrap p-2 mb-2 max-h-40 overflow-y-auto"
+            style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--card)", fontFamily: "var(--font-jetbrains)" }}
+          >
+            {!prev ? (
+              <span style={{ opacity: 0.7 }}>새로 만들어진 내용이라 비교할 이전 버전이 없어요.</span>
+            ) : changes.length === 0 ? (
+              <span style={{ opacity: 0.7 }}>이전 저장과 내용이 같아요.</span>
+            ) : (
+              changes.map((item, i) =>
+                item.kind === "change" ? (
+                  <div key={i} className="mb-1">
+                    <div style={{ color: isCurrent ? "#fecaca" : "#dc2626", textDecoration: "line-through", opacity: 0.85 }}>
+                      {item.oldText || " "}
+                    </div>
+                    <div style={{ color: isCurrent ? "#bbf7d0" : "#16a34a" }}>{item.newText || " "}</div>
+                  </div>
+                ) : (
+                  <div key={i} style={{ color: item.type === "add" ? (isCurrent ? "#bbf7d0" : "#16a34a") : isCurrent ? "#fecaca" : "#dc2626" }}>
+                    {item.type === "add" ? "+ " : "- "}
+                    {item.text || " "}
+                  </div>
+                ),
+              )
+            )}
+          </div>
+        )}
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => onShowFull(version)}
+            className="flex-1 text-xs font-600 py-1.5"
+            style={{ borderRadius: "20px", background: isCurrent ? "rgba(255,255,255,0.2)" : "var(--card)", color: isCurrent ? "#fff" : "var(--foreground)" }}
+          >
+            전체 내용 보기
+          </button>
+          {!isCurrent && (
+            <button
+              onClick={() => onPromote(version.id)}
+              className="flex-1 text-xs font-700 py-1.5"
+              style={{ borderRadius: "20px", color: "#fff", background: "var(--primary)" }}
+            >
+              이 버전으로 되돌리기
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
+          disabled={pageIndex === 0}
+          className="text-xs font-700 px-3 py-1.5"
+          style={{ borderRadius: "20px", background: "var(--muted)", color: pageIndex === 0 ? "var(--muted-foreground)" : "var(--foreground)", opacity: pageIndex === 0 ? 0.5 : 1 }}
+        >
+          ← 이전 페이지
+        </button>
+        <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+          {pageIndex + 1} / {chronological.length}
+        </span>
+        <button
+          onClick={() => setPageIndex((i) => Math.min(chronological.length - 1, i + 1))}
+          disabled={pageIndex === chronological.length - 1}
+          className="text-xs font-700 px-3 py-1.5"
+          style={{ borderRadius: "20px", background: "var(--muted)", color: pageIndex === chronological.length - 1 ? "var(--muted-foreground)" : "var(--foreground)", opacity: pageIndex === chronological.length - 1 ? 0.5 : 1 }}
+        >
+          다음 페이지 →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const CAL_WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+
+function calToDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function calBuildMonthGrid(monthDate: Date): Date[] {
+  const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const gridStart = new Date(first);
+  gridStart.setDate(first.getDate() - first.getDay());
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    return d;
+  });
+}
+
+// "새 버전 업로드" 버튼 옆의 달력 — 기본은 지금 선택된 파일 기준으로 언제 올라왔는지만 보여주고,
+// "전체 보기"를 누르면 프로젝트 전체 파일의 업로드 이력으로 바뀐다(그 날 올라온 파일 이름들이
+// 쭉 나열됨 — 파일이 여러 개일 때 의미가 생김). 날짜를 누른 파일을 클릭하면 그 파일로 이동.
+function VersionCalendarModal({
+  projectId,
+  currentFileId,
+  currentFileName,
+  memberNameById,
+  onClose,
+  onSelectFile,
+}: {
+  projectId: string;
+  currentFileId: string;
+  currentFileName: string;
+  memberNameById: Map<string, string>;
+  onClose: () => void;
+  onSelectFile: (fileId: string) => void;
+}) {
+  const [scope, setScope] = useState<"file" | "all">("file");
+  const [entries, setEntries] = useState<VersionCalendarEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [monthDate, setMonthDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    listVersionCalendar(projectId, scope === "file" ? currentFileId : undefined)
+      .then(({ data }) => setEntries(data))
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false));
+  }, [projectId, scope, currentFileId]);
+
+  const entriesByDay = useMemo(() => {
+    const m = new Map<string, VersionCalendarEntry[]>();
+    for (const e of entries) {
+      const key = e.createdAt.slice(0, 10);
+      const list = m.get(key) ?? [];
+      list.push(e);
+      m.set(key, list);
+    }
+    return m;
+  }, [entries]);
+
+  const monthGrid = useMemo(() => calBuildMonthGrid(monthDate), [monthDate]);
+  const todayKey = calToDateKey(new Date());
+  const dayEntries = selectedDate ? (entriesByDay.get(selectedDate) ?? []) : [];
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(15,23,42,0.45)" }} onClick={onClose}>
+      <div
+        className="w-full max-w-lg max-h-[85vh] flex flex-col"
+        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.28)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <div className="text-sm font-700">업로드 달력</div>
+            <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+              {scope === "file" ? currentFileName : "워크스페이스 전체"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setScope((s) => (s === "file" ? "all" : "file"))}
+              className="text-xs font-600 px-3 py-1.5"
+              style={{ background: "var(--muted)", color: scope === "all" ? "var(--primary)" : "var(--foreground)", borderRadius: "20px" }}
+            >
+              {scope === "file" ? "전체 보기" : "이 파일만"}
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center text-lg"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => setMonthDate((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+              className="w-7 h-7 flex items-center justify-center text-sm font-700"
+              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "50%" }}
+            >
+              ‹
+            </button>
+            <div className="text-sm font-700">{monthDate.getFullYear()}년 {monthDate.getMonth() + 1}월</div>
+            <button
+              onClick={() => setMonthDate((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+              className="w-7 h-7 flex items-center justify-center text-sm font-700"
+              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "50%" }}
+            >
+              ›
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-y-1 mb-1">
+            {CAL_WEEKDAY_LABELS.map((w) => (
+              <div key={w} className="text-xs font-600 text-center py-1" style={{ color: "var(--muted-foreground)" }}>{w}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-y-1 mb-4">
+            {monthGrid.map((d) => {
+              const key = calToDateKey(d);
+              const inMonth = d.getMonth() === monthDate.getMonth();
+              const count = entriesByDay.get(key)?.length ?? 0;
+              const isSelected = key === selectedDate;
+              const isToday = key === todayKey;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedDate(isSelected ? null : key)}
+                  disabled={count === 0}
+                  className="flex flex-col items-center justify-center py-1.5 transition-all"
+                  style={{
+                    borderRadius: "8px",
+                    background: isSelected ? "var(--primary)" : isToday ? "var(--secondary)" : "transparent",
+                    opacity: inMonth ? 1 : 0.3,
+                    cursor: count > 0 ? "pointer" : "default",
+                  }}
+                >
+                  <span className="text-xs font-600" style={{ color: isSelected ? "#fff" : "var(--foreground)" }}>{d.getDate()}</span>
+                  <span
+                    className="w-1.5 h-1.5 rounded-full mt-0.5"
+                    style={{ background: count > 0 ? (isSelected ? "#fff" : "var(--primary)") : "transparent" }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {loading ? (
+            <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>불러오는 중...</div>
+          ) : selectedDate ? (
+            <div className="flex flex-col gap-2">
+              <div className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>{selectedDate}에 올라온 파일</div>
+              {dayEntries.length === 0 ? (
+                <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>이 날엔 업로드가 없어요.</div>
+              ) : (
+                dayEntries.map((e) => (
+                  <button
+                    key={e.id}
+                    onClick={() => { if (scope === "all") onSelectFile(e.fileId); }}
+                    className="flex items-center justify-between gap-2 p-2.5 text-left"
+                    style={{ background: "var(--muted)", borderRadius: "10px", cursor: scope === "all" ? "pointer" : "default" }}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-700 truncate">{e.path.split("/").pop()}</div>
+                      <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                        {memberNameById.get(e.authorId) ?? "알 수 없음"} · {new Date(e.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>점이 있는 날짜를 눌러보세요.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // 버전 트리 한 노드 + 그 자식들을 재귀적으로 그림 (index.css의 .version-tree가 <li>/<ul> 중첩을
@@ -480,11 +812,51 @@ function VersionNode({
 }
 
 export default function Workspace() {
-  const { project, team } = useProject();
+  const { project, team, currentMember } = useProject();
   const memberNameById = useMemo(
     () => new Map(team.members.filter((m): m is typeof m & { userId: string } => m.userId !== null).map((m) => [m.userId, m.name])),
     [team.members],
   );
+
+  // 버전 이력을 "공학자"(분기 트리) 또는 "쉬운 보기"(순서대로 나열)로 보는지 — 로컬에 저장해둔
+  // 사용자의 선택이 있으면 그걸 쓰고, 없으면 전공(odcloud 표준분류대계열) 기반으로 기본값을
+  // 한 번 추정한다. 판단 불가/미확인 상태에서는 더 쉬운 쪽을 기본값으로 둔다.
+  const [viewMode, setViewMode] = useState<"engineer" | "simple">(() => {
+    try {
+      const saved = localStorage.getItem("workspace-version-view-mode");
+      if (saved === "engineer" || saved === "simple") return saved;
+    } catch {
+      // localStorage 접근 불가(프라이빗 창 등) — 기본값으로 계속 진행
+    }
+    return "simple";
+  });
+  const [viewModeChosen, setViewModeChosen] = useState(() => {
+    try {
+      return localStorage.getItem("workspace-version-view-mode") !== null;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (viewModeChosen || !currentMember?.school || !currentMember?.major) return;
+    classifyMajor(currentMember.school, currentMember.major)
+      .then((engineering) => {
+        if (engineering === true) setViewMode("engineer");
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMember?.school, currentMember?.major, viewModeChosen]);
+
+  function chooseViewMode(mode: "engineer" | "simple") {
+    setViewMode(mode);
+    setViewModeChosen(true);
+    try {
+      localStorage.setItem("workspace-version-view-mode", mode);
+    } catch {
+      // 저장 실패해도 이번 세션 안에서는 정상 동작 — 그냥 다음 방문 때 다시 추정하게 됨
+    }
+  }
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [branches, setBranches] = useState<FileBranches[]>([]);
@@ -513,6 +885,7 @@ export default function Workspace() {
   const [pins, setPins] = useState<FileVersionPin[]>([]);
   const [focusedVersionId, setFocusedVersionId] = useState<string | null>(null);
   const [fullTextVersion, setFullTextVersion] = useState<FileVersion | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const uploadTargetPinIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newVersionInputRef = useRef<HTMLInputElement>(null);
@@ -1147,17 +1520,27 @@ export default function Workspace() {
                       e.target.value = "";
                     }}
                   />
-                  <button
-                    onClick={() => {
-                      uploadTargetPinIdRef.current = null;
-                      newVersionInputRef.current?.click();
-                    }}
-                    disabled={uploadingNewVersion}
-                    className="w-full text-xs font-700 py-2 mb-4"
-                    style={{ borderRadius: "10px", border: "2px solid var(--primary)", color: "var(--primary)", background: "transparent", opacity: uploadingNewVersion ? 0.6 : 1 }}
-                  >
-                    {uploadingNewVersion ? "업로드 중..." : `+ 새 버전 업로드 (${selectedFile.path.split("/").pop()} 갱신)`}
-                  </button>
+                  <div className="flex gap-1.5 mb-4">
+                    <button
+                      onClick={() => {
+                        uploadTargetPinIdRef.current = null;
+                        newVersionInputRef.current?.click();
+                      }}
+                      disabled={uploadingNewVersion}
+                      className="flex-1 text-xs font-700 py-2"
+                      style={{ borderRadius: "10px", border: "2px solid var(--primary)", color: "var(--primary)", background: "transparent", opacity: uploadingNewVersion ? 0.6 : 1 }}
+                    >
+                      {uploadingNewVersion ? "업로드 중..." : `+ 새 버전 업로드 (${selectedFile.path.split("/").pop()} 갱신)`}
+                    </button>
+                    <button
+                      onClick={() => setCalendarOpen(true)}
+                      title="업로드 달력"
+                      className="w-9 shrink-0 flex items-center justify-center text-sm"
+                      style={{ borderRadius: "10px", border: "2px solid var(--border)", color: "var(--foreground)", background: "transparent" }}
+                    >
+                      📅
+                    </button>
+                  </div>
                 </>
               )}
 
@@ -1176,41 +1559,76 @@ export default function Workspace() {
 
               {detailTab === "versions" ? (
                 <>
-                  {pins.length > 0 && (
-                    <div className="flex gap-1.5 mb-3 flex-wrap">
-                      {pins.map((p) => (
-                        <span key={p.id} className="flex items-center gap-1.5 text-xs font-600 pl-2.5 pr-1.5 py-1" style={{ borderRadius: "20px", background: "#8b5cf618", color: "#8b5cf6" }}>
-                          📌 {p.label}
-                          <button onClick={() => handleDeletePin(p.id)} className="w-4 h-4 flex items-center justify-center rounded-full">
-                            ×
-                          </button>
-                        </span>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>보기 방식</span>
+                    <div className="flex gap-1 p-0.5" style={{ background: "var(--muted)", borderRadius: "20px" }}>
+                      {([["simple", "페이지"], ["engineer", "버전트리"]] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          onClick={() => chooseViewMode(id)}
+                          className="text-xs font-600 px-2.5 py-1 transition-all"
+                          style={{
+                            background: viewMode === id ? "var(--card)" : "transparent",
+                            color: viewMode === id ? "var(--primary)" : "var(--muted-foreground)",
+                            borderRadius: "16px",
+                            boxShadow: viewMode === id ? "var(--shadow-card)" : "none",
+                          }}
+                        >
+                          {label}
+                        </button>
                       ))}
                     </div>
-                  )}
-                  <div className="version-tree-scroll overflow-auto max-h-80">
-                    <ul className="version-tree">
-                      {rootVersions.map((v) => (
-                        <VersionNode
-                          key={v.id}
-                          version={v}
-                          childrenByParent={versionChildrenByParent}
-                          currentVersionId={selectedFile.currentVersionId}
-                          openBranchIds={openBranchIds}
-                          pinsByVersion={pinsByVersion}
-                          memberNameById={memberNameById}
-                          focusedVersionId={effectiveFocusId}
-                          highlightIds={highlightIds}
-                          versionsById={versionsById}
-                          onFocus={setFocusedVersionId}
-                          onPromote={(versionId) => handlePromote(selectedFile.id, versionId)}
-                          onCreatePin={handleCreatePin}
-                          onUploadToPin={handleUploadToPin}
-                          onShowFull={setFullTextVersion}
-                        />
-                      ))}
-                    </ul>
                   </div>
+
+                  {viewMode === "simple" ? (
+                    <div className="overflow-auto max-h-80">
+                      <VersionPageFlip
+                        versions={versions}
+                        currentVersionId={selectedFile.currentVersionId}
+                        memberNameById={memberNameById}
+                        onPromote={(versionId) => handlePromote(selectedFile.id, versionId)}
+                        onShowFull={setFullTextVersion}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {pins.length > 0 && (
+                        <div className="flex gap-1.5 mb-3 flex-wrap">
+                          {pins.map((p) => (
+                            <span key={p.id} className="flex items-center gap-1.5 text-xs font-600 pl-2.5 pr-1.5 py-1" style={{ borderRadius: "20px", background: "#8b5cf618", color: "#8b5cf6" }}>
+                              📌 {p.label}
+                              <button onClick={() => handleDeletePin(p.id)} className="w-4 h-4 flex items-center justify-center rounded-full">
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="version-tree-scroll overflow-auto max-h-80">
+                        <ul className="version-tree">
+                          {rootVersions.map((v) => (
+                            <VersionNode
+                              key={v.id}
+                              version={v}
+                              childrenByParent={versionChildrenByParent}
+                              currentVersionId={selectedFile.currentVersionId}
+                              openBranchIds={openBranchIds}
+                              pinsByVersion={pinsByVersion}
+                              memberNameById={memberNameById}
+                              focusedVersionId={effectiveFocusId}
+                              highlightIds={highlightIds}
+                              versionsById={versionsById}
+                              onFocus={setFocusedVersionId}
+                              onPromote={(versionId) => handlePromote(selectedFile.id, versionId)}
+                              onCreatePin={handleCreatePin}
+                              onUploadToPin={handleUploadToPin}
+                              onShowFull={setFullTextVersion}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -1305,6 +1723,20 @@ export default function Workspace() {
             </pre>
           </div>
         </div>
+      )}
+
+      {calendarOpen && selectedFile && (
+        <VersionCalendarModal
+          projectId={project.id}
+          currentFileId={selectedFile.id}
+          currentFileName={selectedFile.path.split("/").pop() ?? selectedFile.path}
+          memberNameById={memberNameById}
+          onClose={() => setCalendarOpen(false)}
+          onSelectFile={(fileId) => {
+            setSelectedFileId(fileId);
+            setCalendarOpen(false);
+          }}
+        />
       )}
     </div>
   );

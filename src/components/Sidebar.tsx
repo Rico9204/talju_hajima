@@ -349,7 +349,9 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         )}
       </div>
 
-      {/* Nav — 접혀있다가 마우스를 올리면 아래로 펼쳐짐 */}
+      {/* Nav — 접혀있다가 마우스를 올리면 아래로 펼쳐짐. "메인화면"(프로젝트 선택 전, myprojects)
+          에서는 아예 안 보이고, 프로젝트 안으로 들어갔을 때만 뜬다(update.txt 새 메인화면 요청). */}
+      {currentPage !== "myprojects" && (
       <nav
         className="group/menu relative shrink-0 mb-4 px-3 py-3"
         style={{
@@ -406,6 +408,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           })}
         </div>
       </nav>
+      )}
 
       {/* User card */}
       <div

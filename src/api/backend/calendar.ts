@@ -18,6 +18,8 @@ export interface CalendarEvent {
   // "manual"(직접 추가)만 수정/삭제 가능 — crawled/system은 그 출처에서만 관리됨(백엔드
   // calendar.service.ts의 findEditable 참고).
   source: CalendarEventSource;
+  // crawled/system 출처는 만든 사람이 없어서 null — 참여자별 일정 필터(Schedule.tsx)에 씀.
+  createdBy: string | null;
 }
 
 export function listCalendarEvents(projectId: string) {

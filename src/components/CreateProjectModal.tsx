@@ -5,13 +5,15 @@ type PeriodMode = "text" | "calendar";
 
 export default function CreateProjectModal({
   onCancel, onCreate,
-}: { onCancel: () => void; onCreate: (input: NewProjectInput) => void }) {
+}: { onCancel: () => void; onCreate: (input: NewProjectInput, recruitMessage?: string) => void }) {
   const [name, setName] = useState("");
   const [org, setOrg] = useState("");
   const [periodMode, setPeriodMode] = useState<PeriodMode>("text");
   const [periodText, setPeriodText] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [recruit, setRecruit] = useState(false);
+  const [recruitMessage, setRecruitMessage] = useState("");
 
   const periodTextTrimmed = periodText.trim();
   const periodTextInvalid = periodMode === "text" && periodTextTrimmed.length > 0 && !/\d/.test(periodTextTrimmed);
@@ -34,13 +36,16 @@ export default function CreateProjectModal({
   function submit() {
     if (!canSubmit) return;
     const useDates = periodMode === "calendar" && startDate && endDate;
-    onCreate({
-      name,
-      org,
-      period: resolvedPeriod(),
-      startDate: useDates ? startDate : undefined,
-      endDate: useDates ? endDate : undefined,
-    });
+    onCreate(
+      {
+        name,
+        org,
+        period: resolvedPeriod(),
+        startDate: useDates ? startDate : undefined,
+        endDate: useDates ? endDate : undefined,
+      },
+      recruit ? recruitMessage.trim() || "팀원을 모집합니다." : undefined,
+    );
   }
 
   return (
@@ -159,6 +164,21 @@ export default function CreateProjectModal({
               );
             })()}
           </div>
+        )}
+
+        <label className="flex items-center gap-2 text-xs font-600 mb-2 cursor-pointer">
+          <input type="checkbox" checked={recruit} onChange={(e) => setRecruit(e.target.checked)} />
+          만들면서 게시판에 팀원 모집 공고도 올리기
+        </label>
+        {recruit && (
+          <textarea
+            value={recruitMessage}
+            onChange={(e) => setRecruitMessage(e.target.value)}
+            placeholder="모집 공고 내용 (예: 어떤 역할이 몇 명 필요한지)"
+            rows={2}
+            className="w-full text-sm px-3 py-2.5 outline-none mb-3 resize-none"
+            style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+          />
         )}
 
         <div className="flex gap-2">

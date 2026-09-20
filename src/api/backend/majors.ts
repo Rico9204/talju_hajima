@@ -7,3 +7,10 @@ export async function fetchMajors(school: string): Promise<string[]> {
   const { data } = await apiClient.get<{ majors: string[] }>("/majors", { params: { school } });
   return data.majors;
 }
+
+// 학교+학과가 odcloud 기준 "공학계열"인지 — 워크스페이스 버전 트리를 공학자용/쉬운 보기 중
+// 무엇으로 기본 표시할지 정하는 용도. 못 찾으면 null(사용자가 직접 골라야 함).
+export async function classifyMajor(school: string, major: string): Promise<boolean | null> {
+  const { data } = await apiClient.get<{ engineering: boolean | null }>("/majors/classify", { params: { school, major } });
+  return data.engineering;
+}

@@ -167,7 +167,7 @@ function DayEventsPopup({
 }
 
 export default function Schedule() {
-  const { project } = useProject();
+  const { project, team } = useProject();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -181,6 +181,11 @@ export default function Schedule() {
   // 편집 대상 — "일정 추가" 폼을 이 값이 있는 동안 "일정 수정" 폼으로 재사용한다(아래
   // startEdit/cancelEdit/handleSubmit 참고), 목록 안에 별도 편집 폼을 두지 않음.
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  // "전체 일정" 목록에서 항목을 누르면 달력의 그 선만 굵게 강조 — 편집 대상과는 별개 상태
+  // (수정 불가한 일정도 눌러서 강조는 볼 수 있어야 하므로).
+  const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
+  const [allEventsOpen, setAllEventsOpen] = useState(true);
+  const [activeAuthorId, setActiveAuthorId] = useState<string | null>(null);
 
   async function refresh() {
     const { data } = await listCalendarEvents(project.id);
@@ -191,6 +196,8 @@ export default function Schedule() {
     setMonthDate(new Date());
     setSelectedDate(null);
     setEditingEventId(null);
+    setHighlightedEventId(null);
+    setActiveAuthorId(null);
     refresh().catch(() => setError("일정을 불러오지 못했습니다."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
@@ -241,10 +248,16 @@ export default function Schedule() {
     }
   }
 
+  // 참여자 목록에서 특정 사람을 고르면 그 사람이 만든 일정만 달력/목록에 남긴다.
+  const authorFilteredEvents = useMemo(
+    () => (activeAuthorId ? events.filter((e) => e.createdBy === activeAuthorId) : events),
+    [events, activeAuthorId],
+  );
+
   // 모든 일정을 "기간"으로 통일해서 다룬다 — 종료일이 없으면 시작일=종료일인 하루짜리 기간.
   const segments = useMemo(
-    () => events.map((e) => ({ event: e, start: e.date.slice(0, 10), end: (e.endDate ?? e.date).slice(0, 10) })),
-    [events],
+    () => authorFilteredEvents.map((e) => ({ event: e, start: e.date.slice(0, 10), end: (e.endDate ?? e.date).slice(0, 10) })),
+    [authorFilteredEvents],
   );
 
   function segmentsForDay(key: string) {
@@ -253,7 +266,40 @@ export default function Schedule() {
 
   const monthGrid = useMemo(() => buildMonthGrid(monthDate), [monthDate]);
   const todayKey = toDateKey(new Date());
-  const visibleEvents = selectedDate ? segmentsForDay(selectedDate).map((s) => s.event) : events;
+  const visibleEvents = selectedDate ? segmentsForDay(selectedDate).map((s) => s.event) : authorFilteredEvents;
+
+  // 여러 날짜에 걸친 일정을, 그 일정이 보이는 모든 날짜에서 "같은 줄(레인)"에 고정 배치한다
+  // (구글 캘린더 월간 보기 방식) — 그래야 하루하루 지나면서 다른 일정이 시작/끝나도 줄 높이가
+  // 안 바뀌어서 선이 끊겨 보이지 않는다. 레인은 한 주(7일) 단위로만 안정적이면 충분(주가 바뀌면
+  // 원래 캘린더 UX도 새로 시작하는 게 자연스러움).
+  const laneByEventIdByWeek = useMemo(() => {
+    const weeks: Map<string, number>[] = [];
+    for (let w = 0; w < monthGrid.length / 7; w++) {
+      const weekDays = monthGrid.slice(w * 7, w * 7 + 7);
+      const weekStart = toDateKey(weekDays[0]);
+      const weekEnd = toDateKey(weekDays[6]);
+      const relevant = segments
+        .filter((s) => s.start !== s.end && s.end >= weekStart && s.start <= weekEnd)
+        .sort((a, b) => a.start.localeCompare(b.start) || a.event.id.localeCompare(b.event.id));
+
+      const laneEnds: string[] = [];
+      const laneOf = new Map<string, number>();
+      for (const seg of relevant) {
+        const clippedStart = seg.start < weekStart ? weekStart : seg.start;
+        const clippedEnd = seg.end > weekEnd ? weekEnd : seg.end;
+        let lane = laneEnds.findIndex((end) => end < clippedStart);
+        if (lane === -1) {
+          lane = laneEnds.length;
+          laneEnds.push(clippedEnd);
+        } else {
+          laneEnds[lane] = clippedEnd;
+        }
+        laneOf.set(seg.event.id, lane);
+      }
+      weeks.push(laneOf);
+    }
+    return weeks;
+  }, [monthGrid, segments]);
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -303,12 +349,33 @@ export default function Schedule() {
           </div>
 
           <div className="grid grid-cols-7 gap-y-1">
-            {monthGrid.map((d) => {
+            {monthGrid.map((d, dayIdx) => {
               const key = toDateKey(d);
               const inMonth = d.getMonth() === monthDate.getMonth();
               const daySegments = segmentsForDay(key);
+              const daySameDayEvents = daySegments.filter((s) => s.start === s.end);
+              const daySpanEvents = daySegments.filter((s) => s.start !== s.end);
               const isToday = key === todayKey;
               const isSelected = key === selectedDate;
+
+              // 이번 주에 배정된 고정 레인 기준으로 이 날짜에 실제로 있는 세그먼트를 줄별로 채움
+              // (없는 레인은 빈 칸으로 둬서 다른 날짜와 높이가 안 어긋나게).
+              const laneOf = laneByEventIdByWeek[Math.floor(dayIdx / 7)];
+              const bySegmentLane = new Map<number, (typeof daySpanEvents)[number]>();
+              let maxLane = -1;
+              for (const s of daySpanEvents) {
+                const lane = laneOf.get(s.event.id) ?? 0;
+                bySegmentLane.set(lane, s);
+                if (lane > maxLane) maxLane = lane;
+              }
+              // 강조된 일정이 원래 레인 캡을 넘어가 있으면, 이 날짜만 캡을 늘려서라도 반드시 보이게.
+              const highlightedLane = highlightedEventId ? laneOf.get(highlightedEventId) : undefined;
+              const visibleLaneCap =
+                highlightedLane !== undefined && bySegmentLane.get(highlightedLane)?.event.id === highlightedEventId
+                  ? Math.max(MAX_SEGMENTS_PER_DAY, highlightedLane + 1)
+                  : MAX_SEGMENTS_PER_DAY;
+              const lanesToRender = Math.min(maxLane + 1, visibleLaneCap);
+              const hiddenCount = [...bySegmentLane.keys()].filter((lane) => lane >= lanesToRender).length;
 
               return (
                 <button
@@ -322,35 +389,59 @@ export default function Schedule() {
                     opacity: inMonth ? 1 : 0.35,
                   }}
                 >
-                  <span className="text-xs font-600 px-0.5 shrink-0" style={{ color: isSelected ? "#fff" : "var(--foreground)" }}>
-                    {d.getDate()}
+                  <span className="flex items-center gap-1 px-0.5 shrink-0">
+                    <span className="text-xs font-600" style={{ color: isSelected ? "#fff" : "var(--foreground)" }}>
+                      {d.getDate()}
+                    </span>
+                    {/* 당일(하루짜리) 일정은 선 대신 숫자 옆에 점으로 — 최대 4개, 그 이상은 점 크기를
+                        늘리는 대신 그냥 4개까지만 보여준다(더 필요하면 날짜를 눌러 목록으로 확인). */}
+                    {daySameDayEvents.slice(0, 4).map((s) => (
+                      <span
+                        key={s.event.id}
+                        title={s.event.title}
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ background: isSelected ? "#fff" : eventColor(s.event) }}
+                      />
+                    ))}
                   </span>
-                  <div className="flex flex-col gap-0.5 mt-1 -mx-1">
-                    {daySegments.slice(0, MAX_SEGMENTS_PER_DAY).map((s) => {
+                  <div className="flex flex-col gap-1 mt-1.5 -mx-1">
+                    {Array.from({ length: lanesToRender }, (_, lane) => {
+                      const s = bySegmentLane.get(lane);
+                      if (!s) return <div key={lane} style={{ height: 3 }} />;
                       const isStart = key === s.start;
                       const isEnd = key === s.end;
+                      const highlighted = s.event.id === highlightedEventId;
                       return (
-                        <div
-                          key={s.event.id}
-                          className="h-[18px] flex items-center px-1.5 text-[10px] font-600 truncate"
-                          style={{
-                            background: isSelected ? "rgba(255,255,255,0.75)" : eventColor(s.event),
-                            color: isSelected ? eventColor(s.event) : "#fff",
-                            borderTopLeftRadius: isStart ? 4 : 0,
-                            borderBottomLeftRadius: isStart ? 4 : 0,
-                            borderTopRightRadius: isEnd ? 4 : 0,
-                            borderBottomRightRadius: isEnd ? 4 : 0,
-                            marginLeft: isStart ? 2 : 0,
-                            marginRight: isEnd ? 2 : 0,
-                          }}
-                        >
-                          {isStart ? s.event.title : " "}
+                        <div key={lane}>
+                          <div
+                            title={s.event.title}
+                            style={{
+                              height: highlighted ? 5 : 3,
+                              background: isSelected ? "rgba(255,255,255,0.75)" : eventColor(s.event),
+                              marginLeft: isStart ? "50%" : 0,
+                              // 끝나는 날은 시작하는 날보다 살짝 더 짧게 그려서, 다른 일정의 시작과
+                              // 맞물려도(같은 날 끝/시작) 하나의 끊긴 선이 아니라 분명히 "여기서
+                              // 끝난다"는 게 보이게 한다.
+                              marginRight: isEnd ? "65%" : 0,
+                              borderRadius: 2,
+                              boxShadow: highlighted ? `0 0 0 1px ${isSelected ? "#fff" : eventColor(s.event)}` : "none",
+                            }}
+                          />
+                          {/* 강조된 일정은 시작 칸 바로 아래에 이름을 붙여서 어떤 일정인지 바로 보이게 */}
+                          {highlighted && isStart && (
+                            <div
+                              className="text-[9px] font-700 truncate leading-tight mt-0.5"
+                              style={{ marginLeft: "50%", color: isSelected ? "#fff" : eventColor(s.event) }}
+                            >
+                              {s.event.title}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
-                    {daySegments.length > MAX_SEGMENTS_PER_DAY && (
+                    {hiddenCount > 0 && (
                       <span className="text-[9px] leading-none px-1" style={{ color: isSelected ? "#fff" : "var(--muted-foreground)" }}>
-                        +{daySegments.length - MAX_SEGMENTS_PER_DAY}개 더보기
+                        +{hiddenCount}개 더보기
                       </span>
                     )}
                   </div>
@@ -429,32 +520,44 @@ export default function Schedule() {
           </div>
 
           <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-700">{selectedDate ? `${selectedDate} 일정` : "전체 일정"}</h2>
-              {selectedDate && (
-                <button onClick={() => setSelectedDate(null)} className="text-xs font-600" style={{ color: "var(--primary)" }}>
-                  전체 보기
-                </button>
-              )}
-            </div>
-            <div className="flex flex-col gap-2.5">
+            <button
+              onClick={() => setAllEventsOpen((v) => !v)}
+              className="w-full flex items-center justify-between mb-1"
+            >
+              <h2 className="text-sm font-700">
+                {selectedDate ? `${selectedDate} 일정` : "전체 일정"}
+                {activeAuthorId && ` · ${team.members.find((m) => m.userId === activeAuthorId)?.name ?? ""}`}
+              </h2>
+              <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{allEventsOpen ? "▲" : "▼"}</span>
+            </button>
+            {selectedDate && allEventsOpen && (
+              <button onClick={() => setSelectedDate(null)} className="text-xs font-600 mb-3 block" style={{ color: "var(--primary)" }}>
+                전체 보기
+              </button>
+            )}
+            {allEventsOpen && (
+            <div className="flex flex-col gap-2.5 mb-4">
               {visibleEvents.map((e) => {
                 const c = eventColor(e);
                 const meta = e.refType ? typeMeta[e.refType] : typeMeta.other;
                 const d = daysUntil(e.date.slice(0, 10));
                 const editable = e.source === "manual";
                 const isEditing = editingEventId === e.id;
+                const isHighlighted = highlightedEventId === e.id;
 
                 return (
                   <div
                     key={e.id}
-                    onClick={() => editable && startEdit(e)}
+                    onClick={() => {
+                      setHighlightedEventId((cur) => (cur === e.id ? null : e.id));
+                      if (editable) startEdit(e);
+                    }}
                     className="flex items-center justify-between p-2.5 gap-2 transition-all"
                     style={{
-                      background: isEditing ? "var(--secondary)" : "var(--muted)",
+                      background: isEditing ? "var(--secondary)" : isHighlighted ? "var(--secondary)" : "var(--muted)",
                       borderRadius: "10px",
-                      border: isEditing ? "1.5px solid var(--primary)" : "1.5px solid transparent",
-                      cursor: editable ? "pointer" : "default",
+                      border: isEditing ? "1.5px solid var(--primary)" : isHighlighted ? "1.5px solid var(--foreground)" : "1.5px solid transparent",
+                      cursor: "pointer",
                     }}
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -496,6 +599,39 @@ export default function Schedule() {
                   {selectedDate ? "이 날짜에는 일정이 없어요" : "등록된 일정이 없어요"}
                 </div>
               )}
+            </div>
+            )}
+
+            <div className="h-px mb-3" style={{ background: "var(--border)" }} />
+            <div className="text-xs font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>프로젝트 참여자</div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setActiveAuthorId(null)}
+                className="text-xs font-600 px-3 py-1.5"
+                style={{ borderRadius: "20px", background: activeAuthorId === null ? "var(--primary)" : "var(--muted)", color: activeAuthorId === null ? "#fff" : "var(--muted-foreground)" }}
+              >
+                전체
+              </button>
+              {team.members.map((m) => {
+                const active = activeAuthorId === m.userId;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => m.userId && setActiveAuthorId(active ? null : m.userId)}
+                    disabled={!m.userId}
+                    className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0"
+                    style={{ borderRadius: "20px", background: active ? "var(--primary)" : "var(--muted)", color: active ? "#fff" : "var(--foreground)", opacity: m.userId ? 1 : 0.5 }}
+                  >
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
+                      style={{ background: active ? "rgba(255,255,255,0.25)" : `${m.color}18`, color: active ? "#fff" : m.color }}
+                    >
+                      {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                    </span>
+                    {m.name}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
