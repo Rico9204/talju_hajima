@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Page } from "../App";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
@@ -37,6 +37,19 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const navUnread: Partial<Record<Page, number>> = { chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
   const totalUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifPos, setNotifPos] = useState<{ top: number; left: number } | null>(null);
+  const notifButtonRef = useRef<HTMLButtonElement>(null);
+
+  function toggleNotif() {
+    if (!notifOpen && notifButtonRef.current) {
+      const rect = notifButtonRef.current.getBoundingClientRect();
+      const panelWidth = 288; // w-72
+      const left = Math.min(rect.right + 8, window.innerWidth - panelWidth - 8);
+      setNotifPos({ top: rect.top, left: Math.max(8, left) });
+    }
+    setNotifOpen((v) => !v);
+    setSwitcherOpen(false);
+  }
   const { signOut } = useAuth();
   const { isAdmin } = useProjectManagement();
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
@@ -44,6 +57,23 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const myRole = currentMember?.role ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const logoCardRef = useRef<HTMLDivElement>(null);
+
+  // Close the project switcher / notification dropdowns when clicking
+  // anywhere else — both live under logoCardRef even though the notif
+  // panel renders fixed-positioned elsewhere on screen.
+  useEffect(() => {
+    if (!switcherOpen && !notifOpen) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (logoCardRef.current && !logoCardRef.current.contains(e.target as Node)) {
+        setSwitcherOpen(false);
+        setNotifOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [switcherOpen, notifOpen]);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
@@ -97,6 +127,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
       </button>
       {/* Logo card */}
       <div
+        ref={logoCardRef}
         className="px-4 py-4 mb-5 relative"
         style={{
           background: "var(--card)",
@@ -134,8 +165,9 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
             </div>
           </button>
           <button
+            ref={notifButtonRef}
             type="button"
-            onClick={() => { setNotifOpen((v) => !v); setSwitcherOpen(false); }}
+            onClick={toggleNotif}
             title="알림"
             aria-label="알림"
             className="w-8 h-8 relative flex items-center justify-center text-sm shrink-0 transition-all"
@@ -156,10 +188,10 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
           </button>
         </div>
 
-        {notifOpen && (
+        {notifOpen && notifPos && (
           <div
-            className="absolute left-4 right-4 top-full mt-1.5 p-1.5 z-30"
-            style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", maxHeight: 360, overflowY: "auto" }}
+            className="w-72 max-w-[85vw] p-1.5 z-30"
+            style={{ position: "fixed", top: notifPos.top, left: notifPos.left, background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", maxHeight: 360, overflowY: "auto" }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
               알림
@@ -272,54 +304,56 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
               내 프로젝트 전환
             </div>
-            {projects.map((p) => {
-              const isCurrent = p.id === project.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => { setProjectId(p.id); setSwitcherOpen(false); setMobileOpen(false); }}
-                  className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
-                  style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-700 truncate" style={{ color: isCurrent ? "var(--primary)" : "var(--foreground)" }}>
-                      {p.name}
-                    </div>
-                    <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-                      {p.org}
-                    </div>
-                  </div>
-                  <span
-                    className="text-xs px-1.5 py-0.5 font-600 shrink-0"
-                    style={{
-                      background: p.status === "active" ? "#22c55e18" : "var(--muted)",
-                      color: p.status === "active" ? "#22c55e" : "var(--muted-foreground)",
-                      borderRadius: "3px",
-                    }}
+            <div className="max-h-64 overflow-y-auto">
+              {projects.map((p) => {
+                const isCurrent = p.id === project.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { setProjectId(p.id); setSwitcherOpen(false); setMobileOpen(false); }}
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
+                    style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
                   >
-                    {p.status === "active" ? "진행 중" : "완료"}
-                  </span>
-                  {isCurrent && isAdmin && (
+                    <div className="min-w-0">
+                      <div className="text-xs font-700 truncate" style={{ color: isCurrent ? "var(--primary)" : "var(--foreground)" }}>
+                        {p.name}
+                      </div>
+                      <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                        {p.org}
+                      </div>
+                    </div>
                     <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); setSwitcherOpen(false); setPendingDelete(true); }}
-                      className="w-6 h-6 flex items-center justify-center shrink-0 transition-all"
-                      style={{ background: "#ef444418", borderRadius: "6px" }}
-                      title="프로젝트 삭제"
+                      className="text-xs px-1.5 py-0.5 font-600 shrink-0"
+                      style={{
+                        background: p.status === "active" ? "#22c55e18" : "var(--muted)",
+                        color: p.status === "active" ? "#22c55e" : "var(--muted-foreground)",
+                        borderRadius: "3px",
+                      }}
                     >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6" />
-                        <path d="M14 11v6" />
-                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                      </svg>
+                      {p.status === "active" ? "진행 중" : "완료"}
                     </span>
-                  )}
-                </button>
-              );
-            })}
+                    {isCurrent && isAdmin && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setSwitcherOpen(false); setPendingDelete(true); }}
+                        className="w-6 h-6 flex items-center justify-center shrink-0 transition-all"
+                        style={{ background: "#ef444418", borderRadius: "6px" }}
+                        title="프로젝트 삭제"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        </svg>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
             <div className="mt-1 pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
               <button
                 onClick={() => { setSwitcherOpen(false); setCreateOpen(true); }}
