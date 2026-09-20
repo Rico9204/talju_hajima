@@ -44,12 +44,127 @@ function daysUntil(dateStr: string, today: string) {
 
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
+const POPUP_WIDTH = 420;
+const POPUP_HEIGHT = 380;
+const POPUP_ANIM_MS = 220;
+
+function formatDayLabel(dateKey: string): string {
+  const [, m, d] = dateKey.split("-").map(Number);
+  return `${m}월 ${d}일`;
+}
+
+// 더블클릭한 날짜 칸의 위치(originRect)에서 시작해, 그 칸의 중심을 기준으로
+// 펼쳐진 크기(targetRect)로 커지는 팝업 — 화면 중앙이 아니라 클릭한 칸 자리에서
+// 커진다(화면 밖으로 나가지 않게 16px 여백만큼만 안쪽으로 밀어넣음). 마운트 직후
+// 한 프레임 뒤에 phase를 'open'으로 바꿔서 CSS transition이 실제로 발동하게
+// 한다(처음부터 open 스타일로 그리면 transition이 걸리지 않음).
+function DayEventsPopup({
+  dateKey,
+  dayEvents,
+  onClose,
+  originRect,
+  typeMeta,
+  displayTitle,
+  ownerName,
+}: {
+  dateKey: string;
+  dayEvents: ScheduleEvent[];
+  onClose: () => void;
+  originRect: DOMRect;
+  typeMeta: Record<ScheduleEventType, { label: string; color: string }>;
+  displayTitle: (e: ScheduleEvent) => string;
+  ownerName: (e: ScheduleEvent) => string;
+}) {
+  const [phase, setPhase] = useState<"enter" | "open" | "closing">("enter");
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setPhase("open"));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  function close() {
+    setPhase("closing");
+    setTimeout(onClose, POPUP_ANIM_MS);
+  }
+
+  const open = phase === "open";
+  const targetWidth = Math.min(POPUP_WIDTH, window.innerWidth - 32);
+  const targetHeight = Math.min(POPUP_HEIGHT, window.innerHeight - 32);
+  const originCenterX = originRect.left + originRect.width / 2;
+  const originCenterY = originRect.top + originRect.height / 2;
+  const targetRect = {
+    left: Math.min(Math.max(originCenterX - targetWidth / 2, 16), window.innerWidth - targetWidth - 16),
+    top: Math.min(Math.max(originCenterY - targetHeight / 2, 16), window.innerHeight - targetHeight - 16),
+    width: targetWidth,
+    height: targetHeight,
+  };
+  const rect = open
+    ? targetRect
+    : { left: originRect.left, top: originRect.top, width: originRect.width, height: originRect.height };
+
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      style={{ background: "rgba(15,18,53,0.35)", opacity: open ? 1 : 0, transition: `opacity ${POPUP_ANIM_MS}ms ease` }}
+      onClick={close}
+    >
+      <div
+        className="fixed overflow-hidden flex flex-col"
+        style={{
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          background: "var(--card)",
+          borderRadius: "var(--radius)",
+          boxShadow: "0 24px 64px rgba(15,18,53,0.25)",
+          transition: `left ${POPUP_ANIM_MS}ms ease, top ${POPUP_ANIM_MS}ms ease, width ${POPUP_ANIM_MS}ms ease, height ${POPUP_ANIM_MS}ms ease`,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+          <h3 className="text-sm font-700">{formatDayLabel(dateKey)} 일정</h3>
+          <button
+            onClick={close}
+            className="w-7 h-7 flex items-center justify-center text-sm rounded-full"
+            style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+          {dayEvents.map((e) => (
+            <div
+              key={e.id}
+              className="flex items-center gap-2.5 p-2.5"
+              style={{ background: "var(--muted)", borderRadius: "10px", opacity: e.scope === "personal" && e.visibility === "private" ? 0.6 : 1 }}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: typeMeta[e.type].color }} />
+              <div className="min-w-0">
+                <div className="text-xs font-600 truncate">{displayTitle(e)}</div>
+                <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  {typeMeta[e.type].label}
+                  {e.scope === "personal" ? ` · ${ownerName(e)}` : " · 팀 일정"}
+                </div>
+              </div>
+            </div>
+          ))}
+          {dayEvents.length === 0 && (
+            <div className="text-xs text-center py-6" style={{ color: "var(--muted-foreground)" }}>이 날짜엔 일정이 없어요</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Schedule({ focusEventId }: { focusEventId?: number } = {}) {
   const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent, markSectionViewed } = useProject();
   const today = todayISO();
   const defaultMonth = scheduleEvents[0]?.date.slice(0, 7) || today.slice(0, 7);
   const [month, setMonth] = useState(defaultMonth);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [dayPopup, setDayPopup] = useState<{ dateKey: string; rect: DOMRect } | null>(null);
   const [showTeam, setShowTeam] = useState(true);
   const [showPersonal, setShowPersonal] = useState(true);
   const [selectedMembers, setSelectedMembers] = useState<string[]>(team.members.map((m) => m.id));
@@ -75,6 +190,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   useEffect(() => {
     setMonth(scheduleEvents[0]?.date.slice(0, 7) || today.slice(0, 7));
     setSelectedDay(null);
+    setDayPopup(null);
     setShowTeam(true);
     setShowPersonal(true);
     setSelectedMembers(team.members.map((m) => m.id));
@@ -280,6 +396,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                         setSelectedDay(next);
                         if (next && !locked) setDate(next);
                       }}
+                      onDoubleClick={(e) => setDayPopup({ dateKey: key, rect: e.currentTarget.getBoundingClientRect() })}
                       className="aspect-square flex flex-col items-center justify-center gap-1 transition-all"
                       style={{
                         borderRadius: "10px",
@@ -611,6 +728,18 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
           </div>
         </div>
       </div>
+
+      {dayPopup && (
+        <DayEventsPopup
+          dateKey={dayPopup.dateKey}
+          dayEvents={eventsByDay[dayPopup.dateKey] || []}
+          originRect={dayPopup.rect}
+          onClose={() => setDayPopup(null)}
+          typeMeta={typeMeta}
+          displayTitle={displayTitle}
+          ownerName={ownerName}
+        />
+      )}
     </div>
   );
 }
