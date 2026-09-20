@@ -6,6 +6,7 @@ export default function PostDetailView({
   post,
   currentUserId,
   busy,
+  error,
   onBack,
   onEditPost,
   onAddComment,
@@ -16,6 +17,7 @@ export default function PostDetailView({
   post: BoardPost;
   currentUserId: string | null;
   busy: boolean;
+  error: string | null;
   onBack: () => void;
   onEditPost?: (post: BoardPost) => void;
   onAddComment: (postId: number, content: string) => void;
@@ -102,6 +104,12 @@ export default function PostDetailView({
           </div>
         )}
       </div>
+
+      {error && (
+        <div role="alert" className="p-3 text-xs rounded-xl" style={{ background: "#ef444418", color: "#ef4444" }}>
+          {error}
+        </div>
+      )}
 
       <div className="p-6 md:p-8 space-y-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
         <div className="space-y-2 border-b pb-5" style={{ borderColor: "var(--border)" }}>

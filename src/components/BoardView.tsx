@@ -96,6 +96,7 @@ export default function BoardView() {
   }
 
   async function handleAddComment(postId: number, content: string) {
+    setError(null);
     try {
       await dataRepository.addBoardComment(postId, content);
       await refreshComments(postId);
@@ -106,6 +107,7 @@ export default function BoardView() {
 
   async function handleAddReply(postId: number, commentId: number, content: string, targetAuthor?: string) {
     const formatted = targetAuthor && !content.startsWith("@") ? `@${targetAuthor} ${content}` : content;
+    setError(null);
     try {
       await dataRepository.addBoardComment(postId, formatted, commentId);
       await refreshComments(postId);
@@ -195,6 +197,7 @@ export default function BoardView() {
         post={selectedPost}
         currentUserId={user?.id ?? null}
         busy={busy}
+        error={error}
         onBack={() => setSelectedPost(null)}
         onEditPost={(post) => setEditingPost(post)}
         onAddComment={handleAddComment}
