@@ -207,35 +207,34 @@ export default function PostDetailView({
           </button>
         </div>
 
+        {!commentsDisabled && (
         <div className="border-t pt-6" style={{ borderColor: "var(--border)" }}>
           <h3 className="text-base font-800 mb-4 flex items-center gap-2">
             <span>💬 댓글</span>
             <span className="text-xs px-2.5 py-0.5 font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>{totalCommentsCount}</span>
           </h3>
 
-          {!commentsDisabled && (
-            <form onSubmit={handleCommentSubmit} className="mb-6 space-y-2.5">
-              <textarea
-                rows={3}
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                maxLength={2000}
-                placeholder="댓글을 남겨보세요..."
-                className="w-full px-4 py-3 text-xs md:text-sm outline-none resize-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }}
-              />
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={!commentText.trim()}
-                  className="px-5 py-2 text-xs font-700 transition-all disabled:opacity-40"
-                  style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
-                >
-                  댓글 작성
-                </button>
-              </div>
-            </form>
-          )}
+          <form onSubmit={handleCommentSubmit} className="mb-6 space-y-2.5">
+            <textarea
+              rows={3}
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              maxLength={2000}
+              placeholder="댓글을 남겨보세요..."
+              className="w-full px-4 py-3 text-xs md:text-sm outline-none resize-none"
+              style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }}
+            />
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={!commentText.trim()}
+                className="px-5 py-2 text-xs font-700 transition-all disabled:opacity-40"
+                style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+              >
+                댓글 작성
+              </button>
+            </div>
+          </form>
 
           {post.comments.length === 0 ? (
             <p className="text-xs text-center py-6" style={{ color: "var(--muted-foreground)" }}>
@@ -389,6 +388,7 @@ export default function PostDetailView({
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
