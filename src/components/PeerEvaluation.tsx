@@ -231,9 +231,10 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     const previous = data?.records.find((r) => r.evaluator_id === currentMember?.id && r.recipient_id === peer.id);
     return submitted && previous ? previous : draft[peer.id] ?? emptyEntry(peer.id);
   });
-  const pool = peers.length * 5;
+  const usesSharedPool = phase === "midterm";
+  const pool = peers.length * POOL_PER_PEER;
   const total = (key: typeof criteria[number]["id"]) => entries.reduce((sum, entry) => sum + entry[key], 0);
-  const balanced = peers.length > 0 && criteria.every((c) => total(c.id) === pool);
+  const balanced = peers.length > 0 && (!usesSharedPool || criteria.every((c) => total(c.id) === pool));
   async function submit() {
     if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
     setBusy(true); onBusyChange(true); setError("");
@@ -266,6 +267,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   function setSelectedPeer(index: number) { setSelectedPeerId(peers[index].id); }
   function scoreFor(id: typeof criteria[number]["id"], index: number) { return entries[index]?.[id] ?? 1; }
   function maxAllowed(id: typeof criteria[number]["id"], index: number) {
+    if (!usesSharedPool) return 10;
     const others = entries.reduce((sum, entry, i) => sum + (i === index ? 0 : entry[id]), 0);
     return Math.max(0, Math.min(10, pool - others));
   }
@@ -436,8 +438,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
 
       {data && !midtermSkipped && peers.length > 0 && (
         <>
-          {/* Shared-pool allocation status per criterion */}
-          <div className="px-5 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "12px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+          {usesSharedPool && <div className="px-5 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "12px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="text-xs font-600 mb-3" style={{ color: "var(--muted-foreground)" }}>
               항목별 공유 점수 배분 현황 · 동료 {peers.length}명 × {POOL_PER_PEER}점 = 총 {pool}점
             </div>
@@ -465,7 +466,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                 );
               })}
             </div>
-          </div>
+          </div>}
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
             {/* Peer list */}
@@ -597,7 +598,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                           <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
                           <span className="text-sm font-700 shrink-0">{c.label}</span>
                           <span className="ml-auto text-xs font-700 text-right shrink-0" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
-                            {current}점 <span style={{ color: "var(--muted-foreground)", fontWeight: 400 }}>(전체 남음 {remainingUnallocated}점)</span>
+                            {current}점 {usesSharedPool && <span style={{ color: "var(--muted-foreground)", fontWeight: 400 }}>(전체 남음 {remainingUnallocated}점)</span>}
                           </span>
                         </div>
                         <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{c.desc}</p>
@@ -643,7 +644,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
 
                 {!isSubmitted && (
                   <>
-                    {!allBalanced && (
+                    {usesSharedPool && !allBalanced && (
                       <div className="text-xs text-center mb-2" style={{ color: "var(--muted-foreground)" }}>
                         모든 항목의 공유 점수를 남김없이 다 나눠줘야 제출할 수 있어요 — 위 배분 현황에서 남은 점수를 확인해주세요.
                       </div>

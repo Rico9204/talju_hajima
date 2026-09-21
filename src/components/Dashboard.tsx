@@ -134,8 +134,8 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         : !isDone && isShortTerm ? "생략" : evaluation.submitted ? "제출 완료" : "미제출",
       sub: evaluation?.key === evaluationKey && evaluation.prototype ? "프로토타입 검증" : isDone ? "최종 평가" : "중간 점검",
     } : stat.label === "협업 평점" ? {
-      ...stat, label: "현재 프로젝트 내 평점", value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
-      sub: "이 프로젝트 종료 평가",
+      ...stat, label: "현재 프로젝트 협업 신뢰도", value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
+      sub: currentMember?.evalCount ? `최종 평가 ${currentMember.evalCount}건 기준` : "최종 평가 공개 대기",
     } : stat.label === "완료 과제" ? {
       ...stat, value: String(taskSummary.completed), sub: "전체 " + taskSummary.total + "개 중",
     } : ["남은 마감", "참여 기간"].includes(stat.label) ? {

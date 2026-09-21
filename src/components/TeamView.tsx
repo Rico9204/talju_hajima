@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
+import { collaborationTrust } from "../lib/collaborationTrust";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
   const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader, openMemberProfile } = useProject();
@@ -236,7 +237,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
             <div className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
               <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
-                협업 평판 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
+                협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
               </div>
               {sel.evalCount > 0 ? (
                 <>
@@ -247,7 +248,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                     <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-                    {`이 프로젝트 최종 평가 ${sel.evalCount}건 평균`}
+                    {collaborationTrust(sel.score, sel.evalCount).label} · {collaborationTrust(sel.score, sel.evalCount).evidence}
                   </div>
                   <div className="mt-2 h-1.5 w-full" style={{ background: "var(--border)", borderRadius: "4px" }}>
                     <div className="h-1.5" style={{ width: `${(sel.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
@@ -278,7 +279,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
             {/* Per-criterion radar chart */}
             <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
-              동료 평가 항목별 점수 (참고)
+              협업 항목별 참고 지표
             </div>
             {sel.evalCount > 0 ? (
               <div className="flex justify-center">
