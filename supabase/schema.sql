@@ -957,7 +957,7 @@ begin
        or (e->>k)::numeric <> trunc((e->>k)::numeric)
        or (e->>k)::numeric not between 0 and 10
   ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
-  if exists (
+  if p_phase = 'midterm' and exists (
     select 1 from jsonb_array_elements(p_entries) e
     cross join unnest(array['role','deadline','communication','collaboration','quality']) k
     group by k having sum((e->>k)::integer) <> expected * 5
@@ -1056,7 +1056,7 @@ begin
        or (e->>k)::numeric <> trunc((e->>k)::numeric)
        or (e->>k)::numeric not between 0 and 10
   ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
-  if exists (
+  if p_phase = 'midterm' and exists (
     select 1 from jsonb_array_elements(p_entries) e
     cross join unnest(array['role','deadline','communication','collaboration','quality']) k
     group by k having sum((e->>k)::integer) <> expected * 5
