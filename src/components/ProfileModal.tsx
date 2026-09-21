@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type CSSProperties, type ReactNo
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
+import { collaborationTrust } from "../lib/collaborationTrust";
 import { detectLink } from "../lib/links";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
@@ -539,13 +540,14 @@ export default function ProfileModal() {
                 <MyEvaluationSummary chart />
               ) : (
                 <section aria-label={`${viewedMember.name} 평가 요약`} className="p-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)" }}>
-                  <h2 className="text-sm font-700 mb-3">협업 평판</h2>
+                  <h2 className="text-sm font-700 mb-3">협업 신뢰도</h2>
                   {viewedMember.evalCount > 0 ? (
                     <>
                       <div className="flex items-baseline gap-1.5 mb-3">
                         <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
-                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10 · 최종 평가 {viewedMember.evalCount}건</span>
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10 · {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
                       </div>
+                      <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       <div className="flex justify-center">
                         <PentagonChart
                           size={230}
