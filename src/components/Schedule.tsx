@@ -665,7 +665,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                       />
                     </div>
                     <div className="flex-1 min-w-[110px]">
-                      <label className="text-xs block mb-1" style={{ color: "var(--muted-foreground)" }}>종료일 (기간 일정 시)</label>
+                      <label className="text-xs block mb-1" style={{ color: "var(--muted-foreground)" }}>종료일</label>
                       <input
                         type="date"
                         value={endDate}
