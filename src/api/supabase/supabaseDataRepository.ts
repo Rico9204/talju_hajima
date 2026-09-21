@@ -483,6 +483,12 @@ export const supabaseDataRepository: DataRepository = {
     };
   },
 
+  async getMemberParticipationStats(userId) {
+    const { data, error } = await supabase.rpc("member_participation_stats", { p_user_id: userId });
+    if (error) throw error;
+    return { projectCount: data?.projectCount ?? 0, collaboratorCount: data?.collaboratorCount ?? 0 };
+  },
+
   async updateMyProfile(patch) {
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData.user?.id;
