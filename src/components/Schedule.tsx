@@ -43,6 +43,7 @@ function daysUntil(dateStr: string, today: string) {
 }
 
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+const MAX_SEGMENTS_PER_DAY = 3;
 
 const POPUP_WIDTH = 420;
 const POPUP_HEIGHT = 380;
@@ -144,6 +145,7 @@ function DayEventsPopup({
                 <div className="text-xs font-600 truncate">{displayTitle(e)}</div>
                 <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
                   {typeMeta[e.type].label}
+                  {e.endDate ? ` · ${formatDayLabel(e.date)} ~ ${formatDayLabel(e.endDate)}` : ""}
                   {e.scope === "personal" ? ` · ${ownerName(e)}` : " · 팀 일정"}
                 </div>
               </div>
@@ -172,6 +174,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [type, setType] = useState<ScheduleEventType>("meeting");
   const [scope, setScope] = useState<ScheduleEventScope>("personal");
   const [visibility, setVisibility] = useState<ScheduleEventVisibility>("private");
@@ -196,6 +199,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setSelectedMembers(team.members.map((m) => m.id));
     setTitle("");
     setDate("");
+    setEndDate("");
     setScope("personal");
     setVisibility("private");
     setHideTitle(false);
@@ -245,6 +249,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setEditingId(e.id);
     setTitle(e.title);
     setDate(e.date);
+    setEndDate(e.endDate ?? "");
     setType(e.type);
     setScope(e.scope);
     setVisibility(e.visibility ?? "private");
@@ -255,6 +260,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setEditingId(null);
     setTitle("");
     setDate("");
+    setEndDate("");
     setScope("personal");
     setVisibility("private");
     setHideTitle(false);
@@ -281,13 +287,46 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const weeks = getMonthGrid(month);
-  const eventsByDay = events.reduce<Record<string, ScheduleEvent[]>>((acc, e) => {
-    (acc[e.date] = acc[e.date] || []).push(e);
-    return acc;
-  }, {});
+  // 모든 일정을 "기간"으로 통일해서 다룬다 — 종료일이 없으면 시작일=종료일인
+  // 하루짜리 기간.
+  const segments = events.map((e) => ({ event: e, start: e.date, end: e.endDate ?? e.date }));
+  function segmentsForDay(key: string) {
+    return segments.filter((s) => key >= s.start && key <= s.end);
+  }
 
-  const agenda = selectedDay ? events.filter((e) => e.date === selectedDay) : events;
+  const weeks = getMonthGrid(month);
+
+  // 여러 날에 걸친 일정을, 그 일정이 보이는 모든 날짜에서 "같은 줄(레인)"에
+  // 고정 배치한다(구글 캘린더 월간 보기 방식) — 그래야 하루하루 지나면서 다른
+  // 일정이 시작/끝나도 줄 높이가 안 바뀌어서 선이 끊겨 보이지 않는다. 레인은
+  // 한 주(7일) 단위로만 계산(이 달력은 인접 달의 날짜를 표시하지 않으므로,
+  // 주 경계에 걸친 일정은 실제로 보이는 첫/마지막 칸부터 그려짐).
+  const laneByEventIdByWeek = weeks.map((week) => {
+    const weekKeys = week.filter((d): d is number => d !== null).map((d) => dayKey(month, d));
+    const laneOf = new Map<number, number>();
+    if (weekKeys.length === 0) return laneOf;
+    const weekStart = weekKeys[0];
+    const weekEnd = weekKeys[weekKeys.length - 1];
+    const relevant = segments
+      .filter((s) => s.start !== s.end && s.end >= weekStart && s.start <= weekEnd)
+      .sort((a, b) => a.start.localeCompare(b.start) || a.event.id - b.event.id);
+    const laneEnds: string[] = [];
+    for (const seg of relevant) {
+      const clippedStart = seg.start < weekStart ? weekStart : seg.start;
+      const clippedEnd = seg.end > weekEnd ? weekEnd : seg.end;
+      let lane = laneEnds.findIndex((end) => end < clippedStart);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(clippedEnd);
+      } else {
+        laneEnds[lane] = clippedEnd;
+      }
+      laneOf.set(seg.event.id, lane);
+    }
+    return laneOf;
+  });
+
+  const agenda = selectedDay ? events.filter((e) => selectedDay >= e.date && selectedDay <= (e.endDate ?? e.date)) : events;
   // 검색창은 팀원 목록과 일정 목록에 같이 쓰인다: 팀원이나 일정이 많아지면
   // (팀원 6명 초과 또는 일정 5개 초과) 나타나고, 같은 검색어로 일정 제목도
   // 걸러준다. displayTitle을 쓰는 이유는 비공개 처리된 제목("바쁨")을 검색
@@ -304,6 +343,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
       await updateScheduleEvent(editingId, {
         title: title.trim(),
         date: date.trim(),
+        endDate: endDate.trim() || null,
         type,
         visibility: scope === "personal" ? visibility : undefined,
         hideTitle: scope === "personal" && visibility === "shared" ? hideTitle : undefined,
@@ -314,6 +354,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     await addScheduleEvent({
       title: title.trim(),
       date: date.trim(),
+      endDate: endDate.trim() || null,
       type,
       scope,
       visibility: scope === "personal" ? visibility : undefined,
@@ -321,6 +362,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     });
     setTitle("");
     setDate("");
+    setEndDate("");
   }
 
   async function handleDelete() {
@@ -373,21 +415,53 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
             )}
           </div>
 
-          <div className="grid grid-cols-7 gap-1 mb-1">
+          <div className="grid grid-cols-7 mb-1">
             {weekdayLabels.map((w) => (
               <div key={w} className="text-xs font-600 text-center py-1" style={{ color: "var(--muted-foreground)" }}>{w}</div>
             ))}
           </div>
 
-          <div className="flex flex-col gap-1">
+          <div
+            className="flex flex-col"
+            style={{
+              borderLeft: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
+              borderTop: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
+            }}
+          >
             {weeks.map((week, wi) => (
-              <div key={wi} className="grid grid-cols-7 gap-1">
+              <div key={wi} className="grid grid-cols-7">
                 {week.map((d, di) => {
-                  if (d === null) return <div key={di} />;
+                  if (d === null)
+                    return (
+                      <div
+                        key={di}
+                        style={{
+                          borderRight: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
+                          borderBottom: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
+                        }}
+                      />
+                    );
                   const key = dayKey(month, d);
-                  const dayEvents = eventsByDay[key] || [];
+                  const daySegments = segmentsForDay(key);
+                  const daySameDayEvents = daySegments.filter((s) => s.start === s.end);
+                  const daySpanSegments = daySegments.filter((s) => s.start !== s.end);
                   const isToday = key === today;
                   const isSelected = selectedDay === key;
+
+                  // 이번 주에 배정된 고정 레인 기준으로 이 날짜에 실제로 있는
+                  // 세그먼트를 줄별로 채움(없는 레인은 빈 칸으로 둬서 다른
+                  // 날짜와 높이가 안 어긋나게).
+                  const laneOf = laneByEventIdByWeek[wi];
+                  const bySegmentLane = new Map<number, (typeof daySpanSegments)[number]>();
+                  let maxLane = -1;
+                  for (const s of daySpanSegments) {
+                    const lane = laneOf.get(s.event.id) ?? 0;
+                    bySegmentLane.set(lane, s);
+                    if (lane > maxLane) maxLane = lane;
+                  }
+                  const lanesToRender = Math.min(maxLane + 1, MAX_SEGMENTS_PER_DAY);
+                  const hiddenCount = [...bySegmentLane.keys()].filter((lane) => lane >= lanesToRender).length;
+
                   return (
                     <button
                       key={di}
@@ -397,30 +471,63 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                         if (next && !locked) setDate(next);
                       }}
                       onDoubleClick={(e) => setDayPopup({ dateKey: key, rect: e.currentTarget.getBoundingClientRect() })}
-                      className="aspect-square flex flex-col items-center justify-center gap-1 transition-all"
+                      className="min-h-[76px] px-1 pt-1 pb-1 flex flex-col text-left transition-all overflow-hidden"
                       style={{
-                        borderRadius: "10px",
                         background: isSelected ? "var(--primary)" : isToday ? "var(--secondary)" : "transparent",
-                        border: isToday && !isSelected ? "1.5px solid var(--primary)" : "1.5px solid transparent",
+                        borderRight: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
+                        borderBottom: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
+                        boxShadow: isToday && !isSelected ? "inset 0 0 0 1px var(--primary)" : "none",
                       }}
                     >
-                      <span
-                        className="text-xs font-600"
-                        style={{ color: isSelected ? "#fff" : isToday ? "var(--primary)" : "var(--foreground)" }}
-                      >
-                        {d}
-                      </span>
-                      <div className="flex gap-0.5">
-                        {dayEvents.slice(0, 3).map((e) => (
+                      <span className="flex items-center justify-start gap-1.5 shrink-0 w-full">
+                        <span
+                          className="text-xs font-600"
+                          style={{ color: isSelected ? "#fff" : isToday ? "var(--primary)" : "var(--foreground)" }}
+                        >
+                          {d}
+                        </span>
+                        {/* 당일(하루짜리) 일정은 막대 대신 숫자 옆에 점으로 — 최대 3개까지만. */}
+                        {daySameDayEvents.slice(0, 3).map((s) => (
                           <span
-                            key={e.id}
-                            className="w-1.5 h-1.5 rounded-full"
+                            key={s.event.id}
+                            title={s.event.title}
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
                             style={{
-                              background: isSelected ? "#fff" : typeMeta[e.type].color,
-                              opacity: e.scope === "personal" && e.visibility === "private" ? 0.4 : 1,
+                              background: isSelected ? "#fff" : typeMeta[s.event.type].color,
+                              opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.4 : 1,
                             }}
                           />
                         ))}
+                      </span>
+                      <div className="flex flex-col gap-1 mt-1 -mx-1">
+                        {Array.from({ length: lanesToRender }, (_, lane) => {
+                          const s = bySegmentLane.get(lane);
+                          if (!s) return <div key={lane} style={{ height: 3 }} />;
+                          const isStart = key === s.start;
+                          const isEnd = key === s.end;
+                          return (
+                            <div
+                              key={lane}
+                              title={s.event.title}
+                              style={{
+                                height: 3,
+                                background: isSelected ? "rgba(255,255,255,0.75)" : typeMeta[s.event.type].color,
+                                opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.5 : 1,
+                                marginLeft: isStart ? "50%" : 0,
+                                // 끝나는 날은 시작하는 날보다 살짝 더 짧게 그려서, 다른
+                                // 일정의 시작과 맞물려도(같은 날 끝/시작) 하나의 끊긴
+                                // 선이 아니라 분명히 "여기서 끝난다"는 게 보이게 한다.
+                                marginRight: isEnd ? "65%" : 0,
+                                borderRadius: isStart && isEnd ? 2 : isStart ? "2px 0 0 2px" : isEnd ? "0 2px 2px 0" : 0,
+                              }}
+                            />
+                          );
+                        })}
+                        {hiddenCount > 0 && (
+                          <span className="text-[9px] leading-none px-1" style={{ color: isSelected ? "#fff" : "var(--muted-foreground)" }}>
+                            +{hiddenCount}개 더보기
+                          </span>
+                        )}
                       </div>
                     </button>
                   );
@@ -488,14 +595,28 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                     className="w-full text-sm px-3 py-2 border outline-none mb-2"
                     style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
                   />
-                  <div className="flex gap-2 mb-2">
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      className="flex-1 text-sm px-3 py-2 border outline-none"
-                      style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-jetbrains)" }}
-                    />
+                  <div className="flex gap-2 mb-2 items-end flex-wrap">
+                    <div className="flex-1 min-w-[110px]">
+                      <label className="text-xs block mb-1" style={{ color: "var(--muted-foreground)" }}>시작일</label>
+                      <input
+                        type="date"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        className="w-full text-sm px-3 py-2 border outline-none"
+                        style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-jetbrains)" }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-[110px]">
+                      <label className="text-xs block mb-1" style={{ color: "var(--muted-foreground)" }}>종료일 (기간 일정 시)</label>
+                      <input
+                        type="date"
+                        value={endDate}
+                        min={date || undefined}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full text-sm px-3 py-2 border outline-none"
+                        style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-jetbrains)" }}
+                      />
+                    </div>
                     <select
                       value={type}
                       onChange={(e) => setType(e.target.value as ScheduleEventType)}
@@ -689,7 +810,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                       <div className="min-w-0">
                         <div className="text-xs font-600 truncate">{displayTitle(e)}</div>
                         <div className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-                          {e.date} · {meta.label}
+                          {e.date}{e.endDate ? ` ~ ${e.endDate}` : ""} · {meta.label}
                           {e.scope === "personal" && !isMine ? ` · ${ownerName(e)}님 개인일정` : ""}
                           {e.scope === "personal" && isMine ? ` · ${e.visibility === "private" ? "나만 보기" : "팀에 공유"}` : ""}
                         </div>
@@ -732,7 +853,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
       {dayPopup && (
         <DayEventsPopup
           dateKey={dayPopup.dateKey}
-          dayEvents={eventsByDay[dayPopup.dateKey] || []}
+          dayEvents={segmentsForDay(dayPopup.dateKey).map((s) => s.event)}
           originRect={dayPopup.rect}
           onClose={() => setDayPopup(null)}
           typeMeta={typeMeta}

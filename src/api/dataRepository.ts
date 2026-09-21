@@ -109,7 +109,7 @@ export interface DataRepository {
   addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
   updateScheduleEvent(
     eventId: number,
-    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+    patch: Partial<{ title: string; date: string; endDate: string | null; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
   ): Promise<void>;
   removeScheduleEvent(eventId: number): Promise<void>;
 

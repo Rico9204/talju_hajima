@@ -171,6 +171,7 @@ function mapScheduleEvent(row: any): ScheduleEvent {
     id: row.id,
     title: row.title,
     date: row.date,
+    endDate: row.end_date ?? null,
     type: row.type,
     scope: row.scope,
     ownerMemberId: row.owner_member_id,
@@ -960,6 +961,7 @@ export const supabaseDataRepository: DataRepository = {
         project_id: projectId,
         title: input.title.trim(),
         date: input.date,
+        end_date: input.endDate || null,
         type: input.type,
         scope: input.scope,
         owner_member_id: input.scope === "personal" ? actorMemberId : null,
@@ -976,6 +978,7 @@ export const supabaseDataRepository: DataRepository = {
     const updates: Record<string, unknown> = {};
     if (patch.title !== undefined) updates.title = patch.title.trim();
     if (patch.date !== undefined) updates.date = patch.date;
+    if (patch.endDate !== undefined) updates.end_date = patch.endDate || null;
     if (patch.type !== undefined) updates.type = patch.type;
     if (patch.visibility !== undefined) updates.visibility = patch.visibility;
     if (patch.hideTitle !== undefined) updates.hide_title = patch.hideTitle;
