@@ -12,6 +12,567 @@
   to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
+/* Profile-card tier effects (see .tier-card-* on the profile modal in
+   Sidebar.tsx) — escalate from a plain static ring at bronze up to a
+   moving holographic sweep at platinum, all driven by --tier-glow so one
+   rule set works for every tier's color. */
+@property --tier-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes tier-card-shimmer {
+  0%, 100% { box-shadow: 0 24px 64px rgba(15,18,53,.22), 0 0 16px 2px var(--tier-glow); }
+  50% { box-shadow: 0 24px 64px rgba(15,18,53,.22), 0 0 34px 6px var(--tier-glow); }
+}
+@keyframes tier-card-pulse {
+  0%, 100% { box-shadow: 0 24px 64px rgba(15,18,53,.22), 0 0 26px 4px var(--tier-glow); }
+  50% { box-shadow: 0 24px 64px rgba(15,18,53,.22), 0 0 60px 14px var(--tier-glow); }
+}
+/* Rotating gradient border: a masked conic-gradient ring laid over the
+   card edge. Not a background on the card itself, because the card fill is
+   translucent and would let the gradient bleed through the middle. Colors
+   and spin speed come from --tier-c1/--tier-c2/--tier-ring-speed. */
+@keyframes tier-card-ring-spin {
+  to { --tier-angle: 360deg; }
+}
+.tier-card-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 3px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--tier-angle),
+    var(--tier-c1),
+    var(--tier-c2) 25%,
+    color-mix(in srgb, var(--tier-c1) 30%, white) 50%,
+    var(--tier-c2) 75%,
+    var(--tier-c1)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+  z-index: 40;
+  animation: tier-card-ring-spin var(--tier-ring-speed, 5s) linear infinite;
+}
+/* Ring style variants for the reward themes (profileThemes.ts ringStyle).
+   All reuse the rotating --tier-angle; "spin" is the base rule above. Must
+   stay above .tier-card-ring-still so a still ring wins. */
+/* "hairline": a steady soft ring; the bubble theme's visible action is the
+   bubbles popping out past the edge (EdgeAura.tsx, .edge-aura below). */
+.tier-card-ring-hairline::before {
+  padding: 3px;
+  background: linear-gradient(135deg, var(--tier-c1), var(--tier-c2));
+  animation: none;
+}
+/* Edge aura (reward themes), rendered by EdgeAura.tsx: same trick as
+   .tier-flame — a layer bigger than the card by 56px (keep in sync with
+   REACH in EdgeAura.tsx) behind it, so effects can burst out past the
+   card's overflow-hidden clip. Each item sets --size/--dx/--dy/--dist/--ang/
+   --dur/--delay/--pc. */
+.edge-aura {
+  position: absolute;
+  inset: -56px;
+  z-index: -1;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px var(--tier-glow));
+}
+.edge-out {
+  position: absolute;
+  width: var(--size);
+  height: var(--size);
+  translate: -50% -50%;
+  animation-duration: var(--dur);
+  animation-delay: var(--delay);
+  animation-iteration-count: infinite;
+}
+/* Float out and pop: bubbles, and hearts (which also lift). */
+@keyframes edge-float-out {
+  0% { opacity: 0; transform: translate(0, 0) scale(.3); }
+  15% { opacity: .95; }
+  70% { opacity: .8; transform: translate(calc(var(--dx) * .7), calc(var(--dy) * .7)) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.3); }
+}
+.edge-out-bubble {
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--tier-c2);
+  background: radial-gradient(
+    circle at 32% 30%,
+    #fff 0 14%,
+    color-mix(in srgb, var(--tier-c1) 45%, transparent) 45%,
+    color-mix(in srgb, var(--tier-c2) 25%, transparent) 100%
+  );
+  box-shadow: 0 0 8px var(--tier-glow);
+  animation-name: edge-float-out;
+  animation-timing-function: ease-out;
+}
+.edge-out-heart {
+  background: var(--pc);
+  -webkit-mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E") center / contain no-repeat;
+  animation-name: edge-float-out;
+  animation-timing-function: ease-out;
+}
+/* Leaves sprout from the edge, sway as they travel, then fall away. */
+@keyframes edge-leaf-out {
+  0% { opacity: 0; transform: translate(0, 0) rotate(var(--ang)) scale(.2); }
+  20% { opacity: .95; }
+  60% { transform: translate(calc(var(--dx) * .6), calc(var(--dy) * .6)) rotate(calc(var(--ang) + 28deg)) scale(1); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(calc(var(--ang) - 22deg)) scale(1.1); }
+}
+.edge-out-leaf {
+  height: calc(var(--size) * .7);
+  border-radius: 0 100% 0 100%;
+  background: var(--pc);
+  animation-name: edge-leaf-out;
+  animation-timing-function: ease-in-out;
+}
+/* Streaks shoot straight off the edge, head first. The anchor is the tail,
+   so it pivots there and slides --dist along its own (rotated) axis. */
+@keyframes edge-streak-out {
+  0%, 30% { opacity: 0; transform: rotate(var(--ang)) translateX(0); }
+  38% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--ang)) translateX(var(--dist)); }
+}
+.edge-out-meteor {
+  width: var(--size);
+  height: 3px;
+  translate: 0 -50%;
+  transform-origin: 0 50%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--tier-c2) 70%, var(--tier-c1));
+  animation-name: edge-streak-out;
+  animation-timing-function: ease-in;
+}
+/* Souls: glowing egg-shaped wisps that drift up and sway, thinning as they go. */
+@keyframes edge-soul-out {
+  0% { opacity: 0; transform: translate(0, 0) scale(.4); }
+  15% { opacity: .9; }
+  35% { transform: translate(calc(var(--dx) * .35 + 7px), calc(var(--dy) * .35)) scale(1); }
+  65% { opacity: .75; transform: translate(calc(var(--dx) * .65 - 7px), calc(var(--dy) * .65)) scale(.95); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.6, 1.3); }
+}
+.edge-out-ghost {
+  width: calc(var(--size) * .55);
+  height: calc(var(--size) * 1.6);
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  background: radial-gradient(
+    ellipse at 50% 68%,
+    #fff 0 14%,
+    color-mix(in srgb, var(--tier-c1) 75%, transparent) 42%,
+    transparent 78%
+  );
+  animation-name: edge-soul-out;
+  animation-timing-function: ease-in-out;
+}
+/* Bolts flash on and off in stuttering steps, jumping outward as they go. */
+@keyframes edge-bolt-out {
+  0%, 80%, 100% { opacity: 0; }
+  82% { opacity: 1; transform: translate(calc(var(--dx) * .5), calc(var(--dy) * .5)) rotate(calc(var(--ang) + 90deg)); }
+  86% { opacity: .15; }
+  90% { opacity: 1; transform: translate(var(--dx), var(--dy)) rotate(calc(var(--ang) + 90deg)); }
+  96% { opacity: 0; }
+}
+.edge-out-spark {
+  background: var(--tier-c2);
+  clip-path: polygon(55% 0, 15% 56%, 45% 56%, 30% 100%, 85% 38%, 55% 38%);
+  animation-name: edge-bolt-out;
+  animation-timing-function: steps(1);
+}
+/* Illustrated card frames (admin-only themes), see CardDecoration.tsx.
+   Both layers are card-sized and non-interactive; "back" sits behind the
+   card (z -1 in the wrapper's isolated stacking context) and "front" over it,
+   above the ring (z 40/41). */
+.card-deco {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.card-deco-back { z-index: -1; }
+.card-deco-front { z-index: 45; }
+@keyframes deco-drift {
+  from { transform: translateX(-7px); }
+  to { transform: translateX(7px); }
+}
+.deco-drift { animation: deco-drift 9s ease-in-out infinite alternate; }
+.deco-drift-rev { animation-direction: alternate-reverse; animation-duration: 11s; }
+@keyframes deco-float {
+  from { transform: translateY(0); }
+  to { transform: translateY(-3px); }
+}
+.deco-float { animation: deco-float 5s ease-in-out infinite alternate; }
+.deco-float-slow { animation-duration: 7s; }
+@keyframes deco-twinkle {
+  0%, 100% { opacity: .15; transform: scale(.45) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(45deg); }
+}
+.deco-sparkle {
+  position: absolute;
+  width: var(--s);
+  height: var(--s);
+  translate: -50% -50%;
+  background: var(--sc, #fff);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 3px var(--sc, #fff));
+  animation: deco-twinkle var(--d, 2.6s) ease-in-out infinite;
+  animation-delay: var(--dl, 0s);
+}
+@keyframes deco-eye-glow {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+.deco-eye { animation: deco-eye-glow 2.2s ease-in-out infinite; }
+@keyframes deco-breathe {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.025); }
+}
+.deco-breathe { animation: deco-breathe 3.6s ease-in-out infinite; }
+/* 우핑강 (PinkDog.tsx): nodding head, drooping eyelid, sleep bubble, Zzz, steam. */
+@keyframes deco-nod {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(5deg); }
+}
+.deco-nod { animation: deco-nod 4.2s ease-in-out infinite; }
+/* The sleepy half-moon eye: it droops shut, then jerks a little wider awake. */
+@keyframes deco-eye-half {
+  0%, 30% { transform: scaleY(1); opacity: 1; }
+  44%, 58% { transform: scaleY(0); opacity: 0; }
+  62% { transform: scaleY(1.3); opacity: 1; }
+  76%, 100% { transform: scaleY(1); opacity: 1; }
+}
+.deco-eye-half { animation: deco-eye-half 6.5s ease-in-out infinite; }
+/* Same 6.5s cycle: the flat lid line gives way to a downward "sleeping"
+   curve while the eye is fully shut. */
+@keyframes deco-eye-open {
+  0%, 34% { opacity: 1; }
+  44%, 58% { opacity: 0; }
+  62%, 100% { opacity: 1; }
+}
+@keyframes deco-eye-shut {
+  0%, 34% { opacity: 0; }
+  44%, 58% { opacity: 1; }
+  62%, 100% { opacity: 0; }
+}
+.deco-eye-open { animation: deco-eye-open 6.5s ease-in-out infinite; }
+.deco-eye-shut { animation: deco-eye-shut 6.5s ease-in-out infinite; opacity: 0; }
+@keyframes deco-snot {
+  0%, 100% { transform: scale(.6); }
+  50% { transform: scale(1.15); }
+}
+.deco-snot { animation: deco-snot 4.2s ease-in-out infinite; }
+@keyframes deco-zzz {
+  0% { opacity: 0; transform: translate(0, 0) scale(.6) rotate(-6deg); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(30px, -64px) scale(1.25) rotate(12deg); }
+}
+.deco-zzz {
+  position: absolute;
+  font-weight: 800;
+  color: #f472b6;
+  text-shadow: 0 0 6px #fff, 0 1px 0 #7b2c47, 1px 0 0 #7b2c47, -1px 0 0 #7b2c47;
+  animation: deco-zzz 4.2s ease-out infinite;
+}
+/* Startled awake (click on the dog): a hop with squash and stretch, a fast
+   tail wag, and a shouted "헉!" bubble that pops in and hangs a moment. */
+@keyframes deco-startle {
+  0% { transform: translateY(0) scale(1, 1); }
+  12% { transform: translateY(-34px) scale(.93, 1.12); }
+  30% { transform: translateY(0) scale(1.08, .9); }
+  44% { transform: translateY(-10px) scale(.98, 1.04); }
+  58%, 100% { transform: translateY(0) scale(1, 1); }
+}
+.deco-startle { animation: deco-startle .75s ease-out 1; }
+@keyframes deco-wag {
+  from { transform: rotate(-16deg); }
+  to { transform: rotate(18deg); }
+}
+.deco-wag { animation: deco-wag .16s ease-in-out infinite alternate; }
+@keyframes deco-shout-pop {
+  0% { opacity: 0; transform: scale(.3) rotate(-14deg); }
+  22% { opacity: 1; transform: scale(1.25) rotate(6deg); }
+  38% { transform: scale(.95) rotate(-3deg); }
+  55%, 88% { opacity: 1; transform: scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: scale(.9) translateY(-6px); }
+}
+.deco-shout {
+  position: relative;
+  display: inline-block;
+  z-index: 2;
+  padding: 3px 11px;
+  border: 2.5px solid #7b2c47;
+  border-radius: 14px;
+  background: #fff;
+  color: #e11d69;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.15;
+  white-space: nowrap;
+  box-shadow: 0 2px 0 #7b2c47;
+  animation: deco-shout-pop 3.4s ease-out 1 forwards;
+}
+.deco-shout::after {
+  content: "";
+  position: absolute;
+  left: calc(62% - 6px);
+  bottom: -9px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-right: 2.5px solid #7b2c47;
+  border-bottom: 2.5px solid #7b2c47;
+  transform: rotate(45deg) skew(8deg, 8deg);
+}
+@keyframes deco-swing {
+  from { transform: rotate(-7deg); }
+  to { transform: rotate(7deg); }
+}
+.deco-swing { animation: deco-swing 2.4s ease-in-out infinite alternate; }
+/* Avatar frame (AvatarFrame.tsx): the pup's ears sway a little. */
+@keyframes af-ear-sway {
+  from { transform: rotate(-3deg); }
+  to { transform: rotate(4deg); }
+}
+.af-ear { transform-box: fill-box; transform-origin: 85% 6%; animation: af-ear-sway 3.4s ease-in-out infinite alternate; }
+.af-ear-r { animation-delay: -1.7s; }
+/* Avatar frames for the other themes (avatarFrames/*): every animated piece
+   pivots on its own box (transform-box: fill-box), so the frames' shifted
+   viewBox doesn't move the pivots. */
+@keyframes af-sway { from { transform: rotate(-5deg); } to { transform: rotate(5deg); } }
+.af-sway { transform-box: fill-box; transform-origin: 50% 100%; animation: af-sway 2.8s ease-in-out infinite alternate; }
+@keyframes af-bob { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+.af-bob { animation: af-bob 2.2s ease-in-out infinite alternate; }
+@keyframes af-beat { 0%, 100% { transform: scale(1); } 20% { transform: scale(1.22); } 40% { transform: scale(1); } 55% { transform: scale(1.14); } }
+.af-beat { transform-box: fill-box; transform-origin: center; animation: af-beat 1.6s ease-in-out infinite; }
+@keyframes af-orbit { to { transform: rotate(360deg); } }
+.af-orbit { transform-box: fill-box; transform-origin: center; animation: af-orbit 3.6s linear infinite; }
+@keyframes af-flicker { 0%, 100% { opacity: 1; } 12% { opacity: .35; } 18% { opacity: 1; } 55% { opacity: .55; } 60% { opacity: 1; } }
+.af-flicker { animation: af-flicker 1.3s steps(1) infinite; }
+@keyframes af-bolt { 0%, 78%, 100% { opacity: 0; } 82% { opacity: 1; } 88% { opacity: .2; } 92% { opacity: 1; } 96% { opacity: 0; } }
+.af-bolt { animation: af-bolt 2.4s steps(1) infinite; }
+@keyframes af-wisp { 0% { opacity: 0; transform: translateY(6px) scale(.6); } 30% { opacity: .9; } 100% { opacity: 0; transform: translateY(-18px) scale(1); } }
+.af-wisp { transform-box: fill-box; transform-origin: center; animation: af-wisp 2.6s ease-out infinite; }
+@keyframes af-twinkle { 0%, 100% { opacity: .3; transform: scale(.55) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(45deg); } }
+.af-twinkle { transform-box: fill-box; transform-origin: center; animation: af-twinkle 2.6s ease-in-out infinite; }
+@keyframes deco-steam {
+  0% { opacity: 0; transform: translateY(6px); }
+  30% { opacity: .9; }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+.deco-steam { animation: deco-steam 2.7s ease-out infinite; }
+@keyframes deco-sway {
+  from { transform: rotate(-.8deg); }
+  to { transform: rotate(1.2deg); }
+}
+.deco-sway { animation: deco-sway 4s ease-in-out infinite alternate; }
+@keyframes tier-card-ring-heartbeat {
+  0%, 100% { padding: 2px; opacity: .85; }
+  14% { padding: 5px; opacity: 1; }
+  28% { padding: 2.5px; opacity: .9; }
+  42% { padding: 5px; opacity: 1; }
+  70% { padding: 2px; opacity: .85; }
+}
+.tier-card-ring-pulse::before {
+  animation:
+    tier-card-ring-spin var(--tier-ring-speed, 6s) linear infinite,
+    tier-card-ring-heartbeat 1.6s ease-in-out infinite;
+}
+.tier-card-ring-comet::before {
+  background:
+    conic-gradient(from var(--tier-angle), transparent 0deg 230deg, var(--tier-c2) 320deg, var(--tier-c1) 352deg, #fff 360deg),
+    linear-gradient(color-mix(in srgb, var(--tier-c2) 30%, transparent), color-mix(in srgb, var(--tier-c2) 30%, transparent));
+}
+@keyframes tier-card-ring-flicker {
+  0%, 100% { opacity: 1; }
+  8% { opacity: .35; }
+  12% { opacity: 1; }
+  46% { opacity: .6; }
+  50% { opacity: 1; }
+  78% { opacity: .3; }
+  82% { opacity: 1; }
+}
+.tier-card-ring-flicker::before {
+  background: repeating-conic-gradient(
+    from var(--tier-angle),
+    var(--tier-c1) 0deg 4deg,
+    transparent 4deg 9deg,
+    var(--tier-c2) 9deg 11deg,
+    transparent 11deg 18deg
+  );
+  animation:
+    tier-card-ring-spin var(--tier-ring-speed, 2.2s) steps(36) infinite,
+    tier-card-ring-flicker 1.3s steps(1) infinite;
+}
+.tier-card-ring-still::before { animation: none; }
+
+/* Particles (silver+), rendered by TierParticles.tsx. Each particle sets its
+   own --x/--y/--size/--dur/--delay/--pc; motes also --rise/--drift. The
+   glow is a drop-shadow on the layer because clip-path on the star would
+   clip a per-element one. */
+@keyframes tier-particle-twinkle {
+  0%, 100% { opacity: 0; transform: scale(.2) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(90deg); }
+}
+@keyframes tier-particle-rise {
+  0% { opacity: 0; transform: translate(0, 0) scale(.6); }
+  12% { opacity: .95; }
+  85% { opacity: .7; }
+  100% { opacity: 0; transform: translate(var(--drift), calc(var(--rise) * -1)) scale(1); }
+}
+.tier-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 35;
+  border-radius: inherit;
+  filter: drop-shadow(0 0 4px var(--tier-glow));
+}
+.tier-particle {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--size);
+  height: var(--size);
+  background: var(--pc);
+  animation-duration: var(--dur);
+  animation-delay: var(--delay);
+  animation-iteration-count: infinite;
+}
+.tier-particle-star {
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  animation-name: tier-particle-twinkle;
+  animation-timing-function: ease-in-out;
+}
+.tier-particle-mote {
+  border-radius: 50%;
+  animation-name: tier-particle-rise;
+  animation-timing-function: linear;
+}
+
+/* Reward-theme particle shapes (kinds in profileThemes.ts). */
+@keyframes tier-particle-fall {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg); }
+  10% { opacity: .95; }
+  50% { transform: translate(calc(var(--drift) * -.6), calc(var(--rise) * .5)) rotate(calc(var(--rot) * .5)); }
+  90% { opacity: .8; }
+  100% { opacity: 0; transform: translate(var(--drift), var(--rise)) rotate(var(--rot)); }
+}
+.tier-particle-leaf {
+  height: calc(var(--size) * .7);
+  border-radius: 0 100% 0 100%;
+  animation-name: tier-particle-fall;
+  animation-timing-function: ease-in-out;
+}
+.tier-particle-bubble {
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--pc);
+  background: color-mix(in srgb, var(--pc) 14%, transparent);
+  animation-name: tier-particle-rise;
+  animation-timing-function: ease-in;
+}
+.tier-particle-heart {
+  -webkit-mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/%3E%3C/svg%3E") center / contain no-repeat;
+  animation-name: tier-particle-rise;
+  animation-timing-function: ease-out;
+}
+/* Shooting star: the streak is --len long and 2px thick, rotated to --ang
+   and slid along its own axis, so the bright head leads toward lower-left. */
+@keyframes tier-particle-meteor {
+  0%, 62% { opacity: 0; transform: rotate(var(--ang)) translateX(0); }
+  66% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--ang)) translateX(var(--dist)); }
+}
+.tier-particle-meteor {
+  width: var(--len);
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--tier-c2) 75%, var(--tier-c1));
+  animation-name: tier-particle-meteor;
+  animation-timing-function: ease-in;
+}
+@keyframes tier-particle-bolt {
+  0%, 84%, 100% { opacity: 0; }
+  86% { opacity: 1; }
+  89% { opacity: .15; }
+  92% { opacity: 1; }
+  96% { opacity: 0; }
+}
+.tier-particle-bolt {
+  background: var(--tier-c2);
+  clip-path: polygon(55% 0, 15% 56%, 45% 56%, 30% 100%, 85% 38%, 55% 38%);
+  rotate: var(--rot);
+  animation-name: tier-particle-bolt;
+  animation-timing-function: steps(1);
+}
+/* Flame border (gold/platinum), rendered by TierFlame.tsx. .tier-flame is a
+   layer bigger than the card by --flame-reach on every side, sitting behind
+   it (z-index -1 inside the wrapper's isolated stacking context); the ring
+   inside is card-sized and only casts outer glow, so the card covers the
+   middle. The SVG displacement filter on the layer does the flame warping. */
+@keyframes tier-flame-flicker {
+  0%   { opacity: .55; transform: scale(1); }
+  50%  { opacity: .8;  transform: scale(1.006); }
+  100% { opacity: .65; transform: scale(1.002); }
+}
+.tier-flame {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+.tier-flame-ring {
+  position: absolute;
+  inset: var(--flame-reach);
+  border-radius: var(--radius);
+  border: 2px solid var(--flame-2);
+  box-shadow:
+    0 0 4px 1px var(--flame-1),
+    0 0 14px 4px var(--flame-2),
+    0 0 26px 8px var(--flame-3);
+  animation: tier-flame-flicker 1.8s ease-in-out infinite alternate;
+}
+.tier-flame-platinum .tier-flame-ring {
+  box-shadow:
+    0 0 5px 1px var(--flame-1),
+    0 0 18px 6px var(--flame-2),
+    0 0 32px 10px var(--flame-3);
+  animation-duration: 1.4s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tier-card-ring::before { animation: none; }
+  .tier-particles { display: none; }
+  .tier-flame-ring { animation: none; }
+  .edge-aura { display: none; }
+  .card-deco *, .card-deco { animation: none !important; }
+  .avatar-frame *, .avatar-frame { animation: none !important; }
+}
+@keyframes tier-card-shine-sweep {
+  0%, 8% { transform: translateX(-50%) skewX(-18deg); opacity: 0; }
+  16% { opacity: .9; }
+  38% { opacity: .9; }
+  56%, 100% { transform: translateX(220%) skewX(-18deg); opacity: 0; }
+}
+.tier-card-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+}
+.tier-card-shine::after {
+  content: '';
+  position: absolute;
+  top: -25%;
+  bottom: -25%;
+  width: 30%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.95), transparent);
+  animation: tier-card-shine-sweep 3.2s ease-in-out infinite;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -41,12 +602,23 @@
   --foreground: #0f1235;
   --card: #ffffff;
   --card-foreground: #0f1235;
+  /* Always-opaque surface for form controls (inputs/selects) that need
+     reliable contrast regardless of the account's glass intensity. */
+  --surface-opaque: #ffffff;
+  --glass-alpha: 0.32;
+  --panel-blur-px: 2px;
+  --card-glass: rgba(255, 255, 255, var(--glass-alpha));
+  /* saturate/brightness keep the blurred backdrop vivid instead of the
+     washed-out "milky" look plain blur() gives on a white-tinted card. */
+  --panel-blur: blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05);
   --primary: #2563eb;
   --primary-foreground: #ffffff;
   --secondary: #e8eeff;
   --secondary-foreground: #2563eb;
   --muted: #f4f6ff;
-  --muted-foreground: #7b82a8;
+  /* Darker than the original #7b82a8 — secondary text needs real contrast
+     now that panels can sit on a busy background photo at low opacity. */
+  --muted-foreground: #454b6e;
   --accent: #f59e0b;
   --accent-foreground: #ffffff;
   --border: #e2e6f8;

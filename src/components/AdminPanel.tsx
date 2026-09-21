@@ -176,7 +176,7 @@ export default function AdminPanel() {
                     key={p.id}
                     onClick={() => setViewingMembers(p)}
                     className="flex items-center justify-between gap-3 p-4 cursor-pointer transition-all"
-                    style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                    style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-700 truncate">{p.name}</div>
@@ -218,7 +218,7 @@ export default function AdminPanel() {
                     key={p.id}
                     onClick={() => setViewingMembers(p)}
                     className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-all"
-                    style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                    style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
                   >
                     <div className="min-w-0 flex items-center gap-2.5">
                       <span
@@ -257,7 +257,7 @@ export default function AdminPanel() {
 
       {pendingDelete && (
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="w-10 h-10 flex items-center justify-center mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="3 6 5 6 21 6" />

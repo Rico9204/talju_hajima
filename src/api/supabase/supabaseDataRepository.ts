@@ -72,6 +72,11 @@ function mapMember(row: any, profile?: any): Member {
     org: profile?.org ?? null,
     bannerColor: profile?.banner_color ?? null,
     bannerImageUrl: profile?.banner_image_url ?? null,
+    backgroundColor: profile?.background_color ?? null,
+    backgroundGradient: profile?.background_gradient ?? null,
+    backgroundImageUrl: profile?.background_image_url ?? null,
+    glassOpacity: profile?.glass_opacity ?? null,
+    glassBlur: profile?.glass_blur ?? null,
     links: Array.isArray(profile?.links) ? profile.links : [],
     tasks: { done: row.tasks_done, total: row.tasks_total },
     activities: row.activities,
@@ -238,7 +243,21 @@ export const supabaseDataRepository: DataRepository = {
     const { data, error } = await supabase.rpc("visible_evaluation_members");
     if (error) throw error;
     const rows = data ?? [];
-    return summarizeEvaluations(rows.map((row: any) => mapMember(row)), new Set(rows.map((row: any) => row.project_id)).size);
+    const projectIds = [...new Set(rows.map((row: any) => row.project_id))];
+    // Collaborator count: everyone else across every project I'm in, deduped
+    // by user_id for real accounts — a member row with no linked account
+    // (seeded/demo teammate) has no identity to dedupe across projects by,
+    // so each such row counts as its own person instead of being dropped.
+    let collaboratorCount = 0;
+    if (projectIds.length) {
+      const { data: teammates, error: teammatesError } = await supabase
+        .from("members").select("id, user_id").in("project_id", projectIds);
+      if (teammatesError) throw teammatesError;
+      collaboratorCount = new Set(
+        (teammates ?? []).filter((m: any) => m.user_id !== auth.user!.id).map((m: any) => m.user_id ?? `row:${m.id}`)
+      ).size;
+    }
+    return summarizeEvaluations(rows.map((row: any) => mapMember(row)), projectIds.length, collaboratorCount);
   },
   async getEvaluationMode() {
     const { data, error } = await supabase.rpc("evaluation_prototype_enabled");
@@ -479,6 +498,11 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.org !== undefined) updates.org = patch.org?.trim() || null;
     if (patch.bannerColor !== undefined) updates.banner_color = patch.bannerColor;
     if (patch.bannerImageUrl !== undefined) updates.banner_image_url = patch.bannerImageUrl;
+    if (patch.backgroundColor !== undefined) updates.background_color = patch.backgroundColor;
+    if (patch.backgroundGradient !== undefined) updates.background_gradient = patch.backgroundGradient;
+    if (patch.backgroundImageUrl !== undefined) updates.background_image_url = patch.backgroundImageUrl;
+    if (patch.glassOpacity !== undefined) updates.glass_opacity = patch.glassOpacity;
+    if (patch.glassBlur !== undefined) updates.glass_blur = patch.glassBlur;
     if (patch.links !== undefined) updates.links = patch.links;
     if (Object.keys(updates).length === 0) return;
     const { error } = await supabase.from("profiles").update(updates).eq("id", userId);
@@ -508,6 +532,19 @@ export const supabaseDataRepository: DataRepository = {
 
     const ext = file.name.split(".").pop() || "jpg";
     const path = `${userId}/banner-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    if (error) throw error;
+    const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+    return data.publicUrl;
+  },
+
+  async uploadBackgroundImage(file) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    const ext = file.name.split(".").pop() || "jpg";
+    const path = `${userId}/background-${Date.now()}.${ext}`;
     const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
     if (error) throw error;
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);

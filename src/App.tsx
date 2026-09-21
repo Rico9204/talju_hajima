@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import Home from "./components/Home";
 import Dashboard from "./components/Dashboard";
@@ -12,10 +13,12 @@ import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
 import AdminPanel from "./components/AdminPanel";
+import Achievements from "./components/Achievements";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { useAccountBackground } from "./lib/useAccountBackground";
 
-export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "admin";
+export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "achievements" | "admin";
 
 function RequireAuth() {
   const { session, loading } = useAuth();
@@ -36,6 +39,7 @@ function Layout() {
   const { isAdmin } = useProjectManagement();
   const { project } = useProject();
   const currentPage = (location.pathname.split("/")[1] || "dashboard") as Page;
+  const { backgroundStyle, glassStyle } = useAccountBackground();
 
   // Non-approved projects (created by a non-admin, awaiting review) are
   // locked to the dashboard page for everyone except an admin.
@@ -44,12 +48,23 @@ function Layout() {
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
-      <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />
-      {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
-        <Outlet />
-      </main>
+    <div className="relative h-full w-full overflow-hidden" style={glassStyle}>
+      {/* The background sits on its own layer, scaled up and blurred by the
+          same slider that controls card blur, so the account's "blur"
+          setting softens the whole backdrop — not just what's directly
+          behind a glass card. Scaling it up keeps the blur from showing a
+          sharp, unblurred edge at the container boundary. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ ...backgroundStyle, filter: "blur(var(--panel-blur-px)) saturate(1.15)", transform: "scale(1.1)" }}
+      />
+      <div className="relative flex h-full w-full overflow-hidden">
+        <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />
+        {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
@@ -120,6 +135,7 @@ function AppRoutes() {
           <Route path="workspace" element={<WorkspaceRoute />} />
           <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
           <Route path="evaluation" element={<PeerEvaluation />} />
+          <Route path="achievements" element={<Achievements />} />
           <Route path="admin" element={<RequireAdmin />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

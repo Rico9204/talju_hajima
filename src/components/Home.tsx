@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProject } from "../context/ProjectContext";
@@ -6,7 +7,22 @@ import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
 import Avatar from "./Avatar";
+import AvatarFrame from "./AvatarFrame";
+import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
+import { useAccountBackground } from "../lib/useAccountBackground";
+import { useMyProfileTheme } from "../lib/useMyProfileTheme";
+import type { Tier } from "../lib/achievements";
+
+// Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
+// mirrors the same treatment in Sidebar.tsx's bottom user card.
+function TierMedal({ tier }: { tier: Tier }) {
+  return (
+    <span title={tier.label} className="flex items-center justify-center w-full h-full">
+      <MedalIcon shape={tier.shape} colors={tier.colors} size={18} />
+    </span>
+  );
+}
 
 const statusStyle: Record<"active" | "done", { label: string; bg: string; color: string }> = {
   active: { label: "진행 중", bg: "#22c55e18", color: "#22c55e" },
@@ -21,6 +37,8 @@ export default function Home() {
   const navigate = useNavigate();
   const myName = currentMember?.name ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
+  const { backgroundStyle, glassStyle } = useAccountBackground();
+  const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<HomeTab>("projects");
@@ -37,19 +55,25 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--background)" }}>
+    <div className="relative h-full w-full overflow-hidden" style={glassStyle as CSSProperties}>
+      {/* The background sits on its own layer, scaled up and blurred by the
+          same slider that controls card blur — matches Layout in App.tsx. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ ...backgroundStyle, filter: "blur(var(--panel-blur-px)) saturate(1.15)", transform: "scale(1.1)" }}
+      />
+      <div className="relative flex h-full w-full overflow-hidden">
       <button
         onClick={() => setMobileOpen(true)}
         className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
-        style={{ background: "var(--card)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)" }}
+        style={{ background: "var(--card-glass)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
         aria-label="메뉴 열기"
       >
         ☰
       </button>
 
       <aside
-        className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto`}
-        style={{ background: "var(--background)" }}
+        className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto bg-[var(--background)] md:bg-transparent`}
       >
         <button
           onClick={() => setMobileOpen(false)}
@@ -60,7 +84,7 @@ export default function Home() {
           ✕
         </button>
 
-        <div className="px-4 py-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="px-4 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center gap-3 min-w-0">
             <div
               className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
@@ -106,10 +130,12 @@ export default function Home() {
         </nav>
 
         {/* User card */}
-        <div className="mt-4 px-4 py-3" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="mt-4 px-4 py-3" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center gap-2.5">
             <button type="button" onClick={() => currentMember && openMemberProfile(currentMember.id)} className="shrink-0" title="프로필 설정">
-              <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} />
+              {avatarFrame
+                ? <AvatarFrame kind={avatarFrame} size={36} c1={cardC1} c2={cardC2}><Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} /></AvatarFrame>
+                : <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} />}
             </button>
             <button type="button" onClick={() => currentMember && openMemberProfile(currentMember.id)} className="flex-1 min-w-0 text-left">
               <div className="text-sm font-700">{myName}</div>
@@ -177,7 +203,7 @@ export default function Home() {
                         key={p.id}
                         onClick={() => enterProject(p.id)}
                         className="text-left p-5 transition-all"
-                        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
                       >
                         <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
                           <span className="text-xs font-700 px-2 py-0.5" style={{ background: st.bg, color: st.color, borderRadius: "20px" }}>
@@ -230,6 +256,7 @@ export default function Home() {
         />
       )}
       <ProfileModal />
+      </div>
     </div>
   );
 }

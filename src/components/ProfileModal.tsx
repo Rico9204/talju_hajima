@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
@@ -7,8 +7,47 @@ import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 import MyEvaluationSummary from "./MyEvaluationSummary";
 import PentagonChart from "./PentagonChart";
+import MedalIcon from "./MedalIcon";
+import AchievementBadge from "./AchievementBadge";
+import TierParticles from "./TierParticles";
+import TierFlame from "./TierFlame";
+import EdgeAura from "./EdgeAura";
+import CardDecoration from "./CardDecoration";
+import AvatarFrame from "./AvatarFrame";
+import {
+  BACKGROUND_PRESETS,
+  MAX_CUSTOM_UI_THEMES,
+  UI_THEMES,
+  loadCustomUiThemes,
+  makeCustomUiTheme,
+  matchUiTheme,
+  saveCustomUiThemes,
+  type UiTheme,
+  type UiThemeState,
+} from "../lib/uiThemes";
+import { canUseTheme, PROFILE_CARD_THEMES } from "../lib/profileThemes";
+import { ACHIEVEMENTS } from "../lib/achievements";
+import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
+
+// Small dark tooltip that appears below the trigger on hover/focus — used
+// to explain the tier medal and best-badge icons next to the avatar, since
+// a bare emoji + native `title` isn't enough to convey what unlocked it.
+function HoverTip({ children, label, detail }: { children: ReactNode; label: string; detail: string }) {
+  return (
+    <span className="relative inline-flex group focus-within:z-50 hover:z-50">
+      {children}
+      <span
+        className="pointer-events-none absolute left-1/2 top-full mt-2 w-52 -translate-x-1/2 rounded-lg p-2.5 text-left text-[11px] leading-snug opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
+        style={{ background: "rgba(15,18,53,0.92)", color: "#fff" }}
+      >
+        <div className="font-700 mb-0.5">{label}</div>
+        <div style={{ color: "rgba(255,255,255,0.75)" }}>{detail}</div>
+      </span>
+    </span>
+  );
+}
 
 // Shared "view any member's profile" modal — driven entirely by the global
 // viewedMemberId/openMemberProfile/closeMemberProfile context state, so any
@@ -27,6 +66,37 @@ export default function ProfileModal() {
   const isSelfProfile = viewedMemberId !== null && viewedMemberId === currentMember?.id;
   const viewedMember = viewedMemberId === currentMember?.id ? currentMember : team.members.find((m) => m.id === viewedMemberId) ?? null;
 
+  const {
+    myTier, myScore, myBadge, earnedIds, previewAll, themeViewer,
+    profileThemeId, setProfileThemeId, profileTheme,
+    cardTierId, cardHasEffects, cardC1, cardC2, cardGlow, avatarFrame,
+  } = useMyProfileTheme();
+  // Profile-card tier effect: escalates from a plain static ring (bronze)
+  // to a shimmering border (silver) to a pulsing glow (gold) to a pulsing
+  // glow + moving holographic sweep (platinum). See .tier-card-* in
+  // index.css for the keyframes this animation name points at. The border
+  // itself is a rotating conic-gradient ring (.tier-card-ring in index.css).
+  // Which effects are on, the ring style/speed, and optionally a palette
+  // come from the selected profile-card theme (src/lib/profileThemes.ts). A
+  // reward theme whose achievement isn't earned falls back to the default
+  // (handled inside useMyProfileTheme).
+  const tierCardAnimation = profileTheme.glow ?? (
+    myTier?.id === "silver" ? "tier-card-shimmer 3s ease-in-out infinite"
+    : myTier?.id === "gold" ? "tier-card-pulse 2.4s ease-in-out infinite"
+    : myTier?.id === "platinum" ? "tier-card-pulse 1.8s ease-in-out infinite"
+    : undefined);
+  const tierRingSpeed = cardHasEffects ? profileTheme.ring[cardTierId] ?? null : null;
+  const tierCardStyle: CSSProperties = cardHasEffects && cardC1 && cardC2
+    ? ({
+        "--tier-glow": cardGlow,
+        "--tier-c1": cardC1,
+        "--tier-c2": cardC2,
+        "--tier-ring-speed": tierRingSpeed ?? "0s",
+        boxShadow: tierCardAnimation ? undefined : "0 24px 64px rgba(15,18,53,0.22), 0 0 22px 3px var(--tier-glow)",
+        animation: tierCardAnimation,
+      } as CSSProperties)
+    : { boxShadow: "0 24px 64px rgba(15,18,53,0.22)" };
+
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profileSchool, setProfileSchool] = useState("");
@@ -40,6 +110,21 @@ export default function ProfileModal() {
   const [bannerImageFile, setBannerImageFile] = useState<File | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [bannerCleared, setBannerCleared] = useState(false);
+  const [backgroundColor, setBackgroundColor] = useState<string | null>(null);
+  const [backgroundGradient, setBackgroundGradient] = useState<string | null>(null);
+  const [backgroundImageFile, setBackgroundImageFile] = useState<File | null>(null);
+  const [backgroundPreview, setBackgroundPreview] = useState<string | null>(null);
+  const [backgroundCleared, setBackgroundCleared] = useState(false);
+  // A photo already in storage that a UI-theme preset asks for (applied on 저장); null = none chosen.
+  const [presetImageUrl, setPresetImageUrl] = useState<string | null>(null);
+  const [glassOpacity, setGlassOpacity] = useState(66);
+  const [glassBlur, setGlassBlur] = useState(18);
+  const [customUiThemes, setCustomUiThemes] = useState(loadCustomUiThemes);
+  const [presetNaming, setPresetNaming] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  // The photo the editor currently shows/would save: a preset's photo, else the saved one unless removed.
+  // (A just-picked local file has no URL yet — that's `backgroundPreview`.)
+  const editorImageUrl = backgroundPreview ? null : presetImageUrl ?? (!backgroundCleared ? currentMember?.backgroundImageUrl ?? null : null);
   const [profileLinks, setProfileLinks] = useState<{ id: string; type: "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other"; url: string; label: string }[]>([]);
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
@@ -54,8 +139,9 @@ export default function ProfileModal() {
     return () => {
       if (avatarPreview) URL.revokeObjectURL(avatarPreview);
       if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+      if (backgroundPreview) URL.revokeObjectURL(backgroundPreview);
     };
-  }, [avatarPreview, bannerPreview]);
+  }, [avatarPreview, bannerPreview, backgroundPreview]);
 
   // The edit-draft state below (banner color, name fields, links…) has to
   // stay in sync with `currentMember` no matter which of the many avatars
@@ -65,6 +151,7 @@ export default function ProfileModal() {
   useEffect(() => {
     if (viewedMemberId !== currentMember?.id || !currentMember) return;
     setProfileEditOpen(false);
+    setPresetNaming(false);
     setProfileName(currentMember.name ?? "");
     setProfileSchool(currentMember.school ?? "");
     setProfileMajor(currentMember.major ?? "");
@@ -77,6 +164,14 @@ export default function ProfileModal() {
     setBannerImageFile(null);
     setBannerPreview(null);
     setBannerCleared(false);
+    setBackgroundColor(currentMember.backgroundColor ?? null);
+    setBackgroundGradient(currentMember.backgroundGradient ?? null);
+    setBackgroundImageFile(null);
+    setBackgroundPreview(null);
+    setBackgroundCleared(false);
+    setPresetImageUrl(null);
+    setGlassOpacity(currentMember.glassOpacity ?? 32);
+    setGlassBlur(currentMember.glassBlur ?? 2);
     setProfileLinks(currentMember.links ?? []);
     setNewLinkUrl("");
     setProfileError(null);
@@ -96,6 +191,69 @@ export default function ProfileModal() {
     setBannerImageFile(file);
     setBannerPreview(URL.createObjectURL(file));
     setBannerCleared(false);
+  }
+
+  function handleBackgroundPick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    setBackgroundImageFile(file);
+    setBackgroundPreview(URL.createObjectURL(file));
+    setBackgroundCleared(false);
+    setPresetImageUrl(null);
+    // A new photo needs a lighter touch than a flat color/gradient does —
+    // land on the crisp, barely-there look rather than whatever intensity
+    // was previously dialed in.
+    setGlassOpacity(32);
+    setGlassBlur(2);
+  }
+
+  function pickBackgroundPreset(preset: { value: string; kind: "color" | "gradient" }) {
+    if (preset.kind === "gradient") {
+      setBackgroundGradient(preset.value);
+      setBackgroundColor(null);
+    } else {
+      setBackgroundColor(preset.value);
+      setBackgroundGradient(null);
+    }
+    setBackgroundImageFile(null);
+    setBackgroundPreview(null);
+    setBackgroundCleared(true);
+    setPresetImageUrl(null);
+  }
+
+  // A UI theme is just the background/glass values at once (a photo preset brings its
+  // photo along). It replaces the current photo, so the edit still has to be saved with 저장.
+  function applyUiTheme(theme: UiTheme) {
+    setBackgroundColor(theme.background?.kind === "color" ? theme.background.value : null);
+    setBackgroundGradient(theme.background?.kind === "gradient" ? theme.background.value : null);
+    setBackgroundImageFile(null);
+    setBackgroundPreview(null);
+    setBackgroundCleared(true);
+    setPresetImageUrl(theme.imageUrl ?? null);
+    setGlassOpacity(theme.glassOpacity);
+    setGlassBlur(theme.glassBlur);
+  }
+
+  function saveCustomUiTheme(state: UiThemeState) {
+    const next = [...customUiThemes, makeCustomUiTheme(presetName.trim() || `내 프리셋 ${customUiThemes.length + 1}`, state)].slice(0, MAX_CUSTOM_UI_THEMES);
+    setCustomUiThemes(next);
+    saveCustomUiThemes(next);
+    setPresetNaming(false);
+  }
+
+  function deleteCustomUiTheme(id: string) {
+    const next = customUiThemes.filter((theme) => theme.id !== id);
+    setCustomUiThemes(next);
+    saveCustomUiThemes(next);
+  }
+
+  function resetBackground() {
+    setBackgroundColor(null);
+    setBackgroundGradient(null);
+    setBackgroundImageFile(null);
+    setBackgroundPreview(null);
+    setBackgroundCleared(true);
+    setPresetImageUrl(null);
   }
 
   function addProfileLink() {
@@ -129,6 +287,12 @@ export default function ProfileModal() {
         bannerColor,
         bannerImageFile: bannerImageFile ?? undefined,
         bannerImageUrl: bannerCleared ? null : undefined,
+        backgroundColor,
+        backgroundGradient,
+        backgroundImageFile: backgroundImageFile ?? undefined,
+        backgroundImageUrl: backgroundImageFile ? undefined : presetImageUrl ?? (backgroundCleared ? null : undefined),
+        glassOpacity,
+        glassBlur,
         links: profileLinks,
       });
       // Keep the card open so the member can immediately verify the saved
@@ -169,7 +333,28 @@ export default function ProfileModal() {
     <>
       {viewedMember && (
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closeMemberProfile}>
-          <div className="w-[660px] max-w-[95vw] overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
+          {/* Wrapper exists so TierFlame can sit outside the card's overflow-hidden clip. */}
+          <div className="relative isolate w-[820px] max-w-[95vw]" onClick={(e) => e.stopPropagation()}>
+          {isSelfProfile && profileTheme.flame && (profileTheme.flameColors || myTier) && <TierFlame tierId={profileTheme.flameColors ? "platinum" : myTier?.id ?? ""} colors={profileTheme.flameColors} scale={profileTheme.flameScale} />}
+          {isSelfProfile && profileTheme.decoration && <CardDecoration kind={profileTheme.decoration} layer="back" />}
+          {isSelfProfile && cardHasEffects && profileTheme.aura && cardC1 && cardC2 && <EdgeAura kind={profileTheme.aura} c1={cardC1} c2={cardC2} glow={cardGlow} />}
+          <div
+            className={`relative w-full overflow-hidden${isSelfProfile && cardHasEffects && profileTheme.ringStyle !== "none" ? ` tier-card-ring tier-card-ring-${profileTheme.ringStyle}` : ""}${isSelfProfile && tierRingSpeed === null ? " tier-card-ring-still" : ""}`}
+            style={isSelfProfile ? {
+              // The profile card carries personal info and form fields, so
+              // it needs to read clearly regardless of how translucent the
+              // account has dialed the rest of the glass UI down to — stay
+              // near-opaque white here rather than following --card-glass.
+              background: "rgba(255, 255, 255, 0.94)",
+              borderRadius: "var(--radius)",
+              backdropFilter: "blur(20px) saturate(1.7)",
+              WebkitBackdropFilter: "blur(20px) saturate(1.7)",
+              ...tierCardStyle,
+            } : { background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isSelfProfile && myTier?.id === "platinum" && profileTheme.shine && <div className="tier-card-shine" style={{ borderRadius: "var(--radius)", zIndex: 30 }} />}
+            {isSelfProfile && cardHasEffects && profileTheme.particles && <TierParticles tierId={cardTierId} kind={profileTheme.particles} />}
             <div
               className="relative h-28"
               style={
@@ -194,18 +379,40 @@ export default function ProfileModal() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
               <section className="relative z-10 px-5 pb-5">
-                <div className="flex items-end -mt-9 mb-4">
+                <div className="flex items-end gap-2 -mt-9 mb-4">
                   <div className="relative z-20">
-                    <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}>
-                      <Avatar
-                        url={isSelfProfile ? avatarPreview ?? currentMember?.avatarUrl : viewedMember.avatarUrl}
-                        initial={isSelfProfile ? myAvatar : viewedMember.avatar}
-                        color={(isSelfProfile ? currentMember?.color : viewedMember.color) ?? "#f59e0b"}
-                        size={70}
-                      />
-                    </div>
+                    {(() => {
+                      // 4px padding each side around the 70px photo makes the ring 78px.
+                      const photo = (
+                        <div className="p-1" style={{ background: "var(--card)", borderRadius: "999px", boxShadow: "0 4px 12px rgba(15,18,53,.18)" }}>
+                          <Avatar
+                            url={isSelfProfile ? avatarPreview ?? currentMember?.avatarUrl : viewedMember.avatarUrl}
+                            initial={isSelfProfile ? myAvatar : viewedMember.avatar}
+                            color={(isSelfProfile ? currentMember?.color : viewedMember.color) ?? "#f59e0b"}
+                            size={70}
+                          />
+                        </div>
+                      );
+                      return isSelfProfile && avatarFrame ? <AvatarFrame kind={avatarFrame} size={78} c1={cardC1} c2={cardC2}>{photo}</AvatarFrame> : photo;
+                    })()}
                     {isSelfProfile && profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>}
                   </div>
+                  {isSelfProfile && myTier && (
+                    <HoverTip
+                      label={`${myTier.label} 등급`}
+                      detail={myScore !== null ? `평가 평균 ${myScore.toFixed(1)} / 10 기준` : "최종 평가 평균이 공개되면 등급이 매겨져요"}
+                    >
+                      <span className="mb-1.5 flex"><MedalIcon shape={myTier.shape} colors={myTier.colors} size={26} /></span>
+                    </HoverTip>
+                  )}
+                  {isSelfProfile && myBadge && (
+                    <HoverTip
+                      label={myBadge.achievement.label}
+                      detail={`${myBadge.achievement.description} · 현재 ${myBadge.progress.value}${myBadge.achievement.unit}`}
+                    >
+                      <span className="flex"><AchievementBadge achievement={myBadge.achievement} earned label={myBadge.achievement.label} size={28} /></span>
+                    </HoverTip>
+                  )}
                 </div>
                 <h2 className="text-xl font-800 mb-3">{isSelfProfile ? profileName || myName : viewedMember.name}</h2>
                 <div className="h-px mb-3" style={{ background: "var(--border)" }} />
@@ -219,6 +426,111 @@ export default function ProfileModal() {
                   ).map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}
                   </div>}
                 <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{(isSelfProfile ? profileLinks : viewedMember.links).map((link) => <a key={link.id} href={link.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{isSelfProfile && profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{isSelfProfile && profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
+                {isSelfProfile && profileEditOpen && (() => {
+                  const uiThemeState = { backgroundColor, backgroundGradient, backgroundImageUrl: editorImageUrl, hasLocalImage: !!backgroundPreview, glassOpacity, glassBlur };
+                  const activeUiTheme = matchUiTheme(uiThemeState, [...UI_THEMES, ...customUiThemes]);
+                  // Saving needs something new to save: not a photo that isn't uploaded yet, not a limit hit, not a copy of an existing preset.
+                  const presetSaveBlock = uiThemeState.hasLocalImage ? "새로 고른 사진은 프로필을 저장한 뒤 프리셋에 담을 수 있어요"
+                    : activeUiTheme ? "이미 같은 프리셋이 있어요"
+                    : customUiThemes.length >= MAX_CUSTOM_UI_THEMES ? `프리셋은 ${MAX_CUSTOM_UI_THEMES}개까지 저장할 수 있어요` : null;
+                  const pillStyle = (selected: boolean): CSSProperties => ({ background: selected ? "var(--primary)" : "var(--muted)", color: selected ? "#fff" : "inherit", borderRadius: "999px" });
+                  return <div className="mt-4">
+                    <div className="text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>UI 테마 <span className="font-500">· 배경·카드 투명도·블러를 한 번에 바꿔요 (저장해야 적용)</span></div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {[...UI_THEMES, ...customUiThemes].map((theme) => {
+                        const selected = activeUiTheme?.id === theme.id;
+                        const isCustom = "custom" in theme;
+                        return (
+                          <span key={theme.id} className="inline-flex items-center" style={pillStyle(selected)}>
+                            <button type="button" onClick={() => applyUiTheme(theme)} className={`${isCustom ? "pl-3 pr-1.5" : "px-3"} py-1.5 text-xs font-700 inline-flex items-center gap-1.5`}>
+                              <span className="inline-block rounded-full" style={{ width: 8, height: 8, background: theme.swatch, border: "1px solid rgba(0,0,0,0.15)" }} />
+                              {theme.label}
+                            </button>
+                            {isCustom && <button type="button" onClick={() => deleteCustomUiTheme(theme.id)} title="이 프리셋 삭제" className="pr-2.5 pl-0.5 py-1.5 text-xs opacity-70">×</button>}
+                          </span>
+                        );
+                      })}
+                      {!presetNaming && <button
+                        type="button"
+                        disabled={!!presetSaveBlock}
+                        title={presetSaveBlock ?? "지금 배경·투명도·블러를 내 프리셋으로 저장"}
+                        onClick={() => { setPresetName(`내 프리셋 ${customUiThemes.length + 1}`); setPresetNaming(true); }}
+                        className="px-3 py-1.5 text-xs font-700"
+                        style={{ ...pillStyle(false), border: "1px dashed var(--border)", opacity: presetSaveBlock ? 0.5 : 1, cursor: presetSaveBlock ? "not-allowed" : "pointer" }}
+                      >＋ 프리셋 저장</button>}
+                      {presetNaming && <span className="inline-flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={presetName}
+                          maxLength={12}
+                          onChange={(e) => setPresetName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveCustomUiTheme(uiThemeState); } if (e.key === "Escape") setPresetNaming(false); }}
+                          placeholder="프리셋 이름"
+                          className="w-28 px-3 py-1.5 text-xs outline-none"
+                          style={{ background: "var(--muted)", borderRadius: "999px", color: "var(--foreground)" }}
+                        />
+                        <button type="button" onClick={() => saveCustomUiTheme(uiThemeState)} className="px-2.5 py-1.5 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "999px" }}>저장</button>
+                        <button type="button" onClick={() => setPresetNaming(false)} className="px-2 py-1.5 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>취소</button>
+                      </span>}
+                      {!activeUiTheme && <span className="px-2 text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>직접 설정 중</span>}
+                    </div>
+                  </div>;
+                })()}
+                {isSelfProfile && profileEditOpen && <div className="mt-4">
+                  <div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>배경화면 · 세부 조정</div>
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                    {BACKGROUND_PRESETS.map((preset) => {
+                      const selected = preset.kind === "gradient" ? backgroundGradient === preset.value : backgroundColor === preset.value;
+                      return <button key={preset.label} type="button" onClick={() => pickBackgroundPreset(preset)} title={preset.label} className="w-6 h-6 shrink-0" style={{ background: preset.value, borderRadius: "999px", border: selected ? "2px solid #111827" : "1px solid var(--border)" }} />;
+                    })}
+                    <label title="배경 사진 업로드" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm shrink-0" style={{ background: "var(--muted)", borderRadius: "999px" }}>
+                      🖼️<input type="file" accept="image/*" onChange={handleBackgroundPick} className="hidden" />
+                    </label>
+                    <button type="button" onClick={resetBackground} title="기본값으로" className="w-6 h-6 text-xs shrink-0" style={{ background: "var(--muted)", borderRadius: "999px" }}>↺</button>
+                  </div>
+                  <div
+                    className="w-full h-12"
+                    style={
+                      backgroundPreview || editorImageUrl
+                        ? { backgroundImage: `url(${backgroundPreview ?? editorImageUrl})`, backgroundSize: "cover", backgroundPosition: "center", borderRadius: "10px" }
+                        : { background: backgroundGradient ?? backgroundColor ?? "var(--background)", borderRadius: "10px", border: "1px solid var(--border)" }
+                    }
+                  />
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>
+                      카드 반투명도 {glassOpacity}%
+                      <input type="range" min={20} max={100} step={2} value={glassOpacity} onChange={(e) => setGlassOpacity(Number(e.target.value))} className="w-full mt-1" />
+                    </label>
+                    <label className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>
+                      배경 블러 {glassBlur}px
+                      <input type="range" min={0} max={40} step={2} value={glassBlur} onChange={(e) => setGlassBlur(Number(e.target.value))} className="w-full mt-1" />
+                    </label>
+                  </div>
+                </div>}
+                {isSelfProfile && profileEditOpen && <div className="mt-4">
+                  <div className="text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>카드 효과 테마</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {PROFILE_CARD_THEMES.filter((theme) => canUseTheme(theme, themeViewer) || previewAll).map((theme) => {
+                      const locked = !previewAll && !!theme.unlockedBy && !earnedIds?.has(theme.unlockedBy);
+                      const requirement = theme.unlockedBy ? ACHIEVEMENTS.find((a) => a.id === theme.unlockedBy) : undefined;
+                      const selected = profileThemeId === theme.id && !locked;
+                      return (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          disabled={locked}
+                          title={locked && requirement ? `"${requirement.label}" 도전과제를 달성하면 열려요` : requirement ? `"${requirement.label}" 도전과제 보상` : undefined}
+                          onClick={() => setProfileThemeId(theme.id)}
+                          className="px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5"
+                          style={{ background: selected ? "var(--primary)" : "var(--muted)", color: selected ? "#fff" : "inherit", borderRadius: "999px", opacity: locked ? 0.5 : 1, cursor: locked ? "not-allowed" : "pointer" }}
+                        >
+                          {theme.palette && <span className="inline-block rounded-full" style={{ width: 8, height: 8, background: `linear-gradient(135deg, ${theme.palette.c1}, ${theme.palette.c2})` }} />}
+                          {theme.label}{locked && " 🔒"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>}
                 {isSelfProfile && profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
                 {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
               </section>
@@ -254,6 +566,8 @@ export default function ProfileModal() {
                 </section>
               )}
             </div>
+          </div>
+          {isSelfProfile && profileTheme.decoration && <CardDecoration kind={profileTheme.decoration} layer="front" />}
           </div>
         </div>
       )}

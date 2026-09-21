@@ -64,10 +64,13 @@ export interface DataRepository {
   getTeam(projectId: string, adminView?: boolean): Promise<TeamData>;
   updateMyProfile(patch: Partial<{
     name: string; major: string; student: string; school: string; avatarUrl: string | null;
-    contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null; links: ProfileLink[];
+    contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null;
+    backgroundColor: string | null; backgroundGradient: string | null; backgroundImageUrl: string | null;
+    glassOpacity: number | null; glassBlur: number | null; links: ProfileLink[];
   }>): Promise<void>;
   uploadAvatar(file: File): Promise<string>;
   uploadBannerImage(file: File): Promise<string>;
+  uploadBackgroundImage(file: File): Promise<string>;
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;

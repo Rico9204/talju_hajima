@@ -149,7 +149,7 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
     {message && <p role="status" className="text-xs p-3 mb-3 rounded-lg" style={{ background: "var(--secondary)" }}>{message}</p>}
     {!locked && <div className="p-3 mb-4 rounded-xl space-y-2" style={{ background: "var(--muted)" }}>
       <label className="text-xs block">새 버전의 기준
-        <select aria-label="새 버전의 기준" value={baseId ?? ""} disabled={busy} onChange={(e) => setBaseId(e.target.value ? Number(e.target.value) : null)} className="w-full mt-1 p-2 rounded-lg" style={{ background: "var(--card)" }}>
+        <select aria-label="새 버전의 기준" value={baseId ?? ""} disabled={busy} onChange={(e) => setBaseId(e.target.value ? Number(e.target.value) : null)} className="w-full mt-1 p-2 rounded-lg" style={{ background: "var(--surface-opaque)" }}>
           {file.versions.length === 0 && <option value="">첫 버전</option>}
           {file.versions.map((v) => <option key={v.id} value={v.id}>{v.version}{v.current ? " · 현재" : ""}{v.pinned ? " · 핀" : ""} · {v.uploadedBy}</option>)}
         </select>
@@ -183,7 +183,7 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
       {tree.length === 0 && <p className="text-xs py-4">{onlyPinned ? "핀한 버전이 없습니다." : "아직 버전이 없습니다."}</p>}
     </div>
     {preview && <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.48)", backdropFilter: "blur(4px)" }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}>
-      <section className="w-full max-w-6xl max-h-[92vh] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)" }}>
+      <section className="w-full max-w-6xl max-h-[92vh] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
             <div className="text-xs font-700" style={{ color: "var(--primary)" }}>파일 미리보기</div>

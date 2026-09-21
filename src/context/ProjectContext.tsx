@@ -88,7 +88,10 @@ interface ProjectContextValue {
   transferLeadership: (targetName: string) => Promise<void>;
   updateMyProfile: (patch: {
     name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
-    contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
+    contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File;
+    backgroundColor?: string | null; backgroundGradient?: string | null; backgroundImageUrl?: string | null; backgroundImageFile?: File;
+    glassOpacity?: number | null; glassBlur?: number | null;
+    links?: ProfileLink[];
   }) => Promise<void>;
   isShortTerm: boolean;
   folders: Folder[];
@@ -161,7 +164,7 @@ function StatusScreen({ kind, message }: { kind: "loading" | "error"; message?: 
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
       <div
         className="max-w-sm px-6 py-5 text-center"
-        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
       >
         {kind === "loading" && <div className="text-sm" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>}
         {kind === "error" && (
@@ -234,7 +237,7 @@ function EmptyProjectsScreen({
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
       <div
         className="max-w-sm px-6 py-6 text-center"
-        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
       >
         <div className="text-sm font-700 mb-1">아직 참여한 프로젝트가 없어요</div>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
@@ -715,14 +718,20 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
 
   async function updateMyProfile(patch: {
     name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
-    contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File; links?: ProfileLink[];
+    contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File;
+    backgroundColor?: string | null; backgroundGradient?: string | null; backgroundImageUrl?: string | null; backgroundImageFile?: File;
+    glassOpacity?: number | null; glassBlur?: number | null;
+    links?: ProfileLink[];
   }) {
     if (!projectId || !currentMember) return;
     const avatarUrl = patch.avatarFile ? await dataRepository.uploadAvatar(patch.avatarFile) : undefined;
     const bannerImageUrl = patch.bannerImageFile ? await dataRepository.uploadBannerImage(patch.bannerImageFile) : patch.bannerImageUrl;
+    const backgroundImageUrl = patch.backgroundImageFile ? await dataRepository.uploadBackgroundImage(patch.backgroundImageFile) : patch.backgroundImageUrl;
     await dataRepository.updateMyProfile({
       name: patch.name, major: patch.major, student: patch.student, school: patch.school, avatarUrl,
-      contact: patch.contact, org: patch.org, bannerColor: patch.bannerColor, bannerImageUrl, links: patch.links,
+      contact: patch.contact, org: patch.org, bannerColor: patch.bannerColor, bannerImageUrl,
+      backgroundColor: patch.backgroundColor, backgroundGradient: patch.backgroundGradient, backgroundImageUrl,
+      glassOpacity: patch.glassOpacity, glassBlur: patch.glassBlur, links: patch.links,
     });
     setTeam(await dataRepository.getTeam(projectId));
   }
