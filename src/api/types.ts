@@ -204,7 +204,8 @@ export interface ScheduleEvent {
   updatedAt?: string | null;
   id: number;
   title: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD — 기간 일정이면 시작일
+  endDate: string | null; // YYYY-MM-DD — null이면 하루짜리 일정
   type: ScheduleEventType;
   scope: ScheduleEventScope;
   ownerMemberId: string | null; // scope === "personal"일 때만 존재
@@ -215,6 +216,7 @@ export interface ScheduleEvent {
 export interface NewScheduleEventInput {
   title: string;
   date: string;
+  endDate?: string | null; // 기간 일정일 때만 date보다 뒤 날짜로 지정
   type: ScheduleEventType;
   scope: ScheduleEventScope;
   visibility?: ScheduleEventVisibility; // scope === "personal"일 때 필수

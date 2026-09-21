@@ -126,7 +126,7 @@ interface ProjectContextValue {
   addScheduleEvent: (input: NewScheduleEventInput) => Promise<void>;
   updateScheduleEvent: (
     id: number,
-    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+    patch: Partial<{ title: string; date: string; endDate: string | null; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
   ) => Promise<void>;
   removeScheduleEvent: (id: number) => Promise<void>;
   chatUnread: Record<string, number>;
@@ -846,7 +846,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
 
   async function updateScheduleEvent(
     id: number,
-    patch: Partial<{ title: string; date: string; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
+    patch: Partial<{ title: string; date: string; endDate: string | null; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>
   ) {
     await dataRepository.updateScheduleEvent(id, patch);
     await refreshScheduleEvents();
