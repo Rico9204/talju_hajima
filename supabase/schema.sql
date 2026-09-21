@@ -957,11 +957,6 @@ begin
        or (e->>k)::numeric <> trunc((e->>k)::numeric)
        or (e->>k)::numeric not between 0 and 10
   ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
-  if p_phase = 'midterm' and exists (
-    select 1 from jsonb_array_elements(p_entries) e
-    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
-    group by k having sum((e->>k)::integer) <> expected * 5
-  ) then raise exception '각 항목의 총점은 동료 수 × 5점이어야 합니다.'; end if;
   insert into public.peer_evaluation_submissions(project_id,evaluator_id,phase)
     values(p_project_id,actor,p_phase) returning id into submission;
   insert into public.peer_evaluations(submission_id,project_id,evaluator_id,recipient_id,phase,role,deadline,communication,collaboration,quality,comment)
@@ -1056,11 +1051,6 @@ begin
        or (e->>k)::numeric <> trunc((e->>k)::numeric)
        or (e->>k)::numeric not between 0 and 10
   ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
-  if p_phase = 'midterm' and exists (
-    select 1 from jsonb_array_elements(p_entries) e
-    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
-    group by k having sum((e->>k)::integer) <> expected * 5
-  ) then raise exception '각 항목의 총점은 동료 수 × 5점이어야 합니다.'; end if;
   insert into public.peer_evaluation_submissions(project_id,evaluator_id,phase)
     values(p_project_id,actor,p_phase) returning id into submission;
   insert into public.peer_evaluations(submission_id,project_id,evaluator_id,recipient_id,phase,role,deadline,communication,collaboration,quality,comment)

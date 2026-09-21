@@ -1,5 +1,5 @@
--- Final evaluations are independent 0–10 assessments. The shared five-points-
--- per-peer allocation remains only for formative midterm feedback.
+-- Follow-up for deployments that already applied 20260921160000.
+-- Both midterm and final evaluations now use independent 0–10 scores.
 create or replace function public.submit_peer_evaluations(p_project_id text, p_phase text, p_entries jsonb)
 returns void language plpgsql security definer set search_path=public as $$
 declare p public.projects%rowtype; actor uuid; submission uuid; expected integer; actual integer;
