@@ -62,6 +62,10 @@ export interface DataRepository {
   searchAdmins(query: string): Promise<AdminProfileSummary[]>;
 
   getTeam(projectId: string, adminView?: boolean): Promise<TeamData>;
+  // Cross-project participation counts for a teammate's profile card (프로젝트
+  // 참여 횟수/함께한 동료 수) — only callable for a user who shares a project
+  // with the caller; see member_participation_stats in schema.sql.
+  getMemberParticipationStats(userId: string): Promise<{ projectCount: number; collaboratorCount: number }>;
   updateMyProfile(patch: Partial<{
     name: string; major: string; student: string; school: string; avatarUrl: string | null;
     contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null;

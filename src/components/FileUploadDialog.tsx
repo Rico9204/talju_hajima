@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MAX_WORKSPACE_FILE_SIZE, parseFileTags, validateFileTags, workspaceFileType } from "../lib/workspaceFiles";
+import { workspaceUploadErrorMessage } from "../lib/workspaceUploadError";
 
 export default function FileUploadDialog({ file, destination, initialTags = [], onCancel, onConfirm }: {
   file: File;
@@ -44,7 +45,7 @@ export default function FileUploadDialog({ file, destination, initialTags = [], 
       if (file.size > MAX_WORKSPACE_FILE_SIZE) throw new Error("파일은 50MB까지 업로드할 수 있습니다.");
       pending.current = true; setBusy(true);
       await onConfirm(parsed, note);
-    } catch (e) { setError((e as { message?: string })?.message ?? "업로드에 실패했습니다. 다시 시도해 주세요."); }
+    } catch (e) { setError(workspaceUploadErrorMessage(e)); }
     finally { pending.current = false; setBusy(false); }
   }
   return createPortal(<dialog ref={dialog} aria-labelledby="upload-dialog-title" onCancel={(e) => { e.preventDefault(); if (!pending.current) onCancel(); }}

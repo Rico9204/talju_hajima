@@ -1,4 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
+import { dataRepository } from "../api";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
@@ -66,6 +67,20 @@ export default function ProfileModal() {
   // the edit affordances only render when it's the signed-in user's own id.
   const isSelfProfile = viewedMemberId !== null && viewedMemberId === currentMember?.id;
   const viewedMember = viewedMemberId === currentMember?.id ? currentMember : team.members.find((m) => m.id === viewedMemberId) ?? null;
+
+  // 다른 팀원 프로필에는 "이 프로젝트만" 기준인 평가 점수 옆에, 그 사람이
+  // 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지도 보여준다 —
+  // shares_project_with 기준으로 접근 가능한 경우에만 조회된다.
+  const [otherStats, setOtherStats] = useState<{ projectCount: number; collaboratorCount: number } | null>(null);
+  useEffect(() => {
+    setOtherStats(null);
+    if (isSelfProfile || !viewedMember?.userId) return;
+    let active = true;
+    dataRepository.getMemberParticipationStats(viewedMember.userId)
+      .then((stats) => { if (active) setOtherStats(stats); })
+      .catch(() => { if (active) setOtherStats(null); });
+    return () => { active = false; };
+  }, [isSelfProfile, viewedMember?.userId]);
 
   const {
     myTier, myScore, myBadge, earnedIds, previewAll, themeViewer,
@@ -379,7 +394,7 @@ export default function ProfileModal() {
                 <button type="button" onClick={closeMemberProfile} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
+            <div className="grid grid-cols-1 md:grid-cols-[.85fr_1.15fr]">
               <section className="relative z-10 px-5 pb-5">
                 <div className="flex items-end gap-2 -mt-9 mb-4">
                   <div className="relative z-20">
@@ -541,6 +556,18 @@ export default function ProfileModal() {
               ) : (
                 <section aria-label={`${viewedMember.name} 평가 요약`} className="p-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)" }}>
                   <h2 className="text-sm font-700 mb-3">협업 신뢰도</h2>
+                  {otherStats && (
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>프로젝트 참여 횟수</div>
+                        <strong className="text-base">{otherStats.projectCount}회</strong>
+                      </div>
+                      <div>
+                        <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>함께한 동료</div>
+                        <strong className="text-base">{otherStats.collaboratorCount}명</strong>
+                      </div>
+                    </div>
+                  )}
                   {viewedMember.evalCount > 0 ? (
                     <>
                       <div className="flex items-baseline gap-1.5 mb-3">
@@ -550,7 +577,7 @@ export default function ProfileModal() {
                       <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       <div className="flex justify-center">
                         <PentagonChart
-                          size={230}
+                          size={290}
                           data={[
                             { label: "역할 이행", value: viewedMember.criteriaScores.role },
                             { label: "약속·마감 준수", value: viewedMember.criteriaScores.deadline },

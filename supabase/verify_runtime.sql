@@ -2,7 +2,7 @@
 -- This query is read-only. Every `ready` value should be true before deploying.
 with required_functions(label, signature) as (
   values
-    ('workspace version registration', 'public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text,text[])'),
+    ('workspace version registration', 'public.register_workspace_search_version(text,bigint,bigint,bigint,text,text,text,text,text[],text,text)'),
     ('peer evaluation submission', 'public.submit_peer_evaluations(text,text,jsonb)'),
     ('project completion', 'public.complete_evaluation_project(text)'),
     ('my evaluation average', 'public.my_evaluation_average(text,text)'),
