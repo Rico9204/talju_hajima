@@ -344,7 +344,15 @@ export default function BoardView() {
                 key={post.id}
                 onClick={() => void openPostDetail(post)}
                 className="w-full text-left px-4 py-3 transition-all hover:translate-y-[-1px] flex items-center justify-between gap-3"
-                style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                style={{
+                  background: "var(--card)",
+                  borderRadius: "var(--radius)",
+                  boxShadow: "var(--shadow-card)",
+                  transform: "translateZ(0)",
+                  backfaceVisibility: "hidden",
+                  WebkitBackfaceVisibility: "hidden",
+                  backgroundClip: "padding-box",
+                }}
               >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   {post.pinned && (

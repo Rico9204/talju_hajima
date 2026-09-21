@@ -122,7 +122,19 @@ export default function PostDetailView({
         </div>
       )}
 
-      <div className="p-6 md:p-8 space-y-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+      {/* Main Post Content Card */}
+      <div
+        className="p-6 md:p-8 space-y-6"
+        style={{
+          background: "var(--card)",
+          borderRadius: "var(--radius)",
+          boxShadow: "var(--shadow-card)",
+          transform: "translateZ(0)",
+          backfaceVisibility: "hidden",
+          WebkitBackfaceVisibility: "hidden",
+          backgroundClip: "padding-box",
+        }}
+      >
         <div className="space-y-2 border-b pb-5" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-700 px-3 py-1" style={{ background: catInfo.badgeBg, color: catInfo.badgeColor, borderRadius: "20px" }}>
@@ -149,11 +161,11 @@ export default function PostDetailView({
         {isHtml ? (
           <div
             className="text-sm md:text-base leading-relaxed p-5 space-y-2 overflow-x-auto"
-            style={{ background: "var(--muted)", borderRadius: "12px", color: "var(--foreground)" }}
+            style={{ background: "var(--muted)", borderRadius: "12px", color: "var(--foreground)", backgroundClip: "padding-box" }}
             dangerouslySetInnerHTML={{ __html: getCleanedHtml(post.content) }}
           />
         ) : (
-          <div className="text-sm md:text-base whitespace-pre-wrap leading-relaxed p-5" style={{ background: "var(--muted)", borderRadius: "12px", color: "var(--foreground)" }}>
+          <div className="text-sm md:text-base whitespace-pre-wrap leading-relaxed p-5" style={{ background: "var(--muted)", borderRadius: "12px", color: "var(--foreground)", backgroundClip: "padding-box" }}>
             {post.content}
           </div>
         )}
