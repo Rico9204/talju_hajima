@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useProject, type ScheduleEventType, type ScheduleEventScope, type ScheduleEventVisibility, type ScheduleEvent } from "../context/ProjectContext";
 
 const typeMeta: Record<ScheduleEventType, { label: string; color: string }> = {
@@ -187,6 +187,13 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     finally { setBusy(false); }
   }
   const [editingId, setEditingId] = useState<number | null>(null);
+  // 남의 일정은 수정은 못 해도 목록/달력에서 선택(강조)은 할 수 있어야 하므로
+  // editingId(수정 대상)와 별도로 선택 상태를 둔다.
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  // 알림 등으로 들어온 focusEventId를 선택 상태의 "초깃값"으로 딱 한 번만
+  // 반영하기 위한 가드. true가 된 뒤로는 이후 어떤 재실행에도 사용자가 직접
+  // 고른 selectedEventId를 덮어쓰지 않는다.
+  const seededFocusEventRef = useRef(false);
 
   const locked = project.status === "done";
 
@@ -204,6 +211,8 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setVisibility("private");
     setHideTitle(false);
     setEditingId(null);
+    setSelectedEventId(null);
+    seededFocusEventRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
@@ -214,8 +223,9 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
   const focusedEvent = scheduleEvents.find(event => event.id === focusEventId);
   useEffect(() => {
-    if (!focusedEvent) return;
+    if (!focusedEvent || seededFocusEventRef.current) return;
     if (focusedEvent.scope === "personal" && focusedEvent.visibility !== "shared" && focusedEvent.ownerMemberId !== currentMember?.id) return;
+    seededFocusEventRef.current = true;
     setMonth(focusedEvent.date.slice(0, 7));
     setSelectedDay(focusedEvent.date);
     setShowTeam(true);
@@ -224,6 +234,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
       const owner = focusedEvent.ownerMemberId;
       setSelectedMembers(previous => previous.includes(owner) ? previous : [...previous, owner]);
     }
+    setSelectedEventId(focusedEvent.id);
   }, [project.id, focusedEvent?.id, focusedEvent?.date, focusedEvent?.ownerMemberId, focusedEvent?.scope, focusedEvent?.visibility, currentMember?.id]);
 
   function ownerName(e: ScheduleEvent): string {
@@ -247,6 +258,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   function startEdit(e: ScheduleEvent) {
     if (locked || !canEdit(e)) return;
     setEditingId(e.id);
+    setSelectedEventId(e.id);
     setTitle(e.title);
     setDate(e.date);
     setEndDate(e.endDate ?? "");
@@ -256,7 +268,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setHideTitle(e.hideTitle);
   }
 
-  function cancelEdit() {
+  function resetForm() {
     setEditingId(null);
     setTitle("");
     setDate("");
@@ -264,6 +276,11 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setScope("personal");
     setVisibility("private");
     setHideTitle(false);
+  }
+
+  function cancelEdit() {
+    resetForm();
+    setSelectedEventId(null);
   }
 
   const visibleToMe = scheduleEvents.filter(
@@ -327,6 +344,12 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   });
 
   const agenda = selectedDay ? events.filter((e) => selectedDay >= e.date && selectedDay <= (e.endDate ?? e.date)) : events;
+  // 우측 목록에서 일정을 클릭(수정 진입)하거나 외부에서 특정 일정으로 진입한
+  // 경우, 달력 위 해당 일정의 점/막대를 살짝 키워서 강조한다.
+  const highlightEventId = selectedEventId;
+  // 수정 권한 없는 남의 일정을 선택했을 때는 추가/수정 폼 대신 읽기 전용
+  // 정보 카드를 보여줘서, 폼이 열린 것처럼 보이는 혼동을 없앤다.
+  const viewingEvent = editingId === null && selectedEventId !== null ? (events.find((ev) => ev.id === selectedEventId) ?? null) : null;
   // 검색창은 팀원 목록과 일정 목록에 같이 쓰인다: 팀원이나 일정이 많아지면
   // (팀원 6명 초과 또는 일정 5개 초과) 나타나고, 같은 검색어로 일정 제목도
   // 걸러준다. displayTitle을 쓰는 이유는 비공개 처리된 제목("바쁨")을 검색
@@ -487,17 +510,23 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                           {d}
                         </span>
                         {/* 당일(하루짜리) 일정은 막대 대신 숫자 옆에 점으로 — 최대 3개까지만. */}
-                        {daySameDayEvents.slice(0, 3).map((s) => (
-                          <span
-                            key={s.event.id}
-                            title={s.event.title}
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{
-                              background: isSelected ? "#fff" : typeMeta[s.event.type].color,
-                              opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.4 : 1,
-                            }}
-                          />
-                        ))}
+                        {daySameDayEvents.slice(0, 3).map((s) => {
+                          const isHighlighted = s.event.id === highlightEventId;
+                          return (
+                            <span
+                              key={s.event.id}
+                              title={s.event.title}
+                              className="rounded-full shrink-0 transition-all"
+                              style={{
+                                width: isHighlighted ? 8 : 6,
+                                height: isHighlighted ? 8 : 6,
+                                background: isSelected ? "#fff" : typeMeta[s.event.type].color,
+                                opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.4 : 1,
+                                boxShadow: isHighlighted ? `0 0 0 2px ${isSelected ? "rgba(255,255,255,0.4)" : `${typeMeta[s.event.type].color}40`}` : "none",
+                              }}
+                            />
+                          );
+                        })}
                       </span>
                       <div className="flex flex-col gap-1 mt-1 -mx-1">
                         {Array.from({ length: lanesToRender }, (_, lane) => {
@@ -505,12 +534,14 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                           if (!s) return <div key={lane} style={{ height: 3 }} />;
                           const isStart = key === s.start;
                           const isEnd = key === s.end;
+                          const isHighlighted = s.event.id === highlightEventId;
                           return (
                             <div
                               key={lane}
                               title={s.event.title}
+                              className="transition-all"
                               style={{
-                                height: 3,
+                                height: isHighlighted ? 5 : 3,
                                 background: isSelected ? "rgba(255,255,255,0.75)" : typeMeta[s.event.type].color,
                                 opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.5 : 1,
                                 marginLeft: isStart ? "50%" : 0,
@@ -548,7 +579,34 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
         {/* Agenda + add form */}
         <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
-          {!locked && (
+          {!locked && viewingEvent && (
+            <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-700">일정 정보</h2>
+                <button
+                  onClick={() => setSelectedEventId(null)}
+                  className="text-xs font-600 px-2.5 py-1"
+                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                >
+                  닫기
+                </button>
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: typeMeta[viewingEvent.type].color }} />
+                <span className="text-sm font-700">{displayTitle(viewingEvent)}</span>
+              </div>
+              <div className="text-xs mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+                {viewingEvent.date}{viewingEvent.endDate ? ` ~ ${viewingEvent.endDate}` : ""} · {typeMeta[viewingEvent.type].label}
+              </div>
+              <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                {viewingEvent.scope === "team" ? "팀 일정" : `${ownerName(viewingEvent)}님 개인 일정`}
+              </div>
+              <div className="text-xs mt-3 py-2 text-center" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>
+                다른 팀원의 일정은 수정할 수 없어요
+              </div>
+            </div>
+          )}
+          {!locked && !viewingEvent && (
             <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-700">{editingId !== null ? "일정 수정" : "일정 추가"}</h2>
@@ -796,13 +854,20 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 return (
                   <div
                     key={e.id}
-                    onClick={editable ? () => startEdit(e) : undefined}
+                    onClick={() => {
+                      if (editable) {
+                        startEdit(e);
+                      } else {
+                        resetForm();
+                        setSelectedEventId((prev) => (prev === e.id ? null : e.id));
+                      }
+                    }}
                     className="flex items-center justify-between p-2.5 transition-all"
                     style={{
-                      background: editingId === e.id ? "var(--secondary)" : "var(--muted)",
+                      background: selectedEventId === e.id ? "var(--secondary)" : "var(--muted)",
                       borderRadius: "10px",
-                      cursor: editable ? "pointer" : "default",
-                      outline: editingId === e.id || focusEventId === e.id ? "1.5px solid var(--primary)" : "none",
+                      cursor: "pointer",
+                      boxShadow: selectedEventId === e.id ? "inset 0 0 0 1px var(--primary)" : "none",
                     }}
                   >
                     <div className="flex items-center gap-2 min-w-0">
