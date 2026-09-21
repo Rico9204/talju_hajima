@@ -77,7 +77,7 @@ function buildItems(kind: AuraKind): CSSProperties[] {
 }
 
 export default function EdgeAura({ kind, c1, c2, glow }: { kind: AuraKind; c1: string; c2: string; glow: string }) {
-  const items = useMemo(() => buildItems(kind), [kind]);
+  const items = useMemo(() => buildItems(kind).filter((_, index) => index % 2 === 0), [kind]);
   return (
     <div className="edge-aura" aria-hidden="true" style={{ "--tier-c1": c1, "--tier-c2": c2, "--tier-glow": glow } as CSSProperties}>
       {items.map((style, i) => <span key={i} className={`edge-out edge-out-${kind}`} style={style} />)}

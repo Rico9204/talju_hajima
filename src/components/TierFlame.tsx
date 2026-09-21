@@ -1,10 +1,10 @@
 // Flame border for gold and platinum, drawn *behind* the profile card so it
 // can lick outward past the card edge (the card itself is overflow-hidden).
-// A glowing ring is warped by an animated feTurbulence displacement map, which
+// A glowing ring uses a static turbulence map; only the finished layer moves, which
 // is what turns the smooth glow into flickering flame tongues. Gold burns
 // warm; platinum burns blue and harder. Styles live in .tier-flame-* in
 // index.css.
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 
 type FlameTier = "gold" | "platinum";
 
@@ -21,9 +21,9 @@ const REACH = 32;
 // own flame color, e.g. the skull theme's cyan; pass tierId "platinum" to get
 // the bigger flame.
 export default function TierFlame({ tierId, colors, scale }: { tierId: string; colors?: [string, string, string]; scale?: number }) {
+  const filterId = useId();
   if (tierId !== "gold" && tierId !== "platinum") return null;
   const cfg = { ...FLAMES[tierId], colors: colors ?? FLAMES[tierId].colors, scale: scale ?? FLAMES[tierId].scale };
-  const filterId = `tier-flame-${tierId}`;
   return (
     <div
       className={`tier-flame tier-flame-${tierId}`}
@@ -40,9 +40,7 @@ export default function TierFlame({ tierId, colors, scale }: { tierId: string; c
       <svg width="0" height="0" style={{ position: "absolute" }}>
         <defs>
           <filter id={filterId} x="0%" y="0%" width="100%" height="100%" colorInterpolationFilters="sRGB">
-            <feTurbulence type="fractalNoise" baseFrequency="0.025 0.01" numOctaves="2" seed="7" result="noise">
-              <animate attributeName="baseFrequency" dur="4.5s" values="0.025 0.01;0.032 0.016;0.025 0.01" repeatCount="indefinite" />
-            </feTurbulence>
+            <feTurbulence type="fractalNoise" baseFrequency="0.025 0.01" numOctaves="2" seed="7" result="noise" />
             <feDisplacementMap in="SourceGraphic" in2="noise" scale={cfg.scale} xChannelSelector="R" yChannelSelector="G" result="warped" />
             <feGaussianBlur in="warped" stdDeviation="2.5" />
           </filter>

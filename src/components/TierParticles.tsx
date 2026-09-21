@@ -95,7 +95,7 @@ export default function TierParticles({ tierId, kind = "tier" }: { tierId: strin
     const layers = kind === "tier" ? TIER_LAYERS[tierId] : THEME_LAYERS[kind];
     if (!layers) return [];
     const seed = [...`${kind}:${tierId}`].reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) | 0, 7);
-    return buildParticles(layers, seed);
+    return buildParticles(layers, seed).filter((_, index) => index % 2 === 0);
   }, [tierId, kind]);
   if (particles.length === 0) return null;
   return (
