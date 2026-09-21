@@ -1,5 +1,6 @@
 import SearchHighlight from "./SearchHighlight";
 import { lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
 import FileUploadDialog from "./FileUploadDialog";
 import { useEffect, useRef, useState } from "react";
@@ -182,8 +183,8 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
       </div>)}
       {tree.length === 0 && <p className="text-xs py-4">{onlyPinned ? "핀한 버전이 없습니다." : "아직 버전이 없습니다."}</p>}
     </div>
-    {preview && <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.48)", backdropFilter: "blur(4px)" }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}>
-      <section className="w-full max-w-6xl max-h-[92vh] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+    {preview && createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.48)", backdropFilter: "blur(4px)" }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}>
+      <section className="w-[min(96vw,1400px)] h-[min(88vh,900px)] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
             <div className="text-xs font-700" style={{ color: "var(--primary)" }}>파일 미리보기</div>
@@ -197,13 +198,13 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
             <button type="button" onClick={closePreview} aria-label="미리보기 닫기" className="ml-2 w-8 h-8 text-lg">×</button>
           </div>
         </div>
-        <div className="overflow-auto p-5">
+        <div className="min-h-0 flex-1 overflow-auto p-5">
           {preview.kind === "image" && <img src={preview.url} alt={preview.name} className="mx-auto max-w-full object-contain" style={{ maxHeight: "72vh", transform: `scale(${previewZoom})`, transformOrigin: "center top" }} />}
           {preview.kind === "pdf" && <Suspense fallback={<p className="text-xs">PDF를 불러오는 중…</p>}><PdfSearchPreview source={preview.url!} query={searchQuery} zoom={previewZoom} /></Suspense>}
           {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-[72vh] overflow-auto p-4" style={{ background: "var(--muted)", transform: `scale(${previewZoom})`, transformOrigin: "top left" }}><SearchHighlight text={preview.text ?? ""} query={searchQuery} /></pre>}
-          {preview.kind === "office" && <iframe title={`${preview.name} 문서 미리보기`} sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;min-height:100%;background:#fff}body{zoom:${previewZoom};width:calc(100% / ${previewZoom});box-sizing:border-box;padding:24px;font:14px system-ui,sans-serif;color:#1f2937;line-height:1.6}table{border-collapse:collapse;max-width:none;overflow:auto}td,th{border:1px solid #d1d5db;padding:6px 10px;text-align:left}h1,h2,h3{margin-top:1.2em}img{max-width:100%;height:auto}mark{background:#facc15;color:#422006;border-radius:2px;padding:0 2px}</style></head><body>${highlightOfficeHtml(preview.html ?? "", searchQuery)}</body></html>`} className="w-full border" style={{ height: "72vh", borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "#fff" }} />}
+          {preview.kind === "office" && <iframe title={`${preview.name} 문서 미리보기`} sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;min-height:100%;background:#fff}body{zoom:${previewZoom};width:calc(100% / ${previewZoom});box-sizing:border-box;padding:24px;font:14px system-ui,sans-serif;color:#1f2937;line-height:1.6}table{border-collapse:collapse;max-width:none;overflow:auto}td,th{border:1px solid #d1d5db;padding:6px 10px;text-align:left}h1,h2,h3{margin-top:1.2em}img{max-width:100%;height:auto}mark{background:#facc15;color:#422006;border-radius:2px;padding:0 2px}</style></head><body>${highlightOfficeHtml(preview.html ?? "", searchQuery)}</body></html>`} className="w-full border" style={{ height: "100%", minHeight: "520px", borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "#fff" }} />}
         </div>
       </section>
-    </div>}
+    </div>, document.body)}
   </div>;
 }
