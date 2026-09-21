@@ -394,7 +394,7 @@ export default function ProfileModal() {
                 <button type="button" onClick={closeMemberProfile} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-[1.08fr_.92fr]">
+            <div className="grid grid-cols-1 md:grid-cols-[.85fr_1.15fr]">
               <section className="relative z-10 px-5 pb-5">
                 <div className="flex items-end gap-2 -mt-9 mb-4">
                   <div className="relative z-20">
@@ -577,7 +577,7 @@ export default function ProfileModal() {
                       <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       <div className="flex justify-center">
                         <PentagonChart
-                          size={230}
+                          size={290}
                           data={[
                             { label: "역할 이행", value: viewedMember.criteriaScores.role },
                             { label: "약속·마감 준수", value: viewedMember.criteriaScores.deadline },
