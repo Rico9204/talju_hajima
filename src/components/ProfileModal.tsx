@@ -92,8 +92,7 @@ export default function ProfileModal() {
         "--tier-c1": cardC1,
         "--tier-c2": cardC2,
         "--tier-ring-speed": tierRingSpeed ?? "0s",
-        boxShadow: tierCardAnimation ? undefined : "0 24px 64px rgba(15,18,53,0.22), 0 0 22px 3px var(--tier-glow)",
-        animation: tierCardAnimation,
+        boxShadow: "0 24px 64px rgba(15,18,53,0.22), 0 0 16px 2px var(--tier-glow)",
       } as CSSProperties)
     : { boxShadow: "0 24px 64px rgba(15,18,53,0.22)" };
 
@@ -332,9 +331,10 @@ export default function ProfileModal() {
   return (
     <>
       {viewedMember && (
-        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closeMemberProfile}>
+        <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4 z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closeMemberProfile}>
           {/* Wrapper exists so TierFlame can sit outside the card's overflow-hidden clip. */}
-          <div className="relative isolate w-[820px] max-w-[95vw]" onClick={(e) => e.stopPropagation()}>
+          <div className="relative isolate w-[820px] max-w-full my-auto" onClick={(e) => e.stopPropagation()}>
+          {isSelfProfile && cardHasEffects && tierCardAnimation && <div aria-hidden="true" className="tier-card-glow" style={{ ...tierCardStyle, boxShadow: "0 0 34px 6px var(--tier-glow)", animation: tierCardAnimation }} />}
           {isSelfProfile && profileTheme.flame && (profileTheme.flameColors || myTier) && <TierFlame tierId={profileTheme.flameColors ? "platinum" : myTier?.id ?? ""} colors={profileTheme.flameColors} scale={profileTheme.flameScale} />}
           {isSelfProfile && profileTheme.decoration && <CardDecoration kind={profileTheme.decoration} layer="back" />}
           {isSelfProfile && cardHasEffects && profileTheme.aura && cardC1 && cardC2 && <EdgeAura kind={profileTheme.aura} c1={cardC1} c2={cardC2} glow={cardGlow} />}
@@ -347,10 +347,11 @@ export default function ProfileModal() {
               // near-opaque white here rather than following --card-glass.
               background: "rgba(255, 255, 255, 0.94)",
               borderRadius: "var(--radius)",
-              backdropFilter: "blur(20px) saturate(1.7)",
-              WebkitBackdropFilter: "blur(20px) saturate(1.7)",
+              maxHeight: "calc(100dvh - 2rem)",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
               ...tierCardStyle,
-            } : { background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }}
+            } : { background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)", maxHeight: "calc(100dvh - 2rem)", overflowY: "auto", overscrollBehavior: "contain" }}
             onClick={(e) => e.stopPropagation()}
           >
             {isSelfProfile && myTier?.id === "platinum" && profileTheme.shine && <div className="tier-card-shine" style={{ borderRadius: "var(--radius)", zIndex: 30 }} />}
