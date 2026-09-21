@@ -11,20 +11,11 @@ const criteria = [
   { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
 ] as const;
 
-// Each person still gets a 0-10 score per criterion, but the sum across all
-// peers for a given criterion must land exactly on a shared pool:
-// pool = peers.length * POOL_PER_PEER. Enforced at submit time via
-// `allBalanced`, not by capping any individual person's score below 10.
-const POOL_PER_PEER = 5;
-
 type Scores = Record<string, number>;
 
 // One continuous track over a fixed min..max range (0..10 per person) —
 // click anywhere or drag across it and the value snaps to whichever zone
-// the pointer is over. The scale always shows the same 0..max range, but
-// zones above `limit` (the shared-pool ceiling for this peer right now)
-// are dimmed and unselectable, so the visible scale stays consistent while
-// what you can actually pick shrinks as the pool gets used up.
+// the pointer is over.
 function ScoreTrack({
   value, min = 0, max = 10, limit, onChange, disabled, label,
 }: { value: number; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean; label: string }) {
@@ -231,10 +222,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     const previous = data?.records.find((r) => r.evaluator_id === currentMember?.id && r.recipient_id === peer.id);
     return submitted && previous ? previous : draft[peer.id] ?? emptyEntry(peer.id);
   });
-  const usesSharedPool = phase === "midterm";
-  const pool = peers.length * POOL_PER_PEER;
-  const total = (key: typeof criteria[number]["id"]) => entries.reduce((sum, entry) => sum + entry[key], 0);
-  const balanced = peers.length > 0 && (!usesSharedPool || criteria.every((c) => total(c.id) === pool));
+  const balanced = peers.length > 0;
   async function submit() {
     if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
     setBusy(true); onBusyChange(true); setError("");
@@ -261,16 +249,11 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const midtermSkipped = skipped;
   const isSubmitted = submitted;
   const allBalanced = balanced;
-  const criterionTotal = total;
   const submitEval = submit;
   const average = data?.average;
   function setSelectedPeer(index: number) { setSelectedPeerId(peers[index].id); }
   function scoreFor(id: typeof criteria[number]["id"], index: number) { return entries[index]?.[id] ?? 1; }
-  function maxAllowed(id: typeof criteria[number]["id"], index: number) {
-    if (!usesSharedPool) return 10;
-    const others = entries.reduce((sum, entry, i) => sum + (i === index ? 0 : entry[id]), 0);
-    return Math.max(0, Math.min(10, pool - others));
-  }
+  function maxAllowed(_id: typeof criteria[number]["id"], _index: number) { return 10; }
   function handleScoreClick(id: typeof criteria[number]["id"], value: number) {
     if (!selectedEntry || isSubmitted || busy) return;
     const score = Math.max(0, Math.min(value, maxAllowed(id, selectedPeer)));
@@ -363,7 +346,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             ? "최종 평가(총괄) · 동료 평가 작성"
             : midtermSkipped
             ? "2주 미만 단기 프로젝트 · 중간 점검 생략"
-            : `중간 점검(형성적) · 항목별 0~10점, 단 동료 전체 합은 ${peers.length}명 × ${POOL_PER_PEER}점 = ${pool}점`}
+            : "중간 점검(형성적) · 항목별 0~10점으로 피드백을 남겨보세요"}
         </p>
       </div>
 
@@ -438,36 +421,6 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
 
       {data && !midtermSkipped && peers.length > 0 && (
         <>
-          {usesSharedPool && <div className="px-5 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "12px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-            <div className="text-xs font-600 mb-3" style={{ color: "var(--muted-foreground)" }}>
-              항목별 공유 점수 배분 현황 · 동료 {peers.length}명 × {POOL_PER_PEER}점 = 총 {pool}점
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-              {criteria.map((c) => {
-                const used = criterionTotal(c.id);
-                const balanced = used === pool;
-                return (
-                  <div key={c.id}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-600">{c.label}</span>
-                      <span style={{ fontFamily: "var(--font-jetbrains)", color: balanced ? "#22c55e" : "var(--primary)" }}>{used}/{pool}</span>
-                    </div>
-                    <div className="h-1.5 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                      <div
-                        className="h-1.5 transition-all"
-                        style={{
-                          width: `${pool > 0 ? Math.min((used / pool) * 100, 100) : 0}%`,
-                          background: balanced ? "#22c55e" : "linear-gradient(90deg, var(--primary), #60a5fa)",
-                          borderRadius: "4px",
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>}
-
           <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
             {/* Peer list */}
             <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
@@ -587,10 +540,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                 ) : (() => {
                   const c = criteria[criterionStep];
                   const current = peerScores[c.id] ?? 1;
-                  const totalForCriterion = criterionTotal(c.id);
-                  const remainingUnallocated = pool - totalForCriterion;
                   const capped = maxAllowed(c.id, selectedPeer);
-                  const limitedByPool = capped < 10 && current >= capped;
                   return (
                     <div role="tabpanel" className="mb-4 p-4" style={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "0 12px 12px 12px" }}>
                       <div className="mb-2">
@@ -598,7 +548,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                           <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
                           <span className="text-sm font-700 shrink-0">{c.label}</span>
                           <span className="ml-auto text-xs font-700 text-right shrink-0" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
-                            {current}점 {usesSharedPool && <span style={{ color: "var(--muted-foreground)", fontWeight: 400 }}>(전체 남음 {remainingUnallocated}점)</span>}
+                            {current}점
                           </span>
                         </div>
                         <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{c.desc}</p>
@@ -610,11 +560,6 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                         disabled={isSubmitted || busy}
                         onChange={(v) => handleScoreClick(c.id, v)}
                       />
-                      {limitedByPool && !isSubmitted && (
-                        <div className="text-xs mt-1.5 font-600" style={{ color: "#ef4444" }}>
-                          {c.label}의 공유 점수를 모두 배분했습니다. 이 동료에게는 최대 {capped}점까지 줄 수 있어요. 더 주려면 다른 동료의 같은 항목 점수를 낮춰주세요.
-                        </div>
-                      )}
                     </div>
                   );
                 })()}
@@ -644,11 +589,6 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
 
                 {!isSubmitted && (
                   <>
-                    {usesSharedPool && !allBalanced && (
-                      <div className="text-xs text-center mb-2" style={{ color: "var(--muted-foreground)" }}>
-                        모든 항목의 공유 점수를 남김없이 다 나눠줘야 제출할 수 있어요 — 위 배분 현황에서 남은 점수를 확인해주세요.
-                      </div>
-                    )}
                     <button
                       onClick={submitEval}
                       disabled={!allBalanced || busy}
