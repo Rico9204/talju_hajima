@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { dataRepository } from "../api";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 import { collaborationTrust } from "../lib/collaborationTrust";
@@ -31,6 +32,21 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
     ? members.filter((m) => m.name.toLowerCase().includes(memberSearchTrimmed))
     : members;
   const showMemberSearch = members.length > 6;
+
+  // 선택된 팀원이 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지 —
+  // "협업 신뢰도" 카드는 이 프로젝트 기준 점수만 보여주므로 별도로 조회한다.
+  // early return(팀원 0명) 이전에 둬야 훅 순서가 매 렌더 동일하게 유지된다.
+  const selectedUserId = (members.find((m) => m.id === selectedId) ?? members[0])?.userId ?? null;
+  const [participationStats, setParticipationStats] = useState<{ projectCount: number; collaboratorCount: number } | null>(null);
+  useEffect(() => {
+    setParticipationStats(null);
+    if (!selectedUserId) return;
+    let active = true;
+    dataRepository.getMemberParticipationStats(selectedUserId)
+      .then((stats) => { if (active) setParticipationStats(stats); })
+      .catch(() => { if (active) setParticipationStats(null); });
+    return () => { active = false; };
+  }, [selectedUserId]);
 
   if (members.length === 0) {
     return (
@@ -239,6 +255,18 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
                 협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
               </div>
+              {participationStats && (
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>참여 프로젝트</div>
+                    <strong className="text-sm">{participationStats.projectCount}회</strong>
+                  </div>
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>함께한 동료</div>
+                    <strong className="text-sm">{participationStats.collaboratorCount}명</strong>
+                  </div>
+                </div>
+              )}
               {sel.evalCount > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1.5">
