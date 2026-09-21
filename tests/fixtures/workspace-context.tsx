@@ -17,7 +17,7 @@ export function Fixture({ children }: { children: ReactNode }) {
   function guard() { if (errorMode) throw new Error("테스트: 저장소 연결 실패"); if (done) throw new Error("종료된 프로젝트"); }
   return <Context.Provider value={{
     project: { id: "fixture", name: "파일 버전관리 검증", status: done ? "done" : "active" }, files, folders, team: { members: [{name:"테스트 팀원",color:"#2563eb"}] },
-    currentMember: {userId:"fixture-user"}, isLeader: true,
+    currentMember: {userId:"fixture-user"}, isLeader: true, isManager: true,
     deleteWorkspaceFile: async(id:number)=>{ guard(); setFiles(prev=>prev.filter(f=>f.id!==id)); },
     deleteWorkspaceFolder: async(id:number)=>{ guard(); if(files.some(f=>f.folderId===id)) throw new Error("파일이 있는 폴더는 삭제할 수 없습니다."); setFolders(prev=>prev.filter(f=>f.id!==id)); },
     pendingWorkspaceCleanup: async()=>[], cleanupWorkspaceFiles: async()=>{},

@@ -26,6 +26,10 @@ import type {
   BoardCategory,
   BoardAttachment,
   BoardComment,
+  MyAdminApplication,
+  AdminApplicationInput,
+  AdminApplicationRecord,
+  AdminAccount,
 } from "./types";
 
 /**
@@ -59,7 +63,17 @@ export interface DataRepository {
   approveProject(projectId: string): Promise<void>;
   rejectProject(projectId: string): Promise<void>;
   kickMember(memberId: string): Promise<void>;
+  setViceLeader(memberId: string, enabled: boolean): Promise<void>;
   searchAdmins(query: string): Promise<AdminProfileSummary[]>;
+  isCurrentUserOperator(): Promise<boolean>;
+  getMyAdminApplication(): Promise<MyAdminApplication | null>;
+  submitAdminApplication(input: AdminApplicationInput): Promise<void>;
+  listAdminApplications(): Promise<AdminApplicationRecord[]>;
+  getAdminApplicationDocumentUrl(path: string): Promise<string>;
+  reviewAdminApplication(id: string, approve: boolean, note: string): Promise<void>;
+  cleanupAdminDocument(id: string, path: string): Promise<void>;
+  listAdminAccounts(): Promise<AdminAccount[]>;
+  revokeAdmin(userId: string): Promise<void>;
 
   getTeam(projectId: string, adminView?: boolean): Promise<TeamData>;
   updateMyProfile(patch: Partial<{

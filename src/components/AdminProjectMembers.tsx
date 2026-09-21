@@ -11,6 +11,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
   const [busyMemberId, setBusyMemberId] = useState<string | null>(null);
   const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
   const [kickError, setKickError] = useState<string | null>(null);
+  const [viceError, setViceError] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -27,6 +28,19 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
   useEffect(() => {
     refresh();
   }, [project.id]);
+
+  async function toggleViceLeader(memberId: string, enabled: boolean) {
+    setBusyMemberId(memberId);
+    setViceError(null);
+    try {
+      await dataRepository.setViceLeader(memberId, enabled);
+      await refresh();
+    } catch (err) {
+      setViceError(err instanceof Error ? err.message : "부팀장 지정을 변경하지 못했습니다.");
+    } finally {
+      setBusyMemberId(null);
+    }
+  }
 
   async function kick(memberId: string) {
     setBusyMemberId(memberId);
@@ -72,6 +86,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
 
         {loading && <div className="text-sm text-center py-8" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>}
         {error && <div className="text-sm text-center py-4" style={{ color: "#ef4444" }}>{error}</div>}
+        {viceError && <div role="alert" className="text-xs text-center pb-3" style={{ color: "#ef4444" }}>{viceError}</div>}
 
         {!loading && !error && team && (
           team.members.length === 0 ? (
@@ -95,6 +110,11 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
                     <div className="min-w-0">
                       <div className="text-sm font-700 truncate flex items-center gap-1.5">
                         {m.name}
+                        {m.isViceLeader && (
+                          <span className="text-xs font-600 px-1.5 py-0.5 shrink-0" style={{ background: "#3b82f618", color: "#3b82f6", borderRadius: "20px" }}>
+                            부팀장
+                          </span>
+                        )}
                         {m.isLeader && (
                           <span className="text-xs font-600 px-1.5 py-0.5 shrink-0" style={{ background: "#f59e0b18", color: "#f59e0b", borderRadius: "20px" }}>
                             팀장
@@ -107,14 +127,24 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
                     </div>
                   </div>
                   {!m.isLeader && project.status === "active" && project.approvalStatus === "approved" && (
-                    <button
-                      disabled={busyMemberId === m.id}
-                      onClick={() => { setKickError(null); setPendingKick({ id: m.id, name: m.name }); }}
-                      className="text-xs font-700 px-3 py-1.5 shrink-0 transition-all"
-                      style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
-                    >
-                      제외
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        disabled={busyMemberId === m.id}
+                        onClick={() => toggleViceLeader(m.id, !m.isViceLeader)}
+                        className="text-xs font-700 px-3 py-1.5 transition-all"
+                        style={{ background: "#3b82f618", color: "#3b82f6", borderRadius: "20px" }}
+                      >
+                        {m.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
+                      </button>
+                      <button
+                        disabled={busyMemberId === m.id}
+                        onClick={() => { setKickError(null); setPendingKick({ id: m.id, name: m.name }); }}
+                        className="text-xs font-700 px-3 py-1.5 transition-all"
+                        style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
+                      >
+                        제외
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}

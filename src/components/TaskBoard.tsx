@@ -40,7 +40,7 @@ function shortDue(due: string): string {
 
 export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}) {
   const {
-    project, team, isLeader, currentMember,
+    project, team, isManager, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
     toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
     toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile, markSectionViewed,
@@ -305,7 +305,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                       )}
 
                       {/* Move actions on hover */}
-                      {!locked && isLeader && (
+                      {!locked && isManager && (
                         <div
                           className="flex gap-1.5 mt-3 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap"
                           onClick={(e) => e.stopPropagation()}
@@ -336,7 +336,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                 </div>
 
                 {/* Quick add */}
-                {isLeader && !locked && (
+                {isManager && !locked && (
                   addingCol === col.id ? (
                     <div className="p-3 flex flex-col gap-2" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
                       <input
@@ -415,9 +415,9 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           columns={columns}
           priorityLabel={priorityLabel}
           currentMember={currentMember}
-          isLeader={isLeader}
+          isManager={isManager}
           isAssignee={!!currentMember && selectedTask.assigneeIds.includes(currentMember.id)}
-          canChangeStatus={isLeader}
+          canChangeStatus={isManager}
           locked={locked}
           onClose={() => setSelectedTaskId(null)}
           onUpdateDetails={(patch) => updateTaskDetails(selectedTask.id, patch)}

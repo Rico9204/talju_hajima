@@ -4,7 +4,7 @@ import PentagonChart from "./PentagonChart";
 import { collaborationTrust } from "../lib/collaborationTrust";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader, openMemberProfile } = useProject();
+  const { project, team, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile } = useProject();
   const { isAdmin } = useProjectManagement();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memberSearch, setMemberSearch] = useState("");
@@ -58,6 +58,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const canManage = isLeader || isAdmin;
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
   const canKick = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && sel.id !== currentMember?.id && !sel.isLeader;
+  // 부팀장 임명·해임은 팀장과 관리자만. 팀원 제외와 같은 조건(진행 중인 승인된 프로젝트)에서만 가능하다.
+  const canAppointVice = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && !sel.isLeader;
   const canFinish = canManage && project.status === "active";
 
   return (
@@ -114,6 +116,9 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
             >
               {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+              {m.isViceLeader && (
+                <span className="absolute -top-1.5 -right-1.5 text-xs" title="부팀장">🚩</span>
+              )}
               {m.isLeader && (
                 <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
               )}
@@ -159,6 +164,11 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-700">{sel.name}</h2>
+                  {sel.isViceLeader && (
+                    <span className="text-xs px-2 py-0.5 font-600" style={{ background: "#3b82f618", color: "#3b82f6", borderRadius: "20px" }}>
+                      🚩 부팀장
+                    </span>
+                  )}
                   {sel.isLeader && (
                     <span className="text-xs px-2 py-0.5 font-600" style={{ background: "#f59e0b18", color: "#f59e0b", borderRadius: "20px" }}>
                       🧭 팀장
@@ -202,6 +212,18 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                         🧭 위임
                       </button>
                     )}
+                    {canAppointVice && (
+                      <button
+                        disabled={busy}
+                        onClick={() => runAction(() => setViceLeader(sel.id, !sel.isViceLeader), () => {})}
+                        title={sel.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
+                        aria-label={sel.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#3b82f612", color: "#3b82f6", borderRadius: "20px" }}
+                      >
+                        {sel.isViceLeader ? "🚩 부팀장 해임" : "🚩 부팀장 임명"}
+                      </button>
+                    )}
                     {canKick && (
                       <button
                         onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
@@ -217,6 +239,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 </div>
               </div>
             </div>
+
+            {actionError && !pendingTransfer && !pendingKick && !pendingFinish && (
+              <p role="alert" className="mb-4 text-xs" style={{ color: "#ef4444" }}>{actionError}</p>
+            )}
 
             {/* Responsibilities */}
             <div className="mb-4">

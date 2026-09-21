@@ -11,7 +11,7 @@ interface Props {
   columns: { id: TaskStatus; label: string; color: string; bg: string }[];
   priorityLabel: Record<TaskPriority, { label: string; color: string }>;
   currentMember: Member | null;
-  isLeader: boolean;
+  isManager: boolean;
   isAssignee: boolean;
   canChangeStatus: boolean;
   locked: boolean;
@@ -33,7 +33,7 @@ export default function TaskDetailPanel({
   columns,
   priorityLabel,
   currentMember,
-  isLeader,
+  isManager,
   isAssignee,
   canChangeStatus,
   locked,
@@ -58,7 +58,7 @@ export default function TaskDetailPanel({
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<number | null>(null);
 
   const doneCount = task.checklist.filter((c) => c.done).length;
-  const canEditFields = isLeader && !locked;
+  const canEditFields = isManager && !locked;
   const showAssigneeSearch = members.length > 8;
   const assigneeSearchTrimmed = assigneeSearch.trim().toLowerCase();
   const visibleAssigneeMembers = assigneeSearchTrimmed
@@ -276,16 +276,16 @@ export default function TaskDetailPanel({
               <div className="flex flex-col gap-1.5">
                 <label
                   className="flex items-center gap-2 text-xs px-2.5 py-1.5"
-                  style={{ background: "var(--muted)", borderRadius: "8px", opacity: isLeader && !locked ? 1 : 0.6 }}
+                  style={{ background: "var(--muted)", borderRadius: "8px", opacity: isManager && !locked ? 1 : 0.6 }}
                 >
                   <input
                     type="checkbox"
                     checked={!!task.teamScheduleEventId}
-                    disabled={!isLeader || locked}
+                    disabled={!isManager || locked}
                     onChange={(e) => onToggleTeamSchedule(e.target.checked)}
                   />
                   팀 일정에 추가
-                  {!isLeader && <span className="ml-auto" style={{ color: "var(--muted-foreground)" }}>팀장만 가능</span>}
+                  {!isManager && <span className="ml-auto" style={{ color: "var(--muted-foreground)" }}>팀장·부팀장만 가능</span>}
                 </label>
                 <label
                   className="flex items-center gap-2 text-xs px-2.5 py-1.5"
@@ -484,7 +484,7 @@ export default function TaskDetailPanel({
           </div>
         </div>
 
-        {isLeader && !locked && (
+        {isManager && !locked && (
           <div className="px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
             <button
               onClick={onDelete}
