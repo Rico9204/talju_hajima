@@ -48,7 +48,7 @@ export default function WorkspaceComments({ file }: { file: WorkspaceFile }) {
             })}
             {!locked && <button disabled={busy} aria-label={`${name} 댓글에 이모티콘 반응`} aria-expanded={picker === comment.id} className={buttonClass} style={{ borderColor: "var(--border)" }} onClick={() => setPicker(picker === comment.id ? null : comment.id)}>☺ 반응</button>}
           </div>
-          {picker === comment.id && !locked && <div className="flex flex-wrap gap-1 mt-2 p-1 rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--card)" }}>{emojis.map((emoji) => <button key={emoji} disabled={busy} title={`${emoji} 반응`} className="w-8 h-8 rounded-lg hover:bg-[var(--secondary)]" onClick={() => void run(async () => { await setFileCommentReaction(comment.id, emoji, !reactions.some((r) => r.emoji === emoji && r.memberId === currentMember?.id)); setPicker(null); })}>{emoji}</button>)}</div>}
+          {picker === comment.id && !locked && <div className="flex flex-wrap gap-1 mt-2 p-1 rounded-xl border" style={{ borderColor: "var(--border)", background: "var(--card-glass)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>{emojis.map((emoji) => <button key={emoji} disabled={busy} title={`${emoji} 반응`} className="w-8 h-8 rounded-lg hover:bg-[var(--secondary)]" onClick={() => void run(async () => { await setFileCommentReaction(comment.id, emoji, !reactions.some((r) => r.emoji === emoji && r.memberId === currentMember?.id)); setPicker(null); })}>{emoji}</button>)}</div>}
         </div>
       </div>;
     })}

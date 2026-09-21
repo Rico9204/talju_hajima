@@ -141,7 +141,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
       </div>
 
       {/* Detail */}
-      <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+      <div className="p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           {/* Left: profile */}
           <div className="col-span-1 md:col-span-2">
@@ -303,7 +303,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
       {pendingTransfer && (
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#f59e0b18", borderRadius: "12px" }}>🧭</div>
             <h3 className="font-700 mb-1">팀장 권한을 위임할까요?</h3>
             <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
@@ -332,7 +332,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
       {pendingKick && (
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>✕</div>
             <h3 className="font-700 mb-1">팀에서 제외할까요?</h3>
             <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
@@ -362,7 +362,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
       {pendingFinish && (
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#22c55e18", borderRadius: "12px" }}>✓</div>
             <h3 className="font-700 mb-1">프로젝트를 종료할까요?</h3>
             <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>

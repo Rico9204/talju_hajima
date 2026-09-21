@@ -5,7 +5,22 @@ import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import Avatar from "./Avatar";
+import AvatarFrame from "./AvatarFrame";
+import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
+import { useMyProfileTheme } from "../lib/useMyProfileTheme";
+import type { Tier } from "../lib/achievements";
+
+// Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
+// same tier medal shown on the 업적 page and profile card, just shrunk to
+// fit. No circular frame — matches the profile card's tier icon treatment.
+function TierMedal({ tier }: { tier: Tier }) {
+  return (
+    <span title={tier.label} className="flex items-center justify-center w-full h-full">
+      <MedalIcon shape={tier.shape} colors={tier.colors} size={18} />
+    </span>
+  );
+}
 
 const navItems: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -24,6 +39,7 @@ const navItems: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "schedule", label: "일정", icon: "▤" },
   { id: "workspace", label: "워크스페이스", icon: "⬡" },
   { id: "evaluation", label: "동료 평가", icon: "★" },
+  { id: "achievements", label: "업적", icon: "◈" },
 ];
 
 const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
@@ -56,6 +72,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
+  const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const logoCardRef = useRef<HTMLDivElement>(null);
 
@@ -108,14 +125,13 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     <button
       onClick={() => setMobileOpen(true)}
       className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
-      style={{ background: "var(--card)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)" }}
+      style={{ background: "var(--card-glass)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
       aria-label="메뉴 열기"
     >
       ☰
     </button>
     <aside
-      className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto`}
-      style={{ background: "var(--background)" }}
+      className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto bg-[var(--background)] md:bg-transparent`}
     >
       <button
         onClick={() => setMobileOpen(false)}
@@ -130,9 +146,17 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         ref={logoCardRef}
         className="px-4 py-4 mb-5 relative"
         style={{
-          background: "var(--card)",
+          background: "var(--card-glass)",
           borderRadius: "var(--radius)",
           boxShadow: "var(--shadow-card)",
+          backdropFilter: "var(--panel-blur)",
+          WebkitBackdropFilter: "var(--panel-blur)",
+          // backdrop-filter creates a new stacking context, which would
+          // otherwise trap the z-20 project-switcher dropdown below the
+          // Nav card right after it (that card is its own stacking context
+          // too, and later in DOM order). An explicit z-index here lifts
+          // this whole card — dropdown included — above it.
+          zIndex: 20,
         }}
       >
         <div className="flex items-center justify-between gap-2">
@@ -191,7 +215,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         {notifOpen && notifPos && (
           <div
             className="w-72 max-w-[85vw] p-1.5 z-30"
-            style={{ position: "fixed", top: notifPos.top, left: notifPos.left, background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", maxHeight: 360, overflowY: "auto" }}
+            style={{ position: "fixed", top: notifPos.top, left: notifPos.left, background: "rgba(255, 255, 255, 0.94)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", backdropFilter: "blur(20px) saturate(1.7)", WebkitBackdropFilter: "blur(20px) saturate(1.7)", maxHeight: 360, overflowY: "auto" }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
               알림
@@ -299,7 +323,16 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         {switcherOpen && (
           <div
             className="absolute left-4 right-4 top-full mt-1.5 p-1.5 z-20"
-            style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}
+            style={{
+              // A floating menu needs to read as clearly separate from
+              // whatever's behind it, so it stays near-opaque regardless
+              // of the account's card-transparency setting.
+              background: "rgba(255, 255, 255, 0.94)",
+              borderRadius: "12px",
+              boxShadow: "0 16px 40px rgba(15,18,53,0.18)",
+              backdropFilter: "blur(20px) saturate(1.7)",
+              WebkitBackdropFilter: "blur(20px) saturate(1.7)",
+            }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
               내 프로젝트 전환
@@ -390,9 +423,11 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
       <nav
         className="flex-1 px-3 py-3"
         style={{
-          background: "var(--card)",
+          background: "var(--card-glass)",
           borderRadius: "var(--radius)",
           boxShadow: "var(--shadow-card)",
+          backdropFilter: "var(--panel-blur)",
+          WebkitBackdropFilter: "var(--panel-blur)",
         }}
       >
         <div className="text-xs font-600 uppercase tracking-widest px-2 mb-3" style={{ color: "var(--muted-foreground)" }}>
@@ -443,14 +478,18 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
       <div
         className="mt-4 px-4 py-3"
         style={{
-          background: "var(--card)",
+          background: "var(--card-glass)",
           borderRadius: "var(--radius)",
           boxShadow: "var(--shadow-card)",
+          backdropFilter: "var(--panel-blur)",
+          WebkitBackdropFilter: "var(--panel-blur)",
         }}
       >
         <div className="flex items-center gap-2.5">
           <button type="button" onClick={openProfile} className="shrink-0" title="프로필 설정">
-            <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} />
+            {avatarFrame
+              ? <AvatarFrame kind={avatarFrame} size={36} c1={cardC1} c2={cardC2}><Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} /></AvatarFrame>
+              : <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} />}
           </button>
           <button type="button" onClick={openProfile} className="flex-1 min-w-0 text-left">
             <div className="text-sm font-700">{myName}</div>
@@ -500,7 +539,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     )}
     {pendingDelete && (
       <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-        <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+        <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="w-10 h-10 flex items-center justify-center mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6" />

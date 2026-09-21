@@ -225,7 +225,7 @@ export default function TeamChat({
 
       <div
         className="grid grid-cols-1 md:grid-cols-5 gap-0 overflow-hidden flex-1 min-h-0 md:flex-none md:h-[560px]"
-        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
       >
         {/* Channel list */}
         <div
@@ -444,10 +444,12 @@ export default function TeamChat({
                           onClick={() => onOpenFile?.(fileRef.id, fileRef.folderId)}
                           className="flex items-center gap-2.5 px-3 py-2.5 max-w-none text-left transition-all"
                           style={{
-                            background: "var(--card)",
+                            background: "var(--card-glass)",
                             border: "1.5px solid var(--border)",
                             borderRadius: "12px",
                             marginTop: m.text ? 6 : 0,
+                            backdropFilter: "var(--panel-blur)",
+                            WebkitBackdropFilter: "var(--panel-blur)",
                           }}
                         >
                           <span
@@ -473,7 +475,7 @@ export default function TeamChat({
                         😊
                       </button>
                       {reactionPickerMessageId === m.id && (
-                        <div className={`absolute top-0 ${mine ? "right-full mr-1" : "left-full ml-1"} flex items-center gap-0.5 p-1`} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                        <div className={`absolute top-0 ${mine ? "right-full mr-1" : "left-full ml-1"} flex items-center gap-0.5 p-1`} style={{ background: "var(--card-glass)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
                           {chatEmojis.map((emoji) => (
                             <button
                               key={emoji}
@@ -558,7 +560,7 @@ export default function TeamChat({
 
           <div className="shrink-0 relative" style={{ borderTop: "1px solid var(--border)" }}>
             {emojiPickerOpen && (
-              <div className="absolute bottom-full left-14 mb-2 flex items-center gap-1 p-1.5 z-20" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}>
+              <div className="absolute bottom-full left-14 mb-2 flex items-center gap-1 p-1.5 z-20" style={{ background: "var(--card-glass)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
                 {chatEmojis.map((emoji) => (
                   <button key={emoji} onClick={() => appendEmoji(emoji)} className="w-8 h-8 text-base transition-transform hover:scale-110" title={`${emoji} 입력`}>
                     {emoji}
@@ -569,7 +571,7 @@ export default function TeamChat({
             {pickerOpen && (
               <div
                 className="absolute bottom-full left-4 right-4 mb-2 max-h-64 overflow-y-auto p-1.5 z-20"
-                style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}
+                style={{ background: "var(--card-glass)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
               >
                 <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
                   워크스페이스 파일 언급하기

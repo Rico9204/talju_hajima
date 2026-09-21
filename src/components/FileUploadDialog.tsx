@@ -49,7 +49,7 @@ export default function FileUploadDialog({ file, destination, initialTags = [], 
   }
   return createPortal(<dialog ref={dialog} aria-labelledby="upload-dialog-title" onCancel={(e) => { e.preventDefault(); if (!pending.current) onCancel(); }}
     className="m-auto w-[min(640px,calc(100vw-32px))] max-h-[90dvh] overflow-y-auto rounded-2xl p-0 border-0 shadow-xl backdrop:bg-black/40"
-    style={{ background: "var(--card)", color: "var(--foreground)" }}>
+    style={{ background: "var(--card-glass)", color: "var(--foreground)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
     <form className="p-6 space-y-4" onSubmit={(e) => { e.preventDefault(); void confirm(); }}>
       <h2 id="upload-dialog-title" className="text-xl font-700">파일을 업로드하시겠습니까?</h2>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>{destination}</p>

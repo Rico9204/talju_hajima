@@ -258,7 +258,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleAddFolder(); }}
                 placeholder="폴더 이름 (예: 발표 자료)"
                 className="flex-1 text-sm px-3 py-2 border outline-none"
-                style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
+                style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
               />
               <button
                 onClick={handleAddFolder}
@@ -291,7 +291,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   key={f.id}
                   onClick={() => openFolder(f.id)}
                   className="flex items-center gap-3 p-4 text-left transition-all"
-                  style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
+                  style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
                 >
                   <div
                     className="w-10 h-10 flex items-center justify-center text-lg shrink-0"
@@ -354,7 +354,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       )}
 
       <label className="block text-sm mb-4">파일 검색
-        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full mt-2 p-3 rounded-xl border" style={{ background: "var(--card)", borderColor: "var(--border)" }} />
+        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full mt-2 p-3 rounded-xl border" style={{ background: "var(--surface-opaque)", borderColor: "var(--border)" }} />
         {searchQuery.trim() && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>검색 결과 {filtered.length}개 · 본문은 현재 버전 기준</span>}
       </label>
       {/* Filter */}
@@ -506,7 +506,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         {/* Version panel */}
         <div className="col-span-1 md:col-span-2">
           {selFile ? (
-            <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
+            <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
               <div className="flex items-start justify-between gap-3 mb-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="text-xs font-700 px-2 py-0.5" style={{ background: typeColors[selFile.type]?.bg, color: typeColors[selFile.type]?.color, borderRadius: "3px" }}>

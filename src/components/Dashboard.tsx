@@ -55,7 +55,7 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     stats: [
       { label: "완료 과제", value: "16", sub: "전체 16개 중", icon: "✓", color: "#22c55e" },
       { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "#f59e0b" },
-      { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#7b82a8" },
+      { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#454b6e" },
       { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "#2563eb" },
     ],
     phases: [
@@ -165,11 +165,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       : data.banner;
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto">
-      <MyEvaluationSummary completedOnly />
+    <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
       {/* Hero banner */}
       <div
-        className="relative mb-6 overflow-hidden"
+        className="relative mb-8 overflow-hidden"
         style={{
           background: isRejected
             ? "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #991b1b 100%)"
@@ -178,8 +177,8 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               : isDone
                 ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
                 : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)",
-          borderRadius: "calc(var(--radius) + 4px)",
-          padding: "32px 36px",
+          borderRadius: "calc(var(--radius) + 8px)",
+          padding: "44px 48px",
           boxShadow: isDone ? "0 8px 32px rgba(22,163,74,0.3)" : "0 8px 32px rgba(37,99,235,0.3)",
         }}
       >
@@ -200,10 +199,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           >
             {project.period}
           </div>
-          <h1 className="text-2xl font-700 mb-1" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
+          <h1 className="text-3xl font-700 mb-2" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
             안녕하세요, {currentMember?.name ?? "참여자"}님
           </h1>
-          {bannerText && <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{bannerText}</p>}
+          {bannerText && <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "15px" }}>{bannerText}</p>}
 
           {!isPending && !isRejected && (
             <div className="flex gap-3 mt-4">
@@ -227,10 +226,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 mb-8">
         {data.stats.map((s) => (
-          <div key={s.label} className="p-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <div className="w-9 h-9 flex items-center justify-center text-base mb-3" style={{ background: `${s.color}18`, borderRadius: "10px", color: s.color }}>
+          <div key={s.label} className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: `${s.color}18`, borderRadius: "12px", color: s.color }}>
               {s.icon}
             </div>
             <div className="text-2xl font-800 leading-none mb-1" style={{ fontFamily: "var(--font-outfit)", color: "var(--foreground)" }}>
@@ -242,9 +241,9 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 md:items-start gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-5 md:items-start gap-6">
         {/* Progress */}
-        <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-base font-700">현황판</h2>
@@ -261,7 +260,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
           <div className="flex flex-col gap-4">
             {([
-              { status: "todo", label: "예정", color: "#7b82a8" },
+              { status: "todo", label: "예정", color: "#454b6e" },
               { status: "inprogress", label: "진행", color: "#2563eb" },
               { status: "review", label: "검토", color: "#f59e0b" },
             ] as const).map((column) => {
@@ -307,9 +306,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         </div>
 
         {/* Right column */}
-        <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-6">
+          <MyEvaluationSummary completedOnly />
           {/* Deadlines */}
-          <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>
             {showDeadlineSearch && (
               <input
@@ -358,7 +358,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           </div>
 
           {/* Recent activity */}
-          <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <div className="p-5 flex-1" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
             {showActivitySearch && (
               <input

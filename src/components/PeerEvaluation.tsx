@@ -369,14 +369,14 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
       <div
         className="flex items-center gap-3 px-4 py-3 mb-5 text-sm"
         style={{
-          background: isDone ? "#22c55e12" : midtermSkipped ? "#7b82a812" : "#2563eb12",
+          background: isDone ? "#22c55e12" : midtermSkipped ? "#454b6e12" : "#2563eb12",
           borderRadius: "12px",
-          borderLeft: `3px solid ${isDone ? "#22c55e" : midtermSkipped ? "#7b82a8" : "var(--primary)"}`,
+          borderLeft: `3px solid ${isDone ? "#22c55e" : midtermSkipped ? "#454b6e" : "var(--primary)"}`,
         }}
       >
         <div
           className="w-7 h-7 flex items-center justify-center text-base shrink-0"
-          style={{ background: isDone ? "#22c55e18" : midtermSkipped ? "#7b82a818" : "#2563eb18", borderRadius: "8px", color: isDone ? "#22c55e" : midtermSkipped ? "#7b82a8" : "var(--primary)" }}
+          style={{ background: isDone ? "#22c55e18" : midtermSkipped ? "#454b6e18" : "#2563eb18", borderRadius: "8px", color: isDone ? "#22c55e" : midtermSkipped ? "#454b6e" : "var(--primary)" }}
         >
           {isDone ? "★" : midtermSkipped ? "◷" : "◎"}
         </div>
@@ -437,7 +437,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
       {data && !midtermSkipped && peers.length > 0 && (
         <>
           {/* Shared-pool allocation status per criterion */}
-          <div className="px-5 py-4 mb-5" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "var(--shadow-card)" }}>
+          <div className="px-5 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "12px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="text-xs font-600 mb-3" style={{ color: "var(--muted-foreground)" }}>
               항목별 공유 점수 배분 현황 · 동료 {peers.length}명 × {POOL_PER_PEER}점 = 총 {pool}점
             </div>
@@ -506,7 +506,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
 
             {/* Eval form */}
             <div className="col-span-1 md:col-span-3">
-              <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+              <div className="p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
                 {/* Peer header */}
                 <div className="flex items-center gap-3 mb-5 pb-4" style={{ borderBottom: "2px solid var(--muted)" }}>
                   <div className="w-11 h-11 rounded-full flex items-center justify-center font-700 text-lg shrink-0 overflow-hidden" style={{ background: peers[selectedPeer]?.avatarUrl ? "var(--card)" : `${peers[selectedPeer]?.color}18`, color: peers[selectedPeer]?.color }}>

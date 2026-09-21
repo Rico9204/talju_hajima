@@ -87,7 +87,7 @@ export default function TaskDetailPanel({
       <div onClick={onClose} className="fixed inset-0 z-40" style={{ background: "rgba(15,23,42,0.4)" }} />
       <div
         className="fixed top-0 right-0 h-full z-50 flex flex-col"
-        style={{ width: "420px", maxWidth: "92vw", background: "var(--card)", boxShadow: "-8px 0 24px rgba(0,0,0,0.16)" }}
+        style={{ width: "420px", maxWidth: "92vw", background: "var(--card-glass)", boxShadow: "-8px 0 24px rgba(0,0,0,0.16)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
           <span className="text-xs font-700 uppercase tracking-widest" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
@@ -402,7 +402,7 @@ export default function TaskDetailPanel({
                         😊
                       </button>
                       {reactionPickerCommentId === c.id && (
-                        <div className="absolute top-0 right-full mr-1 flex items-center gap-0.5 p-1" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                        <div className="absolute top-0 right-full mr-1 flex items-center gap-0.5 p-1" style={{ background: "var(--card-glass)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
                           {commentEmojis.map((emoji) => (
                             <button key={emoji} onClick={() => { onToggleCommentReaction(c.id, emoji); setReactionPickerCommentId(null); }} className="w-7 h-7 text-sm transition-transform hover:scale-110" title={`${emoji} 반응`}>
                               {emoji}
@@ -452,7 +452,7 @@ export default function TaskDetailPanel({
                   😊
                 </button>
                 {commentEmojiPickerOpen && (
-                  <div className="absolute bottom-full left-0 mb-1 flex items-center gap-0.5 p-1 z-20" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                  <div className="absolute bottom-full left-0 mb-1 flex items-center gap-0.5 p-1 z-20" style={{ background: "var(--card-glass)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
                     {commentEmojis.map((emoji) => (
                       <button key={emoji} onClick={() => { setCommentDraft((draft) => `${draft}${emoji}`); setCommentEmojiPickerOpen(false); }} className="w-7 h-7 text-sm transition-transform hover:scale-110" title={emoji}>
                         {emoji}

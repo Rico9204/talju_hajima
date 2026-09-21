@@ -7,11 +7,11 @@ export function memberInfo(members: Member[], id: string): { name: string; avata
   const m = members.find((m) => m.id === id);
   return m
     ? { name: m.name, avatar: m.avatar, avatarUrl: m.avatarUrl, color: m.color }
-    : { name: "알 수 없음", avatar: "?", avatarUrl: null, color: "#6b7280" };
+    : { name: "알 수 없음", avatar: "?", avatarUrl: null, color: "#454b6e" };
 }
 
 const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
-  { id: "todo", label: "예정", color: "#7b82a8", bg: "#7b82a818" },
+  { id: "todo", label: "예정", color: "#454b6e", bg: "#454b6e18" },
   { id: "inprogress", label: "진행 중", color: "#2563eb", bg: "#2563eb18" },
   { id: "review", label: "검토 중", color: "#f59e0b", bg: "#f59e0b18" },
   { id: "done", label: "완료", color: "#22c55e", bg: "#22c55e18" },
@@ -219,10 +219,12 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                       onClick={() => setSelectedTaskId(task.id)}
                       className="p-4 group transition-all cursor-pointer"
                       style={{
-                        background: "var(--card)",
+                        background: "var(--card-glass)",
                         borderRadius: "var(--radius)",
                         boxShadow: "var(--shadow-card)",
                         border: urgent ? "1.5px solid #ef4444" : "1.5px solid transparent",
+                        backdropFilter: "var(--panel-blur)",
+                        WebkitBackdropFilter: "var(--panel-blur)",
                       }}
                     >
                       {/* Priority + tags */}
@@ -336,7 +338,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                 {/* Quick add */}
                 {isLeader && !locked && (
                   addingCol === col.id ? (
-                    <div className="p-3 flex flex-col gap-2" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+                    <div className="p-3 flex flex-col gap-2" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
                       <input
                         autoFocus
                         value={newTitle}

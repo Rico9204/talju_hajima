@@ -50,7 +50,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
     >
       <div
         className="w-full max-w-lg max-h-[80vh] overflow-y-auto p-6"
-        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}
+        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 mb-4">
@@ -131,7 +131,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
         >
           <div
             className="w-96 p-6"
-            style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}
+            style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="font-700 mb-1">팀에서 제외할까요?</h3>

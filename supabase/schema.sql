@@ -33,6 +33,17 @@ create table if not exists profiles (
   -- Custom banner image (stored in the "avatars" bucket, see storage
   -- policies below); takes priority over banner_color when set.
   banner_image_url text,
+  -- App-wide background customization, applied behind the glass UI once
+  -- logged in. Priority: background_image_url > background_gradient >
+  -- background_color > the app default. Image reuses the "avatars" bucket.
+  background_color text,
+  background_gradient text,
+  background_image_url text,
+  -- Glass-card intensity for the same background: opacity of the card fill
+  -- (0-100, % white) and backdrop blur radius in px. Null falls back to the
+  -- app defaults (66 / 18) — see --glass-alpha/--panel-blur-px in index.css.
+  glass_opacity integer,
+  glass_blur integer,
   -- Profile link chips (GitHub, Instagram, portfolio, ...) as a JSON array
   -- of { id, type, url, label } — see src/lib/links.ts for the shape and
   -- the auto-detect-from-URL logic. jsonb so new platform types never need

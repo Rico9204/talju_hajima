@@ -78,7 +78,7 @@ export default function CreateProjectModal({
     >
       <div
         className="w-[26rem] max-w-[92vw] p-6"
-        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}
+        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div

@@ -408,7 +408,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Calendar */}
-        <div className="col-span-1 md:col-span-3 p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="col-span-1 md:col-span-3 p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <button
@@ -580,7 +580,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
         {/* Agenda + add form */}
         <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
           {!locked && viewingEvent && (
-            <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+            <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-700">일정 정보</h2>
                 <button
@@ -607,7 +607,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
             </div>
           )}
           {!locked && !viewingEvent && (
-            <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+            <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-700">{editingId !== null ? "일정 수정" : "일정 추가"}</h2>
                 {editingId !== null && (
@@ -757,7 +757,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
             </div>
           )}
 
-          <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <div className="p-5 flex-1" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-700">{selectedDay ? `${selectedDay} 일정` : "전체 일정"}</h2>
               <div className="flex gap-1.5">

@@ -54,6 +54,11 @@ export interface Member {
   org: string | null;
   bannerColor: string | null;
   bannerImageUrl: string | null;
+  backgroundColor: string | null;
+  backgroundGradient: string | null;
+  backgroundImageUrl: string | null;
+  glassOpacity: number | null;
+  glassBlur: number | null;
   links: ProfileLink[];
   tasks: { done: number; total: number };
   activities: number;
