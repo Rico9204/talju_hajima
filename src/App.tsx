@@ -49,16 +49,12 @@ function Layout() {
 
   return (
     <div className="relative h-full w-full overflow-hidden" style={glassStyle}>
-      {/* The background sits on its own layer, scaled up and blurred by the
-          same slider that controls card blur, so the account's "blur"
-          setting softens the whole backdrop — not just what's directly
-          behind a glass card. Scaling it up keeps the blur from showing a
-          sharp, unblurred edge at the container boundary. */}
+      {/* Filter only this stationary background layer. Cards reuse it through
+          transparency; scaling keeps the blurred edges outside the viewport. */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           ...backgroundStyle,
-          filter: "blur(var(--panel-blur-px)) saturate(1.15)",
           transform: "scale(1.1) translateZ(0)",
           // A viewport-sized blurred+scaled layer is prone to Chromium's
           // tile-based rasterization seams (thin flickering lines at tile

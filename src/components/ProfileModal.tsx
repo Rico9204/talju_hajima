@@ -347,9 +347,9 @@ export default function ProfileModal() {
   return (
     <>
       {viewedMember && (
-        <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4 z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closeMemberProfile}>
+        <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4 z-50" style={{ background: "rgba(15,18,53,0.42)" }} onClick={closeMemberProfile}>
           {/* Wrapper exists so TierFlame can sit outside the card's overflow-hidden clip. */}
-          <div className="relative isolate w-[820px] max-w-full my-auto" onClick={(e) => e.stopPropagation()}>
+          <div className={`relative isolate w-[820px] max-w-full my-auto${profileEditOpen ? " profile-edit-static" : ""}`} onClick={(e) => e.stopPropagation()}>
           {isSelfProfile && cardHasEffects && tierCardAnimation && <div aria-hidden="true" className="tier-card-glow" style={{ ...tierCardStyle, boxShadow: "0 0 34px 6px var(--tier-glow)", animation: tierCardAnimation }} />}
           {isSelfProfile && profileTheme.flame && (profileTheme.flameColors || myTier) && <TierFlame tierId={profileTheme.flameColors ? "platinum" : myTier?.id ?? ""} colors={profileTheme.flameColors} scale={profileTheme.flameScale} />}
           {isSelfProfile && profileTheme.decoration && <CardDecoration kind={profileTheme.decoration} layer="back" />}

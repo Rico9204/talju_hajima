@@ -56,13 +56,11 @@ export default function Home() {
 
   return (
     <div className="relative h-full w-full overflow-hidden" style={glassStyle as CSSProperties}>
-      {/* The background sits on its own layer, scaled up and blurred by the
-          same slider that controls card blur — matches Layout in App.tsx. */}
+      {/* Single filtered background layer, shared with Layout in App.tsx. */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           ...backgroundStyle,
-          filter: "blur(var(--panel-blur-px)) saturate(1.15)",
           transform: "scale(1.1) translateZ(0)",
           // Same tile-rasterization-seam fix as App.tsx's Layout — see the
           // comment there (deliberately no will-change: transform; it broke

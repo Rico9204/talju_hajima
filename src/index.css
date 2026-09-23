@@ -549,6 +549,20 @@
     0 0 18px 6px var(--flame-2),
     0 0 32px 10px var(--flame-3);
 }
+/* Keep theme colors/decorations visible while editing, but stop continuous
+   animation. Large filtered flames and travelling particles are view-only. */
+.profile-edit-static *,
+.profile-edit-static *::before,
+.profile-edit-static *::after {
+  animation-play-state: paused !important;
+}
+.profile-edit-static .tier-flame,
+.profile-edit-static .tier-particles,
+.profile-edit-static .edge-aura,
+.profile-edit-static .tier-card-shine {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tier-card-ring::before { animation: none; }
   .tier-particles { display: none; }
