@@ -39,7 +39,7 @@ export default function Home() {
   const navigate = useNavigate();
   const myName = currentMember?.name ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
-  const { backgroundStyle, glassStyle, lineSafeStyle } = useAccountBackground();
+  const { backgroundStyle, glassStyle, hasCustomBackground, lineSafeStyle } = useAccountBackground();
   const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -72,19 +72,24 @@ export default function Home() {
   return (
     <div className="relative h-full w-full overflow-hidden" style={glassStyle as CSSProperties}>
       {/* The background sits on its own layer, scaled up and blurred by the
-          same slider that controls card blur — matches Layout in App.tsx. */}
+          same slider that controls card blur — matches Layout in App.tsx.
+          Skipped without a custom background — see the comment there. */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{
-          ...backgroundStyle,
-          filter: "blur(var(--panel-blur-px)) saturate(1.15)",
-          transform: "scale(1.1) translateZ(0)",
-          // Same tile-rasterization-seam fix as App.tsx's Layout — see the
-          // comment there (deliberately no will-change: transform; it broke
-          // backdrop-filter rendering on the fixed notification popup).
-          backfaceVisibility: "hidden",
-          WebkitBackfaceVisibility: "hidden",
-        }}
+        style={
+          hasCustomBackground
+            ? {
+                ...backgroundStyle,
+                filter: "blur(var(--panel-blur-px)) saturate(1.15)",
+                transform: "scale(1.1) translateZ(0)",
+                // Same tile-rasterization-seam fix as App.tsx's Layout — see the
+                // comment there (deliberately no will-change: transform; it broke
+                // backdrop-filter rendering on the fixed notification popup).
+                backfaceVisibility: "hidden",
+                WebkitBackfaceVisibility: "hidden",
+              }
+            : backgroundStyle
+        }
       />
       <div className="relative flex h-full w-full overflow-hidden">
       <button

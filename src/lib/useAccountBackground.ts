@@ -43,7 +43,12 @@ export function useAccountBackground() {
     // and ignore --glass-alpha/--panel-blur-px above. Re-declare them here
     // so the account's sliders actually reach every glass card.
     "--card-glass": "rgba(255, 255, 255, var(--glass-alpha))",
-    "--panel-blur": "blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05)",
+    // Blurring a flat single-color backdrop is visually a no-op — it just
+    // burns a backdrop-filter compositing pass on every one of the ~50 glass
+    // surfaces for every account that hasn't picked a custom background.
+    // Only turn the filter on when there's an actual image/gradient/color
+    // behind it for the frosting to be visible.
+    "--panel-blur": hasCustomBackground ? "blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05)" : "none",
   } as CSSProperties;
 
   // Same idea for borders (dashed empty-state boxes, divider lines) — these
