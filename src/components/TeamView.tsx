@@ -6,7 +6,7 @@ import { collaborationTrust } from "../lib/collaborationTrust";
 import { useAccountBackground } from "../lib/useAccountBackground";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile } = useProject();
+  const { project, team, tasks, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile } = useProject();
   const { isAdmin } = useProjectManagement();
   const { lineSafeStyle } = useAccountBackground();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -73,6 +73,11 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   }
 
   const sel = members.find((m) => m.id === selectedId) ?? members[0];
+  // sel.tasks.{done,total} are dead DB columns (default 0, never updated) —
+  // compute the real counts from this project's actual tasks instead.
+  const selTasks = tasks.filter((t) => t.assigneeIds.includes(sel.id));
+  const selTasksDone = selTasks.filter((t) => t.status === "done").length;
+  const selTasksTotal = selTasks.length;
   const canManage = isLeader || isAdmin;
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
   const canKick = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && sel.id !== currentMember?.id && !sel.isLeader;
@@ -322,9 +327,9 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
           <div className="col-span-1 md:col-span-3">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {[
-                { label: "완료 과제", value: `${sel.tasks.done}/${sel.tasks.total}`, icon: "✓", color: "#22c55e" },
-                { label: "활동 횟수", value: `${sel.activities}`, icon: "◷", color: "var(--primary)" },
-                { label: "완료율", value: `${sel.tasks.total ? Math.round((sel.tasks.done / sel.tasks.total) * 100) : 0}%`, icon: "⬤", color: sel.color },
+                { label: "완료 과제", value: `${selTasksDone}/${selTasksTotal}`, icon: "✓", color: "#22c55e" },
+                { label: "함께한 동료", value: `${participationStats?.collaboratorCount ?? 0}명`, icon: "◷", color: "var(--primary)" },
+                { label: "완료율", value: `${selTasksTotal ? Math.round((selTasksDone / selTasksTotal) * 100) : 0}%`, icon: "⬤", color: sel.color },
               ].map((st) => (
                 <div key={st.label} className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
                   <div className="text-xl font-800 mb-0.5" style={{ color: st.color, fontFamily: "var(--font-outfit)" }}>{st.value}</div>
