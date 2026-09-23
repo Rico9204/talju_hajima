@@ -3,6 +3,7 @@ import { dataRepository } from "../api";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
+import { isAnimatedGif } from "../lib/isAnimatedGif";
 import { collaborationTrust } from "../lib/collaborationTrust";
 import { detectLink } from "../lib/links";
 import Avatar from "./Avatar";
@@ -208,9 +209,15 @@ export default function ProfileModal() {
     setBannerCleared(false);
   }
 
-  function handleBackgroundPick(e: ChangeEvent<HTMLInputElement>) {
+  async function handleBackgroundPick(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) return;
+    if (await isAnimatedGif(file)) {
+      setProfileError("애니메이션 GIF는 배경으로 사용할 수 없어요. 정지 이미지를 선택해 주세요.");
+      e.target.value = "";
+      return;
+    }
+    setProfileError(null);
     setBackgroundImageFile(file);
     setBackgroundPreview(URL.createObjectURL(file));
     setBackgroundCleared(false);
