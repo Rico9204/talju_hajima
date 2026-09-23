@@ -1,23 +1,31 @@
-import type { CSSProperties } from "react";
+import { lazy, Suspense, type CSSProperties } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import Home from "./components/Home";
-import Dashboard from "./components/Dashboard";
-import TeamView from "./components/TeamView";
-import TaskBoard from "./components/TaskBoard";
-import PeerEvaluation from "./components/PeerEvaluation";
-import Workspace, { type WorkspaceFocus } from "./components/Workspace";
-import TeamChat from "./components/TeamChat";
-import Schedule from "./components/Schedule";
+import type { WorkspaceFocus } from "./components/Workspace";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
-import AdminPanel from "./components/AdminPanel";
-import AdminApplication from "./components/AdminApplication";
-import Achievements from "./components/Achievements";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useAccountBackground } from "./lib/useAccountBackground";
+
+// Keep sign-in and the selected route responsive while infrequently visited
+// workspace, evaluation and profile-related pages download in the background.
+const Home = lazy(() => import("./components/Home"));
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const TeamView = lazy(() => import("./components/TeamView"));
+const TaskBoard = lazy(() => import("./components/TaskBoard"));
+const PeerEvaluation = lazy(() => import("./components/PeerEvaluation"));
+const Workspace = lazy(() => import("./components/Workspace"));
+const TeamChat = lazy(() => import("./components/TeamChat"));
+const Schedule = lazy(() => import("./components/Schedule"));
+const AdminPanel = lazy(() => import("./components/AdminPanel"));
+const AdminApplication = lazy(() => import("./components/AdminApplication"));
+const Achievements = lazy(() => import("./components/Achievements"));
+
+function PageLoading() {
+  return <div className="flex h-full min-h-48 items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>화면을 불러오는 중…</div>;
+}
 
 export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "achievements" | "admin";
 
@@ -40,7 +48,7 @@ function Layout() {
   const { isAdmin } = useProjectManagement();
   const { project } = useProject();
   const currentPage = (location.pathname.split("/")[1] || "dashboard") as Page;
-  const { backgroundStyle, glassStyle, hasCustomBackground } = useAccountBackground();
+  const { backgroundStyle, glassStyle } = useAccountBackground();
 
   // Non-approved projects (created by a non-admin, awaiting review) are
   // locked to the dashboard page for everyone except an admin.
@@ -50,35 +58,25 @@ function Layout() {
 
   return (
     <div className="relative h-full w-full overflow-hidden" style={glassStyle}>
-      {/* The background sits on its own layer, scaled up and blurred by the
-          same slider that controls card blur, so the account's "blur"
-          setting softens the whole backdrop — not just what's directly
-          behind a glass card. Scaling it up keeps the blur from showing a
-          sharp, unblurred edge at the container boundary. Skipped entirely
-          without a custom background: blurring a flat color is invisible,
-          so this would just pay for a full-viewport GPU layer for nothing. */}
+      {/* Filter only this stationary background layer. Cards reuse it through
+          transparency; scaling keeps the blurred edges outside the viewport. */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={
-          hasCustomBackground
-            ? {
-                ...backgroundStyle,
-                filter: "blur(var(--panel-blur-px))",
-                transform: "scale(1.1) translateZ(0)",
-                // A viewport-sized blurred+scaled layer is prone to Chromium's
-                // tile-based rasterization seams (thin flickering lines at tile
-                // boundaries, worse on weaker GPUs/drivers) — translateZ(0) alone
-                // pins it to its own layer. Deliberately NOT adding
-                // will-change: transform here too: combined with the backdrop-filter
-                // glass cards elsewhere in the tree, it isolated this layer enough
-                // that Chromium's backdrop-filter sampling broke for fixed-position
-                // popups above it (the notification dropdown rendered invisible —
-                // just a sliver of its box-shadow — instead of showing its content).
-                backfaceVisibility: "hidden",
-                WebkitBackfaceVisibility: "hidden",
-              }
-            : backgroundStyle
-        }
+        style={{
+          ...backgroundStyle,
+          transform: "scale(1.1) translateZ(0)",
+          // A viewport-sized blurred+scaled layer is prone to Chromium's
+          // tile-based rasterization seams (thin flickering lines at tile
+          // boundaries, worse on weaker GPUs/drivers) — translateZ(0) alone
+          // pins it to its own layer. Deliberately NOT adding
+          // will-change: transform here too: combined with the backdrop-filter
+          // glass cards elsewhere in the tree, it isolated this layer enough
+          // that Chromium's backdrop-filter sampling broke for fixed-position
+          // popups above it (the notification dropdown rendered invisible —
+          // just a sliver of its box-shadow — instead of showing its content).
+          backfaceVisibility: "hidden",
+          WebkitBackfaceVisibility: "hidden",
+        }}
       />
       <div className="relative flex h-full w-full overflow-hidden">
         <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />
@@ -172,7 +170,9 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <ProjectProvider>
-          <AppRoutes />
+          <Suspense fallback={<PageLoading />}>
+            <AppRoutes />
+          </Suspense>
         </ProjectProvider>
       </BrowserRouter>
     </AuthProvider>

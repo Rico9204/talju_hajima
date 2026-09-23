@@ -1,5 +1,5 @@
 import type { EvaluationPhase, EvaluationEntry, EvaluationData, AdminApplicationInput } from "../api/types";
-import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, useMemo, type ReactNode } from "react";
 import { dataRepository } from "../api";
 import type {
   Project,
@@ -27,6 +27,7 @@ import JoinProjectModal from "../components/JoinProjectModal";
 import AdminPanel from "../components/AdminPanel";
 import AdminApplicationNotice from "../components/AdminApplicationNotice";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
+import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
 
 export type {
   Project,
@@ -391,6 +392,13 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // — can depend on it.
   const myMemberId = session ? team.members.find((m) => m.userId === session.user.id)?.id ?? null : null;
 
+  // Sidebar, profile and achievements can mount together. Share their active
+  // request, scoped to this account and data revision, without a stale TTL cache.
+  const getMyEvaluationSummary = useMemo(
+    () => shareInFlight(() => dataRepository.getMyEvaluationSummary()),
+    [session?.user.id, projectId, team, projects],
+  );
+
   // Load the project list whenever the signed-in user changes (login,
   // logout, or switching accounts) and select the first project.
   useEffect(() => {
@@ -482,7 +490,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         const [list, myIds] = await Promise.all([dataRepository.listProjects(), dataRepository.listMyProjectIds()]);
         if (cancelled || revision !== activityRevision.current) return;
         const mine = list.filter(p => myIds.includes(p.id));
-        setProjects(mine);
+        setProjects((previous) => retainSnapshot(previous, mine));
         if (!projectId || !mine.some(p => p.id === projectId)) {
           setFiles([]); setFolders([]); setScheduleEvents([]); setTasks([]); setChatMessages({});
           setLoadedProjectId(null); setError(null);
@@ -492,7 +500,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         if (loadedProjectId !== projectId) return;
         const [nextFiles, nextEvents] = await Promise.all([dataRepository.listFiles(projectId), dataRepository.listScheduleEvents(projectId)]);
         if (cancelled || revision !== activityRevision.current) return;
-        setFiles(nextFiles); setScheduleEvents(nextEvents);
+        setFiles((previous) => retainSnapshot(previous, nextFiles));
+        setScheduleEvents((previous) => retainSnapshot(previous, nextEvents));
       } catch {
         // A transient network failure is not evidence that a project was deleted.
       } finally { pending = false; }
@@ -1037,7 +1046,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   return (
     <ProjectContext.Provider
       value={{
-        getMyEvaluationSummary: () => dataRepository.getMyEvaluationSummary(),
+        getMyEvaluationSummary,
         getEvaluationMode: () => dataRepository.getEvaluationMode(),
         getEvaluations: async (phase) => {
           const [result, refreshedTeam] = await Promise.all([

@@ -38,7 +38,7 @@ export default function AvatarFrame({ kind, size, children, c1, c2 }: {
   if (!parts) return <>{children}</>;
   const props = { compact: size < 48, c1: c1 ?? "#f472b6", c2: c2 ?? "#db2777" };
   return (
-    <span className="avatar-frame relative inline-flex shrink-0" style={{ width: size, height: size }}>
+    <span className={`avatar-frame relative inline-flex shrink-0${props.compact ? " avatar-frame-compact" : ""}`} style={{ width: size, height: size }}>
       {parts.back && <svg viewBox={VIEWBOX} style={overlayStyle(size, parts.glow)} aria-hidden="true">{parts.back(props)}</svg>}
       <span className="relative inline-flex">{children}</span>
       {parts.front && <svg viewBox={VIEWBOX} style={overlayStyle(size, parts.glow)} aria-hidden="true">{parts.front(props)}</svg>}

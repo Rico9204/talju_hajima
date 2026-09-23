@@ -8,6 +8,8 @@ import { useProject } from "../context/ProjectContext";
 export function useAccountBackground() {
   const { currentMember } = useProject();
   const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
+  const needsBackgroundFilter = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient);
+  const backgroundBlur = Math.min(40, Math.max(0, currentMember?.glassBlur ?? 2));
 
   // Priority: custom background image > gradient preset > solid color preset > default.
   // A dark overlay is blended into the image so the glass cards above it stay legible.
@@ -23,8 +25,8 @@ export function useAccountBackground() {
         ? { background: currentMember.backgroundColor }
         : { background: "var(--background)" };
 
-  // Glass-card intensity, adjustable per account; falls back to a light,
-  // barely-there frosting (crisp background, faint white veil) when unset.
+  // Blur the stationary background once. Translucent cards reveal that
+  // result without re-filtering scrolling content behind every panel.
   //
   // Deliberately does NOT redeclare `--card` here (only `--card-glass`).
   // `--card` is a widely shared variable used by dozens of surfaces that
@@ -36,23 +38,10 @@ export function useAccountBackground() {
   // account's slider; everything else stays index.css's opaque --card.
   const glassStyle = {
     "--glass-alpha": String((currentMember?.glassOpacity ?? 32) / 100),
-    "--panel-blur-px": `${currentMember?.glassBlur ?? 2}px`,
-    // A var() inside a custom property is resolved where the property is
-    // *declared* and the result is inherited, so --card-glass / --panel-blur
-    // declared on :root in index.css stay frozen at the defaults (0.32 / 2px)
-    // and ignore --glass-alpha/--panel-blur-px above. Re-declare them here
-    // so the account's sliders actually reach every glass card.
+    "--panel-blur-px": `${backgroundBlur}px`,
+    // Re-declare here so the account opacity resolves in this scope.
     "--card-glass": "rgba(255, 255, 255, var(--glass-alpha))",
-    // Blurring a flat single-color backdrop is visually a no-op — it just
-    // burns a backdrop-filter compositing pass on every one of the ~50 glass
-    // surfaces for every account that hasn't picked a custom background.
-    // Only turn the filter on when there's an actual image/gradient/color
-    // behind it for the frosting to be visible.
-    // Plain `blur` only — chaining `saturate`/`brightness` onto every one of
-    // those ~50 backdrop-filters was a mostly-invisible color pop that still
-    // cost a full extra filter pass each, and it was the main complaint
-    // (persistent stutter) from accounts that do use a custom background.
-    "--panel-blur": hasCustomBackground ? "blur(var(--panel-blur-px))" : "none",
+    "--panel-blur": "none",
   } as CSSProperties;
 
   // Same idea for borders (dashed empty-state boxes, divider lines) — these
@@ -62,5 +51,13 @@ export function useAccountBackground() {
     ? { filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }
     : {};
 
-  return { backgroundStyle, glassStyle, hasCustomBackground, lineSafeStyle };
+  return {
+    backgroundStyle: {
+      ...backgroundStyle,
+      filter: needsBackgroundFilter && backgroundBlur > 0
+        ? `blur(${backgroundBlur}px)`
+        : "none",
+    },
+    glassStyle, hasCustomBackground, lineSafeStyle,
+  };
 }

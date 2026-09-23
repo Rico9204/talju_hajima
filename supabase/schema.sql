@@ -857,9 +857,11 @@ alter table message_reactions replica identity full;
 -- Profile photo storage. Public bucket (avatars aren't sensitive and need to
 -- be viewable by teammates without a signed-URL round trip) — writes are
 -- still locked down below to "your own folder only".
-insert into storage.buckets (id, name, public)
-values ('avatars', 'avatars', true)
-on conflict (id) do nothing;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/avif']::text[])
+on conflict (id) do update set
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists avatars_public_read on storage.objects;
 drop policy if exists avatars_own_write on storage.objects;
@@ -867,10 +869,21 @@ drop policy if exists avatars_own_update on storage.objects;
 drop policy if exists avatars_own_delete on storage.objects;
 create policy avatars_public_read on storage.objects for select
   using (bucket_id = 'avatars');
-create policy avatars_own_write on storage.objects for insert
-  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy avatars_own_update on storage.objects for update
-  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy avatars_own_write on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif')
+    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif')
+  );
+create policy avatars_own_update on storage.objects for update to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif')
+    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif')
+  );
 create policy avatars_own_delete on storage.objects for delete
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 
