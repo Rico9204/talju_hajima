@@ -48,7 +48,11 @@ export function useAccountBackground() {
     // surfaces for every account that hasn't picked a custom background.
     // Only turn the filter on when there's an actual image/gradient/color
     // behind it for the frosting to be visible.
-    "--panel-blur": hasCustomBackground ? "blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05)" : "none",
+    // Plain `blur` only — chaining `saturate`/`brightness` onto every one of
+    // those ~50 backdrop-filters was a mostly-invisible color pop that still
+    // cost a full extra filter pass each, and it was the main complaint
+    // (persistent stutter) from accounts that do use a custom background.
+    "--panel-blur": hasCustomBackground ? "blur(var(--panel-blur-px))" : "none",
   } as CSSProperties;
 
   // Same idea for borders (dashed empty-state boxes, divider lines) — these
