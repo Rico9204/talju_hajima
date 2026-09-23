@@ -27,6 +27,7 @@ import JoinProjectModal from "../components/JoinProjectModal";
 import AdminPanel from "../components/AdminPanel";
 import AdminApplicationNotice from "../components/AdminApplicationNotice";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
+import UnreadNotifier from "../components/UnreadNotifier";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
 
 export type {
@@ -1142,6 +1143,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <UnreadNotifier />
     </ProjectContext.Provider>
   );
 }
