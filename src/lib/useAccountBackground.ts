@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { useProject } from "../context/ProjectContext";
+import { usePerformanceMode } from "./performancePreferences";
 
 // Shared by every top-level page shell (Layout in App.tsx, Home.tsx) so the
 // signed-in account's background/glass-intensity choice — set in the
@@ -7,6 +8,7 @@ import { useProject } from "../context/ProjectContext";
 // the Sidebar-wrapped pages.
 export function useAccountBackground() {
   const { currentMember } = useProject();
+  const [performanceMode] = usePerformanceMode();
   const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
   const needsBackgroundFilter = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient);
   const backgroundBlur = Math.min(40, Math.max(0, currentMember?.glassBlur ?? 2));
@@ -54,7 +56,7 @@ export function useAccountBackground() {
   return {
     backgroundStyle: {
       ...backgroundStyle,
-      filter: needsBackgroundFilter && backgroundBlur > 0
+      filter: performanceMode !== "performance" && needsBackgroundFilter && backgroundBlur > 0
         ? `blur(${backgroundBlur}px) saturate(1.15)`
         : "none",
     },

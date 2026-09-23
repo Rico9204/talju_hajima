@@ -41,6 +41,7 @@ const navItems: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "workspace", label: "워크스페이스", icon: "⬡" },
   { id: "evaluation", label: "동료 평가", icon: "★" },
   { id: "achievements", label: "업적", icon: "◈" },
+  { id: "settings", label: "설정", icon: "⚙" },
 ];
 
 const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };

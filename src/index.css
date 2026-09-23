@@ -571,6 +571,40 @@
   display: none;
 }
 
+/* User-controlled rendering presets. They complement the OS/browser setting:
+   the app cannot enable hardware acceleration itself, but it can avoid costly
+   paint and compositing work on slower machines. */
+:root[data-performance-mode="reduced-motion"] *,
+:root[data-performance-mode="reduced-motion"] *::before,
+:root[data-performance-mode="reduced-motion"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+:root[data-performance-mode="reduced-motion"] .tier-particles,
+:root[data-performance-mode="reduced-motion"] .tier-card-shine,
+:root[data-performance-mode="reduced-motion"] .edge-aura {
+  display: none !important;
+}
+:root[data-performance-mode="performance"] {
+  --panel-blur: none !important;
+  --shadow-card: 0 2px 6px rgba(26, 32, 68, 0.08);
+}
+:root[data-performance-mode="performance"] *,
+:root[data-performance-mode="performance"] *::before,
+:root[data-performance-mode="performance"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+:root[data-performance-mode="performance"] .tier-particles,
+:root[data-performance-mode="performance"] .tier-card-shine,
+:root[data-performance-mode="performance"] .edge-aura,
+:root[data-performance-mode="performance"] .tier-flame,
+:root[data-performance-mode="performance"] .card-deco {
+  display: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tier-card-ring::before { animation: none; }
   .tier-particles { display: none; }

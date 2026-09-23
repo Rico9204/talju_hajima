@@ -21,12 +21,13 @@ const TeamChat = lazy(() => import("./components/TeamChat"));
 const Schedule = lazy(() => import("./components/Schedule"));
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const Achievements = lazy(() => import("./components/Achievements"));
+const Settings = lazy(() => import("./components/Settings"));
 
 function PageLoading() {
   return <div className="flex h-full min-h-48 items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>화면을 불러오는 중…</div>;
 }
 
-export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "achievements" | "admin";
+export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "achievements" | "settings" | "admin";
 
 function RequireAuth() {
   const { session, loading } = useAuth();
@@ -155,6 +156,7 @@ function AppRoutes() {
           <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
           <Route path="evaluation" element={<PeerEvaluation />} />
           <Route path="achievements" element={<Achievements />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="admin" element={<RequireAdmin />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
