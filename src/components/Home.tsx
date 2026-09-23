@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
+import Settings from "./Settings";
 import Avatar from "./Avatar";
 import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
@@ -29,7 +30,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board";
+type HomeTab = "projects" | "board" | "settings";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile } = useProject();
@@ -134,6 +135,14 @@ export default function Home() {
             <span>💬</span>
             <span>게시판</span>
           </button>
+          <button
+            onClick={() => selectTab("settings")}
+            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
+            style={{ borderRadius: "10px", background: activeTab === "settings" ? "var(--primary)" : "transparent", color: activeTab === "settings" ? "#fff" : "var(--foreground)" }}
+          >
+            <span>⚙</span>
+            <span>설정</span>
+          </button>
         </nav>
 
         {/* User card */}
@@ -167,7 +176,9 @@ export default function Home() {
 
       <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
         <div className="max-w-5xl mx-auto">
-          {activeTab === "board" ? (
+          {activeTab === "settings" ? (
+            <Settings />
+          ) : activeTab === "board" ? (
             <BoardView />
           ) : (
             <>
