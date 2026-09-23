@@ -32,10 +32,21 @@ function useAnimatedValues(values: number[]): number[] {
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const from = displayRef.current.length === values.length ? displayRef.current : values;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    // The initial display is already at its target; don't render ~24 identical
+    // frames on every chart mount. Also update axis-count changes immediately.
+    if (displayRef.current.length !== values.length) {
+      displayRef.current = values;
+      setDisplay(values);
+      return;
+    }
+    if (displayRef.current.every((value, index) => value === values[index])) return;
+    const from = displayRef.current;
     const to = values;
     const start = performance.now();
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
 
     function tick(now: number) {
       const t = Math.min((now - start) / ANIMATION_MS, 1);
@@ -44,11 +55,13 @@ function useAnimatedValues(values: number[]): number[] {
       displayRef.current = next;
       setDisplay(next);
       if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      else rafRef.current = null;
     }
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.join(",")]);

@@ -549,6 +549,14 @@
     0 0 18px 6px var(--flame-2),
     0 0 32px 10px var(--flame-3);
 }
+/* Navigation avatars are always visible: preserve their art without keeping
+   the page animating while idle. Full-size profile frames still animate. */
+.avatar-frame-compact *,
+.avatar-frame-compact *::before,
+.avatar-frame-compact *::after {
+  animation-play-state: paused !important;
+}
+
 /* Keep theme colors/decorations visible while editing, but stop continuous
    animation. Large filtered flames and travelling particles are view-only. */
 .profile-edit-static *,
