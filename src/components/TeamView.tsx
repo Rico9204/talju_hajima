@@ -323,7 +323,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {[
                 { label: "완료 과제", value: `${sel.tasks.done}/${sel.tasks.total}`, icon: "✓", color: "#22c55e" },
-                { label: "활동 횟수", value: `${sel.activities}`, icon: "◷", color: "var(--primary)" },
+                { label: "함께한 동료", value: `${participationStats?.collaboratorCount ?? 0}명`, icon: "◷", color: "var(--primary)" },
                 { label: "완료율", value: `${sel.tasks.total ? Math.round((sel.tasks.done / sel.tasks.total) * 100) : 0}%`, icon: "⬤", color: sel.color },
               ].map((st) => (
                 <div key={st.label} className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
