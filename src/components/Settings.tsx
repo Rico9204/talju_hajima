@@ -39,6 +39,25 @@ const categories: Array<{ id: CategoryId; icon: string; label: string }> = [
   { id: "notifications", icon: "🔔", label: "알림" },
 ];
 
+function ToggleSwitch({ checked, onClick, label }: { checked: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={onClick}
+      className="relative shrink-0 transition-colors"
+      style={{ width: 44, height: 24, borderRadius: 999, background: checked ? "var(--primary)" : "var(--border)" }}
+    >
+      <span
+        className="absolute top-0.5 left-0.5 bg-white rounded-full shadow transition-transform"
+        style={{ width: 20, height: 20, transform: checked ? "translateX(20px)" : "translateX(0)" }}
+      />
+    </button>
+  );
+}
+
 function SectionHeader({ title, hint, badge }: { title: string; hint: string; badge?: string }) {
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
@@ -135,14 +154,7 @@ function NotificationSettings() {
             </span>
           </span>
           {supported && permission !== "denied" && (
-            <button
-              type="button"
-              onClick={active ? turnOff : turnOn}
-              className="shrink-0 text-xs font-700 px-3 py-1.5"
-              style={{ borderRadius: "999px", background: active ? "var(--muted)" : "var(--primary)", color: active ? "var(--muted-foreground)" : "#fff" }}
-            >
-              {active ? "끄기" : "켜기"}
-            </button>
+            <ToggleSwitch checked={active} onClick={active ? turnOff : () => void turnOn()} label="브라우저 알림" />
           )}
         </div>
       </div>
