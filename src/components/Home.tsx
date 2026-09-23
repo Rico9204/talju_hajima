@@ -37,7 +37,7 @@ export default function Home() {
   const navigate = useNavigate();
   const myName = currentMember?.name ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
-  const { backgroundStyle, glassStyle } = useAccountBackground();
+  const { backgroundStyle, glassStyle, lineSafeStyle } = useAccountBackground();
   const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -60,7 +60,16 @@ export default function Home() {
           same slider that controls card blur — matches Layout in App.tsx. */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ ...backgroundStyle, filter: "blur(var(--panel-blur-px)) saturate(1.15)", transform: "scale(1.1)" }}
+        style={{
+          ...backgroundStyle,
+          filter: "blur(var(--panel-blur-px)) saturate(1.15)",
+          transform: "scale(1.1) translateZ(0)",
+          // Same tile-rasterization-seam fix as App.tsx's Layout — see the
+          // comment there (deliberately no will-change: transform; it broke
+          // backdrop-filter rendering on the fixed notification popup).
+          backfaceVisibility: "hidden",
+          WebkitBackfaceVisibility: "hidden",
+        }}
       />
       <div className="relative flex h-full w-full overflow-hidden">
       <button
@@ -190,7 +199,7 @@ export default function Home() {
               {projects.length === 0 ? (
                 <div
                   className="p-8 text-center border-2 border-dashed"
-                  style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+                  style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}
                 >
                   참여 중인 프로젝트가 없어요
                 </div>

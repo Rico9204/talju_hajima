@@ -8,6 +8,7 @@ import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDelet
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
 import { useProject, type WorkspaceFile } from "../context/ProjectContext";
+import { useAccountBackground } from "../lib/useAccountBackground";
 
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
   pdf: { bg: "#ef444418", color: "#ef4444", label: "PDF" },
@@ -35,6 +36,7 @@ export interface WorkspaceFocus {
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
   const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isLeader, deleteWorkspaceFile, markSectionViewed } = useProject();
+  const { lineSafeStyle } = useAccountBackground();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -307,7 +309,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               );
             })}
             {folders.length === 0 && !creatingFolder && (
-              <div className="col-span-1 sm:col-span-2 md:col-span-3 p-6 text-center text-xs border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}>
+              <div className="col-span-1 sm:col-span-2 md:col-span-3 p-6 text-center text-xs border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
                 아직 폴더가 없어요
               </div>
             )}
@@ -334,8 +336,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             className="mb-6 border-2 border-dashed p-5 text-center transition-all cursor-pointer"
             style={{
               borderColor: dragOver ? "var(--primary)" : "var(--border)",
-              background: dragOver ? "var(--primary)08" : "var(--card)",
+              background: dragOver ? "var(--primary)08" : "var(--card-glass)",
               borderRadius: "var(--radius)",
+              backdropFilter: "var(--panel-blur)",
+              WebkitBackdropFilter: "var(--panel-blur)",
+              ...lineSafeStyle,
             }}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -354,7 +359,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       )}
 
       <label className="block text-sm mb-4">파일 검색
-        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full mt-2 p-3 rounded-xl border" style={{ background: "var(--surface-opaque)", borderColor: "var(--border)" }} />
+        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full mt-2 p-3 rounded-xl border" style={{ background: "var(--card-glass)", borderColor: "var(--border)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }} />
         {searchQuery.trim() && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>검색 결과 {filtered.length}개 · 본문은 현재 버전 기준</span>}
       </label>
       {/* Filter */}
@@ -497,7 +502,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           })}
 
           {filtered.length === 0 && (
-            <div className="border-2 border-dashed p-8 text-center" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}>
+            <div className="border-2 border-dashed p-8 text-center" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
               {searchQuery.trim() ? "검색 결과가 없습니다" : currentFolder ? "이 폴더에는 파일이 없습니다" : "루트에 저장된 파일이 없습니다 (위 폴더를 열어보세요)"}
             </div>
           )}

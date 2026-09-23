@@ -11,10 +11,10 @@ export function memberInfo(members: Member[], id: string): { name: string; avata
 }
 
 const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
-  { id: "todo", label: "예정", color: "#454b6e", bg: "#454b6e18" },
-  { id: "inprogress", label: "진행 중", color: "#2563eb", bg: "#2563eb18" },
-  { id: "review", label: "검토 중", color: "#f59e0b", bg: "#f59e0b18" },
-  { id: "done", label: "완료", color: "#22c55e", bg: "#22c55e18" },
+  { id: "todo", label: "예정", color: "#454b6e", bg: "#454b6e66" },
+  { id: "inprogress", label: "진행 중", color: "#2563eb", bg: "#2563eb66" },
+  { id: "review", label: "검토 중", color: "#f59e0b", bg: "#f59e0b66" },
+  { id: "done", label: "완료", color: "#22c55e", bg: "#22c55e66" },
 ];
 
 const priorityLabel: Record<TaskPriority, { label: string; color: string }> = {
@@ -195,12 +195,12 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
               {/* Column header */}
               <div className="flex items-center justify-between mb-3 px-3 py-2.5" style={{ background: col.bg, borderRadius: "12px" }}>
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                  <span className="text-xs font-700" style={{ color: col.color }}>{col.label}</span>
+                  <span className="w-2 h-2 rounded-full" style={{ background: "#fff" }} />
+                  <span className="text-xs font-700" style={{ color: "#fff" }}>{col.label}</span>
                 </div>
                 <span
                   className="text-xs font-700 w-5 h-5 flex items-center justify-center"
-                  style={{ background: col.color, color: "#fff", borderRadius: "50%", fontFamily: "var(--font-jetbrains)" }}
+                  style={{ background: "rgba(255,255,255,0.85)", color: col.color, borderRadius: "50%", fontFamily: "var(--font-jetbrains)" }}
                 >
                   {colTasks.length}
                 </span>

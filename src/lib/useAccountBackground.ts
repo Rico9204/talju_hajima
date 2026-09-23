@@ -7,6 +7,7 @@ import { useProject } from "../context/ProjectContext";
 // the Sidebar-wrapped pages.
 export function useAccountBackground() {
   const { currentMember } = useProject();
+  const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
 
   // Priority: custom background image > gradient preset > solid color preset > default.
   // A dark overlay is blended into the image so the glass cards above it stay legible.
@@ -24,21 +25,33 @@ export function useAccountBackground() {
 
   // Glass-card intensity, adjustable per account; falls back to a light,
   // barely-there frosting (crisp background, faint white veil) when unset.
+  //
+  // Deliberately does NOT redeclare `--card` here (only `--card-glass`).
+  // `--card` is a widely shared variable used by dozens of surfaces that
+  // were never designed to be translucent (avatar rings, badges, unconverted
+  // modals in other pages) — earlier this override made every one of those
+  // pick up the account's transparency too, which read as "readability
+  // dropped in a bunch of places" once someone picked a low opacity. Only
+  // the ~20 surfaces explicitly wired to --card-glass should follow the
+  // account's slider; everything else stays index.css's opaque --card.
   const glassStyle = {
     "--glass-alpha": String((currentMember?.glassOpacity ?? 32) / 100),
     "--panel-blur-px": `${currentMember?.glassBlur ?? 2}px`,
-    // Every `var(--card)` usage (not just the ones wired to --card-glass)
-    // picks up the account's translucency once logged in — index.css keeps
-    // --card opaque by default for pre-login screens (Login/ResetPassword).
-    "--card": "rgba(255, 255, 255, var(--glass-alpha))",
     // A var() inside a custom property is resolved where the property is
     // *declared* and the result is inherited, so --card-glass / --panel-blur
     // declared on :root in index.css stay frozen at the defaults (0.32 / 2px)
-    // and ignore the values above. Re-declare them here so the account's
-    // sliders actually reach every glass card.
+    // and ignore --glass-alpha/--panel-blur-px above. Re-declare them here
+    // so the account's sliders actually reach every glass card.
     "--card-glass": "rgba(255, 255, 255, var(--glass-alpha))",
     "--panel-blur": "blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05)",
   } as CSSProperties;
 
-  return { backgroundStyle, glassStyle };
+  // Same idea for borders (dashed empty-state boxes, divider lines) — these
+  // don't inherit like text-shadow does, so callers apply this directly
+  // where a border/line is drawn without a card behind it.
+  const lineSafeStyle: CSSProperties = hasCustomBackground
+    ? { filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }
+    : {};
+
+  return { backgroundStyle, glassStyle, hasCustomBackground, lineSafeStyle };
 }
