@@ -354,7 +354,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
       <div
         className="flex items-center gap-3 px-4 py-3 mb-5 text-sm"
         style={{
-          background: isDone ? "#22c55e12" : midtermSkipped ? "#454b6e12" : "#2563eb12",
+          background: isDone ? "#22c55e4D" : midtermSkipped ? "#454b6e12" : "#2563eb4D",
           borderRadius: "12px",
           borderLeft: `3px solid ${isDone ? "#22c55e" : midtermSkipped ? "#454b6e" : "var(--primary)"}`,
         }}

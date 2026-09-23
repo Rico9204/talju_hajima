@@ -3,10 +3,12 @@ import { dataRepository } from "../api";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 import { collaborationTrust } from "../lib/collaborationTrust";
+import { useAccountBackground } from "../lib/useAccountBackground";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
   const { project, team, transferLeadership, markProjectDone, kickMember, currentMember, isLeader, openMemberProfile } = useProject();
   const { isAdmin } = useProjectManagement();
+  const { lineSafeStyle } = useAccountBackground();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memberSearch, setMemberSearch] = useState("");
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
@@ -60,7 +62,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
         </div>
         <div
           className="p-8 border text-center"
-          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}
         >
           <div className="text-3xl mb-3">◎</div>
           <div className="text-sm font-600">아직 팀원이 없어요</div>
@@ -101,7 +103,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
           <button
             onClick={() => { setActionError(null); setPendingFinish(true); }}
             className="text-xs font-700 px-3.5 py-2 shrink-0 transition-all"
-            style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
+            style={{ background: "#22c55e66", color: "#fff", borderRadius: "20px" }}
           >
             프로젝트 종료
           </button>

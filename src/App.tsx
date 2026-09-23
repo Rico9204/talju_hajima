@@ -56,7 +56,22 @@ function Layout() {
           sharp, unblurred edge at the container boundary. */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ ...backgroundStyle, filter: "blur(var(--panel-blur-px)) saturate(1.15)", transform: "scale(1.1)" }}
+        style={{
+          ...backgroundStyle,
+          filter: "blur(var(--panel-blur-px)) saturate(1.15)",
+          transform: "scale(1.1) translateZ(0)",
+          // A viewport-sized blurred+scaled layer is prone to Chromium's
+          // tile-based rasterization seams (thin flickering lines at tile
+          // boundaries, worse on weaker GPUs/drivers) — translateZ(0) alone
+          // pins it to its own layer. Deliberately NOT adding
+          // will-change: transform here too: combined with the backdrop-filter
+          // glass cards elsewhere in the tree, it isolated this layer enough
+          // that Chromium's backdrop-filter sampling broke for fixed-position
+          // popups above it (the notification dropdown rendered invisible —
+          // just a sliver of its box-shadow — instead of showing its content).
+          backfaceVisibility: "hidden",
+          WebkitBackfaceVisibility: "hidden",
+        }}
       />
       <div className="relative flex h-full w-full overflow-hidden">
         <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />

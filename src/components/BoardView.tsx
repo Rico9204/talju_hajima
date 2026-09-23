@@ -5,6 +5,7 @@ import { dataRepository } from "../api";
 import CreatePostView from "./CreatePostView";
 import PostDetailView from "./PostDetailView";
 import { BOARD_CATEGORIES } from "../lib/boardData";
+import { useAccountBackground } from "../lib/useAccountBackground";
 import type { BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
 const POSTS_PER_PAGE = 10;
@@ -22,6 +23,7 @@ function errorMessage(error: unknown): string {
 export default function BoardView() {
   const { user } = useAuth();
   const { isAdmin } = useProjectManagement();
+  const { lineSafeStyle } = useAccountBackground();
 
   const [posts, setPosts] = useState<BoardPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -330,7 +332,7 @@ export default function BoardView() {
       {loading ? (
         <p role="status" className="p-12 text-center text-xs" style={{ color: "var(--muted-foreground)" }}>게시글을 불러오는 중…</p>
       ) : paginatedPosts.length === 0 ? (
-        <div className="p-12 text-center border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}>
+        <div className="p-12 text-center border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
           등록된 게시글이 없습니다. 첫 번째 글을 작성해 보세요!
         </div>
       ) : (

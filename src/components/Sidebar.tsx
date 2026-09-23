@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Page } from "../App";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
@@ -75,17 +76,23 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const logoCardRef = useRef<HTMLDivElement>(null);
+  // The notif panel is portaled to document.body (see below — a backdrop-filter
+  // ancestor was clipping/mispositioning it as a position:fixed element), so
+  // it's no longer a DOM descendant of logoCardRef and needs its own ref to
+  // stay excluded from the outside-click close check.
+  const notifPanelRef = useRef<HTMLDivElement>(null);
 
   // Close the project switcher / notification dropdowns when clicking
-  // anywhere else — both live under logoCardRef even though the notif
-  // panel renders fixed-positioned elsewhere on screen.
+  // anywhere else — the switcher lives under logoCardRef, the notif panel
+  // under notifPanelRef (portaled to document.body).
   useEffect(() => {
     if (!switcherOpen && !notifOpen) return;
     function handlePointerDown(e: MouseEvent) {
-      if (logoCardRef.current && !logoCardRef.current.contains(e.target as Node)) {
-        setSwitcherOpen(false);
-        setNotifOpen(false);
-      }
+      const target = e.target as Node;
+      if (logoCardRef.current?.contains(target)) return;
+      if (notifPanelRef.current?.contains(target)) return;
+      setSwitcherOpen(false);
+      setNotifOpen(false);
     }
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
@@ -212,9 +219,10 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
           </button>
         </div>
 
-        {notifOpen && notifPos && (
+        {notifOpen && notifPos && createPortal(
           <div
-            className="w-72 max-w-[85vw] p-1.5 z-30"
+            ref={notifPanelRef}
+            className="w-72 max-w-[85vw] p-1.5 z-[999]"
             style={{ position: "fixed", top: notifPos.top, left: notifPos.left, background: "rgba(255, 255, 255, 0.94)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", backdropFilter: "blur(20px) saturate(1.7)", WebkitBackdropFilter: "blur(20px) saturate(1.7)", maxHeight: 360, overflowY: "auto" }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
@@ -268,7 +276,8 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 ))}
               </div>
             )}
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Project switcher */}

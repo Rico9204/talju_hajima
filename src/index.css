@@ -649,7 +649,12 @@ html, body, #root {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  /* A solid, near-white thumb (the old var(--border)) reads fine on the
+     plain default background but turns into a stark bright line that looks
+     like a rendering glitch against a colorful/dark custom account
+     background (see the sidebar scrollbar flicker report) — semi-transparent
+     so it blends into whatever's behind it either way. */
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
@@ -659,7 +664,7 @@ html, body, #root {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
   border-radius: 999px;
 }
 *::-webkit-scrollbar-thumb:hover {
