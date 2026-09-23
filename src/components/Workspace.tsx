@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useProject } from "../context/ProjectContext";
 import {
   addFileComment,
   createFilePin,
   deleteFilePin,
+  listActiveCollabUsers,
   listAllSyncPresence,
   listBranches,
   listFileComments,
@@ -16,6 +18,7 @@ import {
   setFileTag,
   syncFiles,
   type ActivePresence,
+  type CollabActiveFile,
   type FileBranches,
   type FileComment,
   type FileVersion,
@@ -26,6 +29,9 @@ import {
 import { MAX_FILE_SIZE } from "../lib/folderSync";
 import { classifyMajor } from "../api/backend/majors";
 import FolderSync from "./FolderSync";
+import QuickEditModal from "./QuickEditModal";
+
+const COLLAB_PRESENCE_POLL_MS = 4000;
 
 // 제품개발/frontend의 워크스페이스(ProjectWorkspacePage의 파일 로딩/승격 로직 + WorkspaceTab의
 // 폴더/버전 트리/핀/태그/댓글/동시 동기화 표시 UI)를 이 앱의 화면 형식(페이지 하나 = 화면 하나,
@@ -65,6 +71,25 @@ const TYPE_META: Record<string, TypeMeta> = {
 };
 const DEFAULT_TYPE_META: TypeMeta = { bg: "#6b728018", color: "#6b7280", label: "FILE" };
 
+// 텍스트로 읽으면 내용이 깨지는(이미지/오피스 문서/압축 등) 확장자 — 이 목록에 있으면 업로드 시
+// 텍스트가 아니라 data: URL(base64)로 읽어서 저장하고, 버전 비교/전문보기에서도 줄 단위 diff
+// 대신 미리보기(이미지) 또는 "다운로드해서 확인" 안내로 다르게 다룬다.
+const BINARY_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "hwp", "hwpx", "zip",
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
+]);
+
+function isBinaryPath(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return BINARY_EXTENSIONS.has(ext);
+}
+
+// content가 data: URL(base64)로 저장된 바이너리 파일인지 — 업로드 시점의 확장자 판별과 별개로,
+// 실제 저장된 내용 기준으로도 다시 확인할 수 있게(예: 과거에 텍스트로 잘못 올라간 값 방어).
+function isBinaryContent(content: string): boolean {
+  return content.startsWith("data:");
+}
+
 function getTypeMeta(path: string): TypeMeta {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return TYPE_META[ext] ?? DEFAULT_TYPE_META;
@@ -83,15 +108,46 @@ function formatSize(bytes: number): string {
 }
 
 function fileSize(content: string): number {
+  if (isBinaryContent(content)) {
+    // data:<mime>;base64,<data> — 콤마 뒤 base64 길이로 실제 바이트 수를 근사 계산
+    // (Blob([content]).size를 쓰면 base64 텍스트 자체의 바이트 수라 실제 파일보다 부풀어 보임).
+    const base64 = content.slice(content.indexOf(",") + 1);
+    const padding = (base64.match(/=+$/) ?? [""])[0].length;
+    return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  }
   return new Blob([content]).size;
 }
 
+// 브라우저에서 선택한 파일을 저장용 문자열로 읽는다 — 텍스트 확장자는 그대로 텍스트로,
+// 이미지/문서/압축 등은 원본 바이트가 안 깨지게 data: URL(base64)로 읽는다.
+function readFileForUpload(file: File): Promise<string> {
+  if (!isBinaryPath(file.name)) return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function downloadFile(path: string, content: string): void {
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const name = path.split("/").pop() || path;
+  let blob: Blob;
+  if (isBinaryContent(content)) {
+    const comma = content.indexOf(",");
+    const mimeMatch = content.slice(0, comma).match(/^data:(.*?)(;base64)?$/);
+    const mime = mimeMatch?.[1] || "application/octet-stream";
+    const binaryString = atob(content.slice(comma + 1));
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    blob = new Blob([bytes], { type: mime });
+  } else {
+    blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = path.split("/").pop() || path;
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -246,26 +302,138 @@ function diffWords(oldLine: string, newLine: string): DiffLine[] {
   return computeLcsDiff(tokenizeWords(oldLine), tokenizeWords(newLine));
 }
 
+interface FullTextDiffLine {
+  text: string;
+  changed: boolean;
+  // 이 줄이 이전 버전의 어떤 줄을 고쳐 쓴 것이면(remove+add 쌍) 그 이전 내용을 담아 호버 시
+  // 보여준다. 완전히 새로 생긴 줄이면 null(비교할 이전 내용이 없다는 뜻).
+  oldText: string | null;
+}
+
+// "페이지" 보기용 — diff 결과에서 remove만 있는 줄(새 버전엔 없는 줄)은 건너뛰고, same/add 줄을
+// 순서대로 이어 붙여 "새 버전의 전체 내용"을 그대로 복원하면서, 바뀐 줄만 changed=true로 표시한다.
+function buildFullTextDiff(oldText: string, newText: string): FullTextDiffLine[] {
+  const raw = diffLines(oldText, newText);
+  const result: FullTextDiffLine[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    const cur = raw[i];
+    const next = raw[i + 1];
+    if (cur.type === "same") {
+      result.push({ text: cur.text, changed: false, oldText: null });
+      i += 1;
+    } else if (cur.type === "remove" && next?.type === "add") {
+      result.push({ text: next.text, changed: true, oldText: cur.text });
+      i += 2;
+    } else if (cur.type === "add") {
+      result.push({ text: cur.text, changed: true, oldText: null });
+      i += 1;
+    } else {
+      // remove만 있고 이어지는 add가 없음 — 새 버전엔 없는 줄이라 표시할 자리가 없어 건너뜀
+      i += 1;
+    }
+  }
+  return result;
+}
+
 // "페이지" 보기 — 분기 트리 대신, 한 번에 버전 하나만 "페이지"처럼 보여주고 이전/다음 버튼으로
 // 넘긴다. 어느 분기인지는 무시하고 오직 저장된 시각 순서로만 넘어간다(공학 전공이 아닌 팀원
 // 기본값 — Workspace()의 viewMode 토글 참고). 시작 페이지는 항상 "현재 버전".
+// 줄 단위 diff(FullTextDiffLine[])를 그려주는 공용 뷰 — "페이지" 미리보기 상자와 "전문 보기"
+// 큰 창 양쪽에서 재사용한다. 수정된 줄은 노란 배경, 마우스를 올리면 수정 전 내용을 말풍선으로
+// 보여준다. 말풍선은 document.body에 포털로 그려서(고정 위치, 뷰포트 기준) 스크롤 영역의
+// overflow에 잘리거나 아래 버튼들에 가려지는 문제 없이 항상 맨 위에 온전히 보인다.
+function DiffLinesView({ lines, highlightOnDark }: { lines: FullTextDiffLine[]; highlightOnDark: boolean }) {
+  const [hover, setHover] = useState<{ left: number; anchor: number; placement: "below" | "above"; text: string } | null>(null);
+
+  function showTooltip(e: React.MouseEvent<HTMLDivElement>, text: string) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 336));
+    // 화면 아래쪽에 가까우면 줄 아래 대신 위쪽에 띄워서 화면 밖으로 안 나가게 한다.
+    if (rect.bottom + 160 < window.innerHeight) {
+      setHover({ left, anchor: rect.bottom + 4, placement: "below", text });
+    } else {
+      setHover({ left, anchor: window.innerHeight - rect.top + 4, placement: "above", text });
+    }
+  }
+
+  if (lines.length === 0) {
+    return <span style={{ opacity: 0.7 }}>내용이 비어있어요.</span>;
+  }
+
+  return (
+    <>
+      {lines.map((line, i) => (
+        <div
+          key={i}
+          onMouseEnter={line.changed ? (e) => showTooltip(e, line.oldText !== null ? `이전: ${line.oldText || " "}` : "새로 추가된 줄") : undefined}
+          onMouseLeave={line.changed ? () => setHover(null) : undefined}
+          style={{
+            background: line.changed ? (highlightOnDark ? "rgba(255,255,255,0.25)" : "#fde68a80") : "transparent",
+            borderRadius: line.changed ? "3px" : 0,
+            padding: line.changed ? "0 3px" : 0,
+            margin: line.changed ? "0 -3px" : 0,
+          }}
+        >
+          {line.text || " "}
+        </div>
+      ))}
+      {hover &&
+        createPortal(
+          <div
+            className="fixed whitespace-pre-wrap"
+            style={{
+              left: hover.left,
+              ...(hover.placement === "below" ? { top: hover.anchor } : { bottom: hover.anchor }),
+              zIndex: 9999,
+              minWidth: "160px",
+              maxWidth: "320px",
+              maxHeight: "40vh",
+              overflowY: "auto",
+              borderRadius: "8px",
+              padding: "6px 8px",
+              background: "#1f2937",
+              color: "#fca5a5",
+              boxShadow: "0 8px 24px rgba(15,18,53,0.3)",
+              fontFamily: "var(--font-jetbrains)",
+              fontSize: "12px",
+              pointerEvents: "none",
+            }}
+          >
+            {hover.text}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function VersionPageFlip({
   versions,
   currentVersionId,
   memberNameById,
   onPromote,
   onShowFull,
+  onViewingVersionChange,
+  jumpTo,
 }: {
   versions: FileVersion[];
   currentVersionId: string | null;
   memberNameById: Map<string, string>;
   onPromote: (versionId: string) => void;
   onShowFull: (version: FileVersion) => void;
+  // 지금 몇 번째 페이지(어느 버전)를 보고 있는지 부모에 알려준다 — "이 페이지에 댓글 달기"가
+  // 트리 보기의 focusedVersionId와 같은 방식으로 동작하게 하기 위해 필요.
+  onViewingVersionChange: (versionId: string | null) => void;
+  // 핀 클릭 등으로 특정 버전 페이지로 바로 넘기고 싶을 때 — nonce는 같은 핀을 연달아 눌러도
+  // (id는 안 바뀌어도) 효과가 다시 발동하게 하기 위한 값.
+  jumpTo: { id: string; nonce: number } | null;
 }) {
   const chronological = useMemo(
     () => [...versions].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [versions],
   );
+  const versionsById = useMemo(() => new Map(versions.map((v) => [v.id, v])), [versions]);
   const currentIndex = Math.max(
     0,
     chronological.findIndex((v) => v.id === currentVersionId),
@@ -279,13 +447,39 @@ function VersionPageFlip({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentVersionId, versions.length]);
 
+  // 핀 등을 클릭해 특정 버전으로 바로 이동 요청이 오면 그 버전이 있는 페이지로 넘긴다.
+  useEffect(() => {
+    if (!jumpTo) return;
+    const idx = chronological.findIndex((v) => v.id === jumpTo.id);
+    if (idx >= 0) setPageIndex(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTo]);
+
   const version = chronological[pageIndex];
+  // 페이지 넘기기는 시간순이지만, 비교 기준은 "바로 앞 페이지"가 아니라 이 버전이 실제로 어떤
+  // 버전을 고쳐서 만들어졌는지(parentVersionId) — 분기가 있으면 시간상 이전 페이지와 실제
+  // 수정 전 버전이 다를 수 있기 때문.
+  const parent = version?.parentVersionId ? (versionsById.get(version.parentVersionId) ?? null) : null;
+  const isCurrent = version?.id === currentVersionId;
+  const isBinary = !!version && isBinaryContent(version.content);
+  // Hooks는 조건 없이 항상 같은 순서로 호출되어야 하므로(버전 목록이 비동기로 나중에 채워질 때도
+  // 안전하게), version이 아직 없을 수 있는 상태를 감안해 옵셔널 체이닝으로 처리하고 useMemo 자체는
+  // 아래 "버전 없음" 조기 반환보다 먼저 호출한다. 바이너리 파일은 줄 단위로 의미가 없어 diff는 건너뜀.
+  const fullTextLines = useMemo(
+    () => (isBinary ? [] : buildFullTextDiff(parent?.content ?? "", version?.content ?? "")),
+    [parent, version, isBinary],
+  );
+  const changedCount = fullTextLines.filter((l) => l.changed).length;
+
+  // Hooks 규칙상 "버전 없음" 조기 반환보다 먼저 호출해야 한다(버전 목록이 비동기로 채워질 때도
+  // 매 렌더 같은 순서로 훅이 호출되게).
+  useEffect(() => {
+    onViewingVersionChange(version?.id ?? null);
+  }, [version?.id, onViewingVersionChange]);
+
   if (!version) {
     return <div className="text-xs text-center py-6" style={{ color: "var(--muted-foreground)" }}>버전이 없어요.</div>;
   }
-  const prev = pageIndex > 0 ? chronological[pageIndex - 1] : null;
-  const isCurrent = version.id === currentVersionId;
-  const changes = groupChangedLines(diffLines(prev?.content ?? "", version.content).filter((l) => l.type !== "same"));
 
   return (
     <div>
@@ -316,33 +510,30 @@ function VersionPageFlip({
           className="text-xs font-600 mb-1.5"
           style={{ color: isCurrent ? "#fff" : "var(--primary)" }}
         >
-          {!prev ? "맨 처음 저장한 내용" : changes.length === 0 ? "달라진 내용 없음" : `${changes.length}군데 수정됨`} {expanded ? "▲" : "▼"}
+          {isBinary
+            ? "바이너리 파일"
+            : !parent
+              ? "맨 처음 저장한 내용"
+              : changedCount === 0
+                ? "수정 전 버전과 내용이 같음"
+                : `${changedCount}줄 수정됨`}{" "}
+          {expanded ? "▲" : "▼"}
         </button>
         {expanded && (
           <div
-            className="text-xs whitespace-pre-wrap p-2 mb-2 max-h-40 overflow-y-auto"
+            onDoubleClick={() => onShowFull(version)}
+            title="더블클릭하면 크게 볼 수 있어요"
+            className="text-xs whitespace-pre-wrap p-2 mb-2 max-h-40 overflow-y-auto cursor-zoom-in"
             style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--card)", fontFamily: "var(--font-jetbrains)" }}
           >
-            {!prev ? (
-              <span style={{ opacity: 0.7 }}>새로 만들어진 내용이라 비교할 이전 버전이 없어요.</span>
-            ) : changes.length === 0 ? (
-              <span style={{ opacity: 0.7 }}>이전 저장과 내용이 같아요.</span>
-            ) : (
-              changes.map((item, i) =>
-                item.kind === "change" ? (
-                  <div key={i} className="mb-1">
-                    <div style={{ color: isCurrent ? "#fecaca" : "#dc2626", textDecoration: "line-through", opacity: 0.85 }}>
-                      {item.oldText || " "}
-                    </div>
-                    <div style={{ color: isCurrent ? "#bbf7d0" : "#16a34a" }}>{item.newText || " "}</div>
-                  </div>
-                ) : (
-                  <div key={i} style={{ color: item.type === "add" ? (isCurrent ? "#bbf7d0" : "#16a34a") : isCurrent ? "#fecaca" : "#dc2626" }}>
-                    {item.type === "add" ? "+ " : "- "}
-                    {item.text || " "}
-                  </div>
-                ),
+            {isBinary ? (
+              version.content.startsWith("data:image/") ? (
+                <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
+              ) : (
+                <span style={{ opacity: 0.7 }}>이미지가 아닌 바이너리 파일이에요. 더블클릭하거나 "전체 내용 보기"로 다운로드하세요.</span>
               )
+            ) : (
+              <DiffLinesView lines={fullTextLines} highlightOnDark={isCurrent} />
             )}
           </div>
         )}
@@ -617,10 +808,11 @@ function VersionNode({
   const children = childrenByParent.get(version.id) ?? [];
   const cardRef = useRef<HTMLDivElement>(null);
   const parentVersion = version.parentVersionId ? versionsById.get(version.parentVersionId) : null;
+  const isBinary = isBinaryContent(version.content);
   // parentVersion이 없으면(맨 첫 버전) 비교 대상이 없으니 전체를 추가된 내용으로 취급.
-  const changedLines = expanded
-    ? diffLines(parentVersion?.content ?? "", version.content).filter((l) => l.type !== "same")
-    : [];
+  // 바이너리 파일은 줄 단위로 비교하는 게 의미 없어(base64 덩어리) diff 자체를 건너뜀.
+  const changedLines =
+    expanded && !isBinary ? diffLines(parentVersion?.content ?? "", version.content).filter((l) => l.type !== "same") : [];
   const displayChanges = groupChangedLines(changedLines);
 
   useEffect(() => {
@@ -675,7 +867,7 @@ function VersionNode({
             )}
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-600" style={{ color: isCurrent ? "rgba(255,255,255,0.75)" : "var(--muted-foreground)" }}>
-                수정 사항 {displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}
+                {isBinary ? "바이너리 파일" : `수정 사항 ${displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}`}
               </span>
               <button
                 onClick={(e) => {
@@ -698,7 +890,13 @@ function VersionNode({
               className="text-xs whitespace-pre-wrap p-2 max-h-28 overflow-y-auto text-left"
               style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--muted)", color: isCurrent ? "#fff" : "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
             >
-              {displayChanges.length === 0 ? (
+              {isBinary ? (
+                version.content.startsWith("data:image/") ? (
+                  <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
+                ) : (
+                  <span style={{ opacity: 0.7 }}>이미지가 아닌 바이너리 파일이에요. 우측 상단 "+"로 다운로드하세요.</span>
+                )
+              ) : displayChanges.length === 0 ? (
                 <span style={{ opacity: 0.7 }}>{parentVersion ? "이전 버전과 내용이 같아요." : "수정 이력이 없는 첫 버전이에요."}</span>
               ) : (
                 displayChanges.map((item, i) =>
@@ -884,8 +1082,19 @@ export default function Workspace() {
   const [activePresence, setActivePresence] = useState<ActivePresence[]>([]);
   const [pins, setPins] = useState<FileVersionPin[]>([]);
   const [focusedVersionId, setFocusedVersionId] = useState<string | null>(null);
+  // "페이지" 보기에서 지금 몇 번째 페이지(버전)를 보고 있는지 — VersionPageFlip이 보고해줌.
+  // 버전트리 보기의 focusedVersionId와 별개로 관리하고, 댓글 작성 시 "보기 방식"에 맞는 쪽을 쓴다.
+  const [pageFlipVersionId, setPageFlipVersionId] = useState<string | null>(null);
+  // 핀 등을 눌러 "페이지" 보기를 특정 버전으로 바로 넘기라는 요청 — VersionPageFlip이 소비한다.
+  const [pageJumpRequest, setPageJumpRequest] = useState<{ id: string; nonce: number } | null>(null);
+  // 댓글 탭에서 "이 버전(페이지)만" / "파일 전체" 필터 — 기본은 파일 전체.
+  const [commentFilterVersion, setCommentFilterVersion] = useState(false);
+  // 댓글 작성 시 지금 보고 있는 버전에 달지, 파일 전체 댓글로 달지 — 기본은 파일 전체.
+  const [commentTargetVersion, setCommentTargetVersion] = useState(false);
   const [fullTextVersion, setFullTextVersion] = useState<FileVersion | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // 핀 기준 "바로 수정" 대상 — 파일 목록/버전 패널의 ✏️(핀)에서 켠다. null이면 파일 메인 버전 기준.
+  const [quickEditPin, setQuickEditPin] = useState<{ pinId: string; label: string } | null>(null);
   const uploadTargetPinIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newVersionInputRef = useRef<HTMLInputElement>(null);
@@ -927,6 +1136,33 @@ export default function Workspace() {
 
   function isFileSyncing(path: string): boolean {
     return activePresence.some((p) => rootCoversPath(p.root, path));
+  }
+
+  // "바로 수정"(실시간 공동편집) 중인 사람 — 파일 목록에 "N명이 바로 수정 중" 배지를 보여주기 위해
+  // sync-presence와 같은 방식으로 주기적으로 폴링한다. 실제 편집 동기화는 웹소켓이 따로 맡는다.
+  const [collabActive, setCollabActive] = useState<CollabActiveFile[]>([]);
+  const [quickEditFileId, setQuickEditFileId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const { data } = await listActiveCollabUsers(project.id);
+        if (!cancelled) setCollabActive(data);
+      } catch {
+        if (!cancelled) setCollabActive([]);
+      }
+    }
+    poll();
+    const timer = setInterval(poll, COLLAB_PRESENCE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [project.id]);
+
+  function collabUsersFor(fileId: string): { userId: string; name: string }[] {
+    return collabActive.find((c) => c.fileId === fileId)?.users ?? [];
   }
 
   const branchIdsByFile = new Map(branches.map((b) => [b.file.id, new Set(b.branches.map((v) => v.id))]));
@@ -997,9 +1233,9 @@ export default function Workspace() {
         }
         let content: string;
         try {
-          content = await file.text();
+          content = await readFileForUpload(file);
         } catch {
-          setUploadError(`${file.name}을(를) 텍스트로 읽을 수 없습니다 (바이너리 파일은 지원하지 않습니다).`);
+          setUploadError(`${file.name}을(를) 읽지 못했습니다.`);
           continue;
         }
         const path = currentDir ? `${currentDir}/${file.name}` : file.name;
@@ -1032,9 +1268,9 @@ export default function Workspace() {
     try {
       let content: string;
       try {
-        content = await file.text();
+        content = await readFileForUpload(file);
       } catch {
-        setUploadError(`${file.name}을(를) 텍스트로 읽을 수 없습니다 (바이너리 파일은 지원하지 않습니다).`);
+        setUploadError(`${file.name}을(를) 읽지 못했습니다.`);
         return;
       }
       const baseVersionId = pinId ? pins.find((p) => p.id === pinId)?.versionId : (selectedFile.currentVersionId ?? undefined);
@@ -1149,10 +1385,20 @@ export default function Workspace() {
     newVersionInputRef.current?.click();
   }
 
-  async function handleAddComment() {
+  // 핀 등을 클릭해 그 버전으로 바로 이동 — "페이지" 보기면 그 페이지로 넘기고, "버전트리" 보기면
+  // 그 버전에 포커스를 준다(트리 카드가 펼쳐지고 자동 스크롤됨, VersionNode 참고).
+  function handleJumpToVersion(versionId: string) {
+    if (viewMode === "simple") {
+      setPageJumpRequest({ id: versionId, nonce: Date.now() });
+    } else {
+      setFocusedVersionId(versionId);
+    }
+  }
+
+  async function handleAddComment(versionId?: string) {
     if (!selectedFileId || !commentDraft.trim()) return;
     try {
-      await addFileComment(project.id, selectedFileId, commentDraft.trim());
+      await addFileComment(project.id, selectedFileId, commentDraft.trim(), versionId);
       setCommentDraft("");
       const { data } = await listFileComments(project.id, selectedFileId);
       setComments(data);
@@ -1181,6 +1427,15 @@ export default function Workspace() {
   }
 
   const effectiveFocusId = focusedVersionId ?? selectedFile?.currentVersionId ?? null;
+  // 지금 화면에 "보이고 있는" 버전 — 페이지 보기면 그 페이지, 버전트리 보기면 포커스된 버전.
+  // 댓글을 "이 버전에" 달거나 필터링할 때 이 값을 기준으로 삼는다.
+  const viewingVersionId = viewMode === "simple" ? pageFlipVersionId : effectiveFocusId;
+  const viewingVersionLabel =
+    viewMode === "simple"
+      ? "지금 보고 있는 페이지"
+      : viewingVersionId === selectedFile?.currentVersionId
+        ? "현재 버전"
+        : "포커스된 버전";
   const versionsById = new Map(versions.map((v) => [v.id, v]));
   const highlightIds = new Set<string>();
   if (effectiveFocusId) {
@@ -1285,7 +1540,7 @@ export default function Workspace() {
         <div className="text-sm font-600">
           {uploading ? "업로드 중..." : `${currentDir ? `"${currentDir}"에 업로드` : "워크스페이스 루트에 업로드"} — 드래그하거나 클릭`}
         </div>
-        <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>텍스트 기반 파일(코드, 문서 등), 파일당 최대 10MB</div>
+        <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>코드·문서 등 텍스트 파일부터 이미지·PDF·워드·엑셀·압축 파일까지, 파일당 최대 10MB</div>
       </div>
       <input
         value={uploadNote}
@@ -1454,7 +1709,30 @@ export default function Workspace() {
                       📌 {pinCounts.get(f.id)}
                     </span>
                   )}
+                  {collabUsersFor(f.id).length > 0 && (
+                    <span
+                      className="text-xs font-700 px-2 py-0.5 shrink-0 flex items-center gap-1"
+                      style={{ borderRadius: "20px", background: isSelected ? "rgba(255,255,255,0.25)" : "#22c55e18", color: isSelected ? "#fff" : "#22c55e" }}
+                      title={collabUsersFor(f.id).map((u) => u.name).join(", ") + "님이 바로 수정 중"}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: isSelected ? "#fff" : "#22c55e" }} />
+                      바로 수정 중 {collabUsersFor(f.id).length}
+                    </span>
+                  )}
                 </button>
+                {!isBinaryPath(f.path) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQuickEditFileId(f.id);
+                    }}
+                    title="바로 수정 — 폴더 연동 없이 지금 바로 고치기"
+                    className="w-7 h-7 flex items-center justify-center text-xs shrink-0"
+                    style={{ borderRadius: "50%", background: isSelected ? "rgba(255,255,255,0.2)" : "var(--muted)", color: isSelected ? "#fff" : "var(--foreground)" }}
+                  >
+                    ✏️
+                  </button>
+                )}
                 {editingTagFileId === f.id ? (
                   <input
                     autoFocus
@@ -1540,6 +1818,16 @@ export default function Workspace() {
                     >
                       📅
                     </button>
+                    {!isBinaryContent(selectedFile.content) && (
+                      <button
+                        onClick={() => setQuickEditFileId(selectedFile.id)}
+                        title="바로 수정 — 폴더 연동 없이 지금 바로 고치기"
+                        className="w-9 shrink-0 flex items-center justify-center text-sm"
+                        style={{ borderRadius: "10px", border: "2px solid var(--border)", color: "var(--foreground)", background: "transparent" }}
+                      >
+                        ✏️
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -1580,6 +1868,32 @@ export default function Workspace() {
                     </div>
                   </div>
 
+                  {/* 핀 — 눌러서 그 버전(페이지)으로 바로 이동, ✏️는 그 핀 기준 바로 수정,
+                      ×는 삭제. 보기 방식(페이지/버전트리)과 무관하게 항상 보인다. */}
+                  {pins.length > 0 && (
+                    <div className="flex gap-1.5 mb-3 flex-wrap">
+                      {pins.map((p) => (
+                        <span key={p.id} className="flex items-center gap-1 text-xs font-600 pl-2.5 pr-1.5 py-1" style={{ borderRadius: "20px", background: "#8b5cf618", color: "#8b5cf6" }}>
+                          <button onClick={() => handleJumpToVersion(p.versionId)} title="이 핀의 버전으로 이동">
+                            📌 {p.label}
+                          </button>
+                          {!isBinaryContent(versionsById.get(p.versionId)?.content ?? "") && (
+                            <button
+                              onClick={() => setQuickEditPin({ pinId: p.id, label: p.label })}
+                              title="이 핀 기준으로 바로 수정"
+                              className="w-4 h-4 flex items-center justify-center rounded-full"
+                            >
+                              ✏️
+                            </button>
+                          )}
+                          <button onClick={() => handleDeletePin(p.id)} title="핀 삭제" className="w-4 h-4 flex items-center justify-center rounded-full">
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {viewMode === "simple" ? (
                     <div className="overflow-auto max-h-80">
                       <VersionPageFlip
@@ -1588,22 +1902,12 @@ export default function Workspace() {
                         memberNameById={memberNameById}
                         onPromote={(versionId) => handlePromote(selectedFile.id, versionId)}
                         onShowFull={setFullTextVersion}
+                        onViewingVersionChange={setPageFlipVersionId}
+                        jumpTo={pageJumpRequest}
                       />
                     </div>
                   ) : (
                     <>
-                      {pins.length > 0 && (
-                        <div className="flex gap-1.5 mb-3 flex-wrap">
-                          {pins.map((p) => (
-                            <span key={p.id} className="flex items-center gap-1.5 text-xs font-600 pl-2.5 pr-1.5 py-1" style={{ borderRadius: "20px", background: "#8b5cf618", color: "#8b5cf6" }}>
-                              📌 {p.label}
-                              <button onClick={() => handleDeletePin(p.id)} className="w-4 h-4 flex items-center justify-center rounded-full">
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
                       <div className="version-tree-scroll overflow-auto max-h-80">
                         <ul className="version-tree">
                           {rootVersions.map((v) => (
@@ -1632,7 +1936,30 @@ export default function Workspace() {
                 </>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {comments.map((c) => (
+                  {/* 파일 전체 댓글 / 지금 보고 있는 버전(페이지)의 댓글만 보기 전환 */}
+                  <div className="flex gap-1 p-0.5 self-start" style={{ background: "var(--muted)", borderRadius: "20px" }}>
+                    {([[false, `전체 ${comments.length}`], [true, `${viewingVersionId ? viewingVersionLabel : "이 버전"} ${comments.filter((c) => c.versionId === viewingVersionId).length}`]] as const).map(
+                      ([val, label]) => (
+                        <button
+                          key={String(val)}
+                          onClick={() => setCommentFilterVersion(val)}
+                          disabled={val && !viewingVersionId}
+                          className="text-xs font-600 px-2.5 py-1 transition-all"
+                          style={{
+                            background: commentFilterVersion === val ? "var(--card)" : "transparent",
+                            color: commentFilterVersion === val ? "var(--primary)" : "var(--muted-foreground)",
+                            borderRadius: "16px",
+                            boxShadow: commentFilterVersion === val ? "var(--shadow-card)" : "none",
+                            opacity: val && !viewingVersionId ? 0.5 : 1,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ),
+                    )}
+                  </div>
+
+                  {(commentFilterVersion ? comments.filter((c) => c.versionId === viewingVersionId) : comments).map((c) => (
                     <div key={c.id} className="flex items-start gap-2.5">
                       <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
                         {(memberNameById.get(c.authorId) ?? "?").slice(0, 1)}
@@ -1641,31 +1968,46 @@ export default function Workspace() {
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-700">{memberNameById.get(c.authorId) ?? c.authorId}</span>
                           <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{formatDate(c.createdAt)}</span>
+                          {c.versionId && (
+                            <span className="text-xs px-1.5 py-0.5 font-600 shrink-0" style={{ borderRadius: "4px", background: "#8b5cf618", color: "#8b5cf6" }}>
+                              📌 버전 댓글{c.versionId === selectedFile?.currentVersionId ? " · 현재" : ""}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs mt-0.5 leading-relaxed px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>{c.content}</p>
                       </div>
                     </div>
                   ))}
-                  {comments.length === 0 && (
-                    <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>아직 댓글이 없어요. 첫 코멘트를 남겨보세요.</div>
+                  {(commentFilterVersion ? comments.filter((c) => c.versionId === viewingVersionId) : comments).length === 0 && (
+                    <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
+                      {commentFilterVersion ? "이 버전에 남긴 댓글이 없어요." : "아직 댓글이 없어요. 첫 코멘트를 남겨보세요."}
+                    </div>
                   )}
-                  <div className="flex gap-2 mt-1">
-                    <input
-                      value={commentDraft}
-                      onChange={(e) => setCommentDraft(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddComment()}
-                      placeholder="이 파일에 코멘트 남기기..."
-                      className="flex-1 text-xs px-3 py-2 outline-none"
-                      style={{ background: "var(--muted)", borderRadius: "20px" }}
-                    />
-                    <button
-                      onClick={handleAddComment}
-                      disabled={!commentDraft.trim()}
-                      className="px-3 text-xs font-700 shrink-0"
-                      style={{ borderRadius: "20px", color: "#fff", background: "var(--primary)", opacity: commentDraft.trim() ? 1 : 0.4 }}
-                    >
-                      등록
-                    </button>
+                  <div className="flex flex-col gap-1.5 mt-1">
+                    {viewingVersionId && (
+                      <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--muted-foreground)" }}>
+                        <input type="checkbox" checked={commentTargetVersion} onChange={(e) => setCommentTargetVersion(e.target.checked)} />
+                        {viewingVersionLabel}에 댓글 남기기 (끄면 파일 전체 댓글)
+                      </label>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={commentDraft}
+                        onChange={(e) => setCommentDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAddComment(commentTargetVersion && viewingVersionId ? viewingVersionId : undefined)}
+                        placeholder={commentTargetVersion && viewingVersionId ? `${viewingVersionLabel}에 코멘트 남기기...` : "이 파일에 코멘트 남기기..."}
+                        className="flex-1 text-xs px-3 py-2 outline-none"
+                        style={{ background: "var(--muted)", borderRadius: "20px" }}
+                      />
+                      <button
+                        onClick={() => handleAddComment(commentTargetVersion && viewingVersionId ? viewingVersionId : undefined)}
+                        disabled={!commentDraft.trim()}
+                        className="px-3 text-xs font-700 shrink-0"
+                        style={{ borderRadius: "20px", color: "#fff", background: "var(--primary)", opacity: commentDraft.trim() ? 1 : 0.4 }}
+                      >
+                        등록
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1689,7 +2031,15 @@ export default function Workspace() {
         ))}
       </datalist>
 
-      {fullTextVersion && (
+      {fullTextVersion && (() => {
+        // 전문 보기 안에서도 페이지 넘기듯 이전/다음 버전으로 바로 이동할 수 있게 — "페이지"
+        // 보기(VersionPageFlip)와 같은 기준(시간순)으로 순서를 매긴다.
+        const chronological = [...versions].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        const fullTextIndex = chronological.findIndex((v) => v.id === fullTextVersion.id);
+        const prevVersion = fullTextIndex > 0 ? chronological[fullTextIndex - 1] : null;
+        const nextVersion = fullTextIndex >= 0 && fullTextIndex < chronological.length - 1 ? chronological[fullTextIndex + 1] : null;
+
+        return (
         <div
           onClick={() => setFullTextVersion(null)}
           className="fixed inset-0 flex items-center justify-center z-50 p-6"
@@ -1697,7 +2047,7 @@ export default function Workspace() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-2xl max-h-[80vh] flex flex-col"
+            className="w-full max-w-5xl h-[90vh] flex flex-col"
             style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.28)" }}
           >
             <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -1705,25 +2055,75 @@ export default function Workspace() {
                 <div className="text-sm font-700">전문 보기</div>
                 <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
                   {memberNameById.get(fullTextVersion.authorId) ?? fullTextVersion.authorId} · {formatDate(fullTextVersion.createdAt)}
+                  {fullTextIndex >= 0 && ` · ${fullTextIndex + 1} / ${chronological.length}`}
                 </div>
               </div>
-              <button
-                onClick={() => setFullTextVersion(null)}
-                className="w-8 h-8 flex items-center justify-center text-lg"
-                style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+              <div className="flex items-center gap-2">
+                {isBinaryContent(fullTextVersion.content) && (
+                  <button
+                    onClick={() => downloadFile(selectedFile?.path ?? "file", fullTextVersion.content)}
+                    className="text-xs font-700 px-3 py-1.5"
+                    style={{ borderRadius: "20px", background: "var(--primary)", color: "#fff" }}
+                  >
+                    다운로드
+                  </button>
+                )}
+                <button
+                  onClick={() => setFullTextVersion(null)}
+                  className="w-8 h-8 flex items-center justify-center text-lg"
+                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            {isBinaryContent(fullTextVersion.content) ? (
+              fullTextVersion.content.startsWith("data:image/") ? (
+                <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+                  <img src={fullTextVersion.content} alt="전문 미리보기" className="max-w-full max-h-full object-contain" />
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  <span>이미지가 아닌 파일이라 화면에서 바로 볼 수 없어요.</span>
+                  <span>위의 "다운로드" 버튼으로 받아서 확인해주세요.</span>
+                </div>
+              )
+            ) : (
+              <div
+                className="flex-1 overflow-auto text-xs whitespace-pre-wrap p-4"
+                style={{ color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
               >
-                ×
+                <DiffLinesView
+                  lines={buildFullTextDiff(
+                    (fullTextVersion.parentVersionId ? versionsById.get(fullTextVersion.parentVersionId)?.content : undefined) ?? "",
+                    fullTextVersion.content,
+                  )}
+                  highlightOnDark={false}
+                />
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2 px-5 py-3" style={{ borderTop: "1px solid var(--border)" }}>
+              <button
+                onClick={() => prevVersion && setFullTextVersion(prevVersion)}
+                disabled={!prevVersion}
+                className="text-xs font-700 px-3 py-1.5"
+                style={{ borderRadius: "20px", background: "var(--muted)", color: prevVersion ? "var(--foreground)" : "var(--muted-foreground)", opacity: prevVersion ? 1 : 0.5 }}
+              >
+                ← 이전 페이지
+              </button>
+              <button
+                onClick={() => nextVersion && setFullTextVersion(nextVersion)}
+                disabled={!nextVersion}
+                className="text-xs font-700 px-3 py-1.5"
+                style={{ borderRadius: "20px", background: "var(--muted)", color: nextVersion ? "var(--foreground)" : "var(--muted-foreground)", opacity: nextVersion ? 1 : 0.5 }}
+              >
+                다음 페이지 →
               </button>
             </div>
-            <pre
-              className="flex-1 overflow-auto text-xs whitespace-pre-wrap p-4 m-0"
-              style={{ color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
-            >
-              {fullTextVersion.content}
-            </pre>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {calendarOpen && selectedFile && (
         <VersionCalendarModal
@@ -1738,6 +2138,50 @@ export default function Workspace() {
           }}
         />
       )}
+
+      {quickEditFileId &&
+        currentMember?.userId &&
+        (() => {
+          const target = files.find((f) => f.id === quickEditFileId);
+          if (!target) return null;
+          return (
+            <QuickEditModal
+              projectId={project.id}
+              fileId={target.id}
+              filePath={target.path}
+              myUserId={currentMember.userId}
+              myName={currentMember.name}
+              onClose={async () => {
+                setQuickEditFileId(null);
+                await refresh();
+                await refreshVersionsAndPins();
+              }}
+            />
+          );
+        })()}
+
+      {quickEditPin &&
+        selectedFile &&
+        currentMember?.userId &&
+        (() => {
+          if (isBinaryContent(selectedFile.content)) return null;
+          return (
+            <QuickEditModal
+              projectId={project.id}
+              fileId={selectedFile.id}
+              filePath={selectedFile.path}
+              pinId={quickEditPin.pinId}
+              pinLabel={quickEditPin.label}
+              myUserId={currentMember.userId}
+              myName={currentMember.name}
+              onClose={async () => {
+                setQuickEditPin(null);
+                await refresh();
+                await refreshVersionsAndPins();
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }

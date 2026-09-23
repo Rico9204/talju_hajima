@@ -33,6 +33,8 @@ export interface FileBranches {
 export interface FileComment {
   id: string;
   fileId: string;
+  // 특정 버전(페이지)에 남긴 댓글이면 그 버전 id, 파일 전체에 대한 일반 댓글이면 null.
+  versionId: string | null;
   authorId: string;
   content: string;
   createdAt: string;
@@ -116,8 +118,8 @@ export function listFileComments(projectId: string, fileId: string) {
   return apiClient.get<FileComment[]>(`/projects/${projectId}/files/${fileId}/comments`);
 }
 
-export function addFileComment(projectId: string, fileId: string, content: string) {
-  return apiClient.post<FileComment>(`/projects/${projectId}/files/${fileId}/comments`, { content });
+export function addFileComment(projectId: string, fileId: string, content: string, versionId?: string) {
+  return apiClient.post<FileComment>(`/projects/${projectId}/files/${fileId}/comments`, { content, versionId });
 }
 
 export interface ActivePresence {
@@ -136,4 +138,16 @@ export function listSyncPresence(projectId: string, root: string) {
 // 프로젝트 전체에서 지금 동기화 중인 (userId, root) 전부 — 워크스페이스 파일 목록의 "지금 동기화 중" 표시용
 export function listAllSyncPresence(projectId: string) {
   return apiClient.get<{ active: ActivePresence[] }>(`/projects/${projectId}/sync-presence/all`);
+}
+
+export interface CollabActiveFile {
+  fileId: string;
+  users: { userId: string; name: string }[];
+}
+
+// "바로 수정"(실시간 공동편집) 중인 파일별 참여자 목록 — 파일 목록에 "N명이 바로 수정 중" 배지를
+// 보여주기 위해 주기적으로 폴링한다. 실제 편집 동기화 자체는 웹소켓(collab.service.ts)이 맡고,
+// 이건 그 웹소켓에 지금 붙어있는 사람이 누군지만 가볍게 REST로 확인하는 용도.
+export function listActiveCollabUsers(projectId: string) {
+  return apiClient.get<CollabActiveFile[]>(`/projects/${projectId}/collab/active`);
 }

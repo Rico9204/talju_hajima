@@ -215,8 +215,6 @@ export default function FolderSync() {
     baselineRef.current = new Map();
   }
 
-  const rootLocked = !!folderHandle && autoSync;
-
   async function handlePickFolder() {
     setError(null);
     setSyncing(true);
@@ -275,7 +273,6 @@ export default function FolderSync() {
               </label>
               <select
                 value={showCustomRoot ? NEW_ROOT_VALUE : syncRoot}
-                disabled={rootLocked}
                 onChange={(e) => {
                   if (e.target.value === NEW_ROOT_VALUE) {
                     setShowCustomRoot(true);
@@ -301,7 +298,6 @@ export default function FolderSync() {
                   autoFocus
                   value={syncRoot}
                   onChange={(e) => handleSyncRootChange(e.target.value)}
-                  disabled={rootLocked}
                   placeholder="새 폴더 경로 (예: docs/team1)"
                   className="w-full max-w-sm text-sm px-3 py-2.5 border outline-none mt-2"
                   style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--muted)" }}
