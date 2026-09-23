@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent } fr
 import { useProjectManagement } from "../context/ProjectContext";
 import { dataRepository } from "../api";
 import { BOARD_CATEGORIES } from "../lib/boardData";
+import { validateNewPollInput } from "../lib/boardPoll";
 import type { BoardAttachment, BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
 export default function CreatePostView({
@@ -29,6 +30,21 @@ export default function CreatePostView({
   const [attachments, setAttachments] = useState<BoardAttachment[]>(initialPost?.attachments ?? []);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 투표(Poll) 첨부 상태
+  const [hasPoll, setHasPoll] = useState(!!initialPost?.poll);
+  const [pollQuestion, setPollQuestion] = useState(initialPost?.poll?.question ?? "");
+  const [pollOptions, setPollOptions] = useState<string[]>(
+    initialPost?.poll?.options && initialPost.poll.options.length >= 2
+      ? initialPost.poll.options.map((o) => o.text)
+      : ["", ""]
+  );
+  const [pollAllowMultiple, setPollAllowMultiple] = useState(initialPost?.poll?.allowMultiple ?? false);
+  const [pollIsAnonymous, setPollIsAnonymous] = useState(initialPost?.poll?.isAnonymous ?? false);
+  const [pollHasDeadline, setPollHasDeadline] = useState(!!initialPost?.poll?.closesAt);
+  const [pollDeadline, setPollDeadline] = useState(
+    initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toISOString().slice(0, 16) : ""
+  );
 
   useEffect(() => {
     if (editorRef.current && initialPost?.content) {
@@ -168,10 +184,30 @@ export default function CreatePostView({
     const textOnly = editorRef.current?.innerText.trim() ?? "";
     if (!textOnly && !cleanHtml.includes("<img")) { setError("내용을 입력해주세요."); return; }
 
+    let pollInput = undefined;
+    if (hasPoll) {
+      const pollValidationError = validateNewPollInput({
+        question: pollQuestion,
+        options: pollOptions,
+        closesAt: pollHasDeadline && pollDeadline ? new Date(pollDeadline).toISOString() : null,
+      });
+      if (pollValidationError) {
+        setError(pollValidationError);
+        return;
+      }
+      pollInput = {
+        question: pollQuestion.trim(),
+        options: pollOptions.map((o) => o.trim()).filter(Boolean),
+        allowMultiple: pollAllowMultiple,
+        isAnonymous: pollIsAnonymous,
+        closesAt: pollHasDeadline && pollDeadline ? new Date(pollDeadline).toISOString() : null,
+      };
+    }
+
     if (initialPost && onUpdate) {
-      onUpdate(initialPost.id, { category, title: title.trim(), content: cleanHtml, attachments });
+      onUpdate(initialPost.id, { category, title: title.trim(), content: cleanHtml, attachments, poll: pollInput });
     } else {
-      onCreate({ category, title: title.trim(), content: cleanHtml, attachments });
+      onCreate({ category, title: title.trim(), content: cleanHtml, attachments, poll: pollInput });
     }
   }
 
@@ -288,6 +324,149 @@ export default function CreatePostView({
                     <button type="button" onClick={() => removeAttachment(file.id)} className="w-6 h-6 flex items-center justify-center text-xs font-700 hover:text-red-500" title="제거">×</button>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* 투표 (Poll) 첨부 영역 */}
+          <div className="p-4 border rounded-xl space-y-4" style={{ background: "var(--muted)", borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📊</span>
+                <span className="text-xs font-700" style={{ color: "var(--foreground)" }}>투표(Poll) 첨부</span>
+                {hasPoll && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-bold">
+                    활성화됨
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setHasPoll(!hasPoll)}
+                className="px-3 py-1.5 text-xs font-700 rounded-lg transition-all"
+                style={{
+                  background: hasPoll ? "rgba(239, 68, 68, 0.1)" : "rgba(37, 99, 235, 0.1)",
+                  color: hasPoll ? "#ef4444" : "#2563eb",
+                }}
+              >
+                {hasPoll ? "✕ 투표 제거" : "+ 투표 만들기"}
+              </button>
+            </div>
+
+            {hasPoll && (
+              <div className="space-y-4 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+                <div>
+                  <label className="block text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
+                    투표 질문 / 주제 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
+                    maxLength={200}
+                    placeholder="예: 정기 회의 요일 언제가 좋으신가요? (최대 200자)"
+                    className="w-full px-3.5 py-2.5 text-xs md:text-sm outline-none transition-all"
+                    style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>
+                      투표 항목 (최소 2개 ~ 최대 10개) <span className="text-red-500">*</span>
+                    </label>
+                    {pollOptions.length < 10 && (
+                      <button
+                        type="button"
+                        onClick={() => setPollOptions([...pollOptions, ""])}
+                        className="text-xs font-bold text-blue-500 hover:underline"
+                      >
+                        + 항목 추가
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {pollOptions.map((opt, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="text-xs font-semibold w-5 text-center" style={{ color: "var(--muted-foreground)" }}>
+                          {idx + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          value={opt}
+                          onChange={(e) => {
+                            const next = [...pollOptions];
+                            next[idx] = e.target.value;
+                            setPollOptions(next);
+                          }}
+                          maxLength={100}
+                          placeholder={`항목 ${idx + 1}`}
+                          className="flex-1 px-3 py-2 text-xs md:text-sm outline-none"
+                          style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)" }}
+                        />
+                        {pollOptions.length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => setPollOptions(pollOptions.filter((_, i) => i !== idx))}
+                            className="w-7 h-7 flex items-center justify-center text-xs font-bold text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="항목 삭제"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 투표 추가 설정 */}
+                <div className="p-3 rounded-xl space-y-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                  <div className="text-xs font-bold mb-1" style={{ color: "var(--foreground)" }}>⚙️ 투표 추가 설정</div>
+                  <div className="flex flex-wrap gap-4 text-xs font-medium" style={{ color: "var(--foreground)" }}>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pollAllowMultiple}
+                        onChange={(e) => setPollAllowMultiple(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span>복수 선택 허용 (다중 투표)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pollIsAnonymous}
+                        onChange={(e) => setPollIsAnonymous(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span>익명 투표 (참여자 명단 숨김)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pollHasDeadline}
+                        onChange={(e) => setPollHasDeadline(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span>마감일 설정</span>
+                    </label>
+                  </div>
+
+                  {pollHasDeadline && (
+                    <div className="pt-2 flex items-center gap-2 flex-wrap">
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>마감 일시:</span>
+                      <input
+                        type="datetime-local"
+                        value={pollDeadline}
+                        onChange={(e) => setPollDeadline(e.target.value)}
+                        className="px-3 py-1.5 text-xs outline-none rounded-lg"
+                        style={{ background: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

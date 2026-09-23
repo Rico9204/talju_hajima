@@ -166,6 +166,32 @@ export default function BoardView() {
     }
   }
 
+  async function handleVotePoll(pollId: number, optionIds: number[]) {
+    try {
+      const updatedPoll = await dataRepository.castBoardPollVote(pollId, optionIds);
+      setPosts((prev) => prev.map((p) => (p.poll?.id === pollId ? { ...p, poll: updatedPoll } : p)));
+      setSelectedPost((prev) => (prev && prev.poll?.id === pollId ? { ...prev, poll: updatedPoll } : prev));
+    } catch (e) {
+      setError(errorMessage(e));
+      throw e;
+    }
+  }
+
+  async function handleClosePoll(pollId: number) {
+    try {
+      await dataRepository.closeBoardPoll(pollId);
+      setPosts((prev) =>
+        prev.map((p) => (p.poll?.id === pollId && p.poll ? { ...p, poll: { ...p.poll, closed: true } } : p))
+      );
+      setSelectedPost((prev) =>
+        prev && prev.poll?.id === pollId && prev.poll ? { ...prev, poll: { ...prev.poll, closed: true } } : prev
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+      throw e;
+    }
+  }
+
   const categoryPosts = selectedCategory === "all" ? posts : posts.filter((p) => p.category === selectedCategory);
 
   const filteredPosts = categoryPosts.filter((p) => {
@@ -225,6 +251,8 @@ export default function BoardView() {
         onDeleteComment={handleDeleteComment}
         onToggleLike={handleToggleLike}
         onDeletePost={handleDeletePost}
+        onVotePoll={handleVotePoll}
+        onClosePoll={handleClosePoll}
       />
     );
   }
@@ -368,6 +396,16 @@ export default function BoardView() {
                     </span>
                   )}
                   <span className="text-sm font-700 truncate hover:text-blue-500 transition-colors">{post.title}</span>
+                  {post.poll && (
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 shrink-0 rounded flex items-center gap-1"
+                      style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3b82f6" }}
+                      title="투표 진행/마감"
+                    >
+                      <span>📊</span>
+                      <span>투표</span>
+                    </span>
+                  )}
                   {(imageCount > 0 || fileCount > 0) && (
                     <span className="text-[10px] shrink-0 font-600" style={{ color: "var(--muted-foreground)" }}>
                       {imageCount > 0 && `📷${imageCount} `}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BOARD_CATEGORIES } from "../lib/boardData";
+import BoardPollView from "./BoardPollView";
 import type { BoardPost } from "../api/types";
 
 export default function PostDetailView({
@@ -15,6 +16,8 @@ export default function PostDetailView({
   onDeleteComment,
   onToggleLike,
   onDeletePost,
+  onVotePoll,
+  onClosePoll,
 }: {
   post: BoardPost;
   currentUserId: string | null;
@@ -28,6 +31,8 @@ export default function PostDetailView({
   onDeleteComment: (postId: number, commentId: number) => void;
   onToggleLike: (postId: number) => void;
   onDeletePost: (postId: number) => void;
+  onVotePoll?: (pollId: number, optionIds: number[]) => Promise<void>;
+  onClosePoll?: (pollId: number) => Promise<void>;
 }) {
   const [commentText, setCommentText] = useState("");
   const [replyingTarget, setReplyingTarget] = useState<{ commentId: number; targetAuthor: string; replyId?: number } | null>(null);
@@ -167,6 +172,23 @@ export default function PostDetailView({
         ) : (
           <div className="text-sm md:text-base whitespace-pre-wrap leading-relaxed p-5" style={{ background: "var(--muted)", borderRadius: "12px", color: "var(--foreground)", backgroundClip: "padding-box" }}>
             {post.content}
+          </div>
+        )}
+
+        {post.poll && (
+          <div className="pt-2">
+            <BoardPollView
+              poll={post.poll}
+              postAuthorId={post.authorUserId}
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              onVote={async (pollId, optionIds) => {
+                if (onVotePoll) await onVotePoll(pollId, optionIds);
+              }}
+              onClosePoll={async (pollId) => {
+                if (onClosePoll) await onClosePoll(pollId);
+              }}
+            />
           </div>
         )}
 

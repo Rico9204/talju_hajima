@@ -260,6 +260,44 @@ export interface BoardComment {
   replies: BoardReply[];
 }
 
+export interface BoardPollVoter {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+export interface BoardPollOption {
+  id: number;
+  pollId: number;
+  text: string;
+  votesCount: number;
+  sortOrder: number;
+  voters?: BoardPollVoter[];
+}
+
+export interface BoardPoll {
+  id: number;
+  postId: number;
+  question: string;
+  allowMultiple: boolean;
+  isAnonymous: boolean;
+  closed: boolean;
+  closesAt: string | null;
+  createdAt: string;
+  options: BoardPollOption[];
+  totalVotes: number;
+  hasVoted: boolean;
+  myOptionIds: number[];
+}
+
+export interface NewBoardPollInput {
+  question: string;
+  options: string[];
+  allowMultiple: boolean;
+  isAnonymous: boolean;
+  closesAt?: string | null;
+}
+
 export interface BoardPost {
   id: number;
   category: BoardCategory;
@@ -277,6 +315,7 @@ export interface BoardPost {
   attachments: BoardAttachment[];
   commentsCount: number;
   comments: BoardComment[];
+  poll?: BoardPoll | null;
 }
 
 export interface NewBoardPostInput {
@@ -284,6 +323,7 @@ export interface NewBoardPostInput {
   title: string;
   content: string;
   attachments: BoardAttachment[];
+  poll?: NewBoardPollInput | null;
 }
 
 export interface ChatMessage {
