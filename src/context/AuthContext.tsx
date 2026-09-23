@@ -7,7 +7,7 @@ interface AuthContextValue {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, displayName: string, signupType?: "admin") => Promise<{ error: string | null; signedIn: boolean }>;
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
 }
@@ -40,11 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   }
 
-  async function signUp(email: string, password: string, displayName: string) {
+  async function signUp(email: string, password: string, displayName: string, signupType?: "admin") {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { display_name: displayName } },
+      // signup_type은 가입 후 어느 화면으로 안내할지 정하는 표시일 뿐이다. 관리자 권한은 이 값과 무관하게 운영자 승인으로만 생긴다.
+      options: { data: { display_name: displayName, ...(signupType === "admin" ? { signup_type: "admin" } : {}) } },
     });
     const alreadyRegistered =
       (error && /already registered|already exists/i.test(error.message)) ||
@@ -64,13 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         redirectTo: `${window.location.origin}/reset-password`,
       });
       if (resetError) console.error("resetPasswordForEmail failed for duplicate signup:", resetError.message);
-      return { error: null };
+      return { error: null, signedIn: false };
     }
     // Pad a fresh signup's response to roughly match the duplicate-email
     // branch's extra round trip above, so response timing alone can't be
     // used to tell the two cases apart.
     await new Promise((resolve) => setTimeout(resolve, 400));
-    return { error: error?.message ?? null };
+    // 이메일 인증을 켜 두면 세션이 없고, 꺼 두면 가입과 동시에 로그인된다.
+    return { error: error?.message ?? null, signedIn: !error && !!data.session };
   }
 
   async function signOut() {

@@ -69,6 +69,8 @@ export interface Member {
   color: string;
   criteriaScores: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
   isLeader: boolean;
+  // 부팀장: 팀장과 같은 일상 운영 권한을 갖지만 팀원 제외·프로젝트 종료·팀장 위임은 할 수 없다.
+  isViceLeader: boolean;
   // Only populated for the signed-in member's own row (see
   // visible_evaluation_members in schema.sql) — used to compute the
   // sidebar's "new content" badges for tasks/schedule/workspace.
@@ -321,4 +323,58 @@ export interface EvaluationData {
   average?: { available: boolean; count: number; score: number | null; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null; comments?: string[] };
   records: PeerEvaluationRecord[];
   submitted: boolean;
+}
+
+// ── 관리자 가입 신청(교수·교원 증명서 PDF + 운영자 승인) ──
+export type AdminDocType = "employment" | "faculty_id" | "appointment" | "other";
+export type AdminApplicationStatus = "pending" | "approved" | "rejected";
+export interface AdminApplicationInput {
+  org: string;
+  jobTitle: string;
+  contact: string;
+  docType: AdminDocType;
+  file: File;
+  consent: boolean;
+}
+// 신청자 본인이 보는 신청 상태.
+export interface MyAdminApplication {
+  id: string;
+  status: AdminApplicationStatus;
+  org: string;
+  jobTitle: string;
+  docType: AdminDocType;
+  docName: string;
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+}
+// 운영자가 보는 신청 기록.
+export interface AdminApplicationRecord {
+  id: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  emailConfirmed: boolean;
+  org: string;
+  jobTitle: string;
+  contact: string;
+  docType: AdminDocType;
+  docName: string;
+  docSize: number;
+  // 처리 후 원본 PDF를 지우면 null.
+  docPath: string | null;
+  docDeleted: boolean;
+  status: AdminApplicationStatus;
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  reviewedByName: string | null;
+}
+export interface AdminAccount {
+  userId: string;
+  displayName: string;
+  email: string;
+  org: string | null;
+  isOperator: boolean;
+  pendingProjects: number;
 }

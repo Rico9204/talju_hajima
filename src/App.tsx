@@ -13,6 +13,7 @@ import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
 import AdminPanel from "./components/AdminPanel";
+import AdminApplication from "./components/AdminApplication";
 import Achievements from "./components/Achievements";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -138,6 +139,7 @@ function AppRoutes() {
       <Route path="reset-password" element={<ResetPassword />} />
       <Route element={<RequireAuth />}>
         <Route path="home" element={<Home />} />
+        <Route path="admin-application" element={<AdminApplication />} />
         <Route element={<Layout />}>
           <Route path="dashboard" element={<DashboardRoute />} />
           <Route path="team" element={<TeamViewRoute />} />
@@ -162,11 +164,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <ProjectProvider>
-        <BrowserRouter>
+      <BrowserRouter>
+        <ProjectProvider>
           <AppRoutes />
-        </BrowserRouter>
-      </ProjectProvider>
+        </ProjectProvider>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

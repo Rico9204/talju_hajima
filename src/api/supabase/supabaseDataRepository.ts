@@ -93,6 +93,7 @@ function mapMember(row: any, profile?: any): Member {
       quality: Number(row.criteria_quality),
     },
     isLeader: row.is_leader,
+    isViceLeader: row.is_vice_leader === true,
     tasksViewedAt: row.tasks_viewed_at ?? null,
     scheduleViewedAt: row.schedule_viewed_at ?? null,
     workspaceViewedAt: row.workspace_viewed_at ?? null,
@@ -229,6 +230,56 @@ function mapBoardPost(row: any, profile: any, likedByMe: boolean): BoardPost {
 }
 
 import { summarizeEvaluations } from "../../lib/evaluationSummary";
+import { ADMIN_VERIFICATION_BUCKET, hasPdfSignature, validateAdminDocument } from "../../lib/adminApplication";
+import type { AdminAccount, AdminApplicationRecord, MyAdminApplication } from "../types";
+
+function mapMyAdminApplication(row: any): MyAdminApplication {
+  return {
+    id: row.id,
+    status: row.status,
+    org: row.org,
+    jobTitle: row.job_title,
+    docType: row.doc_type,
+    docName: row.doc_name,
+    submittedAt: row.submitted_at,
+    reviewedAt: row.reviewed_at ?? null,
+    reviewNote: row.review_note ?? null,
+  };
+}
+
+function mapAdminApplicationRecord(row: any): AdminApplicationRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    displayName: row.display_name ?? "이름 없음",
+    email: row.email ?? "",
+    emailConfirmed: row.email_confirmed === true,
+    org: row.org,
+    jobTitle: row.job_title,
+    contact: row.contact,
+    docType: row.doc_type,
+    docName: row.doc_name,
+    docSize: Number(row.doc_size),
+    docPath: row.doc_path ?? null,
+    docDeleted: !!row.doc_deleted_at,
+    status: row.status,
+    submittedAt: row.submitted_at,
+    reviewedAt: row.reviewed_at ?? null,
+    reviewNote: row.review_note ?? null,
+    reviewedByName: row.reviewed_by_name ?? null,
+  };
+}
+
+function mapAdminAccount(row: any): AdminAccount {
+  return {
+    userId: row.user_id,
+    displayName: row.display_name ?? "이름 없음",
+    email: row.email ?? "",
+    org: row.org ?? null,
+    isOperator: row.is_operator === true,
+    pendingProjects: Number(row.pending_projects ?? 0),
+  };
+}
 
 export const supabaseDataRepository: DataRepository = {
   async isCurrentUserAdmin() {
@@ -479,7 +530,10 @@ export const supabaseDataRepository: DataRepository = {
     return {
       teamLabel: teamResult.data?.team_label ?? "팀",
       teamSub: teamResult.data?.team_sub ?? "",
-      members: members.map((m: any) => mapMember(m, m.user_id ? profileById[m.user_id] : undefined)),
+      // 부팀장 정렬은 서버가 아니라 여기서 한다: DB에 부팀장 컬럼이 아직 없어도 팀 목록이 깨지지 않게.
+      members: members
+        .map((m: any) => mapMember(m, m.user_id ? profileById[m.user_id] : undefined))
+        .sort((a: Member, b: Member) => Number(b.isLeader) - Number(a.isLeader) || Number(b.isViceLeader) - Number(a.isViceLeader)),
     };
   },
 
@@ -575,8 +629,102 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
+  // 부팀장 임명·해임도 DB의 set_vice_leader RPC가 호출자(팀장 또는 관리자)를 다시 검증한다.
+  async setViceLeader(memberId, enabled) {
+    const { error } = await supabase.rpc("set_vice_leader", { p_member_id: memberId, p_enabled: enabled });
+    if (error) throw error;
+  },
+
   async kickMember(memberId) {
     const { error } = await supabase.rpc("kick_project_member", { p_member_id: memberId });
+    if (error) throw error;
+  },
+
+  // ── 관리자 가입 신청 ──
+  // DB 마이그레이션 전에도 앱이 멈추지 않도록, 확인에 실패하면 운영자가 아닌 것으로 본다.
+  async isCurrentUserOperator() {
+    const { data, error } = await supabase.rpc("is_operator");
+    return !error && data === true;
+  },
+
+  async getMyAdminApplication() {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!auth.user) throw new Error("로그인이 필요합니다.");
+    const { data, error } = await supabase
+      .from("admin_applications")
+      .select("id,status,org,job_title,doc_type,doc_name,submitted_at,reviewed_at,review_note")
+      .eq("user_id", auth.user.id)
+      .order("submitted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapMyAdminApplication(data) : null;
+  },
+
+  // 증명서 PDF를 먼저 올리고, 서버 함수가 파일 존재·PDF 여부·크기를 다시 확인한 뒤 신청서를 만든다.
+  async submitAdminApplication(input) {
+    const invalid = validateAdminDocument(input.file);
+    if (invalid) throw new Error(invalid);
+    if (!(await hasPdfSignature(input.file))) throw new Error("PDF 파일만 제출할 수 있습니다.");
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!auth.user) throw new Error("로그인이 필요합니다.");
+    const path = `${auth.user.id}/${crypto.randomUUID()}.pdf`;
+    const { error: uploadError } = await supabase.storage
+      .from(ADMIN_VERIFICATION_BUCKET)
+      .upload(path, input.file, { contentType: "application/pdf", upsert: false });
+    if (uploadError) throw uploadError;
+    const { error } = await supabase.rpc("submit_admin_application", {
+      p_org: input.org,
+      p_job_title: input.jobTitle,
+      p_contact: input.contact,
+      p_doc_type: input.docType,
+      p_doc_path: path,
+      p_doc_name: input.file.name,
+      p_consent: input.consent,
+    });
+    if (error) {
+      // 신청서에 연결되지 않은 파일은 남기지 않는다(본인 미연결 파일은 본인이 지울 수 있다).
+      await supabase.storage.from(ADMIN_VERIFICATION_BUCKET).remove([path]);
+      throw error;
+    }
+  },
+
+  async listAdminApplications() {
+    const { data, error } = await supabase.rpc("list_admin_applications");
+    if (error) throw error;
+    return (data ?? []).map(mapAdminApplicationRecord);
+  },
+
+  // 운영자만 열 수 있고, 링크는 60초 뒤 만료된다.
+  async getAdminApplicationDocumentUrl(path) {
+    const { data, error } = await supabase.storage.from(ADMIN_VERIFICATION_BUCKET).createSignedUrl(path, 60);
+    if (error || !data) throw error ?? new Error("증명서 링크를 만들지 못했습니다.");
+    return data.signedUrl;
+  },
+
+  async reviewAdminApplication(id, approve, note) {
+    const { error } = await supabase.rpc("review_admin_application", { p_id: id, p_approve: approve, p_note: note.trim() || null });
+    if (error) throw error;
+  },
+
+  // 처리가 끝난 증명서 원본을 Storage API로 지우고, 실제로 지워진 뒤에 DB에 기록한다.
+  async cleanupAdminDocument(id, path) {
+    const { error } = await supabase.storage.from(ADMIN_VERIFICATION_BUCKET).remove([path]);
+    if (error) throw error;
+    const { error: markError } = await supabase.rpc("mark_admin_document_deleted", { p_id: id });
+    if (markError) throw markError;
+  },
+
+  async listAdminAccounts() {
+    const { data, error } = await supabase.rpc("list_admins");
+    if (error) throw error;
+    return (data ?? []).map(mapAdminAccount);
+  },
+
+  async revokeAdmin(userId) {
+    const { error } = await supabase.rpc("revoke_admin", { p_user_id: userId });
     if (error) throw error;
   },
 

@@ -35,7 +35,7 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isLeader, deleteWorkspaceFile, markSectionViewed } = useProject();
+  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isManager, deleteWorkspaceFile, markSectionViewed } = useProject();
   const { lineSafeStyle } = useAccountBackground();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -135,7 +135,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   }
 
   function canDeleteFile(f: WorkspaceFile): boolean {
-    return !locked && !!currentMember && (isLeader || (!!f.ownerUserId && f.ownerUserId === currentMember.userId));
+    return !locked && !!currentMember && (isManager || (!!f.ownerUserId && f.ownerUserId === currentMember.userId));
   }
 
   function toggleSelected(id: number) {
