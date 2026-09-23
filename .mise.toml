@@ -1,6 +1,6 @@
 [tools]
 node = "22"
-# Project package manager is pnpm (pnpm-lock.yaml is authoritative). package-lock.json
-# was committed by the feature/pdf-workspace-search merge (someone ran npm install) and
-# should be regenerated with pnpm and removed once reconciled.
+# Project package manager is pnpm (pnpm-lock.yaml is authoritative). Never run
+# npm install here — it writes package-lock.json, which drifts from
+# pnpm-lock.yaml and breaks Vercel's pnpm install --frozen-lockfile step.
 "npm:pnpm" = "10.34.3"

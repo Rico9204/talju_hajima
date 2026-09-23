@@ -1,12 +1,14 @@
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useProject } from "../context/ProjectContext";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
 import Settings from "./Settings";
+import AdminApplicationNotice from "./AdminApplicationNotice";
+import AdminOperatorPanel from "./AdminOperatorPanel";
 import Avatar from "./Avatar";
 import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
@@ -30,7 +32,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board" | "settings";
+type HomeTab = "projects" | "board" | "settings" | "operator";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile } = useProject();
@@ -44,6 +46,19 @@ export default function Home() {
   const [joinOpen, setJoinOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<HomeTab>("projects");
   const [mobileOpen, setMobileOpen] = useState(false);
+  // 운영자 전용 메뉴: 대기 중인 관리자 신청 수를 배지로 보여준다(운영자가 아니면 조회하지 않는다).
+  const { isOperator, listAdminApplications } = useProjectManagement();
+  const [pendingApplications, setPendingApplications] = useState(0);
+  useEffect(() => {
+    if (!isOperator) return;
+    let active = true;
+    listAdminApplications()
+      .then((apps) => active && setPendingApplications(apps.filter((a) => a.status === "pending").length))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isOperator]);
 
   function enterProject(id: string) {
     setProjectId(id);
@@ -135,6 +150,27 @@ export default function Home() {
             <span>💬</span>
             <span>게시판</span>
           </button>
+          {isOperator && (
+            <button
+              onClick={() => selectTab("operator")}
+              className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all"
+              style={{ borderRadius: "10px", background: activeTab === "operator" ? "var(--primary)" : "transparent", color: activeTab === "operator" ? "#fff" : "var(--foreground)" }}
+            >
+              <span className="flex items-center gap-2.5">
+                <span>🛡️</span>
+                <span>운영자</span>
+              </span>
+              {pendingApplications > 0 && (
+                <span
+                  aria-label={`대기 중인 관리자 신청 ${pendingApplications}건`}
+                  className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+                  style={{ background: activeTab === "operator" ? "rgba(255,255,255,0.2)" : "#ef444418", color: activeTab === "operator" ? "#fff" : "#ef4444", borderRadius: "20px" }}
+                >
+                  {pendingApplications}
+                </span>
+              )}
+            </button>
+          )}
           <button
             onClick={() => selectTab("settings")}
             className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
@@ -176,8 +212,11 @@ export default function Home() {
 
       <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
         <div className="max-w-5xl mx-auto">
+          <AdminApplicationNotice />
           {activeTab === "settings" ? (
             <Settings />
+          ) : activeTab === "operator" && isOperator ? (
+            <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
           ) : activeTab === "board" ? (
             <BoardView />
           ) : (

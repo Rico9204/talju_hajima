@@ -161,7 +161,7 @@ function DayEventsPopup({
 }
 
 export default function Schedule({ focusEventId }: { focusEventId?: number } = {}) {
-  const { project, team, currentMember, isLeader, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent, markSectionViewed } = useProject();
+  const { project, team, currentMember, isManager, scheduleEvents, addScheduleEvent, updateScheduleEvent, removeScheduleEvent, markSectionViewed } = useProject();
   const today = todayISO();
   const defaultMonth = scheduleEvents[0]?.date.slice(0, 7) || today.slice(0, 7);
   const [month, setMonth] = useState(defaultMonth);
@@ -251,7 +251,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   }
 
   function canEdit(e: ScheduleEvent): boolean {
-    if (e.scope === "team") return isLeader;
+    if (e.scope === "team") return isManager;
     return e.ownerMemberId === currentMember?.id;
   }
 
@@ -361,7 +361,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
   async function handleSubmit() {
     if (!title.trim() || !date.trim() || locked) return;
-    if (scope === "team" && !isLeader) return;
+    if (scope === "team" && !isManager) return;
     if (editingId !== null) {
       await updateScheduleEvent(editingId, {
         title: title.trim(),
@@ -640,9 +640,9 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 ))}
               </div>
 
-              {scope === "team" && !isLeader ? (
+              {scope === "team" && !isManager ? (
                 <div className="text-xs text-center py-3 mb-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>
-                  팀 일정은 조장만 추가할 수 있어요
+                  팀 일정은 팀장·부팀장만 추가할 수 있어요
                 </div>
               ) : (
                 <>

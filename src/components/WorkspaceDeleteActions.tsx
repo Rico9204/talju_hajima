@@ -11,13 +11,13 @@ export default function WorkspaceDeleteActions({ item, kind, fileCount = 0, onDe
   fileCount?: number;
   onDeleted?: () => void;
 }) {
-  const { project, currentMember, isLeader, deleteWorkspaceFile, deleteWorkspaceFolder } = useProject();
+  const { project, currentMember, isManager, deleteWorkspaceFile, deleteWorkspaceFolder } = useProject();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pending = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  if (project.status === "done" || !currentMember || !(isLeader || (item.ownerUserId && item.ownerUserId === currentMember.userId))) return null;
+  if (project.status === "done" || !currentMember || !(isManager || (item.ownerUserId && item.ownerUserId === currentMember.userId))) return null;
   const nonempty = kind === "folder" && fileCount > 0;
   async function remove() {
     if (pending.current || nonempty) return;

@@ -20,6 +20,7 @@ const Workspace = lazy(() => import("./components/Workspace"));
 const TeamChat = lazy(() => import("./components/TeamChat"));
 const Schedule = lazy(() => import("./components/Schedule"));
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
+const AdminApplication = lazy(() => import("./components/AdminApplication"));
 const Achievements = lazy(() => import("./components/Achievements"));
 
 function PageLoading() {
@@ -142,6 +143,7 @@ function AppRoutes() {
       <Route path="reset-password" element={<ResetPassword />} />
       <Route element={<RequireAuth />}>
         <Route path="home" element={<Home />} />
+        <Route path="admin-application" element={<AdminApplication />} />
         <Route element={<Layout />}>
           <Route path="dashboard" element={<DashboardRoute />} />
           <Route path="team" element={<TeamViewRoute />} />
@@ -166,13 +168,13 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <ProjectProvider>
-        <BrowserRouter>
+      <BrowserRouter>
+        <ProjectProvider>
           <Suspense fallback={<PageLoading />}>
             <AppRoutes />
           </Suspense>
-        </BrowserRouter>
-      </ProjectProvider>
+        </ProjectProvider>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

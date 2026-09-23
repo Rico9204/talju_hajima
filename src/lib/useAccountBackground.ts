@@ -57,7 +57,7 @@ export function useAccountBackground() {
     backgroundStyle: {
       ...backgroundStyle,
       filter: performanceMode !== "performance" && needsBackgroundFilter && backgroundBlur > 0
-        ? `blur(${backgroundBlur}px) saturate(1.15)`
+        ? `blur(${backgroundBlur}px)`
         : "none",
     },
     glassStyle, hasCustomBackground, lineSafeStyle,

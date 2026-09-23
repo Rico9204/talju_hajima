@@ -1,4 +1,4 @@
-import type { EvaluationPhase, EvaluationEntry, EvaluationData } from "../api/types";
+import type { EvaluationPhase, EvaluationEntry, EvaluationData, AdminApplicationInput } from "../api/types";
 import { createContext, useContext, useEffect, useState, useRef, useMemo, type ReactNode } from "react";
 import { dataRepository } from "../api";
 import type {
@@ -21,9 +21,12 @@ import type {
 } from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
+import { useLocation } from "react-router-dom";
 import CreateProjectModal from "../components/CreateProjectModal";
 import JoinProjectModal from "../components/JoinProjectModal";
 import AdminPanel from "../components/AdminPanel";
+import AdminApplicationNotice from "../components/AdminApplicationNotice";
+import AdminOperatorPanel from "../components/AdminOperatorPanel";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
 
 export type {
@@ -85,6 +88,7 @@ interface ProjectContextValue {
   joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
   markProjectDone: () => Promise<void>;
   kickMember: (memberId: string) => Promise<void>;
+  setViceLeader: (memberId: string, enabled: boolean) => Promise<void>;
   team: TeamData;
   transferLeadership: (targetName: string) => Promise<void>;
   updateMyProfile: (patch: {
@@ -148,6 +152,8 @@ interface ProjectContextValue {
   markSectionViewed: (section: "tasks" | "schedule" | "workspace") => Promise<void>;
   currentMember: Member | null;
   isLeader: boolean;
+  isViceLeader: boolean;
+  isManager: boolean;
   loading: boolean;
   // Which member's profile card (Sidebar's bottom-left avatar modal) is
   // currently open, if any — set from anywhere a member's avatar is
@@ -203,6 +209,7 @@ function EmptyProjectsScreen({
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const { isOperator } = useProjectManagement();
 
   if (isAdmin) {
     return (
@@ -228,6 +235,12 @@ function EmptyProjectsScreen({
             </button>
           </div>
         </div>
+        {/* 프로젝트가 없는 운영자도 운영자 기능을 쓸 수 있도록 여기에서도 보여준다. */}
+        {isOperator && (
+          <div className="p-6 pb-0 max-w-5xl mx-auto">
+            <AdminOperatorPanel />
+          </div>
+        )}
         <AdminPanel />
         {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input) => addProject(input)} />}
       </div>
@@ -240,6 +253,7 @@ function EmptyProjectsScreen({
         className="max-w-sm px-6 py-6 text-center"
         style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
       >
+        <div className="text-left"><AdminApplicationNotice /></div>
         <div className="text-sm font-700 mb-1">아직 참여한 프로젝트가 없어요</div>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
           새 프로젝트를 만들거나, 팀장에게 받은 참여 코드로 참여해보세요.
@@ -284,6 +298,16 @@ const ProjectManagementContext = createContext<{
   deleteProject: typeof dataRepository.deleteProject;
   getAdminTeam: (projectId: string) => Promise<TeamData>;
   kickMember: typeof dataRepository.kickMember;
+  setViceLeader: typeof dataRepository.setViceLeader;
+  isOperator: boolean;
+  getMyAdminApplication: typeof dataRepository.getMyAdminApplication;
+  submitAdminApplication: typeof dataRepository.submitAdminApplication;
+  listAdminApplications: typeof dataRepository.listAdminApplications;
+  getAdminApplicationDocumentUrl: typeof dataRepository.getAdminApplicationDocumentUrl;
+  reviewAdminApplication: typeof dataRepository.reviewAdminApplication;
+  cleanupAdminDocument: typeof dataRepository.cleanupAdminDocument;
+  listAdminAccounts: typeof dataRepository.listAdminAccounts;
+  revokeAdmin: typeof dataRepository.revokeAdmin;
   searchAdmins: typeof dataRepository.searchAdmins;
   getEvaluationMode: typeof dataRepository.getEvaluationMode;
   setEvaluationMode: typeof dataRepository.setEvaluationMode;
@@ -299,6 +323,15 @@ const managementActions = {
   deleteProject: (id: string) => dataRepository.deleteProject(id),
   getAdminTeam: (id: string) => dataRepository.getTeam(id, true),
   kickMember: (id: string) => dataRepository.kickMember(id),
+  setViceLeader: (id: string, enabled: boolean) => dataRepository.setViceLeader(id, enabled),
+  getMyAdminApplication: () => dataRepository.getMyAdminApplication(),
+  submitAdminApplication: (input: AdminApplicationInput) => dataRepository.submitAdminApplication(input),
+  listAdminApplications: () => dataRepository.listAdminApplications(),
+  getAdminApplicationDocumentUrl: (path: string) => dataRepository.getAdminApplicationDocumentUrl(path),
+  reviewAdminApplication: (id: string, approve: boolean, note: string) => dataRepository.reviewAdminApplication(id, approve, note),
+  cleanupAdminDocument: (id: string, path: string) => dataRepository.cleanupAdminDocument(id, path),
+  listAdminAccounts: () => dataRepository.listAdminAccounts(),
+  revokeAdmin: (userId: string) => dataRepository.revokeAdmin(userId),
   searchAdmins: (query: string) => dataRepository.searchAdmins(query),
   getEvaluationMode: () => dataRepository.getEvaluationMode(),
   setEvaluationMode: (enabled: boolean) => dataRepository.setEvaluationMode(enabled),
@@ -310,22 +343,25 @@ export function useProjectManagement() {
 }
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
-  const [identity, setIdentity] = useState<{ id: string; admin: boolean } | null>(null);
+  const [identity, setIdentity] = useState<{ id: string; admin: boolean; operator: boolean } | null>(null);
   const [roleError, setRoleError] = useState<string | null>(null);
   useEffect(() => {
     let active = true; setRoleError(null);
     if (!session) { setIdentity(null); return; }
     const id = session.user.id;
-    dataRepository.isCurrentUserAdmin().then(admin => { if (active) setIdentity({ id, admin }); })
+    Promise.all([dataRepository.isCurrentUserAdmin(), dataRepository.isCurrentUserOperator()]).then(([admin, operator]) => { if (active) setIdentity({ id, admin, operator }); })
       .catch(() => { if (active) setRoleError("관리자 권한을 확인하지 못했습니다. DB 마이그레이션 적용 여부와 연결을 확인한 뒤 새로고침해 주세요."); });
     return () => { active = false; };
   }, [session?.user.id]);
   if (session && roleError) return <StatusScreen kind="error" message={roleError} />;
   if (session && identity?.id !== session.user.id) return <StatusScreen kind="loading" />;
   const isAdmin = !!session && identity?.id === session.user.id && identity.admin;
-  return <ProjectManagementContext.Provider value={{ ...managementActions, isAdmin }}><ProjectDataProvider>{children}</ProjectDataProvider></ProjectManagementContext.Provider>;
+  const isOperator = !!session && identity?.id === session.user.id && identity.operator;
+  return <ProjectManagementContext.Provider value={{ ...managementActions, isAdmin, isOperator }}><ProjectDataProvider>{children}</ProjectDataProvider></ProjectManagementContext.Provider>;
 }
 function ProjectDataProvider({ children }: { children: ReactNode }) {
+  // 관리자 신청서 화면은 프로젝트가 없어도 열려야 하므로 프로젝트 게이트를 거치지 않는다.
+  const { pathname } = useLocation();
   const { session, signOut } = useAuth();
   const { isAdmin } = useProjectManagement();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -719,6 +755,12 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     if (updated) setProjects((prev) => prev.map((p) => (p.id === projectId ? updated : p)));
   }
 
+  async function setViceLeader(memberId: string, enabled: boolean) {
+    if (!projectId || !(isLeader || isAdmin)) return;
+    await dataRepository.setViceLeader(memberId, enabled);
+    setTeam(await dataRepository.getTeam(projectId));
+  }
+
   async function kickMember(memberId: string) {
     if (!projectId || !(isLeader || isAdmin)) return;
     await dataRepository.kickMember(memberId);
@@ -793,7 +835,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   }
 
   async function addTask(input: NewTaskInput) {
-    if (!projectId || !isLeader) return;
+    if (!projectId || !isManager) return;
     await dataRepository.createTask(projectId, input);
     await refreshTasks();
     // Creating your own task shouldn't leave a "new content" badge for yourself.
@@ -810,13 +852,13 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     taskId: number,
     patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
   ) {
-    if (!isLeader) return;
+    if (!isManager) return;
     await dataRepository.updateTaskDetails(taskId, patch);
     await refreshTasks();
   }
 
   async function deleteTask(taskId: number) {
-    if (!isLeader) return;
+    if (!isManager) return;
     await dataRepository.deleteTask(taskId);
     await Promise.all([refreshTasks(), refreshScheduleEvents()]);
   }
@@ -855,7 +897,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
 
   async function addScheduleEvent(input: NewScheduleEventInput) {
     if (!projectId || !currentMember) return;
-    if (input.scope === "team" && !isLeader) return;
+    if (input.scope === "team" && !isManager) return;
     await dataRepository.addScheduleEvent(projectId, currentMember.id, input);
     await refreshScheduleEvents();
     // Creating your own event shouldn't leave a "new content" badge for yourself.
@@ -876,7 +918,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   }
 
   async function toggleTaskTeamSchedule(taskId: number, checked: boolean) {
-    if (!isLeader) return;
+    if (!isManager) return;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     if (checked) {
@@ -963,6 +1005,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // Not logged in — let the router render /login instead of a loading/empty
   // screen (RequireAuth handles the redirect; there's nothing to load here).
   if (!session) return <>{children}</>;
+  if (pathname === "/admin-application") return <>{children}</>;
   if (!projectsLoaded) return <StatusScreen kind="loading" />;
   if (projects.length === 0)
     return <EmptyProjectsScreen isAdmin={isAdmin} signOut={signOut} addProject={addProject} lookupProject={lookupProject} joinProject={joinProject} />;
@@ -972,6 +1015,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   const liveTeam: TeamData = { ...team, members: team.members.map((m) => ({ ...m, online: onlineMemberIds.has(m.id) })) };
   const currentMember = liveTeam.members.find((m) => m.userId === session.user.id) ?? null;
   const isLeader = currentMember?.isLeader === true;
+  const isViceLeader = currentMember?.isViceLeader === true;
+  // 팀장 또는 부팀장: 과제·팀 일정·워크스페이스 정리 같은 일상 운영 권한. 팀원 제외·프로젝트 종료·위임은 isLeader만.
+  const isManager = isLeader || isViceLeader;
   const chatUnread: Record<string, number> = {};
   for (const [cid, list] of Object.entries(chatMessages)) {
     chatUnread[cid] = currentMember
@@ -1026,6 +1072,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         joinProject,
         markProjectDone,
         kickMember,
+        setViceLeader,
         team: liveTeam,
         transferLeadership,
         updateMyProfile,
@@ -1086,6 +1133,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         markSectionViewed,
         currentMember,
         isLeader,
+        isViceLeader,
+        isManager,
         loading,
         viewedMemberId,
         openMemberProfile: setViewedMemberId,
