@@ -1,22 +1,30 @@
-import type { CSSProperties } from "react";
+import { lazy, Suspense, type CSSProperties } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import Home from "./components/Home";
-import Dashboard from "./components/Dashboard";
-import TeamView from "./components/TeamView";
-import TaskBoard from "./components/TaskBoard";
-import PeerEvaluation from "./components/PeerEvaluation";
-import Workspace, { type WorkspaceFocus } from "./components/Workspace";
-import TeamChat from "./components/TeamChat";
-import Schedule from "./components/Schedule";
+import type { WorkspaceFocus } from "./components/Workspace";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
 import Landing from "./components/Landing";
-import AdminPanel from "./components/AdminPanel";
-import Achievements from "./components/Achievements";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useAccountBackground } from "./lib/useAccountBackground";
+
+// Keep sign-in and the selected route responsive while infrequently visited
+// workspace, evaluation and profile-related pages download in the background.
+const Home = lazy(() => import("./components/Home"));
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const TeamView = lazy(() => import("./components/TeamView"));
+const TaskBoard = lazy(() => import("./components/TaskBoard"));
+const PeerEvaluation = lazy(() => import("./components/PeerEvaluation"));
+const Workspace = lazy(() => import("./components/Workspace"));
+const TeamChat = lazy(() => import("./components/TeamChat"));
+const Schedule = lazy(() => import("./components/Schedule"));
+const AdminPanel = lazy(() => import("./components/AdminPanel"));
+const Achievements = lazy(() => import("./components/Achievements"));
+
+function PageLoading() {
+  return <div className="flex h-full min-h-48 items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>화면을 불러오는 중…</div>;
+}
 
 export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "achievements" | "admin";
 
@@ -160,7 +168,9 @@ export default function App() {
     <AuthProvider>
       <ProjectProvider>
         <BrowserRouter>
-          <AppRoutes />
+          <Suspense fallback={<PageLoading />}>
+            <AppRoutes />
+          </Suspense>
         </BrowserRouter>
       </ProjectProvider>
     </AuthProvider>

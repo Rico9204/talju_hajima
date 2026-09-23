@@ -30,6 +30,7 @@ import {
 import { canUseTheme, PROFILE_CARD_THEMES } from "../lib/profileThemes";
 import { ACHIEVEMENTS } from "../lib/achievements";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
+import { PROFILE_IMAGE_MIME_TYPES, validateProfileImage } from "../lib/profileImages";
 
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
@@ -193,33 +194,45 @@ export default function ProfileModal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewedMemberId, currentMember?.id]);
 
-  function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
+  async function selectProfileImage(e: ChangeEvent<HTMLInputElement>, apply: (file: File) => void) {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    setAvatarFile(file);
-    setAvatarPreview(URL.createObjectURL(file));
+    e.target.value = "";
+    if (!file) return;
+    try {
+      await validateProfileImage(file);
+      apply(file);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "이미지를 선택하지 못했습니다.");
+    }
+  }
+
+  function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
+    void selectProfileImage(e, (file) => {
+      setAvatarFile(file);
+      setAvatarPreview(URL.createObjectURL(file));
+    });
   }
 
   function handleBannerPick(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    setBannerImageFile(file);
-    setBannerPreview(URL.createObjectURL(file));
-    setBannerCleared(false);
+    void selectProfileImage(e, (file) => {
+      setBannerImageFile(file);
+      setBannerPreview(URL.createObjectURL(file));
+      setBannerCleared(false);
+    });
   }
 
   function handleBackgroundPick(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    setBackgroundImageFile(file);
-    setBackgroundPreview(URL.createObjectURL(file));
-    setBackgroundCleared(false);
-    setPresetImageUrl(null);
-    // A new photo needs a lighter touch than a flat color/gradient does —
-    // land on the crisp, barely-there look rather than whatever intensity
-    // was previously dialed in.
-    setGlassOpacity(32);
-    setGlassBlur(2);
+    void selectProfileImage(e, (file) => {
+      setBackgroundImageFile(file);
+      setBackgroundPreview(URL.createObjectURL(file));
+      setBackgroundCleared(false);
+      setPresetImageUrl(null);
+      // A new photo needs a lighter touch than a flat color/gradient does —
+      // land on the crisp, barely-there look rather than whatever intensity
+      // was previously dialed in.
+      setGlassOpacity(32);
+      setGlassBlur(2);
+    });
   }
 
   function pickBackgroundPreset(preset: { value: string; kind: "color" | "gradient" }) {
@@ -387,7 +400,7 @@ export default function ProfileModal() {
               <div className="absolute top-3 right-3 flex items-center gap-2">
                 {isSelfProfile && profileEditOpen && <div className="flex items-center gap-1.5 p-1.5" style={{ background: "rgba(255,255,255,.94)", borderRadius: "12px", boxShadow: "0 4px 12px rgba(15,18,53,.16)" }}>
                   {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-4 h-4" title={`${color} 배경`} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid #111827" : "1px solid rgba(255,255,255,.7)" }} />)}
-                  <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "8px" }}>🖼️<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>
+              <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "8px" }}>🖼️<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleBannerPick} className="hidden" /></label>
                   {(bannerPreview || currentMember?.bannerImageUrl) && <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} title="배너 사진 제거" className="w-6 h-6 text-xs" style={{ background: "var(--muted)", borderRadius: "8px" }}>🗑️</button>}
                 </div>}
                 {isSelfProfile && <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>}
@@ -412,7 +425,7 @@ export default function ProfileModal() {
                       );
                       return isSelfProfile && avatarFrame ? <AvatarFrame kind={avatarFrame} size={78} c1={cardC1} c2={cardC2}>{photo}</AvatarFrame> : photo;
                     })()}
-                    {isSelfProfile && profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" /></label>}
+                    {isSelfProfile && profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleAvatarPick} className="hidden" /></label>}
                   </div>
                   {isSelfProfile && myTier && (
                     <HoverTip
@@ -501,7 +514,7 @@ export default function ProfileModal() {
                       return <button key={preset.label} type="button" onClick={() => pickBackgroundPreset(preset)} title={preset.label} className="w-6 h-6 shrink-0" style={{ background: preset.value, borderRadius: "999px", border: selected ? "2px solid #111827" : "1px solid var(--border)" }} />;
                     })}
                     <label title="배경 사진 업로드" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm shrink-0" style={{ background: "var(--muted)", borderRadius: "999px" }}>
-                      🖼️<input type="file" accept="image/*" onChange={handleBackgroundPick} className="hidden" />
+                      🖼️<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleBackgroundPick} className="hidden" />
                     </label>
                     <button type="button" onClick={resetBackground} title="기본값으로" className="w-6 h-6 text-xs shrink-0" style={{ background: "var(--muted)", borderRadius: "999px" }}>↺</button>
                   </div>

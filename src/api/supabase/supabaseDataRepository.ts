@@ -1,6 +1,7 @@
 import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath, validateFileTags } from "../../lib/workspaceFiles";
 import { formatFileSize as formatAttachmentSize } from "../../lib/boardData";
 import { supabase } from "../../lib/supabase";
+import { prepareProfileImage } from "../../lib/profileImages";
 import type { DataRepository } from "../dataRepository";
 import type {
   Project,
@@ -520,11 +521,11 @@ export const supabaseDataRepository: DataRepository = {
     const userId = userData.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
 
-    const ext = file.name.split(".").pop() || "jpg";
+    const { type, extension } = await prepareProfileImage(file);
     // Path prefix must be the uploader's own auth.uid() — the avatars_own_write
     // storage policy checks exactly this (see schema.sql).
-    const path = `${userId}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    const path = `${userId}/${Date.now()}.${extension}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { contentType: type, upsert: true });
     if (error) throw error;
 
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);
@@ -536,9 +537,9 @@ export const supabaseDataRepository: DataRepository = {
     const userId = userData.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
 
-    const ext = file.name.split(".").pop() || "jpg";
-    const path = `${userId}/banner-${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    const { type, extension } = await prepareProfileImage(file);
+    const path = `${userId}/banner-${Date.now()}.${extension}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { contentType: type, upsert: true });
     if (error) throw error;
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);
     return data.publicUrl;
@@ -549,9 +550,9 @@ export const supabaseDataRepository: DataRepository = {
     const userId = userData.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
 
-    const ext = file.name.split(".").pop() || "jpg";
-    const path = `${userId}/background-${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+    const { type, extension } = await prepareProfileImage(file);
+    const path = `${userId}/background-${Date.now()}.${extension}`;
+    const { error } = await supabase.storage.from("avatars").upload(path, file, { contentType: type, upsert: true });
     if (error) throw error;
     const { data } = supabase.storage.from("avatars").getPublicUrl(path);
     return data.publicUrl;
