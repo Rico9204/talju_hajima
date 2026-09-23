@@ -80,7 +80,7 @@ export default function Home() {
           hasCustomBackground
             ? {
                 ...backgroundStyle,
-                filter: "blur(var(--panel-blur-px)) saturate(1.15)",
+                filter: "blur(var(--panel-blur-px))",
                 transform: "scale(1.1) translateZ(0)",
                 // Same tile-rasterization-seam fix as App.tsx's Layout — see the
                 // comment there (deliberately no will-change: transform; it broke

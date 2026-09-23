@@ -63,7 +63,7 @@ function Layout() {
           hasCustomBackground
             ? {
                 ...backgroundStyle,
-                filter: "blur(var(--panel-blur-px)) saturate(1.15)",
+                filter: "blur(var(--panel-blur-px))",
                 transform: "scale(1.1) translateZ(0)",
                 // A viewport-sized blurred+scaled layer is prone to Chromium's
                 // tile-based rasterization seams (thin flickering lines at tile
