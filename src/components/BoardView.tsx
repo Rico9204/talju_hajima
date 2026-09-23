@@ -376,12 +376,25 @@ export default function BoardView() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>
-                  <span className="font-600 hidden sm:inline" style={{ color: "var(--foreground)" }}>{post.author}</span>
-                  <span className="text-[11px] hidden md:inline">{new Date(post.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                  <div className="flex items-center gap-2 pl-2 border-l" style={{ borderColor: "var(--border)" }}>
-                    <span title="조회수">👁️ {post.views}</span>
-                    <span title="좋아요">❤️ {post.likes}</span>
-                    <span title="댓글수">💬 {post.commentsCount}</span>
+                  <span className="font-600 hidden sm:inline-block w-20 truncate text-right" style={{ color: "var(--foreground)" }}>
+                    {post.author}
+                  </span>
+                  <span className="text-[11px] hidden md:inline-block w-28 text-center shrink-0 tabular-nums">
+                    {new Date(post.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <div className="flex items-center gap-3 pl-2.5 border-l" style={{ borderColor: "var(--border)" }}>
+                    <span title="조회수" className="inline-flex items-center justify-between w-12 tabular-nums">
+                      <span className="w-4 text-center shrink-0">👁️</span>
+                      <span className="text-right font-600 flex-1">{post.views}</span>
+                    </span>
+                    <span title="좋아요" className="inline-flex items-center justify-between w-11 tabular-nums">
+                      <span className="w-4 text-center shrink-0">❤️</span>
+                      <span className="text-right font-600 flex-1">{post.likes}</span>
+                    </span>
+                    <span title="댓글수" className="inline-flex items-center justify-between w-11 tabular-nums">
+                      <span className="w-4 text-center shrink-0">💬</span>
+                      <span className="text-right font-600 flex-1">{post.commentsCount}</span>
+                    </span>
                   </div>
                 </div>
               </button>
