@@ -101,7 +101,6 @@ export default function PostDetailView({
           <span>목록으로 돌아가기</span>
         </button>
 
-        {!isAuthor && currentUserId && <PostReportButton key={post.id} post={post} onReported={() => onReported?.(post.id)} />}
         {isAuthor && (
           <div className="flex gap-2">
             {onEditPost && (
@@ -255,6 +254,7 @@ export default function PostDetailView({
             <span className="text-sm">{post.likedByMe ? "❤️" : "🤍"}</span>
             <span>좋아요 {post.likes}</span>
           </button>
+          {!isAuthor && currentUserId && <PostReportButton key={post.id} post={post} onReported={() => onReported?.(post.id)} />}
         </div>
 
         {!commentsDisabled && (

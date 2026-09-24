@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { dataRepository } from "../api";
-import { BOARD_REPORT_REASONS, reportReasonLabel } from "../lib/boardReport";
+import { BOARD_REPORT_REASONS, htmlToPreview, reportReasonLabel } from "../lib/boardReport";
 import type { BoardPostReport, BoardReportReason } from "../api/types";
 
 type StatusFilter = "open" | "resolved" | "dismissed" | "all";
@@ -25,6 +25,22 @@ export default function AdminReports({ onOpenCountChange }: { onOpenCountChange?
   const [reason, setReason] = useState<BoardReportReason | "all">("all");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<BoardPostReport | null>(null);
+  // 본문 전체 보기: 게시글 id별로 불러온 글자·이미지(펼친 게시글만)
+  const [bodies, setBodies] = useState<Record<number, { text: string; images: string[] } | "loading" | "gone" | "error">>({});
+
+  async function toggleBody(postId: number) {
+    if (bodies[postId] && bodies[postId] !== "error") {
+      setBodies((prev) => { const next = { ...prev }; delete next[postId]; return next; });
+      return;
+    }
+    setBodies((prev) => ({ ...prev, [postId]: "loading" }));
+    try {
+      const content = await dataRepository.getBoardPostContent(postId);
+      setBodies((prev) => ({ ...prev, [postId]: content === null ? "gone" : htmlToPreview(content) }));
+    } catch {
+      setBodies((prev) => ({ ...prev, [postId]: "error" }));
+    }
+  }
 
   async function load() {
     setError("");
@@ -130,7 +146,31 @@ export default function AdminReports({ onOpenCountChange }: { onOpenCountChange?
                   {r.postTitle || "(제목 없음)"} {r.postId === null && <span className="text-xs font-600" style={{ color: "#ef4444" }}>· 삭제된 게시글</span>}
                 </div>
                 <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>작성자 {r.postAuthorName}</div>
-                {r.postExcerpt && <p className="text-xs mt-1 line-clamp-2" style={{ color: "var(--muted-foreground)", overflowWrap: "anywhere" }}>{r.postExcerpt}</p>}
+                {(() => {
+                  const preview = htmlToPreview(r.postExcerpt);
+                  const body = r.postId !== null ? bodies[r.postId] : undefined;
+                  return (
+                    <>
+                      {preview.text && !body && <p className="text-xs mt-1 line-clamp-3" style={{ color: "var(--muted-foreground)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{preview.text}</p>}
+                      {r.postId !== null && (
+                        <button type="button" onClick={() => void toggleBody(r.postId as number)} className="text-xs font-700 mt-1.5 underline underline-offset-2" style={{ color: "var(--primary)" }}>
+                          {body && body !== "error" ? "본문 접기" : "본문 전체 보기"}
+                        </button>
+                      )}
+                      {body === "loading" && <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</p>}
+                      {body === "error" && <p role="alert" className="text-xs mt-1" style={{ color: "#ef4444" }}>본문을 불러오지 못했습니다.</p>}
+                      {body === "gone" && <p className="text-xs mt-1" style={{ color: "#ef4444" }}>삭제된 게시글이에요.</p>}
+                      {body && typeof body === "object" && (
+                        <div className="mt-2 p-3 space-y-2 max-h-80 overflow-y-auto text-sm" style={{ background: "var(--muted)", borderRadius: "12px" }}>
+                          <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{body.text || "(글 내용 없음)"}</p>
+                          {body.images.map((src, i) => (
+                            <img key={i} src={src} alt={`본문 이미지 ${i + 1}`} loading="lazy" className="max-w-full rounded-lg" style={{ maxHeight: 240 }} />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "12px" }}>
                 <div className="font-700 mb-0.5">신고 메시지 · {r.reporterName}</div>
