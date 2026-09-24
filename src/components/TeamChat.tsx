@@ -1,6 +1,6 @@
 import StillImg from "./StillImg"
 import ChatMessageText from "./ChatMessageText"
-import { Fragment, useState, useRef, useEffect } from "react"
+import { Fragment, useState, useRef, useEffect, useLayoutEffect } from "react"
 
 import {
   useProject,
@@ -84,6 +84,14 @@ export default function TeamChat({
   } = useProject()
 
   const [input, setInput] = useState("")
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  // 입력 내용에 맞춰 입력창 높이를 조절한다(최대 높이를 넘으면 스크롤).
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }, [input])
 
   const [channelSearch, setChannelSearch] = useState("")
 
@@ -1046,6 +1054,7 @@ export default function TeamChat({
                                   color: mine ? "#fff" : "var(--foreground)",
                                   borderRadius: bubbleRadius,
                                   overflowWrap: "anywhere",
+                                  whiteSpace: "pre-wrap",
                                 }}
                               >
                                 <ChatMessageText text={m.text} mine={mine} />
@@ -1603,7 +1612,7 @@ export default function TeamChat({
               </div>
             )}
 
-            <div className="px-4 py-3 flex items-center gap-2">
+            <div className="px-4 py-3 flex items-end gap-2">
               {/* 카카오톡 스타일 + 메뉴 버튼 */}
               <button
                 type="button"
@@ -1648,20 +1657,30 @@ export default function TeamChat({
                 😊
               </button>
 
-              <input
+              {/* Enter 전송, Shift+Enter 줄바꿈. 내용이 길어지면 입력창이 늘어나고 한계를 넘으면 스크롤 */}
+              <textarea
+                ref={inputRef}
+                rows={1}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && send()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
                 placeholder={
                   pendingFile
                     ? "메시지 추가 (선택)..."
                     : `${chan.name}에게 메시지 보내기...`
                 }
-                className="flex-1 text-sm px-3.5 py-2.5 outline-none"
+                className="flex-1 text-sm px-3.5 py-2.5 outline-none resize-none block"
                 style={{
                   background: "var(--muted)",
                   borderRadius: "20px",
                   fontFamily: "var(--font-outfit)",
+                  maxHeight: "200px",
+                  lineHeight: "1.4",
                 }}
               />
               <button
