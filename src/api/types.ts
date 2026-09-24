@@ -298,6 +298,18 @@ export interface ChatMessage {
   reactions: ChatReaction[];
 }
 
+// 서버가 결과를 정하는 채팅 도구(제비뽑기·사다리·룰렛)의 결과 이벤트.
+export interface ChatToolEvent {
+  id: number;
+  messageId: number;
+  kind: "draw" | "ladder" | "roulette";
+  event: "init" | "draw_pick" | "draw_reveal_all" | "ladder_reveal" | "roulette_spin";
+  actorMemberId: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+  createdAt: string;
+}
+
 export interface ChatReaction {
   messageId: number;
   memberId: string;

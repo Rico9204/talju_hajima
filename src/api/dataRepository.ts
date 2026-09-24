@@ -20,6 +20,7 @@ import type {
   ProfileLink,
   ChatMessage,
   ChatReaction,
+  ChatToolEvent,
   AdminProfileSummary,
   BoardPost,
   NewBoardPostInput,
@@ -149,6 +150,10 @@ export interface DataRepository {
     onInsert: (m: ChatMessage) => void,
     onReaction: (change: { active: boolean; reaction: ChatReaction }) => void
   ): () => void;
+  chatToolInit(messageId: number, config: Record<string, unknown>): Promise<ChatToolEvent>;
+  chatToolAct(messageId: number, action: string, args?: Record<string, unknown>): Promise<ChatToolEvent>;
+  listChatToolEvents(projectId: string): Promise<ChatToolEvent[]>;
+  subscribeToChatToolEvents(projectId: string, onEvent: (e: ChatToolEvent) => void): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
   subscribeToPresence(projectId: string, memberId: string, onChange: (onlineMemberIds: Set<string>) => void): () => void;
 

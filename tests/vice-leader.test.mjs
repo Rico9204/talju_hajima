@@ -16,6 +16,7 @@ grant usage on schema auth,storage to authenticated,anon;
 create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
 create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,metadata jsonb);
 create function storage.foldername(text) returns text[] language sql as $$select string_to_array($1,'/')$$;
+create function storage.extension(text) returns text language sql as $$select substring($1 from '\.([^.\/]+)$')$$;
 alter table storage.objects enable row level security;
 grant select,insert,update,delete on storage.objects to authenticated;
 alter default privileges in schema public grant select,insert,update,delete on tables to authenticated;
