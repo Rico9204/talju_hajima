@@ -8,6 +8,7 @@ import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDelet
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
 import QuickEditModal from "./QuickEditModal";
+import EditorAvatars from "./EditorAvatars";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
 import { useProject, type FileVersion, type WorkspaceFile } from "../context/ProjectContext";
 import { useAccountBackground } from "../lib/useAccountBackground";
@@ -530,8 +531,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
                   </span>
                   {editors.some((e) => e.fileId === f.id) && (
-                    <span className="text-xs font-600" title={[...new Set(editors.filter((e) => e.fileId === f.id).map((e) => e.name))].join(", ")} style={{ color: isSelected ? "#fde68a" : "#d97706" }}>
-                      ✏️ 수정 중 {new Set(editors.filter((e) => e.fileId === f.id).map((e) => e.name)).size}
+                    <span className="flex items-center gap-1 text-xs font-600" style={{ color: isSelected ? "#fde68a" : "#d97706" }}>
+                      ✏️ <EditorAvatars editors={editors.filter((e) => e.fileId === f.id)} size={20} />
                     </span>
                   )}
                   {f.comments.length > 0 && (

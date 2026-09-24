@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { WorkspaceFile } from "../api/types";
+import EditorAvatars from "./EditorAvatars";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
@@ -151,8 +152,9 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
             <button type="button" onClick={requestClose} className="h-8 px-3 rounded-full text-xs font-700" style={{ background: "var(--muted)", color: "var(--foreground)" }}>닫기</button>
           </div>
         </div>
-        <div className="px-5 py-2 text-xs border-b shrink-0" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
-          {names.length > 1 ? `지금 ${names.length}명이 함께 수정 중: ${names.join(", ")}` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}
+        <div className="px-5 py-2 text-xs border-b shrink-0 flex items-center gap-2" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
+          <EditorAvatars editors={roomEditors} size={26} max={6} />
+          <span>{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중 · 사진을 누르면 이름이 보여요` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}</span>
         </div>
         {confirmClose && (
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "#fef3c7", color: "#78350f" }}>
