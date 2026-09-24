@@ -37,8 +37,8 @@ export function PostReportButton({ post, onReported }: { post: BoardPost; onRepo
         type="button"
         disabled={done}
         onClick={() => setOpen(true)}
-        className="text-xs font-700 px-3.5 py-2 transition-all disabled:opacity-60"
-        style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
+        className="flex items-center gap-2 px-5 py-2.5 text-xs font-700 transition-all disabled:opacity-60"
+        style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "20px", border: "1px solid transparent" }}
       >
         {done ? "🚩 신고함" : "🚩 신고"}
       </button>

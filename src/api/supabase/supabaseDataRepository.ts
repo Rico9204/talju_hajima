@@ -1713,6 +1713,12 @@ export const supabaseDataRepository: DataRepository = {
     return mapReports(data ?? []);
   },
 
+  async getBoardPostContent(postId) {
+    const { data, error } = await supabase.from("board_posts").select("content").eq("id", postId).maybeSingle();
+    if (error) throw error;
+    return data ? (data.content as string) : null;
+  },
+
   async listAllBoardReports() {
     const { data, error } = await supabase.from("board_post_reports").select("*").order("created_at", { ascending: false }).limit(500);
     if (error) throw error;

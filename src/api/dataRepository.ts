@@ -179,5 +179,6 @@ export interface DataRepository {
   reportBoardPost(postId: number, reason: BoardReportReason, detail: string): Promise<void>;
   listBoardPostReports(postId: number): Promise<BoardPostReport[]>; // 관리자만
   listAllBoardReports(): Promise<BoardPostReport[]>; // 관리자만, 최신순
+  getBoardPostContent(postId: number): Promise<string | null>; // 삭제된 글이면 null
   reviewBoardReport(reportId: number, status: "resolved" | "dismissed"): Promise<void>;
 }
