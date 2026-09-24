@@ -116,6 +116,7 @@ export interface FileUploadInput {
 
 export interface FileComment {
   memberId: string | null;
+  versionId: number | null; // null = 파일 전체 댓글
   reactions: { commentId: number; memberId: string; emoji: string }[];
   id: number;
   author: string;

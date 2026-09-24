@@ -3,10 +3,11 @@ import { lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
 import FileUploadDialog from "./FileUploadDialog";
+import VersionPageView from "./VersionPageView";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
-import { formatUploadTime, versionTree } from "../lib/workspaceFiles";
+import { EDITABLE_TEXT_EXTENSIONS, formatUploadTime, isEditableTextFile, versionTree } from "../lib/workspaceFiles";
 
 function highlightOfficeHtml(html: string, query: string): string {
   const term = query.trim();
@@ -43,7 +44,7 @@ function highlightOfficeHtml(html: string, query: string): string {
   return document.body.innerHTML;
 }
 
-export default function FileVersionPanel({ file, searchQuery = "" }: { file: WorkspaceFile; searchQuery?: string }) {
+export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange, onQuickEdit, editorNames = [] }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void; onQuickEdit?: (mode: "main" | "pin", version?: FileVersion) => void; editorNames?: string[] }) {
   const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
@@ -51,6 +52,9 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [onlyPinned, setOnlyPinned] = useState(false);
+  // 비전공자 기본값은 "페이지"(저장 순서로 넘기며 바뀐 줄 표시), 분기를 보려면 "버전 트리".
+  const [viewMode, setViewMode] = useState<"page" | "tree">("page");
+  const textCache = useRef(new Map<number, string | null>());
   const [preview, setPreview] = useState<{ url?: string; text?: string; html?: string; kind: string; name: string } | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
   const input = useRef<HTMLInputElement>(null);
@@ -135,6 +139,16 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
     } else setMessage("이 형식은 다운로드하여 해당 프로그램에서 열 수 있습니다.");
   }
 
+  async function loadVersionText(v: FileVersion): Promise<string | null> {
+    if (textCache.current.has(v.id)) return textCache.current.get(v.id) ?? null;
+    const ext = (v.originalName ?? file.name).split(".").pop()?.toLowerCase() ?? "";
+    let text: string | null = null;
+    if (EDITABLE_TEXT_EXTENSIONS.includes(ext) && v.storagePath) text = await (await downloadFileVersion(v.id)).text();
+    else if (v.searchText) text = v.searchText; // docx/pptx/pdf 등은 검색용 추출 텍스트로 비교
+    textCache.current.set(v.id, text);
+    return text;
+  }
+
   const tree = versionTree(file.versions).filter(({ version }) => !onlyPinned || version.pinned);
   const currentVersion = file.versions.find((v) => v.current);
   const actionClass = "text-xs px-2.5 py-1.5 rounded-lg border disabled:opacity-40";
@@ -163,6 +177,20 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
+    {!locked && onQuickEdit && currentVersion?.storagePath && isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) && (
+      <button type="button" disabled={busy} onClick={() => onQuickEdit("main")} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
+        ✏️ 바로 수정 (여러 명이 함께){editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
+      </button>
+    )}
+    <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
+      {([["page", "페이지"], ["tree", "버전 트리"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
+    </div>
+    {viewMode === "page" && <VersionPageView file={file} locked={locked} busy={busy} loadText={loadVersionText} onViewingVersionChange={onViewingVersionChange}
+      onPinEdit={!locked && onQuickEdit ? (v) => onQuickEdit("pin", v) : undefined}
+      onOpen={(v, download) => void run(() => openVersion(v, download))}
+      onPromote={(v) => void run(async () => { await promoteFileVersion(file.id, v.id); if (mounted.current) { setBaseId(v.id); setMessage(`${v.version}을 현재 버전으로 지정했습니다.`); } })}
+      onPin={(v) => void run(() => pinFileVersion(file.id, v.id, !v.pinned))} />}
+    {viewMode === "tree" && <>
     <label className="flex items-center gap-2 text-xs mb-3"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} />핀한 버전만 보기</label>
     <div className="space-y-3 max-h-[560px] overflow-auto" aria-label="파일 버전 트리">
       {tree.map(({ version: v, depth }) => <div key={v.id} className="border-l-2 pl-3 py-1" style={{ marginLeft: Math.min(depth, 6) * 12, borderColor: v.current ? "var(--primary)" : "var(--border)" }}>
@@ -183,6 +211,7 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
       </div>)}
       {tree.length === 0 && <p className="text-xs py-4">{onlyPinned ? "핀한 버전이 없습니다." : "아직 버전이 없습니다."}</p>}
     </div>
+    </>}
     {preview && createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.48)", backdropFilter: "blur(4px)" }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}>
       <section className="w-[min(96vw,1400px)] h-[min(88vh,900px)] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>

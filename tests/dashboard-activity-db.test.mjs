@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const require=createRequire(resolve(process.argv[2],'package.json'));
 const {PGlite}=require('@electric-sql/pglite'); const db=new PGlite();
 await db.exec(`create table files(id int primary key,name text); create table file_versions(id int primary key,file_id int references files(id)); create table schedule_events(id int primary key,title text,created_at timestamptz default now()); insert into files values(1,'legacy');`);
-const sql=readFileSync(new URL('../supabase/migration_dashboard_activity.sql',import.meta.url),'utf8');
+const sql=readFileSync(new URL('../supabase/migrations/2609162333_dashboard_activity.sql',import.meta.url),'utf8');
 await db.exec(sql); await db.exec(sql);
 assert.equal((await db.query('select created_at from files where id=1')).rows[0].created_at,null);
 await db.exec("insert into files(id,name) values(2,'new'); insert into file_versions values(1,2);");

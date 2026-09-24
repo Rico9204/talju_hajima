@@ -134,7 +134,7 @@ function mapFile(row: any): WorkspaceFile {
 }
 
 function mapComment(row: any): FileComment {
-  return { id: row.id, memberId: row.member_id ?? null, reactions: (row.file_comment_reactions ?? []).map((r: any) => ({ commentId: row.id, memberId: r.member_id, emoji: r.emoji })), author: row.author, avatar: row.avatar, date: row.date, text: row.text };
+  return { id: row.id, memberId: row.member_id ?? null, versionId: row.version_id ?? null, reactions: (row.file_comment_reactions ?? []).map((r: any) => ({ commentId: row.id, memberId: r.member_id, emoji: r.emoji })), author: row.author, avatar: row.avatar, date: row.date, text: row.text };
 }
 
 function mapChecklistItem(row: any): ChecklistItem {
@@ -893,12 +893,12 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
-  async addFileComment(fileId, actorName, actorAvatar, text) {
+  async addFileComment(fileId, actorName, actorAvatar, text, versionId) {
     const trimmed = text.trim();
     if (!trimmed) throw new Error("댓글 내용이 비어 있습니다.");
     const { data, error } = await supabase
       .from("file_comments")
-      .insert({ file_id: fileId, author: actorName, avatar: actorAvatar, date: todayISO(), text: trimmed })
+      .insert({ file_id: fileId, author: actorName, avatar: actorAvatar, date: todayISO(), text: trimmed, version_id: versionId ?? null })
       .select()
       .single();
     if (error) throw error;

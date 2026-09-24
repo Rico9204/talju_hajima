@@ -106,7 +106,7 @@ export interface DataRepository {
   pinFileVersion(fileId: number, versionId: number, pinned: boolean): Promise<void>;
   downloadFileVersion(versionId: number): Promise<Blob>;
   setFileCommentReaction(commentId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
-  addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string): Promise<FileComment>;
+  addFileComment(fileId: number, actorName: string, actorAvatar: string, text: string, versionId?: number | null): Promise<FileComment>;
 
   listTasks(projectId: string): Promise<Task[]>;
   createTask(projectId: string, input: NewTaskInput): Promise<Task>;

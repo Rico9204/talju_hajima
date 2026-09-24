@@ -27,7 +27,7 @@ const schema = readFileSync(new URL('../supabase/schema.sql',import.meta.url),'u
 await db.exec(schema);
 await db.exec(`create function public.archive_and_cleanup_project(text) returns void language sql security definer as $$select$$;
 create function public.cleanup_completed_projects() returns void language sql security definer as $$select$$;`);
-await db.exec(readFileSync(new URL('../supabase/migration_admin_governance.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609180011_admin_governance.sql',import.meta.url),'utf8'));
 const ids = [1,2,3,4,5].map(n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`);
 for (const id of ids) await db.query("insert into auth.users(id,email,raw_user_meta_data) values($1,$2,'{\"display_name\":\"사용자\",\"is_admin\":true}')",[id,`${id}@example.test`]);
 await db.query('update profiles set is_admin=true where id=any($1::uuid[])',[[ids[0],ids[1]]]);

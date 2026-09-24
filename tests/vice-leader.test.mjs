@@ -34,7 +34,7 @@ const schema = readFileSync(new URL('../supabase/schema.sql',import.meta.url),'u
  .replace(/^alter publication .*;\r?$/gm,'');
 await db.exec(schema);
 // The standalone migration must also be safe to apply on top of a schema that already contains it.
-await db.exec(readFileSync(new URL('../supabase/migrations/20260921170000_add_vice_leader_role.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609211700_add_vice_leader_role.sql',import.meta.url),'utf8'));
 
 // 0 admin(reviewer), 1 other admin, 2 leader, 3 vice candidate, 4 plain member, 5 plain member 2, 6 leader of another project
 const ids = [0,1,2,3,4,5,6].map(n=>`00000000-0000-0000-0000-${String(n+1).padStart(12,'0')}`);
