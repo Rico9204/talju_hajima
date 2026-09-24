@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import LadderIcon from "./LadderIcon"
 import type { Member } from "../../api/types"
 import {
   type ChatToolPayload,
@@ -277,7 +278,7 @@ export default function ChatToolModal({
                   }`}
               >
                 <div className="flex items-center gap-1">
-                  <span className="text-lg">🪜</span>
+                  <LadderIcon className="text-lg" size="1.125rem" />
                   <span
                     className="text-xs font-bold"
                     style={{

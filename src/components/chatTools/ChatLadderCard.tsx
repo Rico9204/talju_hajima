@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import LadderIcon from "./LadderIcon"
 import type { LadderData } from "../../lib/chatTools";
 
 export default function ChatLadderCard({
@@ -58,7 +59,7 @@ export default function ChatLadderCard({
 
   function copyResults() {
     const summary = [
-      `🪜 [사다리타기] ${data.title}`,
+      `🔀 [사다리타기] ${data.title}`,
       "-------------------------",
       ...data.matches.map((m) => `${m.participantName} → ${m.resultText}`),
     ].join("\n");
@@ -169,7 +170,7 @@ export default function ChatLadderCard({
             className="text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1"
             style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}
           >
-            <span>🪜</span>
+            <LadderIcon />
             <span>사다리타기</span>
           </span>
           <span
