@@ -1,7 +1,7 @@
 // node tests/collab-core.test.mjs
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { applyTextEdit, pickSaver, seedDoc, textHash, transformIndex } from '../src/lib/collabCore.ts';
+import { applyTextEdit, seedDoc, textHash, transformIndex } from '../src/lib/collabCore.ts';
 
 let count = 0;
 function check(name, fn) { fn(); console.log('PASS ' + name); count++; }
@@ -37,9 +37,7 @@ check('원격 삽입/삭제 뒤 커서 인덱스 이동', () => {
   assert.equal(transformIndex(5, [{ retain: 8 }, { insert: 'ab' }]), 5); // 뒤에 삽입 → 그대로
   assert.equal(transformIndex(5, [{ delete: 3 }]), 2); // 앞을 지움 → 당겨짐
 });
-check('저장 담당은 정렬상 첫 키, 해시는 내용이 다르면 다름', () => {
-  assert.equal(pickSaver([{ key: 'b:2' }, { key: 'a:9' }]), 'a:9');
-  assert.equal(pickSaver([]), null);
+check('해시는 내용이 다르면 다름', () => {
   assert.notEqual(textHash('abc'), textHash('abd'));
 });
 console.log(count + ' collab-core checks passed');

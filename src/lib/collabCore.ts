@@ -20,12 +20,6 @@ export function textHash(s: string): string {
   return `${(h >>> 0).toString(36)}:${s.length}`;
 }
 
-export interface SaverCandidate { key: string }
-// 저장 담당: 같은 방에서 키가 가장 앞선(먼저 정렬되는) 한 명.
-export function pickSaver(editors: SaverCandidate[]): string | null {
-  return editors.map((e) => e.key).sort()[0] ?? null;
-}
-
 export type Delta = { retain?: number; insert?: unknown; delete?: number }[];
 
 // 원격 변경 뒤에도 내 커서가 같은 글자 옆에 있도록 인덱스를 옮긴다.

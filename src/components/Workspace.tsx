@@ -136,7 +136,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const base = f.versions.find((v) => v.id === room);
     const result = await uploadWorkspaceFile({
       file: new File([text], base?.originalName ?? f.name, { type: base?.mimeType ?? "text/plain" }),
-      fileId: f.id, folderId: f.folderId, baseVersionId, note: "바로 수정 자동 저장", tags: f.tags,
+      fileId: f.id, folderId: f.folderId, baseVersionId, note: "바로 수정으로 저장", tags: f.tags,
     });
     return result.versionId;
   }

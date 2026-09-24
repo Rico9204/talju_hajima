@@ -1,12 +1,11 @@
 import * as Y from "yjs";
 import { supabase } from "./supabase";
-import { applyTextEdit, fromB64, pickSaver as pickSaverCore, seedDoc, textHash, toB64, transformIndex, type Delta } from "./collabCore";
+import { applyTextEdit, fromB64, seedDoc, textHash, toB64, transformIndex, type Delta } from "./collabCore";
 
 export { textHash, transformIndex };
-export const pickSaver = (editors: CollabEditor[]) => pickSaverCore(editors);
 
 // 워크스페이스 "바로 수정"(동시 편집). Yjs 문서를 Supabase Realtime으로 동기화한다.
-//  - collab_presence:<project> : 누가 어떤 파일을 수정 중인지 (목록 배지, 저장 담당 선정)
+//  - collab_presence:<project> : 누가 어떤 파일을 수정 중인지 (목록 배지, 편집창의 함께 수정 중 표시)
 //  - collab_doc:<project>:<file>:<room>:<mode> : 그 방의 Yjs 업데이트 broadcast
 // room = 편집을 시작한 기준 버전 id. mode "main" = 현재 버전 이어쓰기, "pin" = 핀 버전에서 분기.
 
