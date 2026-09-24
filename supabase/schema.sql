@@ -2408,7 +2408,7 @@ exception when duplicate_object then null;
 end $$;
 commit;
 
--- ===== 부팀장(vice leader) 역할: migrations/20260921170000_add_vice_leader_role.sql 과 동일 =====
+-- ===== 부팀장(vice leader) 역할: migrations/2609211700_add_vice_leader_role.sql 과 동일 =====
 -- 부팀장(vice leader) 역할.
 -- 부팀장은 팀장과 같은 일상 운영 권한(과제, 팀 일정, 워크스페이스 파일·폴더 정리)을 갖는다.
 -- 팀원 제외, 프로젝트 종료, 팀장 위임은 계속 팀장 전용이고,
@@ -2628,7 +2628,7 @@ grant execute on function public.delete_workspace_file(bigint), public.delete_wo
 
 commit;
 
--- ===== 관리자 가입 신청·운영자 승인: migrations/20260921180000_admin_applications.sql 과 동일 =====
+-- ===== 관리자 가입 신청·운영자 승인: migrations/2609211800_admin_applications.sql 과 동일 =====
 -- 관리자 가입 신청과 운영자 승인.
 -- 관리자(교수·교원 등)는 증명서 PDF와 함께 신청하고, 운영자가 직접 확인해 승인해야 관리자가 된다.
 -- 가입 정보(메타데이터)로는 어떤 권한도 얻을 수 없고, 승격은 review_admin_application() 하나로만 일어난다.

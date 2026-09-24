@@ -1,6 +1,6 @@
 # 평가 결과 조회 권한 변경
 
-1. 기존 평가 및 프로토타입 SQL 적용 후 migrations/20260916230950_evaluation_privacy.sql 전체를 Supabase SQL Editor에서 직접 실행합니다.
+1. 기존 평가 및 프로토타입 SQL 적용 후 migrations/2609162309_evaluation_privacy.sql 전체를 Supabase SQL Editor에서 직접 실행합니다.
 2. 같은 배포 작업에서 이 브랜치의 프런트엔드도 배포합니다. 기존 클라이언트의 members 전체 열 조회는 권한 변경 후 실패하므로 SQL만 적용한 채 기존 버전을 계속 사용하면 안 됩니다.
 3. 본인 중간 평균은 동료 평가 탭, 최종 평균은 대시보드·프로필에서 확인합니다.
 
