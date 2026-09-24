@@ -29,6 +29,7 @@ import AdminApplicationNotice from "../components/AdminApplicationNotice";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
 import UnreadNotifier from "../components/UnreadNotifier";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
+import { TOOL_ACTION_PREFIX } from "../lib/chatTools";
 
 export type {
   Project,
@@ -1022,7 +1023,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   const chatUnread: Record<string, number> = {};
   for (const [cid, list] of Object.entries(chatMessages)) {
     chatUnread[cid] = currentMember
-      ? list.filter((m) => m.senderId !== currentMember.id && !m.readBy.includes(currentMember.id)).length
+      // 채팅 도구(투표·뽑기 등)의 행동 메시지는 화면에 보이지 않으므로 읽지 않음·알림 개수에서 제외한다.
+      ? list.filter((m) => m.senderId !== currentMember.id && !m.readBy.includes(currentMember.id) && !m.text?.startsWith(TOOL_ACTION_PREFIX)).length
       : 0;
   }
   const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
