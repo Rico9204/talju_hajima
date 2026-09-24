@@ -13,6 +13,8 @@ import Avatar from "./Avatar";
 import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
+import AdminReports from "./AdminReports";
+import { dataRepository } from "../api";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import type { Tier } from "../lib/achievements";
@@ -32,7 +34,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board" | "settings" | "operator";
+type HomeTab = "projects" | "board" | "settings" | "operator" | "reports";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile } = useProject();
@@ -49,11 +51,16 @@ export default function Home() {
   // 운영자 전용 메뉴: 대기 중인 관리자 신청 수를 배지로 보여준다(운영자가 아니면 조회하지 않는다).
   const { isOperator, listAdminApplications } = useProjectManagement();
   const [pendingApplications, setPendingApplications] = useState(0);
+  const [openReports, setOpenReports] = useState(0); // 미처리 게시글 신고 수(운영자 메뉴 배지)
   useEffect(() => {
     if (!isOperator) return;
     let active = true;
     listAdminApplications()
       .then((apps) => active && setPendingApplications(apps.filter((a) => a.status === "pending").length))
+      .catch(() => undefined);
+    dataRepository
+      .listAllBoardReports()
+      .then((list) => active && setOpenReports(list.filter((x) => x.status === "open").length))
       .catch(() => undefined);
     return () => {
       active = false;
@@ -171,6 +178,27 @@ export default function Home() {
               )}
             </button>
           )}
+          {isOperator && (
+            <button
+              onClick={() => selectTab("reports")}
+              className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all"
+              style={{ borderRadius: "10px", background: activeTab === "reports" ? "var(--primary)" : "transparent", color: activeTab === "reports" ? "#fff" : "var(--foreground)" }}
+            >
+              <span className="flex items-center gap-2.5">
+                <span>🚩</span>
+                <span>신고 관리</span>
+              </span>
+              {openReports > 0 && (
+                <span
+                  aria-label={`미처리 신고 ${openReports}건`}
+                  className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+                  style={{ background: activeTab === "reports" ? "rgba(255,255,255,0.2)" : "#ef444418", color: activeTab === "reports" ? "#fff" : "#ef4444", borderRadius: "20px" }}
+                >
+                  {openReports}
+                </span>
+              )}
+            </button>
+          )}
           <button
             onClick={() => selectTab("settings")}
             className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
@@ -217,6 +245,14 @@ export default function Home() {
             <Settings />
           ) : activeTab === "operator" && isOperator ? (
             <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
+          ) : activeTab === "reports" && isOperator ? (
+            <div className="space-y-4">
+              <div>
+                <h1 className="text-xl font-700">신고 관리</h1>
+                <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>게시판에 들어온 신고를 상태와 구분별로 확인하고 처리해요.</p>
+              </div>
+              <AdminReports onOpenCountChange={setOpenReports} />
+            </div>
           ) : activeTab === "board" ? (
             <BoardView />
           ) : (
