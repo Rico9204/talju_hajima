@@ -22,6 +22,9 @@ import type {
   BoardPost,
   BoardComment,
   BoardAttachment,
+  BoardPoll,
+  BoardPollOption,
+  BoardPollVoter,
 } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
@@ -224,7 +227,9 @@ async function fetchProfilesById(userIds: string[]): Promise<Record<string, any>
   return Object.fromEntries((data ?? []).map((p: any) => [p.id, p]));
 }
 
-function mapBoardPost(row: any, profile: any, likedByMe: boolean): BoardPost {
+function mapBoardPost(row: any, profile: any, likedByMe: boolean, poll?: BoardPoll | null): BoardPost {
+  const tags: string[] = Array.isArray(row.tags) ? row.tags : [];
+  const hideImagePreview = Boolean(row.hide_image_preview || tags.includes("hide_image_preview") || tags.includes("no_preview"));
   return {
     id: row.id,
     category: row.category,
@@ -238,11 +243,97 @@ function mapBoardPost(row: any, profile: any, likedByMe: boolean): BoardPost {
     likes: row.likes_count,
     likedByMe,
     pinned: row.pinned,
-    tags: row.tags ?? [],
+    tags,
     attachments: row.attachments ?? [],
     commentsCount: row.comments_count,
     comments: [],
+    poll: poll ?? null,
+    hideImagePreview,
   };
+}
+
+// 투표 행 + 항목 + 투표 기록(board_poll_votes_view RPC)으로 BoardPoll을 만든다(게시글 id 기준 Map).
+// 익명 투표는 서버가 다른 사람의 user_id를 내려주지 않는다.
+async function buildPolls(pollRows: any[], currentUserId: string | null): Promise<Map<number, BoardPoll>> {
+  const result = new Map<number, BoardPoll>();
+  if (pollRows.length === 0) return result;
+  const pollIds = pollRows.map((p: any) => p.id);
+  const [optionsRes, votesRes] = await Promise.all([
+    supabase.from("board_poll_options").select("*").in("poll_id", pollIds).order("sort_order", { ascending: true }),
+    supabase.rpc("board_poll_votes_view", { p_poll_ids: pollIds }),
+  ]);
+  if (optionsRes.error) throw optionsRes.error;
+  if (votesRes.error) throw votesRes.error;
+
+  const votesByPoll = new Map<number, any[]>();
+  for (const v of (votesRes.data ?? []) as any[]) {
+    const list = votesByPoll.get(v.poll_id) ?? [];
+    list.push(v);
+    votesByPoll.set(v.poll_id, list);
+  }
+  const voterUserIds = new Set<string>();
+  for (const pollRow of pollRows) {
+    if (pollRow.is_anonymous) continue;
+    for (const v of votesByPoll.get(pollRow.id) ?? []) if (v.user_id) voterUserIds.add(v.user_id);
+  }
+  const voterProfiles = voterUserIds.size > 0 ? await fetchProfilesById([...voterUserIds]) : {};
+
+  for (const pollRow of pollRows) {
+    const pollVotes = votesByPoll.get(pollRow.id) ?? [];
+    const myOptionIds = currentUserId ? pollVotes.filter((v: any) => v.user_id === currentUserId).map((v: any) => v.option_id) : [];
+    const options: BoardPollOption[] = (optionsRes.data ?? [])
+      .filter((opt: any) => opt.poll_id === pollRow.id)
+      .map((opt: any) => {
+        const optionVotes = pollVotes.filter((v: any) => v.option_id === opt.id);
+        const voters: BoardPollVoter[] = pollRow.is_anonymous
+          ? []
+          : optionVotes
+              .filter((v: any) => v.user_id)
+              .map((v: any) => ({
+                userId: v.user_id,
+                name: voterProfiles[v.user_id]?.display_name || "참여자",
+                avatarUrl: voterProfiles[v.user_id]?.avatar_url ?? null,
+              }));
+        return { id: opt.id, pollId: opt.poll_id, text: opt.text, votesCount: optionVotes.length, sortOrder: opt.sort_order, voters };
+      });
+    const isExpired = pollRow.closes_at ? new Date(pollRow.closes_at).getTime() <= Date.now() : false;
+    result.set(pollRow.post_id, {
+      id: pollRow.id,
+      postId: pollRow.post_id,
+      question: pollRow.question,
+      allowMultiple: pollRow.allow_multiple,
+      isAnonymous: pollRow.is_anonymous,
+      closed: pollRow.closed || isExpired,
+      closesAt: pollRow.closes_at,
+      createdAt: pollRow.created_at,
+      options,
+      totalVotes: new Set(pollVotes.map((v: any) => v.voter_ref)).size,
+      hasVoted: myOptionIds.length > 0,
+      myOptionIds,
+    });
+  }
+  return result;
+}
+
+// 투표 마이그레이션 전이거나 조회에 실패해도 게시판 자체는 열리도록 투표만 빼고 보여준다.
+async function fetchPollsForPosts(postIds: number[], currentUserId: string | null): Promise<Map<number, BoardPoll>> {
+  if (postIds.length === 0) return new Map();
+  try {
+    const { data, error } = await supabase.from("board_polls").select("*").in("post_id", postIds);
+    if (error) throw error;
+    return await buildPolls(data ?? [], currentUserId);
+  } catch (err) {
+    console.warn("투표 데이터를 불러오지 못했습니다:", err);
+    return new Map();
+  }
+}
+
+async function fetchSinglePoll(pollId: number, currentUserId: string | null): Promise<BoardPoll> {
+  const { data, error } = await supabase.from("board_polls").select("*").eq("id", pollId).single();
+  if (error || !data) throw error || new Error("투표를 찾을 수 없습니다.");
+  const poll = (await buildPolls([data], currentUserId)).get(data.post_id);
+  if (!poll) throw new Error("투표를 찾을 수 없습니다.");
+  return poll;
 }
 
 import { summarizeEvaluations } from "../../lib/evaluationSummary";
@@ -1395,14 +1486,21 @@ export const supabaseDataRepository: DataRepository = {
     if (likesResult.error) throw likesResult.error;
     const likedPostIds = new Set((likesResult.data ?? []).map((r: any) => r.post_id));
     const rows = postsResult.data ?? [];
-    const profileById = await fetchProfilesById([...new Set(rows.map((r: any) => r.author_user_id))]);
-    return rows.map((row: any) => mapBoardPost(row, profileById[row.author_user_id], likedPostIds.has(row.id)));
+    const [profileById, pollsByPostId] = await Promise.all([
+      fetchProfilesById([...new Set(rows.map((r: any) => r.author_user_id))]),
+      fetchPollsForPosts(rows.map((r: any) => r.id), myId ?? null),
+    ]);
+    return rows.map((row: any) => mapBoardPost(row, profileById[row.author_user_id], likedPostIds.has(row.id), pollsByPostId.get(row.id)));
   },
 
   async createBoardPost(input) {
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
+    const tags = Array.isArray(input.tags) ? [...input.tags] : [];
+    if (input.hideImagePreview && !tags.includes("hide_image_preview")) {
+      tags.push("hide_image_preview");
+    }
     const { data, error } = await supabase
       .from("board_posts")
       .insert({
@@ -1411,12 +1509,29 @@ export const supabaseDataRepository: DataRepository = {
         content: input.content,
         author_user_id: userId,
         attachments: input.attachments,
+        tags,
       })
       .select()
       .single();
     if (error) throw error;
+
+    // 투표는 서버 함수로 한 번에 만든다. 실패하면 게시글은 남지만 투표가 없다는 것을 알린다.
+    let createdPoll: BoardPoll | null = null;
+    if (input.poll && input.poll.question.trim() && input.poll.options.length >= 2) {
+      const { data: pollId, error: pollErr } = await supabase.rpc("create_board_poll", {
+        p_post_id: data.id,
+        p_question: input.poll.question,
+        p_options: input.poll.options,
+        p_allow_multiple: input.poll.allowMultiple,
+        p_is_anonymous: input.poll.isAnonymous,
+        p_closes_at: input.poll.closesAt || null,
+      });
+      if (pollErr) throw new Error(`게시글은 등록되었지만 투표를 만들지 못했습니다: ${pollErr.message}`);
+      createdPoll = await fetchSinglePoll(pollId as number, userId);
+    }
+
     const profileById = await fetchProfilesById([userId]);
-    return mapBoardPost(data, profileById[userId], false);
+    return mapBoardPost(data, profileById[userId], false, createdPoll);
   },
 
   async updateBoardPost(postId, patch) {
@@ -1425,6 +1540,25 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.title !== undefined) updates.title = patch.title.trim();
     if (patch.content !== undefined) updates.content = patch.content;
     if (patch.attachments !== undefined) updates.attachments = patch.attachments;
+    if (patch.hideImagePreview !== undefined || patch.tags !== undefined) {
+      let baseTags: string[] = patch.tags ? [...patch.tags] : [];
+      if (!patch.tags && patch.hideImagePreview !== undefined) {
+        try {
+          const { data: currentPost } = await supabase.from("board_posts").select("tags").eq("id", postId).single();
+          baseTags = Array.isArray(currentPost?.tags) ? [...currentPost.tags] : [];
+        } catch {
+          baseTags = [];
+        }
+      }
+      if (patch.hideImagePreview !== undefined) {
+        if (patch.hideImagePreview) {
+          if (!baseTags.includes("hide_image_preview")) baseTags.push("hide_image_preview");
+        } else {
+          baseTags = baseTags.filter((t) => t !== "hide_image_preview" && t !== "no_preview");
+        }
+      }
+      updates.tags = baseTags;
+    }
     if (Object.keys(updates).length === 0) return;
     updates.updated_at = new Date().toISOString();
     const { error } = await supabase.from("board_posts").update(updates).eq("id", postId);
@@ -1529,5 +1663,19 @@ export const supabaseDataRepository: DataRepository = {
       url: data.publicUrl,
       mimeType: file.type,
     };
+  },
+
+  async castBoardPollVote(pollId, optionIds) {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+    const { error } = await supabase.rpc("cast_board_poll_vote", { p_poll_id: pollId, p_option_ids: optionIds });
+    if (error) throw error;
+    return fetchSinglePoll(pollId, userId);
+  },
+
+  async closeBoardPoll(pollId) {
+    const { error } = await supabase.rpc("close_board_poll", { p_poll_id: pollId });
+    if (error) throw error;
   },
 };

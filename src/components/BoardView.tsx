@@ -11,6 +11,49 @@ import type { BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 const POSTS_PER_PAGE = 10;
 type SearchTarget = "title_content" | "title" | "content" | "author";
 
+interface HoveredImagePreview {
+  postId: number;
+  url: string;
+  title: string;
+  imageCount: number;
+  isBlurred?: boolean;
+  x: number;
+  y: number;
+}
+
+function isImageAttachment(a: { kind: string; mimeType?: string; name?: string; url?: string }): boolean {
+  if (a.kind === "image") return true;
+  if (a.mimeType?.startsWith("image/")) return true;
+  if (/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(a.name || a.url || "")) return true;
+  return false;
+}
+
+function getPostImages(post: BoardPost): string[] {
+  const images: string[] = [];
+  if (post.attachments) {
+    for (const a of post.attachments) {
+      if (isImageAttachment(a) && a.url && !images.includes(a.url)) {
+        images.push(a.url);
+      }
+    }
+  }
+  if (post.content) {
+    const htmlMatches = Array.from(post.content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi));
+    for (const m of htmlMatches) {
+      if (m[1] && !images.includes(m[1])) {
+        images.push(m[1]);
+      }
+    }
+    const mdMatches = Array.from(post.content.matchAll(/!\[.*?\]\((https?:\/\/[^\s\)]+|\/[^\s\)]+|data:image\/[^\s\)]+)\)/gi));
+    for (const m of mdMatches) {
+      if (m[1] && !images.includes(m[1])) {
+        images.push(m[1]);
+      }
+    }
+  }
+  return images;
+}
+
 function errorMessage(error: unknown): string {
   // Supabase's PostgrestError (RLS violations, check-constraint failures…) is
   // a plain object, not an Error instance — read .message off it directly or
@@ -37,6 +80,7 @@ export default function BoardView() {
   const [editingPost, setEditingPost] = useState<BoardPost | null>(null);
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
   const [busy, setBusy] = useState(false);
+  const [hoveredPreview, setHoveredPreview] = useState<HoveredImagePreview | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +95,14 @@ export default function BoardView() {
 
   useEffect(() => {
     setCurrentPage(1);
+    setHoveredPreview(null);
   }, [selectedCategory, searchQuery, searchTarget]);
+
+  useEffect(() => {
+    const handleScroll = () => setHoveredPreview(null);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   async function handleCreatePost(input: NewBoardPostInput) {
     setBusy(true);
@@ -72,9 +123,11 @@ export default function BoardView() {
     setBusy(true);
     setError(null);
     try {
-      await dataRepository.updateBoardPost(postId, patch);
-      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...patch } : p)));
-      setSelectedPost((prev) => (prev && prev.id === postId ? { ...prev, ...patch } : prev));
+      // 투표는 게시글 수정으로 바꿀 수 없다(작성 시에만 만든다).
+      const { poll: _poll, ...postPatch } = patch;
+      await dataRepository.updateBoardPost(postId, postPatch);
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...postPatch } : p)));
+      setSelectedPost((prev) => (prev && prev.id === postId ? { ...prev, ...postPatch } : prev));
       setEditingPost(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -84,6 +137,7 @@ export default function BoardView() {
   }
 
   async function openPostDetail(post: BoardPost) {
+    setHoveredPreview(null);
     setIsCreatingPost(false);
     setEditingPost(null);
     setSelectedPost({ ...post, views: post.views + 1 });
@@ -166,6 +220,32 @@ export default function BoardView() {
     }
   }
 
+  async function handleVotePoll(pollId: number, optionIds: number[]) {
+    try {
+      const updatedPoll = await dataRepository.castBoardPollVote(pollId, optionIds);
+      setPosts((prev) => prev.map((p) => (p.poll?.id === pollId ? { ...p, poll: updatedPoll } : p)));
+      setSelectedPost((prev) => (prev && prev.poll?.id === pollId ? { ...prev, poll: updatedPoll } : prev));
+    } catch (e) {
+      setError(errorMessage(e));
+      throw e;
+    }
+  }
+
+  async function handleClosePoll(pollId: number) {
+    try {
+      await dataRepository.closeBoardPoll(pollId);
+      setPosts((prev) =>
+        prev.map((p) => (p.poll?.id === pollId && p.poll ? { ...p, poll: { ...p.poll, closed: true } } : p))
+      );
+      setSelectedPost((prev) =>
+        prev && prev.poll?.id === pollId && prev.poll ? { ...prev, poll: { ...prev.poll, closed: true } } : prev
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+      throw e;
+    }
+  }
+
   const categoryPosts = selectedCategory === "all" ? posts : posts.filter((p) => p.category === selectedCategory);
 
   const filteredPosts = categoryPosts.filter((p) => {
@@ -225,6 +305,8 @@ export default function BoardView() {
         onDeleteComment={handleDeleteComment}
         onToggleLike={handleToggleLike}
         onDeletePost={handleDeletePost}
+        onVotePoll={handleVotePoll}
+        onClosePoll={handleClosePoll}
       />
     );
   }
@@ -339,13 +421,52 @@ export default function BoardView() {
         <div className="space-y-2">
           {paginatedPosts.map((post) => {
             const catInfo = BOARD_CATEGORIES.find((c) => c.id === post.category);
-            const imageCount = post.attachments.filter((a) => a.kind === "image").length;
-            const fileCount = post.attachments.filter((a) => a.kind === "file").length;
+            const postImages = getPostImages(post);
+            const isPreviewDisabled = Boolean(post.hideImagePreview);
+            const firstImageUrl = postImages[0] ?? null;
+            const imageCount = postImages.length;
+            const fileCount = post.attachments.filter((a) => !isImageAttachment(a)).length;
             return (
               <button
                 key={post.id}
-                onClick={() => void openPostDetail(post)}
-                className="w-full text-left px-4 py-3 transition-all hover:translate-y-[-1px] flex items-center justify-between gap-3"
+                onClick={() => {
+                  setHoveredPreview(null);
+                  void openPostDetail(post);
+                }}
+                onMouseEnter={(e) => {
+                  if (firstImageUrl) {
+                    setHoveredPreview({
+                      postId: post.id,
+                      url: firstImageUrl,
+                      title: post.title,
+                      imageCount,
+                      isBlurred: isPreviewDisabled,
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
+                  }
+                }}
+                onMouseMove={(e) => {
+                  if (firstImageUrl) {
+                    setHoveredPreview((prev) =>
+                      prev && prev.postId === post.id
+                        ? { ...prev, x: e.clientX, y: e.clientY }
+                        : {
+                            postId: post.id,
+                            url: firstImageUrl,
+                            title: post.title,
+                            imageCount,
+                            isBlurred: isPreviewDisabled,
+                            x: e.clientX,
+                            y: e.clientY,
+                          }
+                    );
+                  }
+                }}
+                onMouseLeave={() => {
+                  setHoveredPreview((prev) => (prev?.postId === post.id ? null : prev));
+                }}
+                className="w-full text-left px-4 py-3 transition-all hover:translate-y-[-1px] flex items-center justify-between gap-3 cursor-pointer"
                 style={{
                   background: "var(--card)",
                   borderRadius: "var(--radius)",
@@ -368,10 +489,35 @@ export default function BoardView() {
                     </span>
                   )}
                   <span className="text-sm font-700 truncate hover:text-blue-500 transition-colors">{post.title}</span>
+                  {post.poll && (
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 shrink-0 rounded flex items-center gap-1"
+                      style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3b82f6" }}
+                      title="투표 진행/마감"
+                    >
+                      <span>📊</span>
+                      <span>투표</span>
+                    </span>
+                  )}
                   {(imageCount > 0 || fileCount > 0) && (
-                    <span className="text-[10px] shrink-0 font-600" style={{ color: "var(--muted-foreground)" }}>
-                      {imageCount > 0 && `📷${imageCount} `}
-                      {fileCount > 0 && `📎${fileCount}`}
+                    <span
+                      className="text-[10px] shrink-0 font-600 flex items-center gap-1.5"
+                      style={{ color: "var(--muted-foreground)" }}
+                      title="마우스를 올리면 첫 이미지를 미리 볼 수 있습니다"
+                    >
+                      {imageCount > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded font-700 flex items-center transition-all"
+                          style={{
+                            background: "rgba(59, 130, 246, 0.12)",
+                            color: "#3b82f6",
+                          }}
+                          title="이미지 첨부됨 (마우스를 올리면 미리보기)"
+                        >
+                          <span>📷</span>
+                        </span>
+                      )}
+                      {fileCount > 0 && <span>📎 {fileCount}</span>}
                     </span>
                   )}
                 </div>
@@ -443,6 +589,89 @@ export default function BoardView() {
           </div>
         </div>
       )}
+
+      {hoveredPreview && (() => {
+        const PREVIEW_WIDTH = 280;
+        const PREVIEW_HEIGHT = 220;
+        let previewLeft = hoveredPreview.x + 18;
+        let previewTop = hoveredPreview.y - 60;
+
+        if (typeof window !== "undefined") {
+          if (previewLeft + PREVIEW_WIDTH > window.innerWidth - 16) {
+            previewLeft = Math.max(16, hoveredPreview.x - PREVIEW_WIDTH - 18);
+          }
+          if (previewTop < 16) {
+            previewTop = 16;
+          } else if (previewTop + PREVIEW_HEIGHT > window.innerHeight - 16) {
+            previewTop = Math.max(16, window.innerHeight - PREVIEW_HEIGHT - 16);
+          }
+        }
+
+        return (
+          <div
+            className="fixed z-50 pointer-events-none transition-transform duration-75 ease-out select-none"
+            style={{
+              left: `${previewLeft}px`,
+              top: `${previewTop}px`,
+              width: `${PREVIEW_WIDTH}px`,
+            }}
+          >
+            <div
+              className="overflow-hidden border backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+              style={{
+                background: "var(--card)",
+                borderColor: "var(--border)",
+                borderRadius: "14px",
+                boxShadow: "0 16px 36px -4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08)",
+              }}
+            >
+              <div className="relative bg-black/10 dark:bg-black/30 flex items-center justify-center min-h-[140px] max-h-[190px] overflow-hidden">
+                <img
+                  src={hoveredPreview.url}
+                  alt={hoveredPreview.title}
+                  className={`w-full h-full object-cover max-h-[190px] transition-all duration-200 ${
+                    hoveredPreview.isBlurred ? "filter blur-xl brightness-75 scale-110" : ""
+                  }`}
+                  loading="eager"
+                />
+                {hoveredPreview.isBlurred && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-black/40 backdrop-blur-[1px]">
+                    <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-lg mb-1.5 shadow-lg border border-white/20">
+                      🔒
+                    </div>
+                    <span className="text-xs font-bold text-white drop-shadow-md">
+                      미리보기 방지 적용됨
+                    </span>
+                    <span className="text-[10px] text-white/80 mt-0.5 drop-shadow">
+                      클릭하여 게시글에서 원본 확인
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div
+                className="px-3 py-2 border-t flex items-center justify-between gap-2"
+                style={{ borderColor: "var(--border)", background: "var(--card)" }}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs">🖼️</span>
+                  <span className="text-[11px] font-700 truncate" style={{ color: "var(--foreground)" }}>
+                    {hoveredPreview.title}
+                  </span>
+                </div>
+                <span
+                  className="text-[10px] font-700 shrink-0 px-1.5 py-0.5 rounded"
+                  style={{
+                    background: hoveredPreview.isBlurred ? "rgba(239, 68, 68, 0.12)" : "rgba(59, 130, 246, 0.12)",
+                    color: hoveredPreview.isBlurred ? "#ef4444" : "#3b82f6",
+                  }}
+                >
+                  {hoveredPreview.isBlurred ? "블러 미리보기" : "이미지 미리보기"}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

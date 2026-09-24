@@ -27,6 +27,7 @@ import type {
   BoardCategory,
   BoardAttachment,
   BoardComment,
+  BoardPoll,
   MyAdminApplication,
   AdminApplicationInput,
   AdminApplicationRecord,
@@ -162,7 +163,7 @@ export interface DataRepository {
   createBoardPost(input: NewBoardPostInput): Promise<BoardPost>;
   updateBoardPost(
     postId: number,
-    patch: Partial<{ category: BoardCategory; title: string; content: string; attachments: BoardAttachment[] }>
+    patch: Partial<{ category: BoardCategory; title: string; content: string; attachments: BoardAttachment[]; tags: string[]; hideImagePreview: boolean }>
   ): Promise<void>;
   deleteBoardPost(postId: number): Promise<void>;
   incrementBoardPostViews(postId: number): Promise<void>;
@@ -171,4 +172,6 @@ export interface DataRepository {
   addBoardComment(postId: number, content: string, parentCommentId?: number): Promise<void>;
   deleteBoardComment(commentId: number): Promise<void>;
   uploadBoardAttachment(file: File): Promise<BoardAttachment>;
+  castBoardPollVote(pollId: number, optionIds: number[]): Promise<BoardPoll>;
+  closeBoardPoll(pollId: number): Promise<void>;
 }
