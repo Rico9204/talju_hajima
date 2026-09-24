@@ -8,7 +8,7 @@ import { formatUploadTime } from "../lib/workspaceFiles";
 // 바뀐 줄만 표시한다. 시작 페이지는 항상 현재 버전.
 const MAX_DIFF_CHARS = 200_000;
 
-export default function VersionPageView({ file, locked, busy, loadText, onOpen, onPromote, onPin }: {
+export default function VersionPageView({ file, locked, busy, loadText, onOpen, onPromote, onPin, onViewingVersionChange }: {
   file: WorkspaceFile;
   locked: boolean;
   busy: boolean;
@@ -17,6 +17,8 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
   onOpen: (version: FileVersion, download: boolean) => void;
   onPromote: (version: FileVersion) => void;
   onPin: (version: FileVersion) => void;
+  // 지금 보는 페이지(버전)를 부모에 알려 댓글 탭이 "이 버전" 기준으로 동작하게 한다.
+  onViewingVersionChange?: (versionId: number | null) => void;
 }) {
   const pages = useMemo(() => [...file.versions].sort((a, b) => a.id - b.id), [file.versions]);
   const currentIndex = Math.max(0, pages.findIndex((v) => v.current));
@@ -28,6 +30,8 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
 
   const version = pages[index];
   const parent = version?.parentVersionId != null ? pages.find((v) => v.id === version.parentVersionId) ?? null : null;
+
+  useEffect(() => { onViewingVersionChange?.(version?.id ?? null); }, [version?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!version) return;

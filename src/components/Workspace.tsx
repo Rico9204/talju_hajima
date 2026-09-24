@@ -49,6 +49,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState("");
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
+  // 버전 "페이지" 보기에서 지금 보고 있는 버전 — 댓글 탭의 "이 버전" 기준. null이면 현재 버전.
+  const [viewingVersionId, setViewingVersionId] = useState<number | null>(null);
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -556,9 +558,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
 
               {detailTab === "versions" ? (
-                <FileVersionPanel file={selFile} searchQuery={searchQuery} />
+                <FileVersionPanel file={selFile} searchQuery={searchQuery} onViewingVersionChange={setViewingVersionId} />
               ) : (
-                <WorkspaceComments file={selFile} />
+                <WorkspaceComments file={selFile} focusedVersionId={selFile.versions.some((v) => v.id === viewingVersionId) ? viewingVersionId : selFile.versions.find((v) => v.current)?.id ?? null} />
               )}
             </div>
           ) : (

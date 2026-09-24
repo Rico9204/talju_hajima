@@ -44,7 +44,7 @@ function highlightOfficeHtml(html: string, query: string): string {
   return document.body.innerHTML;
 }
 
-export default function FileVersionPanel({ file, searchQuery = "" }: { file: WorkspaceFile; searchQuery?: string }) {
+export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void }) {
   const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
@@ -181,7 +181,7 @@ export default function FileVersionPanel({ file, searchQuery = "" }: { file: Wor
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
       {([["page", "페이지"], ["tree", "버전 트리"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
     </div>
-    {viewMode === "page" && <VersionPageView file={file} locked={locked} busy={busy} loadText={loadVersionText}
+    {viewMode === "page" && <VersionPageView file={file} locked={locked} busy={busy} loadText={loadVersionText} onViewingVersionChange={onViewingVersionChange}
       onOpen={(v, download) => void run(() => openVersion(v, download))}
       onPromote={(v) => void run(async () => { await promoteFileVersion(file.id, v.id); if (mounted.current) { setBaseId(v.id); setMessage(`${v.version}을 현재 버전으로 지정했습니다.`); } })}
       onPin={(v) => void run(() => pinFileVersion(file.id, v.id, !v.pinned))} />}

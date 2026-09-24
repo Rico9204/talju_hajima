@@ -116,7 +116,7 @@ interface ProjectContextValue {
   pinFileVersion: (fileId: number, versionId: number, pinned: boolean) => Promise<void>;
   downloadFileVersion: (versionId: number) => Promise<Blob>;
   setFileCommentReaction: (commentId: number, emoji: string, active: boolean) => Promise<void>;
-  addFileComment: (fileId: number, text: string) => Promise<void>;
+  addFileComment: (fileId: number, text: string, versionId?: number | null) => Promise<void>;
   tasks: Task[];
   addTask: (input: NewTaskInput) => Promise<void>;
   moveTask: (taskId: number, status: TaskStatus) => Promise<void>;
@@ -818,9 +818,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     await refreshFiles();
   }
 
-  async function addFileComment(fileId: number, text: string) {
+  async function addFileComment(fileId: number, text: string, versionId?: number | null) {
     if (!text.trim() || !currentMember) return;
-    await dataRepository.addFileComment(fileId, currentMember.name, currentMember.avatar, text);
+    await dataRepository.addFileComment(fileId, currentMember.name, currentMember.avatar, text, versionId);
     await refreshFiles();
   }
 
