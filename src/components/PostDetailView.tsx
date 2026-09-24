@@ -225,7 +225,7 @@ export default function PostDetailView({
                     </div>
                   </div>
                   <a
-                    href={file.url}
+                    href={/^https:\/\//i.test(file.url) ? file.url : undefined}
                     download={file.name}
                     target="_blank"
                     rel="noreferrer"
