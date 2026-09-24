@@ -27,6 +27,7 @@ import type {
   BoardCategory,
   BoardAttachment,
   BoardComment,
+  BoardPoll,
   MyAdminApplication,
   AdminApplicationInput,
   AdminApplicationRecord,
@@ -171,4 +172,6 @@ export interface DataRepository {
   addBoardComment(postId: number, content: string, parentCommentId?: number): Promise<void>;
   deleteBoardComment(commentId: number): Promise<void>;
   uploadBoardAttachment(file: File): Promise<BoardAttachment>;
+  castBoardPollVote(pollId: number, optionIds: number[]): Promise<BoardPoll>;
+  closeBoardPoll(pollId: number): Promise<void>;
 }

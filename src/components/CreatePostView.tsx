@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent } fr
 import { useProjectManagement } from "../context/ProjectContext";
 import { dataRepository } from "../api";
 import { BOARD_CATEGORIES } from "../lib/boardData";
+import { validateNewPollInput } from "../lib/boardPoll";
 import type { BoardAttachment, BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
 export default function CreatePostView({
@@ -30,9 +31,47 @@ export default function CreatePostView({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 투표(Poll) 첨부 상태
+  const [hasPoll, setHasPoll] = useState(!!initialPost?.poll);
+  const [pollQuestion, setPollQuestion] = useState(initialPost?.poll?.question ?? "");
+  const [pollOptions, setPollOptions] = useState<string[]>(
+    initialPost?.poll?.options && initialPost.poll.options.length >= 2
+      ? initialPost.poll.options.map((o) => o.text)
+      : ["", ""]
+  );
+  const [pollAllowMultiple, setPollAllowMultiple] = useState(initialPost?.poll?.allowMultiple ?? false);
+  const [pollIsAnonymous, setPollIsAnonymous] = useState(initialPost?.poll?.isAnonymous ?? false);
+  const [pollHasDeadline, setPollHasDeadline] = useState(!!initialPost?.poll?.closesAt);
+  const [pollDeadline, setPollDeadline] = useState(
+    initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toISOString().slice(0, 16) : ""
+  );
+  const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
+
   useEffect(() => {
     if (editorRef.current && initialPost?.content) {
       editorRef.current.innerHTML = initialPost.content;
+      editorRef.current.querySelectorAll("img").forEach((img) => {
+        const parent = img.parentElement;
+        if (parent && parent.classList.contains("inline-block-img-wrapper") && parent.querySelector(".img-delete-btn")) {
+          return;
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "relative inline-block my-3 max-w-full inline-block-img-wrapper group";
+        wrapper.contentEditable = "false";
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.innerHTML = "<span>✕</span><span>삭제</span>";
+        deleteBtn.className = "img-delete-btn absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-white bg-black/60 hover:bg-red-600 rounded-lg shadow-md backdrop-blur-sm transition-all cursor-pointer";
+        deleteBtn.title = "이미지 삭제";
+        deleteBtn.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          wrapper.remove();
+        };
+        img.replaceWith(wrapper);
+        wrapper.appendChild(img);
+        wrapper.appendChild(deleteBtn);
+      });
     }
   }, [initialPost]);
 
@@ -80,17 +119,19 @@ export default function CreatePostView({
       const placeholderEl = editorRef.current?.querySelector(`#${CSS.escape(placeholderId)}`);
       if (!placeholderEl) return;
       const container = document.createElement("div");
-      container.className = "my-3 inline-block-img-wrapper";
+      container.className = "relative inline-block my-3 max-w-full inline-block-img-wrapper group";
       container.contentEditable = "false";
       const img = document.createElement("img");
       img.src = uploaded.url;
       img.alt = "본문 첨부 이미지";
-      img.className = "max-w-full rounded-xl border shadow-sm my-1 block cursor-pointer";
+      img.className = "max-w-full rounded-xl border shadow-sm block cursor-pointer";
       img.style.maxHeight = "450px";
       const deleteBtn = document.createElement("button");
-      deleteBtn.innerText = "✕ 이미지 삭제";
-      deleteBtn.className = "img-delete-btn text-[11px] text-red-500 font-bold mt-1 px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20";
-      deleteBtn.onclick = (e) => { e.preventDefault(); container.remove(); };
+      deleteBtn.type = "button";
+      deleteBtn.innerHTML = "<span>✕</span><span>삭제</span>";
+      deleteBtn.className = "img-delete-btn absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-white bg-black/60 hover:bg-red-600 rounded-lg shadow-md backdrop-blur-sm transition-all cursor-pointer";
+      deleteBtn.title = "이미지 삭제";
+      deleteBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); container.remove(); };
       container.appendChild(img);
       container.appendChild(deleteBtn);
       placeholderEl.replaceWith(container);
@@ -168,10 +209,44 @@ export default function CreatePostView({
     const textOnly = editorRef.current?.innerText.trim() ?? "";
     if (!textOnly && !cleanHtml.includes("<img")) { setError("내용을 입력해주세요."); return; }
 
+    let pollInput = undefined;
+    if (hasPoll) {
+      const pollValidationError = validateNewPollInput({
+        question: pollQuestion,
+        options: pollOptions,
+        closesAt: pollHasDeadline && pollDeadline ? new Date(pollDeadline).toISOString() : null,
+      });
+      if (pollValidationError) {
+        setError(pollValidationError);
+        return;
+      }
+      pollInput = {
+        question: pollQuestion.trim(),
+        options: pollOptions.map((o) => o.trim()).filter(Boolean),
+        allowMultiple: pollAllowMultiple,
+        isAnonymous: pollIsAnonymous,
+        closesAt: pollHasDeadline && pollDeadline ? new Date(pollDeadline).toISOString() : null,
+      };
+    }
+
     if (initialPost && onUpdate) {
-      onUpdate(initialPost.id, { category, title: title.trim(), content: cleanHtml, attachments });
+      onUpdate(initialPost.id, {
+        category,
+        title: title.trim(),
+        content: cleanHtml,
+        attachments,
+        poll: pollInput,
+        hideImagePreview,
+      });
     } else {
-      onCreate({ category, title: title.trim(), content: cleanHtml, attachments });
+      onCreate({
+        category,
+        title: title.trim(),
+        content: cleanHtml,
+        attachments,
+        poll: pollInput,
+        hideImagePreview,
+      });
     }
   }
 
@@ -243,14 +318,29 @@ export default function CreatePostView({
               <label className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>
                 본문 (원하는 커서 위치에 이미지 Ctrl+V 붙여넣기 가능)
               </label>
-              <label
-                className="cursor-pointer px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all"
-                style={{ background: "#2563eb18", color: "#2563eb", borderRadius: "8px" }}
-                title="커서 위치에 이미지 삽입"
-              >
-                <span>📷 본문에 이미지 삽입</span>
-                <input type="file" accept="image/*" multiple onChange={handleInlineImagePick} className="hidden" />
-              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setHideImagePreview(!hideImagePreview)}
+                  className="px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all rounded-lg cursor-pointer"
+                  style={{
+                    background: hideImagePreview ? "rgba(239, 68, 68, 0.12)" : "var(--muted)",
+                    color: hideImagePreview ? "#ef4444" : "var(--foreground)",
+                    border: hideImagePreview ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid var(--border)",
+                  }}
+                  title="게시글 목록에서 마우스를 올려도 이미지 미리보기가 나타나지 않도록 방지합니다"
+                >
+                  <span>{hideImagePreview ? "🔒 미리보기 방지 ON" : "👁️ 미리보기 방지"}</span>
+                </button>
+                <label
+                  className="cursor-pointer px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all"
+                  style={{ background: "#2563eb18", color: "#2563eb", borderRadius: "8px" }}
+                  title="커서 위치에 이미지 삽입"
+                >
+                  <span>📷 본문에 이미지 삽입</span>
+                  <input type="file" accept="image/*" multiple onChange={handleInlineImagePick} className="hidden" />
+                </label>
+              </div>
             </div>
             <div
               ref={editorRef}
@@ -288,6 +378,149 @@ export default function CreatePostView({
                     <button type="button" onClick={() => removeAttachment(file.id)} className="w-6 h-6 flex items-center justify-center text-xs font-700 hover:text-red-500" title="제거">×</button>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* 투표 (Poll) 첨부 영역 */}
+          <div className="p-4 border rounded-xl space-y-4" style={{ background: "var(--muted)", borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📊</span>
+                <span className="text-xs font-700" style={{ color: "var(--foreground)" }}>투표(Poll) 첨부</span>
+                {hasPoll && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-bold">
+                    활성화됨
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setHasPoll(!hasPoll)}
+                className="px-3 py-1.5 text-xs font-700 rounded-lg transition-all"
+                style={{
+                  background: hasPoll ? "rgba(239, 68, 68, 0.1)" : "rgba(37, 99, 235, 0.1)",
+                  color: hasPoll ? "#ef4444" : "#2563eb",
+                }}
+              >
+                {hasPoll ? "✕ 투표 제거" : "+ 투표 만들기"}
+              </button>
+            </div>
+
+            {hasPoll && (
+              <div className="space-y-4 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+                <div>
+                  <label className="block text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
+                    투표 질문 / 주제 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
+                    maxLength={200}
+                    placeholder="예: 정기 회의 요일 언제가 좋으신가요? (최대 200자)"
+                    className="w-full px-3.5 py-2.5 text-xs md:text-sm outline-none transition-all"
+                    style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>
+                      투표 항목 (최소 2개 ~ 최대 10개) <span className="text-red-500">*</span>
+                    </label>
+                    {pollOptions.length < 10 && (
+                      <button
+                        type="button"
+                        onClick={() => setPollOptions([...pollOptions, ""])}
+                        className="text-xs font-bold text-blue-500 hover:underline"
+                      >
+                        + 항목 추가
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {pollOptions.map((opt, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="text-xs font-semibold w-5 text-center" style={{ color: "var(--muted-foreground)" }}>
+                          {idx + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          value={opt}
+                          onChange={(e) => {
+                            const next = [...pollOptions];
+                            next[idx] = e.target.value;
+                            setPollOptions(next);
+                          }}
+                          maxLength={100}
+                          placeholder={`항목 ${idx + 1}`}
+                          className="flex-1 px-3 py-2 text-xs md:text-sm outline-none"
+                          style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)" }}
+                        />
+                        {pollOptions.length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => setPollOptions(pollOptions.filter((_, i) => i !== idx))}
+                            className="w-7 h-7 flex items-center justify-center text-xs font-bold text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="항목 삭제"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 투표 추가 설정 */}
+                <div className="p-3 rounded-xl space-y-2.5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                  <div className="text-xs font-bold mb-1" style={{ color: "var(--foreground)" }}>⚙️ 투표 추가 설정</div>
+                  <div className="flex flex-wrap gap-4 text-xs font-medium" style={{ color: "var(--foreground)" }}>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pollAllowMultiple}
+                        onChange={(e) => setPollAllowMultiple(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span>복수 선택 허용 (다중 투표)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pollIsAnonymous}
+                        onChange={(e) => setPollIsAnonymous(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span>익명 투표 (참여자 명단 숨김)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={pollHasDeadline}
+                        onChange={(e) => setPollHasDeadline(e.target.checked)}
+                        className="rounded"
+                      />
+                      <span>마감일 설정</span>
+                    </label>
+                  </div>
+
+                  {pollHasDeadline && (
+                    <div className="pt-2 flex items-center gap-2 flex-wrap">
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>마감 일시:</span>
+                      <input
+                        type="datetime-local"
+                        value={pollDeadline}
+                        onChange={(e) => setPollDeadline(e.target.value)}
+                        className="px-3 py-1.5 text-xs outline-none rounded-lg"
+                        style={{ background: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

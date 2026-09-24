@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BOARD_CATEGORIES } from "../lib/boardData";
+import BoardPollView from "./BoardPollView";
 import type { BoardPost } from "../api/types";
 
 export default function PostDetailView({
@@ -15,6 +16,8 @@ export default function PostDetailView({
   onDeleteComment,
   onToggleLike,
   onDeletePost,
+  onVotePoll,
+  onClosePoll,
 }: {
   post: BoardPost;
   currentUserId: string | null;
@@ -28,6 +31,8 @@ export default function PostDetailView({
   onDeleteComment: (postId: number, commentId: number) => void;
   onToggleLike: (postId: number) => void;
   onDeletePost: (postId: number) => void;
+  onVotePoll?: (pollId: number, optionIds: number[]) => Promise<void>;
+  onClosePoll?: (pollId: number) => Promise<void>;
 }) {
   const [commentText, setCommentText] = useState("");
   const [replyingTarget, setReplyingTarget] = useState<{ commentId: number; targetAuthor: string; replyId?: number } | null>(null);
@@ -145,6 +150,16 @@ export default function PostDetailView({
                 📌 필독 공지
               </span>
             )}
+            {post.hideImagePreview && (
+              <span
+                className="text-xs font-700 px-2.5 py-1 flex items-center gap-1"
+                style={{ background: "rgba(100, 116, 139, 0.12)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                title="목록에서 이미지 미리보기가 방지된 게시글입니다"
+              >
+                <span>🔒</span>
+                <span>미리보기 방지</span>
+              </span>
+            )}
           </div>
 
           <h1 className="text-2xl md:text-3xl font-800 leading-snug break-words">{post.title}</h1>
@@ -167,6 +182,23 @@ export default function PostDetailView({
         ) : (
           <div className="text-sm md:text-base whitespace-pre-wrap leading-relaxed p-5" style={{ background: "var(--muted)", borderRadius: "12px", color: "var(--foreground)", backgroundClip: "padding-box" }}>
             {post.content}
+          </div>
+        )}
+
+        {post.poll && (
+          <div className="pt-2">
+            <BoardPollView
+              poll={post.poll}
+              postAuthorId={post.authorUserId}
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              onVote={async (pollId, optionIds) => {
+                if (onVotePoll) await onVotePoll(pollId, optionIds);
+              }}
+              onClosePoll={async (pollId) => {
+                if (onClosePoll) await onClosePoll(pollId);
+              }}
+            />
           </div>
         )}
 
