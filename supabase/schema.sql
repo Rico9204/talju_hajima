@@ -858,7 +858,7 @@ alter table message_reactions replica identity full;
 -- be viewable by teammates without a signed-URL round trip) — writes are
 -- still locked down below to "your own folder only".
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('avatars', 'avatars', true, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/avif']::text[])
+values ('avatars', 'avatars', true, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif']::text[])
 on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
@@ -873,16 +873,16 @@ create policy avatars_own_write on storage.objects for insert to authenticated
   with check (
     bucket_id = 'avatars'
     and (storage.foldername(name))[1] = auth.uid()::text
-    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif')
-    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif')
+    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif', 'gif')
+    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif')
   );
 create policy avatars_own_update on storage.objects for update to authenticated
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text)
   with check (
     bucket_id = 'avatars'
     and (storage.foldername(name))[1] = auth.uid()::text
-    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif')
-    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif')
+    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif', 'gif')
+    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif')
   );
 create policy avatars_own_delete on storage.objects for delete
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);

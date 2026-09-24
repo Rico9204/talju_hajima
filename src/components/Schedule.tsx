@@ -1,3 +1,4 @@
+import StillImg from "./StillImg";
 import { useEffect, useRef, useState } from "react";
 import { useProject, type ScheduleEventType, type ScheduleEventScope, type ScheduleEventVisibility, type ScheduleEvent } from "../context/ProjectContext";
 
@@ -830,7 +831,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                           className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
                           style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
                         >
-                          {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                          {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
                         </span>
                         {m.name}
                       </button>

@@ -1,3 +1,4 @@
+import StillImg from "./StillImg";
 import { useEffect, useState } from "react";
 import { useProjectManagement } from "../context/ProjectContext";
 import type { Project, TeamData } from "../api/types";
@@ -105,7 +106,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
                       className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700 shrink-0 overflow-hidden"
                       style={{ background: m.avatarUrl ? "var(--card)" : `${m.color}18`, color: m.color }}
                     >
-                      {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                      {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
                     </div>
                     <div className="min-w-0">
                       <div className="text-sm font-700 truncate flex items-center gap-1.5">

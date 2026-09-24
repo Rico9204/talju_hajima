@@ -1,3 +1,4 @@
+import StillImg from "./StillImg";
 import { useRef, useState } from "react";
 import type { WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
@@ -35,7 +36,7 @@ export default function WorkspaceComments({ file }: { file: WorkspaceFile }) {
           className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-700 shrink-0"
           style={{ background: "var(--secondary)", color: member?.color ?? "var(--primary)" }}
         >
-          {member?.avatarUrl ? <img src={member.avatarUrl} alt={`${name} 프로필`} className="w-full h-full object-cover" /> : member?.avatar || comment.avatar || name.slice(0, 1)}
+          {member?.avatarUrl ? <StillImg src={member.avatarUrl} alt={`${name} 프로필`} className="w-full h-full object-cover" /> : member?.avatar || comment.avatar || name.slice(0, 1)}
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-700">{name}</span><time style={{ color: "var(--muted-foreground)" }}>{comment.date}</time></div>
