@@ -307,6 +307,10 @@ export default function BoardView() {
         onDeletePost={handleDeletePost}
         onVotePoll={handleVotePoll}
         onClosePoll={handleClosePoll}
+        onReported={(postId) => {
+          setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, reportedByMe: true } : p)));
+          setSelectedPost((prev) => (prev && prev.id === postId ? { ...prev, reportedByMe: true } : prev));
+        }}
       />
     );
   }

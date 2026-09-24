@@ -3,12 +3,33 @@ import { useProjectManagement } from "../context/ProjectContext";
 import type { Project } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import AdminProjectMembers from "./AdminProjectMembers";
+import AdminReports from "./AdminReports";
 
 const STATUS_LABEL: Record<Project["approvalStatus"], { text: string; bg: string; color: string }> = {
   pending: { text: "승인 대기", bg: "#f59e0b18", color: "#f59e0b" },
   approved: { text: "승인됨", bg: "#22c55e18", color: "#22c55e" },
   rejected: { text: "반려됨", bg: "#ef444418", color: "#ef4444" },
 };
+
+function AdminTabs({ tab, onChange, openReports }: { tab: "projects" | "reports"; onChange: (t: "projects" | "reports") => void; openReports: number | null }) {
+  const item = (value: "projects" | "reports", label: string) => (
+    <button
+      role="tab"
+      aria-selected={tab === value}
+      onClick={() => onChange(value)}
+      className="text-sm font-700 px-4 py-2"
+      style={{ background: tab === value ? "var(--primary)" : "var(--muted)", color: tab === value ? "#fff" : "var(--foreground)", borderRadius: "20px" }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="mb-5 flex gap-2" role="tablist" aria-label="관리자 메뉴">
+      {item("projects", "프로젝트 관리")}
+      {item("reports", openReports ? `신고 관리 (${openReports})` : "신고 관리")}
+    </div>
+  );
+}
 
 export default function AdminPanel() {
   const dataRepository = useProjectManagement();
@@ -22,6 +43,8 @@ export default function AdminPanel() {
   const [cleanupNotice, setCleanupNotice] = useState("");
   const [evalMode, setEvalMode] = useState<boolean | null>(null);
   const [evalModeBusy, setEvalModeBusy] = useState(false);
+  const [tab, setTab] = useState<"projects" | "reports">("projects");
+  const [openReports, setOpenReports] = useState<number | null>(null);
 
   async function retryCleanup() {
     setBusyId("cleanup"); setError(null); setCleanupNotice("");
@@ -113,8 +136,22 @@ export default function AdminPanel() {
   );
   const rest = projects.filter((p) => !pending.includes(p));
 
+  if (tab === "reports") {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <AdminTabs tab={tab} onChange={setTab} openReports={openReports} />
+        <div className="mb-6">
+          <h1 className="text-2xl font-700">신고 관리</h1>
+          <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>게시판에 들어온 신고를 상태와 구분별로 확인하고 처리해요.</p>
+        </div>
+        <AdminReports onOpenCountChange={setOpenReports} />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
+      <AdminTabs tab={tab} onChange={setTab} openReports={openReports} />
       <div className="mb-6">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
           관리자

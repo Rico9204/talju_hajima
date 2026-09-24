@@ -25,6 +25,8 @@ import type {
   BoardPoll,
   BoardPollOption,
   BoardPollVoter,
+  BoardPostReport,
+  BoardReportReason,
 } from "../types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
@@ -254,6 +256,24 @@ function mapBoardPost(row: any, profile: any, likedByMe: boolean, poll?: BoardPo
 
 // 투표 행 + 항목 + 투표 기록(board_poll_votes_view RPC)으로 BoardPoll을 만든다(게시글 id 기준 Map).
 // 익명 투표는 서버가 다른 사람의 user_id를 내려주지 않는다.
+async function mapReports(rows: any[]): Promise<BoardPostReport[]> {
+  const userIds = [...new Set(rows.flatMap((r: any) => [r.reporter_user_id, r.post_author_user_id]).filter(Boolean))] as string[];
+  const profiles = await fetchProfilesById(userIds);
+  return rows.map((r: any): BoardPostReport => ({
+    id: r.id,
+    postId: r.post_id,
+    postTitle: r.post_title,
+    postExcerpt: r.post_excerpt,
+    postAuthorName: profiles[r.post_author_user_id]?.display_name || "알 수 없음",
+    reporterUserId: r.reporter_user_id,
+    reporterName: profiles[r.reporter_user_id]?.display_name || "알 수 없음",
+    reason: r.reason as BoardReportReason,
+    detail: r.detail,
+    status: r.status,
+    createdAt: r.created_at,
+  }));
+}
+
 async function buildPolls(pollRows: any[], currentUserId: string | null): Promise<Map<number, BoardPoll>> {
   const result = new Map<number, BoardPoll>();
   if (pollRows.length === 0) return result;
@@ -1476,6 +1496,10 @@ export const supabaseDataRepository: DataRepository = {
   async listBoardPosts() {
     const { data: auth } = await supabase.auth.getUser();
     const myId = auth.user?.id;
+    // 내가 신고한 게시글(신고 마이그레이션 전이면 빈 목록)
+    const reportedPromise = myId
+      ? Promise.resolve(supabase.from("board_post_reports").select("post_id").eq("reporter_user_id", myId)).then((r) => new Set<number>((r.error ? [] : r.data ?? []).map((x: any) => x.post_id)))
+      : Promise.resolve(new Set<number>());
     const [postsResult, likesResult] = await Promise.all([
       supabase.from("board_posts").select("*").order("pinned", { ascending: false }).order("created_at", { ascending: false }),
       myId
@@ -1490,7 +1514,11 @@ export const supabaseDataRepository: DataRepository = {
       fetchProfilesById([...new Set(rows.map((r: any) => r.author_user_id))]),
       fetchPollsForPosts(rows.map((r: any) => r.id), myId ?? null),
     ]);
-    return rows.map((row: any) => mapBoardPost(row, profileById[row.author_user_id], likedPostIds.has(row.id), pollsByPostId.get(row.id)));
+    const reportedPostIds = await reportedPromise;
+    return rows.map((row: any) => ({
+      ...mapBoardPost(row, profileById[row.author_user_id], likedPostIds.has(row.id), pollsByPostId.get(row.id)),
+      reportedByMe: reportedPostIds.has(row.id),
+    }));
   },
 
   async createBoardPost(input) {
@@ -1672,6 +1700,28 @@ export const supabaseDataRepository: DataRepository = {
     const { error } = await supabase.rpc("cast_board_poll_vote", { p_poll_id: pollId, p_option_ids: optionIds });
     if (error) throw error;
     return fetchSinglePoll(pollId, userId);
+  },
+
+  async reportBoardPost(postId, reason, detail) {
+    const { error } = await supabase.rpc("report_board_post", { p_post_id: postId, p_reason: reason, p_detail: detail });
+    if (error) throw error;
+  },
+
+  async listBoardPostReports(postId) {
+    const { data, error } = await supabase.from("board_post_reports").select("*").eq("post_id", postId).order("created_at", { ascending: false });
+    if (error) throw error;
+    return mapReports(data ?? []);
+  },
+
+  async listAllBoardReports() {
+    const { data, error } = await supabase.from("board_post_reports").select("*").order("created_at", { ascending: false }).limit(500);
+    if (error) throw error;
+    return mapReports(data ?? []);
+  },
+
+  async reviewBoardReport(reportId, status) {
+    const { error } = await supabase.rpc("review_board_report", { p_report_id: reportId, p_status: status });
+    if (error) throw error;
   },
 
   async closeBoardPoll(pollId) {

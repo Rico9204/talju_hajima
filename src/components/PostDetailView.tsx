@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import BoardPollView from "./BoardPollView";
+import { PostReportButton, PostReportList } from "./PostReport";
 import type { BoardPost } from "../api/types";
 
 export default function PostDetailView({
@@ -18,6 +19,7 @@ export default function PostDetailView({
   onDeletePost,
   onVotePoll,
   onClosePoll,
+  onReported,
 }: {
   post: BoardPost;
   currentUserId: string | null;
@@ -33,6 +35,7 @@ export default function PostDetailView({
   onDeletePost: (postId: number) => void;
   onVotePoll?: (pollId: number, optionIds: number[]) => Promise<void>;
   onClosePoll?: (pollId: number) => Promise<void>;
+  onReported?: (postId: number) => void;
 }) {
   const [commentText, setCommentText] = useState("");
   const [replyingTarget, setReplyingTarget] = useState<{ commentId: number; targetAuthor: string; replyId?: number } | null>(null);
@@ -98,6 +101,7 @@ export default function PostDetailView({
           <span>목록으로 돌아가기</span>
         </button>
 
+        {!isAuthor && currentUserId && <PostReportButton key={post.id} post={post} onReported={() => onReported?.(post.id)} />}
         {isAuthor && (
           <div className="flex gap-2">
             {onEditPost && (
@@ -120,6 +124,8 @@ export default function PostDetailView({
           </div>
         )}
       </div>
+
+      {isAdmin && <PostReportList postId={post.id} />}
 
       {error && (
         <div role="alert" className="p-3 text-xs rounded-xl" style={{ background: "#ef444418", color: "#ef4444" }}>
