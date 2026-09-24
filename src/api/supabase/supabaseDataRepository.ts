@@ -295,7 +295,15 @@ export const supabaseDataRepository: DataRepository = {
     const { data, error } = await supabase.rpc("visible_evaluation_members");
     if (error) throw error;
     const rows = data ?? [];
-    const projectIds = [...new Set(rows.map((row: any) => row.project_id))];
+    // 참여 횟수/동료 수는 종료(done)된 프로젝트만 결산한다.
+    const allProjectIds = [...new Set(rows.map((row: any) => row.project_id))];
+    let projectIds: string[] = [];
+    if (allProjectIds.length) {
+      const { data: doneProjects, error: doneError } = await supabase
+        .from("projects").select("id").eq("status", "done").in("id", allProjectIds);
+      if (doneError) throw doneError;
+      projectIds = (doneProjects ?? []).map((p: any) => p.id);
+    }
     // Collaborator count: everyone else across every project I'm in, deduped
     // by user_id for real accounts — a member row with no linked account
     // (seeded/demo teammate) has no identity to dedupe across projects by,

@@ -307,7 +307,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
         {/* Right column */}
         <div className="col-span-1 md:col-span-2 flex flex-col gap-6">
-          <MyEvaluationSummary completedOnly />
+          <MyEvaluationSummary />
           {/* Deadlines */}
           <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>

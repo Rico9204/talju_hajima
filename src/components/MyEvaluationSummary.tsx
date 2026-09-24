@@ -4,7 +4,7 @@ import type { MyEvaluationSummary as Summary } from "../lib/evaluationSummary";
 import { collaborationTrust } from "../lib/collaborationTrust";
 import PentagonChart from "./PentagonChart";
 
-export default function MyEvaluationSummary({ chart = false, completedOnly = false }: { chart?: boolean; completedOnly?: boolean }) {
+export default function MyEvaluationSummary({ chart = false }: { chart?: boolean }) {
   const { getMyEvaluationSummary, currentMember, projects } = useProject();
   const [result, setResult] = useState<Summary | null>(null);
   const [error, setError] = useState(false);
@@ -29,8 +29,8 @@ export default function MyEvaluationSummary({ chart = false, completedOnly = fal
       : <>
         <div className={`grid grid-cols-2 ${chart ? "gap-2" : "gap-4"}`}>
           <div><div className={labelSize}>내 협업 신뢰도</div><strong className={valueSize} style={{ color: "var(--primary)" }}>{result.score === null ? "공개 대기" : result.score.toFixed(1) + " / 10"}</strong><p className={labelSize}>{trust?.label} · {trust?.evidence}</p></div>
-          <div><div className={labelSize}>프로젝트 참여 횟수</div><strong className={valueSize}>{completedOnly ? projects.filter((p) => p.status === "done").length : result.projectCount}회</strong><p className={labelSize}>{completedOnly ? "종료된 프로젝트 기준" : "진행 중·종료 포함"}</p></div>
-          <div className="col-span-2"><div className={labelSize}>참여한 동료</div><strong className={valueSize}>{result.collaboratorCount}명</strong><p className={labelSize}>모든 프로젝트에서 함께한 인원 (중복 제외)</p></div>
+          <div><div className={labelSize}>프로젝트 참여 횟수</div><strong className={valueSize}>{result.projectCount}회</strong><p className={labelSize}>종료된 프로젝트 기준</p></div>
+          <div className="col-span-2"><div className={labelSize}>참여한 동료</div><strong className={valueSize}>{result.collaboratorCount}명</strong><p className={labelSize}>종료된 프로젝트에서 함께한 인원 (중복 제외)</p></div>
         </div>
         <p className={`${labelSize} ${chart ? "mt-2" : "mt-3"}`} style={{ color: "var(--muted-foreground)" }}>최종 평가 평균과 평가 건수를 함께 표시한 협업 참고 지표입니다. 중간 평가는 포함하지 않습니다.</p>
         {chart && result.score !== null && <div className="flex justify-center"><PentagonChart size={290} data={[{ label: "역할 이행", value: result.criteria.role }, { label: "약속·마감 준수", value: result.criteria.deadline }, { label: "의사소통", value: result.criteria.communication }, { label: "협업 태도", value: result.criteria.collaboration }, { label: "결과물 품질", value: result.criteria.quality }]} /></div>}
