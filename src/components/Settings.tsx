@@ -12,15 +12,15 @@ const performanceOptions: Array<{ value: PerformanceMode; icon: string; title: s
   {
     value: "default",
     icon: "🎨",
-    title: "기본",
+    title: "고급",
     description: "현재 디자인과 움직임을 그대로 사용합니다.",
     detail: "배경 효과와 프로필 장식 애니메이션을 유지합니다.",
   },
   {
     value: "reduced-motion",
     icon: "🍃",
-    title: "애니메이션 최소화",
-    description: "움직이는 장식과 전환 효과를 줄여 편안하게 봅니다.",
+    title: "기본",
+    description: "움직이는 장식과 전환 효과를 줄여 균형 있게 사용합니다.",
     detail: "배경·카드 디자인은 유지하고 반복 애니메이션과 GIF를 멈춥니다. GIF는 프로필 확인창에서만 움직입니다.",
   },
   {

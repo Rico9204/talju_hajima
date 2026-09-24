@@ -10,7 +10,7 @@ import { useStillUrl } from "./useStillUrl";
 export function useAccountBackground() {
   const { currentMember } = useProject();
   const [performanceMode] = usePerformanceMode();
-  const backgroundImage = useStillUrl(currentMember?.backgroundImageUrl); // GIF frozen unless 기본 mode
+  const backgroundImage = useStillUrl(currentMember?.backgroundImageUrl); // GIF frozen unless 고급 mode
   const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
   const needsBackgroundFilter = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient);
   const backgroundBlur = Math.min(40, Math.max(0, currentMember?.glassBlur ?? 2));

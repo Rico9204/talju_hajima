@@ -3,7 +3,7 @@ import { usePerformanceMode } from "./performancePreferences";
 
 const stills = new Map<string, string>();
 
-// GIF handling per Settings > 그래픽: 기본 = plays; 애니메이션 최소화 = frozen
+// GIF handling per Settings > 그래픽: 고급 = plays; 기본 = frozen
 // unless `animate` (profile view); 성능 우선 = always frozen. Non-GIF urls pass through.
 export function useStillUrl(url: string | null | undefined, animate = false): string | null | undefined {
   const [mode] = usePerformanceMode();

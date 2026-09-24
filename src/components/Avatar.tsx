@@ -15,7 +15,7 @@ export default function Avatar({
   // Only when set does Avatar grow an extra wrapping element — every other
   // call site keeps rendering the bare <img>/<div> it always has.
   badge?: ReactNode;
-  // Let a GIF play under 애니메이션 최소화 (profile view only).
+  // Let a GIF play under 기본 mode (profile view only).
   animate?: boolean;
 }) {
   const image = url ? (
