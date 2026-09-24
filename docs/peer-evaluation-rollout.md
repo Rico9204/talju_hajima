@@ -15,7 +15,7 @@
 
 ## 기존 Supabase 프로젝트
 1. 대상 프로젝트: mulcqnbxbhadqdbkqfnh
-2. SQL Editor에서 supabase/migrations/20260915161613_peer_evaluations.sql 전체를 실행합니다.
+2. SQL Editor에서 supabase/migrations/2609151616_peer_evaluations.sql 전체를 실행합니다.
 3. 아래 읽기 전용 SQL로 테이블, RLS, 함수 적용을 확인합니다.
 4. 작업 브랜치에서 앱을 실행해 서로 다른 실제 계정으로 중간 평가, 종료 평가와 공개 범위를 확인합니다.
 5. main 병합과 push는 사용자 허락을 받은 뒤에 진행합니다.
