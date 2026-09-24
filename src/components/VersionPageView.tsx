@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { buildFullTextDiff } from "../lib/textDiff";
-import { formatUploadTime } from "../lib/workspaceFiles";
+import { formatUploadTime, isEditableTextFile } from "../lib/workspaceFiles";
 
 // 비전공자용 "페이지" 보기 — 분기 트리 대신 저장 순서대로 한 번에 버전 하나만 보여주고
 // 이전/다음으로 넘긴다. 각 페이지는 실제로 고쳐 만든 부모 버전(parentVersionId)과 비교해
 // 바뀐 줄만 표시한다. 시작 페이지는 항상 현재 버전.
 const MAX_DIFF_CHARS = 200_000;
 
-export default function VersionPageView({ file, locked, busy, loadText, onOpen, onPromote, onPin, onViewingVersionChange }: {
+export default function VersionPageView({ file, locked, busy, loadText, onOpen, onPromote, onPin, onPinEdit, onViewingVersionChange }: {
   file: WorkspaceFile;
   locked: boolean;
   busy: boolean;
@@ -17,6 +17,8 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
   onOpen: (version: FileVersion, download: boolean) => void;
   onPromote: (version: FileVersion) => void;
   onPin: (version: FileVersion) => void;
+  // 핀 버전에서 바로 수정 시작(분기). 텍스트 파일·진행 중 프로젝트에서만 전달된다.
+  onPinEdit?: (version: FileVersion) => void;
   // 지금 보는 페이지(버전)를 부모에 알려 댓글 탭이 "이 버전" 기준으로 동작하게 한다.
   onViewingVersionChange?: (versionId: number | null) => void;
 }) {
@@ -111,6 +113,9 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
             <button className={actionClass} style={{ background: "var(--primary)", color: "#fff" }} disabled={busy} onClick={() => onPromote(version)}>이 버전으로 되돌리기</button>
           )}
           {!locked && <button className={actionClass} style={{ background: "var(--card)", color: "var(--foreground)" }} disabled={busy} onClick={() => onPin(version)}>{version.pinned ? "핀 해제" : "핀 고정"}</button>}
+          {onPinEdit && version.pinned && version.storagePath && isEditableTextFile(version.originalName ?? file.name, version.byteSize) && (
+            <button className={actionClass} style={{ background: "var(--card)", color: "var(--foreground)" }} disabled={busy} onClick={() => onPinEdit(version)}>✏️ 이 핀 버전에서 수정</button>
+          )}
         </div>
       </div>
       <div className="flex items-center justify-between gap-2">

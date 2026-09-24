@@ -7,7 +7,9 @@ import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
-import { useProject, type WorkspaceFile } from "../context/ProjectContext";
+import QuickEditModal from "./QuickEditModal";
+import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
+import { useProject, type FileVersion, type WorkspaceFile } from "../context/ProjectContext";
 import { useAccountBackground } from "../lib/useAccountBackground";
 
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
@@ -35,7 +37,7 @@ export interface WorkspaceFocus {
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isManager, deleteWorkspaceFile, markSectionViewed } = useProject();
+  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isManager, deleteWorkspaceFile, markSectionViewed, downloadFileVersion } = useProject();
   const { lineSafeStyle } = useAccountBackground();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
@@ -51,6 +53,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
   // 버전 "페이지" 보기에서 지금 보고 있는 버전 — 댓글 탭의 "이 버전" 기준. null이면 현재 버전.
   const [viewingVersionId, setViewingVersionId] = useState<number | null>(null);
+  // 바로 수정(동시 편집): 프로젝트 단위 presence로 "누가 어떤 파일을 수정 중인지"를 공유한다.
+  const [editors, setEditors] = useState<CollabEditor[]>([]);
+  const presenceRef = useRef<CollabPresence | null>(null);
+  const [editing, setEditing] = useState<{ fileId: number; room: number; mode: CollabMode; initialText: string } | null>(null);
+  const [editError, setEditError] = useState("");
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -101,6 +108,38 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setSelectedIds(new Set());
     setBulkDeleteError("");
   }, [project.id]);
+
+  useEffect(() => {
+    if (!currentMember) return;
+    const presence = joinCollabPresence(project.id, { id: currentMember.id, name: currentMember.name }, setEditors);
+    presenceRef.current = presence;
+    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, currentMember?.id]);
+
+  async function startQuickEdit(f: WorkspaceFile, mode: CollabMode, pinVersion?: FileVersion) {
+    setEditError("");
+    try {
+      const room = mode === "pin"
+        ? pinVersion?.id
+        : editors.find((e) => e.fileId === f.id && e.mode === "main")?.room ?? f.versions.find((v) => v.current)?.id;
+      const base = f.versions.find((v) => v.id === room);
+      if (!base) throw new Error("수정할 버전을 찾지 못했습니다.");
+      const initialText = await (await downloadFileVersion(base.id)).text();
+      setEditing({ fileId: f.id, room: base.id, mode, initialText });
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : "바로 수정을 시작하지 못했습니다.");
+    }
+  }
+
+  async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number): Promise<number> {
+    const base = f.versions.find((v) => v.id === room);
+    const result = await uploadWorkspaceFile({
+      file: new File([text], base?.originalName ?? f.name, { type: base?.mimeType ?? "text/plain" }),
+      fileId: f.id, folderId: f.folderId, baseVersionId, note: "바로 수정 자동 저장", tags: f.tags,
+    });
+    return result.versionId;
+  }
 
   useEffect(() => {
     if (currentMember) void markSectionViewed("workspace");
@@ -490,6 +529,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary)" }}>
                     {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
                   </span>
+                  {editors.some((e) => e.fileId === f.id) && (
+                    <span className="text-xs font-600" title={[...new Set(editors.filter((e) => e.fileId === f.id).map((e) => e.name))].join(", ")} style={{ color: isSelected ? "#fde68a" : "#d97706" }}>
+                      ✏️ 수정 중 {new Set(editors.filter((e) => e.fileId === f.id).map((e) => e.name)).size}
+                    </span>
+                  )}
                   {f.comments.length > 0 && (
                     <span
                       className="text-xs font-600 flex items-center gap-1"
@@ -558,7 +602,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
 
               {detailTab === "versions" ? (
-                <FileVersionPanel file={selFile} searchQuery={searchQuery} onViewingVersionChange={setViewingVersionId} />
+                <FileVersionPanel file={selFile} searchQuery={searchQuery} onViewingVersionChange={setViewingVersionId} onQuickEdit={(mode, v) => void startQuickEdit(selFile, mode, v)} editorNames={[...new Set(editors.filter((e) => e.fileId === selFile.id).map((e) => e.name))]} />
               ) : (
                 <WorkspaceComments file={selFile} focusedVersionId={selFile.versions.some((v) => v.id === viewingVersionId) ? viewingVersionId : selFile.versions.find((v) => v.current)?.id ?? null} />
               )}
@@ -575,6 +619,21 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           )}
         </div>
       </div>
+      {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-50 text-red-700 p-3">{editError}</p>}
+      {editing && presenceRef.current && files.find((f) => f.id === editing.fileId) && (
+        <QuickEditModal
+          key={`${editing.fileId}:${editing.room}:${editing.mode}`}
+          projectId={project.id}
+          file={files.find((f) => f.id === editing.fileId)!}
+          room={editing.room}
+          mode={editing.mode}
+          initialText={editing.initialText}
+          presence={presenceRef.current}
+          editors={editors}
+          save={(text, base) => saveQuickEdit(files.find((f) => f.id === editing.fileId)!, editing.room, text, base)}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

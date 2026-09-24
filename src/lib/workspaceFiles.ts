@@ -58,3 +58,11 @@ export function latestFileUploadTime(file: WorkspaceFile): string {
   const latest = [...file.versions].sort((a, b) => b.id - a.id)[0];
   return latest ? formatUploadTime(latest.uploadedAt, latest.date) : formatUploadTime(file.createdAt, file.date);
 }
+
+// 바로 수정(동시 편집)이 가능한 텍스트 파일 — 원본 텍스트를 그대로 다루고 크기 제한을 둔다.
+export const EDITABLE_TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml", "yaml", "yml"];
+export const MAX_EDITABLE_BYTES = 200_000;
+export function isEditableTextFile(name: string, byteSize: number | null): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return EDITABLE_TEXT_EXTENSIONS.includes(ext) && (byteSize ?? 0) <= MAX_EDITABLE_BYTES;
+}

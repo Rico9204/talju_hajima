@@ -7,7 +7,7 @@ import VersionPageView from "./VersionPageView";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
-import { formatUploadTime, versionTree } from "../lib/workspaceFiles";
+import { EDITABLE_TEXT_EXTENSIONS, formatUploadTime, isEditableTextFile, versionTree } from "../lib/workspaceFiles";
 
 function highlightOfficeHtml(html: string, query: string): string {
   const term = query.trim();
@@ -44,7 +44,7 @@ function highlightOfficeHtml(html: string, query: string): string {
   return document.body.innerHTML;
 }
 
-export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void }) {
+export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange, onQuickEdit, editorNames = [] }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void; onQuickEdit?: (mode: "main" | "pin", version?: FileVersion) => void; editorNames?: string[] }) {
   const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
@@ -139,12 +139,11 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
     } else setMessage("이 형식은 다운로드하여 해당 프로그램에서 열 수 있습니다.");
   }
 
-  const TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml", "yaml", "yml"];
   async function loadVersionText(v: FileVersion): Promise<string | null> {
     if (textCache.current.has(v.id)) return textCache.current.get(v.id) ?? null;
     const ext = (v.originalName ?? file.name).split(".").pop()?.toLowerCase() ?? "";
     let text: string | null = null;
-    if (TEXT_EXTENSIONS.includes(ext) && v.storagePath) text = await (await downloadFileVersion(v.id)).text();
+    if (EDITABLE_TEXT_EXTENSIONS.includes(ext) && v.storagePath) text = await (await downloadFileVersion(v.id)).text();
     else if (v.searchText) text = v.searchText; // docx/pptx/pdf 등은 검색용 추출 텍스트로 비교
     textCache.current.set(v.id, text);
     return text;
@@ -178,10 +177,16 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
+    {!locked && onQuickEdit && currentVersion?.storagePath && isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) && (
+      <button type="button" disabled={busy} onClick={() => onQuickEdit("main")} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
+        ✏️ 바로 수정 (여러 명이 함께){editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
+      </button>
+    )}
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
       {([["page", "페이지"], ["tree", "버전 트리"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
     </div>
     {viewMode === "page" && <VersionPageView file={file} locked={locked} busy={busy} loadText={loadVersionText} onViewingVersionChange={onViewingVersionChange}
+      onPinEdit={!locked && onQuickEdit ? (v) => onQuickEdit("pin", v) : undefined}
       onOpen={(v, download) => void run(() => openVersion(v, download))}
       onPromote={(v) => void run(async () => { await promoteFileVersion(file.id, v.id); if (mounted.current) { setBaseId(v.id); setMessage(`${v.version}을 현재 버전으로 지정했습니다.`); } })}
       onPin={(v) => void run(() => pinFileVersion(file.id, v.id, !v.pinned))} />}

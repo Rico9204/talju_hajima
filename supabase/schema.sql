@@ -2372,7 +2372,10 @@ as $$
     exists (
       select 1
       from public.members m
-      where p_topic ~ '^(presence|chat_messages|message_reads|task_comment_reactions|tasks|schedule_events|files):[^:]+$'
+      where (
+          p_topic ~ '^(presence|collab_presence|chat_messages|message_reads|task_comment_reactions|tasks|schedule_events|files):[^:]+$'
+          or p_topic ~ '^collab_doc:[^:]+:[0-9]+:[0-9]+:(main|pin)$'
+        )
         and m.project_id = split_part(p_topic, ':', 2)
         and m.user_id = auth.uid()
     );
@@ -2398,6 +2401,17 @@ for insert
 to authenticated
 with check (
   realtime.messages.extension = 'presence'
+  and public.can_access_project_realtime_topic(realtime.topic())
+);
+
+drop policy if exists project_members_broadcast_collab on realtime.messages;
+create policy project_members_broadcast_collab
+on realtime.messages
+for insert
+to authenticated
+with check (
+  realtime.messages.extension = 'broadcast'
+  and realtime.topic() like 'collab_doc:%'
   and public.can_access_project_realtime_topic(realtime.topic())
 );
 
