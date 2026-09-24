@@ -18,6 +18,7 @@ import type {
   Member,
   ProfileLink,
   ChatMessage,
+  ChatToolEvent,
 } from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
@@ -142,7 +143,10 @@ interface ProjectContextValue {
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
   chatMessages: Record<string, ChatMessage[]>;
-  sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<void>;
+  sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<number | null>;
+  chatToolEvents: Record<number, ChatToolEvent[]>;
+  initChatTool: (messageId: number, config: Record<string, unknown>) => Promise<ChatToolEvent>;
+  actChatTool: (messageId: number, action: string, args?: Record<string, unknown>) => Promise<ChatToolEvent>;
   toggleChatReaction: (messageId: number, emoji: string) => Promise<void>;
   markChannelMessagesRead: (channelId: string) => Promise<void>;
   tasksUnread: number;
@@ -379,6 +383,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // project only. Eagerly loaded for every channel once the team is known
   // (see the effect below) and kept live via the realtime subscription.
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [chatToolEvents, setChatToolEvents] = useState<Record<number, ChatToolEvent[]>>({});
   const [viewedMemberId, setViewedMemberId] = useState<string | null>(null);
   // A project-scoped Realtime Presence channel supplies the member ids that
   // currently have this project open in one or more browser tabs.
@@ -529,7 +534,23 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // the sidebar badge and any open chat view update without polling.
   useEffect(() => {
     setChatMessages({});
+    setChatToolEvents({});
     if (!projectId) return;
+    let cancelled = false;
+    const putToolEvents = (events: ChatToolEvent[]) => {
+      if (cancelled || events.length === 0) return;
+      setChatToolEvents((prev) => {
+        const next = { ...prev };
+        for (const e of events) {
+          const list = next[e.messageId] ?? [];
+          if (list.some((x) => x.id === e.id)) continue;
+          next[e.messageId] = [...list, e].sort((a, b) => a.id - b.id);
+        }
+        return next;
+      });
+    };
+    void dataRepository.listChatToolEvents(projectId).then(putToolEvents).catch(() => {});
+    const unsubToolEvents = dataRepository.subscribeToChatToolEvents(projectId, (e) => putToolEvents([e]));
 
     const unsubMessages = dataRepository.subscribeToMessages(
       projectId,
@@ -566,8 +587,10 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       });
     });
     return () => {
+      cancelled = true;
       unsubMessages();
       unsubReads();
+      unsubToolEvents();
     };
   }, [projectId]);
 
@@ -959,15 +982,32 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     await Promise.all([refreshTasks(), refreshScheduleEvents()]);
   }
 
-  async function sendChatMessage(channelId: string, text: string, fileId?: number) {
-    if (!projectId || !currentMember) return;
-    if (!text.trim() && !fileId) return;
+  async function sendChatMessage(channelId: string, text: string, fileId?: number): Promise<number | null> {
+    if (!projectId || !currentMember) return null;
+    if (!text.trim() && !fileId) return null;
     const msg = await dataRepository.sendMessage(projectId, channelId, currentMember.id, { text: text.trim(), fileId });
     setChatMessages((prev) => {
       const list = prev[channelId] ?? [];
       if (list.some((m) => m.id === msg.id)) return prev;
       return { ...prev, [channelId]: [...list, msg] };
     });
+    return msg.id;
+  }
+
+  // 서버가 결과를 정한 도구 이벤트. 실시간 구독보다 응답이 먼저 오는 경우를 위해 바로 반영한다.
+  function recordToolEvent(e: ChatToolEvent) {
+    setChatToolEvents((prev) => {
+      const list = prev[e.messageId] ?? [];
+      if (list.some((x) => x.id === e.id)) return prev;
+      return { ...prev, [e.messageId]: [...list, e].sort((a, b) => a.id - b.id) };
+    });
+    return e;
+  }
+  async function initChatTool(messageId: number, config: Record<string, unknown>) {
+    return recordToolEvent(await dataRepository.chatToolInit(messageId, config));
+  }
+  async function actChatTool(messageId: number, action: string, args: Record<string, unknown> = {}) {
+    return recordToolEvent(await dataRepository.chatToolAct(messageId, action, args));
   }
 
   async function toggleChatReaction(messageId: number, emoji: string) {
@@ -1125,6 +1165,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         chatUnreadTotal,
         chatMessages,
         sendChatMessage,
+        chatToolEvents,
+        initChatTool,
+        actChatTool,
         toggleChatReaction,
         markChannelMessagesRead,
         tasksUnread,

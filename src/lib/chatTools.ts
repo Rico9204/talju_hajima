@@ -1,3 +1,5 @@
+import type { ChatToolEvent } from "../api/types"
+
 export type ChatToolType = "draw" | "ladder" | "poll" | "roulette"
 
 export interface LuckyDrawItem {
@@ -20,6 +22,7 @@ export interface LuckyDrawData {
   creatorName: string
   items: LuckyDrawItem[]
   allRevealed: boolean
+  winnerCount?: number // 서버 처리 도구: 정답을 모르는 화면에서도 당첨 개수는 보여준다
 }
 
 export interface LadderParticipant {
@@ -94,18 +97,22 @@ export interface RouletteData {
 export type ChatToolPayload =
   | {
       type: "draw";
+      server?: boolean;
       data: LuckyDrawData;
     }
   | {
       type: "ladder";
+      server?: boolean;
       data: LadderData;
     }
   | {
       type: "poll";
+      server?: boolean;
       data: ChatPollData;
     }
   | {
       type: "roulette";
+      server?: boolean;
       data: RouletteData;
     };
 
@@ -639,4 +646,134 @@ export function resolveToolState(
     )
   }
   return current
+}
+
+// ---------------------------------------------------------------------------
+// 서버 처리 도구(제비뽑기·사다리·룰렛): 메시지에는 공개 정보만 담고("server": true),
+// 정답·사다리 선·룰렛 당첨은 서버가 chat_tool_events로 알려준다. 투표는 기존 방식 그대로.
+// ---------------------------------------------------------------------------
+
+/** 만들기 화면이 만든 도구를 서버 처리용 메시지 본문 + 준비(config)로 나눈다. 투표는 null. */
+export function toServerToolPayload(
+  p: ChatToolPayload,
+): { payload: ChatToolPayload; config: Record<string, unknown> } | null {
+  if (p.type === "draw") {
+    const { title, items } = p.data
+    return {
+      payload: {
+        type: "draw",
+        server: true,
+        data: { title, total: items.length, winnerCount: items.filter((i) => i.isWinner).length },
+      } as unknown as ChatToolPayload,
+      config: { items: items.map((i) => ({ label: i.label, isWinner: i.isWinner })) },
+    }
+  }
+  if (p.type === "ladder") {
+    const { title, participants, results } = p.data
+    return {
+      payload: { type: "ladder", server: true, data: { title, participants, results } } as unknown as ChatToolPayload,
+      config: {},
+    }
+  }
+  if (p.type === "roulette") {
+    const { title, options } = p.data
+    return {
+      payload: { type: "roulette", server: true, data: { title, options } } as unknown as ChatToolPayload,
+      config: {},
+    }
+  }
+  return null
+}
+
+/** 서버 이벤트로 도구의 현재 상태를 만든다. 만든 사람·행동한 사람은 서버가 확인한 값이다. */
+export function resolveServerToolState(
+  initial: ChatToolPayload,
+  creatorId: string,
+  events: ChatToolEvent[],
+  nameOf: (memberId: string) => string,
+): ChatToolPayload {
+  const creator = { creatorId, creatorName: nameOf(creatorId) }
+  const init = events.find((e) => e.event === "init")
+  const who = (e: ChatToolEvent) => ({ id: e.actorMemberId ?? "", name: e.actorMemberId ? nameOf(e.actorMemberId) : "알 수 없음" })
+
+  if (initial.type === "draw") {
+    const pub = initial.data as unknown as { title: string; total: number; winnerCount: number }
+    const total = init?.data?.total ?? pub.total ?? 0
+    let items: LuckyDrawItem[] = Array.from({ length: total }, (_, i) => ({ id: i + 1, label: "", isWinner: false }))
+    let allRevealed = false
+    for (const e of events) {
+      if (e.event === "draw_pick") {
+        const a = who(e)
+        items = items.map((it) =>
+          it.id === e.data.itemId
+            ? { ...it, label: e.data.label, isWinner: !!e.data.isWinner, openedByMemberId: a.id, openedByMemberName: a.name, openedAt: e.createdAt }
+            : it,
+        )
+      } else if (e.event === "draw_reveal_all") {
+        allRevealed = true
+        const all = (e.data.items ?? []) as { id: number; label: string; isWinner: boolean }[]
+        items = all.map((full) => {
+          const cur = items.find((it) => it.id === full.id)
+          return cur?.openedByMemberId ? cur : { id: full.id, label: full.label, isWinner: !!full.isWinner, openedByMemberName: "공개됨" }
+        })
+      }
+    }
+    return {
+      type: "draw",
+      server: true,
+      data: { title: pub.title || "제비뽑기", ...creator, items, allRevealed: allRevealed || (items.length > 0 && items.every((i) => !!i.openedByMemberId)), winnerCount: init?.data?.winnerCount ?? pub.winnerCount },
+    }
+  }
+
+  if (initial.type === "ladder") {
+    const pub = initial.data
+    return {
+      type: "ladder",
+      server: true,
+      data: {
+        title: pub.title || "사다리타기",
+        ...creator,
+        participants: pub.participants,
+        results: pub.results,
+        lines: init?.data?.lines ?? [],
+        numSteps: init?.data?.numSteps ?? Math.max(pub.participants.length * 2 + 2, 8),
+        matches: init?.data?.matches ?? [],
+        revealed: events.some((e) => e.event === "ladder_reveal"),
+      },
+    }
+  }
+
+  if (initial.type === "roulette") {
+    const pub = initial.data
+    const spin = events.find((e) => e.event === "roulette_spin")
+    const a = spin ? who(spin) : null
+    return {
+      type: "roulette",
+      server: true,
+      data: {
+        title: pub.title || "행운의 돌림판 룰렛",
+        ...creator,
+        options: pub.options,
+        winnerOptionId: spin?.data?.winnerOptionId ?? null,
+        spinned: !!spin,
+        spinnedByMemberId: a?.id,
+        spinnedByMemberName: a?.name,
+        spinnedAt: spin?.createdAt,
+      },
+    }
+  }
+
+  return initial
+}
+
+/** 메시지 종류에 맞게 도구 상태를 계산한다(서버 처리 도구 / 기존 메시지 기반 도구). */
+export function resolveAnyToolState(
+  initial: ChatToolPayload,
+  creatorId: string,
+  actions: ToolActionEvent[],
+  serverEvents: ChatToolEvent[],
+  nameOf: (memberId: string) => string,
+): ChatToolPayload {
+  if (initial.server) return resolveServerToolState(initial, creatorId, serverEvents, nameOf)
+  return resolveToolState(initial, creatorId, actions, nameOf)
 }

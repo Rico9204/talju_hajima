@@ -20,7 +20,7 @@ export default function ChatLuckyDrawCard({
   const openedCount = data.items.filter(
     (it) => it.openedByMemberId || data.allRevealed,
   ).length
-  const winnersCount = data.items.filter((it) => it.isWinner).length
+  const winnersCount = data.winnerCount ?? data.items.filter((it) => it.isWinner).length
   const isFinished = data.allRevealed || openedCount === total
 
   function copyResults() {

@@ -6,11 +6,14 @@ export default function ChatRouletteCard({
   currentMemberId,
   currentMemberName,
   onSpin,
+  onServerSpin,
 }: {
   data: RouletteData;
   currentMemberId: string;
   currentMemberName: string;
   onSpin: (winnerOptionId: string, targetAngle: number) => void;
+  // 서버 처리 도구: 서버가 정한 당첨 항목 id를 돌려준다. 있으면 화면은 그 결과에 맞춰 돌리기만 한다.
+  onServerSpin?: () => Promise<string | null>;
 }) {
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(data.targetAngle || 0);
@@ -25,19 +28,30 @@ export default function ChatRouletteCard({
 
   // Sync if another member already spun
   useEffect(() => {
-    if (data.spinned && data.targetAngle !== undefined) {
-      setRotation(data.targetAngle);
+    if (data.spinned && data.winnerOptionId && !spinning) {
+      // 서버 처리 도구는 각도를 저장하지 않으므로 당첨 칸이 위로 오는 각도를 다시 계산한다.
+      const idx = data.options.findIndex((o) => o.id === data.winnerOptionId);
+      setRotation(data.targetAngle ?? (idx >= 0 ? 360 - (idx + 0.5) * sliceAngle : 0));
       setLocalWinnerId(data.winnerOptionId);
     }
-  }, [data.spinned, data.targetAngle, data.winnerOptionId]);
+  }, [data.spinned, data.targetAngle, data.winnerOptionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleSpin() {
+  async function handleSpin() {
     if (spinning || data.spinned) return;
 
     setSpinning(true);
 
-    // 1. 당첨자 랜덤 선정
-    const winnerIdx = Math.floor(Math.random() * numOptions);
+    // 1. 당첨자 선정: 서버 처리 도구는 서버가 정한 결과를 받고, 기존 도구는 이 화면에서 뽑는다.
+    let winnerIdx = Math.floor(Math.random() * numOptions);
+    if (onServerSpin) {
+      const id = await onServerSpin().catch(() => null);
+      const found = id ? data.options.findIndex((o) => o.id === id) : -1;
+      if (found < 0) {
+        setSpinning(false);
+        return;
+      }
+      winnerIdx = found;
+    }
     const winnerOption = data.options[winnerIdx];
 
     // 2. 바퀴가 멈췄을 때 12시 방향(상단 270도 혹은 0도)에 당첨 슬라이스가 위치하도록 회전 각도 계산
@@ -60,7 +74,7 @@ export default function ChatRouletteCard({
     setTimeout(() => {
       setSpinning(false);
       setLocalWinnerId(winnerOption.id);
-      onSpin(winnerOption.id, finalAngle);
+      if (!onServerSpin) onSpin(winnerOption.id, finalAngle);
     }, 4100);
   }
 

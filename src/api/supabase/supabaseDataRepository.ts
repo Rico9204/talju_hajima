@@ -17,6 +17,7 @@ import type {
   ScheduleEvent,
   ChatMessage,
   ChatReaction,
+  ChatToolEvent,
   AdminProfileSummary,
   BoardPost,
   BoardComment,
@@ -186,6 +187,20 @@ function mapScheduleEvent(row: any): ScheduleEvent {
     hideTitle: row.hide_title,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
+  };
+}
+
+// chat_tool_events 행(snake_case) 또는 RPC가 돌려주는 JSON(camelCase) 모두 받는다.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapToolEvent(row: any): ChatToolEvent {
+  return {
+    id: row.id,
+    messageId: row.messageId ?? row.message_id,
+    kind: row.kind,
+    event: row.event,
+    actorMemberId: row.actorMemberId ?? row.actor_member_id ?? null,
+    data: row.data ?? {},
+    createdAt: row.createdAt ?? row.created_at,
   };
 }
 
@@ -1277,6 +1292,38 @@ export const supabaseDataRepository: DataRepository = {
         // already loaded for this project.
         { event: "DELETE", schema: "public", table: "message_reactions" },
         (payload) => onReaction({ active: false, reaction: { messageId: payload.old.message_id, memberId: payload.old.member_id, emoji: payload.old.emoji } })
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
+  async chatToolInit(messageId, config) {
+    const { data, error } = await supabase.rpc("chat_tool_init", { p_message_id: messageId, p_config: config });
+    if (error) throw error;
+    return mapToolEvent(data);
+  },
+
+  async chatToolAct(messageId, action, args = {}) {
+    const { data, error } = await supabase.rpc("chat_tool_act", { p_message_id: messageId, p_action: action, p_args: args });
+    if (error) throw error;
+    return mapToolEvent(data);
+  },
+
+  async listChatToolEvents(projectId) {
+    const { data, error } = await supabase.from("chat_tool_events").select("*").eq("project_id", projectId).order("id", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(mapToolEvent);
+  },
+
+  subscribeToChatToolEvents(projectId, onEvent) {
+    const channel = supabase
+      .channel(`chat_tool_events:${projectId}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_tool_events", filter: `project_id=eq.${projectId}` },
+        (payload) => onEvent(mapToolEvent(payload.new))
       )
       .subscribe();
     return () => {

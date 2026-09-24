@@ -13,6 +13,7 @@ export default function ChatToolOverlayModal({
   currentMemberId,
   currentMemberName,
   onSendAction,
+  onServerSpin,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -21,6 +22,7 @@ export default function ChatToolOverlayModal({
   currentMemberId: string;
   currentMemberName: string;
   onSendAction: (action: ChatToolActionPayload) => void;
+  onServerSpin: (messageId: number) => Promise<string | null>;
 }) {
   // ESC 키로 닫기
   useEffect(() => {
@@ -133,6 +135,7 @@ export default function ChatToolOverlayModal({
             data={toolPayload.data}
             currentMemberId={currentMemberId}
             currentMemberName={currentMemberName}
+            onServerSpin={toolPayload.server ? () => onServerSpin(messageId) : undefined}
             onSpin={(winnerOptionId, targetAngle) =>
               onSendAction({
                 targetMessageId: messageId,

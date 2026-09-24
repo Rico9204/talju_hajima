@@ -26,7 +26,9 @@ import {
   parseChatToolMessage,
   encodeChatToolAction,
   parseChatToolAction,
-  resolveToolState,
+  resolveAnyToolState,
+  toServerToolPayload,
+  TOOL_MESSAGE_PREFIX,
   collectToolActions,
   type ChatToolPayload,
   type ChatToolActionPayload,
@@ -72,6 +74,9 @@ export default function TeamChat({
     chatMessages,
     chatUnread,
     sendChatMessage,
+    chatToolEvents,
+    initChatTool,
+    actChatTool,
     toggleChatReaction,
     markChannelMessagesRead,
 
@@ -391,10 +396,11 @@ export default function TeamChat({
     if (targetMsg) {
       const initialTool = parseChatToolMessage(targetMsg.text)
       if (initialTool) {
-        activeOverlayPayload = resolveToolState(
+        activeOverlayPayload = resolveAnyToolState(
           initialTool,
           targetMsg.senderId,
           actionsByMessageId.get(targetMsg.id) || [],
+          chatToolEvents[targetMsg.id] || [],
           toolMemberName,
         )
       }
@@ -482,12 +488,48 @@ export default function TeamChat({
     setPendingFile(null)
   }
 
-  function handleSendTool(payload: ChatToolPayload) {
-    void sendChatMessage(active, encodeChatToolMessage(payload))
+  function reportToolError(error: unknown) {
+    const message = error instanceof Error ? error.message : (error as { message?: string })?.message
+    window.alert(message || "도구를 처리하지 못했습니다.")
+  }
+
+  // 제비뽑기·사다리·룰렛은 메시지에 공개 정보만 올리고, 정답·결과는 서버가 정한다. 투표는 기존 방식.
+  async function handleSendTool(payload: ChatToolPayload) {
+    const server = toServerToolPayload(payload)
+    if (!server) {
+      void sendChatMessage(active, encodeChatToolMessage(payload))
+      return
+    }
+    try {
+      const id = await sendChatMessage(active, `${TOOL_MESSAGE_PREFIX}${JSON.stringify(server.payload)}`)
+      if (id !== null) await initChatTool(id, server.config)
+    } catch (error) {
+      reportToolError(error)
+    }
+  }
+
+  function isServerToolMessage(messageId: number) {
+    const target = thread.find((m) => m.id === messageId)
+    return !!target && parseChatToolMessage(target.text)?.server === true
   }
 
   function handleSendAction(action: ChatToolActionPayload) {
+    if (isServerToolMessage(action.targetMessageId)) {
+      const args = action.action === "draw_pick" ? { itemId: action.itemId } : {}
+      actChatTool(action.targetMessageId, action.action, args).catch(reportToolError)
+      return
+    }
     void sendChatMessage(active, encodeChatToolAction(action))
+  }
+
+  async function handleServerSpin(messageId: number): Promise<string | null> {
+    try {
+      const event = await actChatTool(messageId, "roulette_spin")
+      return event.data.winnerOptionId ?? null
+    } catch (error) {
+      reportToolError(error)
+      return null
+    }
   }
 
   function appendEmoji(emoji: string) {
@@ -902,10 +944,11 @@ export default function TeamChat({
                 const initialTool = parseChatToolMessage(m.text)
 
                 if (initialTool) {
-                  toolPayload = resolveToolState(
+                  toolPayload = resolveAnyToolState(
                     initialTool,
                     m.senderId,
                     actionsByMessageId.get(m.id) || [],
+                    chatToolEvents[m.id] || [],
                     toolMemberName,
                   )
                 }
@@ -1663,6 +1706,7 @@ export default function TeamChat({
         currentMemberId={currentMember.id}
         currentMemberName={currentMember.name}
         onSendAction={handleSendAction}
+        onServerSpin={handleServerSpin}
       />
     </div>
   )

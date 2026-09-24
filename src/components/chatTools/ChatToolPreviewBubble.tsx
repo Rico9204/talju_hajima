@@ -50,7 +50,7 @@ export default function ChatToolPreviewBubble({
           {data.title}
         </h4>
         <p className="text-[11px] mb-3 truncate" style={{ color: "var(--muted-foreground)" }}>
-          총 {total}명 (당첨 {data.items.filter((i) => i.isWinner).length}명)
+          총 {total}명 (당첨 {data.winnerCount ?? data.items.filter((i) => i.isWinner).length}명)
         </p>
 
         <button
