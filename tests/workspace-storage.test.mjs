@@ -12,7 +12,8 @@ function repository(fake) {
   new Function('require','module','exports',outputText)((path)=> {
     if(path.endsWith('/supabase')) return {supabase:fake};
     if(path.endsWith('/workspaceFiles')) return {MAX_WORKSPACE_FILE_SIZE,WORKSPACE_BUCKET,workspaceFileType,workspaceStoragePath, validateFileTags};
-    if(path.endsWith('/evaluationSummary')) return {};
+    // 이 테스트와 무관한 모듈(게시판·프로필 이미지·관리자 신청)은 빈 모듈로 대신한다.
+    if(['/evaluationSummary','/boardData','/profileImages','/adminApplication'].some((name)=>path.endsWith(name))) return {};
     throw new Error(`Unexpected dependency ${path}`);
   },module,module.exports);
   return module.exports.supabaseDataRepository;

@@ -13,7 +13,7 @@ create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb 
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create function auth.role() returns text language sql stable as $$select case when auth.uid() is null then 'anon' else 'authenticated' end$$;
 grant usage on schema auth,storage to authenticated,anon;
-create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint);
+create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
 create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,metadata jsonb);
 create function storage.foldername(text) returns text[] language sql as $$select string_to_array($1,'/')$$;
 create function storage.extension(text) returns text language sql as $$select substring($1 from '\.([^.\/]+)$')$$;
@@ -21,7 +21,15 @@ alter table storage.objects enable row level security;
 grant select,insert,update,delete on storage.objects to authenticated;
 alter default privileges in schema public grant select,insert,update,delete on tables to authenticated;
 alter default privileges in schema public grant usage on sequences to authenticated;
+create publication supabase_realtime;
+create schema realtime;
+create table realtime.messages(id bigint generated always as identity primary key,extension text,topic text);
+alter table realtime.messages enable row level security;
+create function realtime.topic() returns text language sql stable as $$select ''$$;
+grant usage on schema realtime to authenticated;
 `);
+// schema.sql은 함수를 테이블보다 먼저 정의하는 곳이 있어 새로 불러올 때 본문 검사를 끈다.
+await db.exec('set check_function_bodies = off');
 const schema = readFileSync(new URL('../supabase/schema.sql',import.meta.url),'utf8')
  .replace('create extension if not exists pgcrypto;','')
  .replace(/^alter publication .*;\r?$/gm,'');

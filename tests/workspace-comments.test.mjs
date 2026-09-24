@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-const require=createRequire(resolve(process.argv[2], 'package.json'));
+const require=createRequire(resolve(process.argv[2] || '.', 'package.json'));
 const {PGlite}=require('@electric-sql/pglite'); const db=new PGlite();
 const ids=[1,2,3].map(n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`);
 await db.exec(`create role anon; create role authenticated; create schema auth;
