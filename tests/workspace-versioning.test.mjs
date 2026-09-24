@@ -39,7 +39,7 @@ insert into files(project_id,name,type,uploader,avatar,date,size,tag) values('p'
 insert into file_versions(file_id,version,uploaded_by,date,size,note,current) values(1,'v1','기존',current_date,'1 KB','',true),(1,'v2','기존',current_date,'2 KB','',true);
 `);
 for (let i=0;i<3;i++) await db.query('insert into members values($1,$2,$1,$3,$4)',[users[i],i===2?'other':'p',`팀원${i}`,'팀']);
-const migration = readFileSync(new URL('../supabase/migration_workspace_versioning.sql',import.meta.url),'utf8');
+const migration = readFileSync(new URL('../supabase/migrations/2609171815_workspace_versioning.sql',import.meta.url),'utf8');
 await db.exec(migration);
 await db.exec(migration); // Upgrade is repeatable and preserves data.
 let passed=0;
@@ -66,7 +66,7 @@ await check('project name shadowing reproduces denial; scope patch restores uplo
   await login(0);
   await assert.rejects(object(),/row-level security/);
   await db.exec('reset role');
-  await db.exec(readFileSync(new URL('../supabase/migration_workspace_storage_policy_scope.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/2609171905_workspace_storage_policy_scope.sql',import.meta.url),'utf8'));
   await login(0);
   const path=await object();
   assert.equal((await db.query('select name from storage.objects where name=$1',[path])).rows[0].name,path);
@@ -145,7 +145,7 @@ await check('closed projects reject pending registration and mutations',async()=
 });
 await check('closed project history remains readable',async()=>assert.ok((await db.query('select * from storage.objects where name=$1',[path1])).rows.length));
 await db.exec('reset role');
-await db.exec(readFileSync(new URL('../supabase/migration_workspace_storage_unicode.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609171840_workspace_storage_unicode.sql',import.meta.url),'utf8'));
 await db.query("insert into projects(id,status) values($1,'active')",['테스트-mtyks5m2']);
 await db.query("insert into members values('00000000-0000-0000-0000-000000000004',$1,$2,'팀원','팀')",['테스트-mtyks5m2',users[0]]);
 await login(0);
@@ -165,7 +165,7 @@ await check('encoding does not grant outsiders access to Korean project objects'
   assert.equal((await db.query("select * from storage.objects where name like 'v2/%'")).rows.length,0);
 });
 await db.exec('reset role');
-await db.exec(readFileSync(new URL('../supabase/migration_workspace_tags.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609171934_workspace_tags.sql',import.meta.url),'utf8'));
 await db.query("update projects set status='active' where id='p'");
 await login(0);
 async function taggedUpload(tags,{name='이미지.png',type='img',mime='image/png'}={}) {
@@ -195,7 +195,7 @@ await check('outsiders cannot edit file tags',()=>assert.rejects(db.query('selec
 await db.exec("reset role; update projects set status='done' where id='p'"); await login(0);
 await check('closed projects cannot edit tags',()=>assert.rejects(db.query('select set_workspace_file_tags($1,$2::text[])',[tagged.file_id,['변경']]),/참여자/));
 await db.exec("reset role; update projects set status='active' where id='p'");
-await db.exec(readFileSync(new URL('../supabase/migration_workspace_upload_time.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609171935_workspace_upload_time.sql',import.meta.url),'utf8'));
 await check('legacy upload times remain unknown',async()=> {
   assert.equal((await db.query('select uploaded_at from file_versions where id=$1',[tagged.version_id])).rows[0].uploaded_at,null);
 });
@@ -217,7 +217,7 @@ select pid='p' and auth.uid()='${users[0]}'::uuid $$;
 create table file_comments(id bigint generated always as identity primary key,file_id bigint references files(id) on delete cascade);
 create table chat_attachment_test(id bigint generated always as identity primary key,file_id bigint references files(id) on delete set null);
 `);
-const deleteMigration=readFileSync(new URL('../supabase/migration_workspace_delete.sql',import.meta.url),'utf8');
+const deleteMigration=readFileSync(new URL('../supabase/migrations/2609171933_workspace_delete.sql',import.meta.url),'utf8');
 await db.exec(deleteMigration);
 await db.exec(deleteMigration);
 await check('legacy owner backfill uses the first storage path, not display names',async()=> {
@@ -296,7 +296,7 @@ await check('closed projects cannot delete even as leader',async()=> {
 });
 
 await db.exec("reset role; update projects set status='active' where id='p'");
-const searchMigration=readFileSync(new URL('../supabase/migration_workspace_search.sql',import.meta.url),'utf8');
+const searchMigration=readFileSync(new URL('../supabase/migrations/2609172119_workspace_search.sql',import.meta.url),'utf8');
 await db.exec(searchMigration); await db.exec(searchMigration);
 await login(0);
 async function searchUpload(text,{fileId=null,base=null,status='ready'}={}) {

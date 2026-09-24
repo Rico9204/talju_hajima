@@ -11,8 +11,9 @@ test('accepts known static profile image signatures', async () => {
   await assert.doesNotReject(validateProfileImage(image('image/avif', [0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])));
 });
 
-test('rejects GIF, SVG, spoofed content and oversized profile images', async () => {
-  await assert.rejects(validateProfileImage(image('image/gif', [0x47, 0x49, 0x46, 0x38])), /GIF/);
+test('accepts GIF; rejects SVG, spoofed content and oversized profile images', async () => {
+  await assert.doesNotReject(validateProfileImage(image('image/gif', [0x47, 0x49, 0x46, 0x38])));
+  await assert.rejects(validateProfileImage(image('image/gif', [60, 115, 118, 103])), /확인/);
   await assert.rejects(validateProfileImage(image('image/svg+xml', [60, 115, 118, 103])), /GIF/);
   await assert.rejects(validateProfileImage(image('image/png', [60, 115, 118, 103])), /확인/);
   await assert.rejects(validateProfileImage(image('image/jpeg', [0xff, 0xd8, 0xff], 5 * 1024 * 1024 + 1)), /5MB/);

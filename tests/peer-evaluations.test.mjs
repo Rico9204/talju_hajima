@@ -27,9 +27,9 @@ const ids = [1,2,3,4,5,6].map((n) => "00000000-0000-0000-0000-" + String(n).padS
 for (let i=0;i<5;i++) {
   await db.query("insert into members(id,project_id,user_id,is_leader) values($1,$2,$1,$3)",[ids[i], i<3?"long":"short",i===0||i===3]);
 }
-await db.exec(readFileSync(new URL("../supabase/migration_peer_evaluations.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
+await db.exec(readFileSync(new URL("../supabase/migrations/2609151616_peer_evaluations.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
 let passed = 0;
-await db.exec(readFileSync(new URL("../supabase/migration_project_completion.sql",import.meta.url),"utf8"));
+await db.exec(readFileSync(new URL("../supabase/migrations/2609171746_project_completion.sql",import.meta.url),"utf8"));
 async function check(name, fn) { await fn(); passed++; console.log("PASS " + name); }
 async function login(i) { await db.exec("reset role"); await db.query("select set_config('request.jwt.claim.sub',$1,false)",[i===null?"":ids[i]]); await db.exec("set role authenticated"); }
 const entries = [ids[1],ids[2]].map((recipient_id)=>({recipient_id,role:5,deadline:5,communication:5,collaboration:5,quality:5,comment:"피드백"}));
@@ -87,7 +87,7 @@ await check("short project can complete and submit final",async()=> {
 });
 
 await db.exec("reset role");
-await db.exec(readFileSync(new URL("../supabase/migration_evaluation_prototype.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
+await db.exec(readFileSync(new URL("../supabase/migrations/2609151629_evaluation_prototype.sql",import.meta.url),"utf8").replace(/^\uFEFF/,""));
 await db.query("insert into members(id,project_id,user_id) values($1,'short',$1)",[ids[5]]);
 await db.exec("update projects set status='active' where id='short'");
 await login(4);
@@ -110,7 +110,7 @@ await check("normal mode restores final status restriction",()=>assert.rejects(s
 await check("normal mode restores short project restriction",()=>assert.rejects(submit("midterm",prototypeEntries,"short"),/2주/));
 await check("normal mode hides teammates premature final evaluations",async()=>assert.equal((await db.query("select * from peer_evaluations where phase='final' and evaluator_id=$1",[ids[4]])).rows.length,1));
 await db.exec("reset role");
-await db.exec(readFileSync(new URL("../supabase/migration_evaluation_zero_scores.sql",import.meta.url),"utf8"));
+await db.exec(readFileSync(new URL("../supabase/migrations/2609171745_evaluation_zero_scores.sql",import.meta.url),"utf8"));
 await login(2);
 const zeroEntries = [ids[0], ids[1]].map((recipient_id, i) => ({
   recipient_id, role: i * 10, deadline: i * 10, communication: i * 10,

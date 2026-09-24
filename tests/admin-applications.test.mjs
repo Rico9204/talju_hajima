@@ -34,7 +34,7 @@ const schema = readFileSync(new URL('../supabase/schema.sql',import.meta.url),'u
  .replace(/^alter publication .*;\r?$/gm,'');
 await db.exec(schema);
 // The standalone migration must also be safe to apply on top of a schema that already contains it.
-await db.exec(readFileSync(new URL('../supabase/migrations/20260921180000_admin_applications.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609211800_admin_applications.sql',import.meta.url),'utf8'));
 
 // 0 operator, 1 applicant A, 2 applicant B, 3 plain user, 4 regular admin, 5 second operator
 const ids = [0,1,2,3,4,5].map(n=>`00000000-0000-0000-0000-${String(n+1).padStart(12,'0')}`);

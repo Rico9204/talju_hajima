@@ -16,7 +16,7 @@ grant select,insert,update,delete on file_comments to authenticated;
 grant usage on sequence file_comments_id_seq to authenticated;
 insert into projects values('p','active'),('q','active'); insert into files values(1,'p'),(2,'q');`);
 for(let i=0;i<3;i++) await db.query('insert into members values($1,$2,$1,$3,$4)',[ids[i],i===2?'q':'p',`팀원${i}`,'팀']);
-const sql=readFileSync(new URL('../supabase/migration_workspace_comment_reactions.sql',import.meta.url),'utf8');
+const sql=readFileSync(new URL('../supabase/migrations/2609172042_workspace_comment_reactions.sql',import.meta.url),'utf8');
 await db.exec(sql); await db.exec(sql);
 async function login(i){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[ids[i]]);await db.exec('set role authenticated');}
 await login(0);
