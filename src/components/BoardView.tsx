@@ -123,9 +123,11 @@ export default function BoardView() {
     setBusy(true);
     setError(null);
     try {
-      await dataRepository.updateBoardPost(postId, patch);
-      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...patch } : p)));
-      setSelectedPost((prev) => (prev && prev.id === postId ? { ...prev, ...patch } : prev));
+      // 투표는 게시글 수정으로 바꿀 수 없다(작성 시에만 만든다).
+      const { poll: _poll, ...postPatch } = patch;
+      await dataRepository.updateBoardPost(postId, postPatch);
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...postPatch } : p)));
+      setSelectedPost((prev) => (prev && prev.id === postId ? { ...prev, ...postPatch } : prev));
       setEditingPost(null);
     } catch (e) {
       setError(errorMessage(e));

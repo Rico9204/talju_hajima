@@ -1,6 +1,5 @@
 import { MAX_WORKSPACE_FILE_SIZE, WORKSPACE_BUCKET, workspaceFileType, workspaceStoragePath, validateFileTags } from "../../lib/workspaceFiles";
 import { formatFileSize as formatAttachmentSize } from "../../lib/boardData";
-import { getLocalStoredPoll, saveLocalStoredPoll, voteLocalStoredPoll, closeLocalStoredPoll } from "../../lib/boardPoll";
 import { supabase } from "../../lib/supabase";
 import { prepareProfileImage } from "../../lib/profileImages";
 import type { DataRepository } from "../dataRepository";
@@ -253,180 +252,52 @@ function mapBoardPost(row: any, profile: any, likedByMe: boolean, poll?: BoardPo
   };
 }
 
-async function fetchPollsForPosts(postIds: number[], currentUserId: string | null): Promise<Map<number, BoardPoll>> {
+// 투표 행 + 항목 + 투표 기록(board_poll_votes_view RPC)으로 BoardPoll을 만든다(게시글 id 기준 Map).
+// 익명 투표는 서버가 다른 사람의 user_id를 내려주지 않는다.
+async function buildPolls(pollRows: any[], currentUserId: string | null): Promise<Map<number, BoardPoll>> {
   const result = new Map<number, BoardPoll>();
-  if (postIds.length === 0) return result;
-
-  try {
-    const { data: pollRows, error: pollErr } = await supabase
-      .from("board_polls")
-      .select("*")
-      .in("post_id", postIds);
-
-    if (pollErr || !pollRows || pollRows.length === 0) {
-      for (const pid of postIds) {
-        const local = getLocalStoredPoll(pid, currentUserId);
-        if (local) result.set(pid, local);
-      }
-      return result;
-    }
-
-    const pollIds = pollRows.map((p: any) => p.id);
-    const [optionsRes, votesRes] = await Promise.all([
-      supabase.from("board_poll_options").select("*").in("poll_id", pollIds).order("sort_order", { ascending: true }),
-      supabase.from("board_poll_votes").select("poll_id, option_id, user_id").in("poll_id", pollIds),
-    ]);
-
-    const optionsByPoll = new Map<number, any[]>();
-    for (const opt of optionsRes.data ?? []) {
-      const list = optionsByPoll.get(opt.poll_id) ?? [];
-      list.push(opt);
-      optionsByPoll.set(opt.poll_id, list);
-    }
-
-    const votesByPoll = new Map<number, any[]>();
-    for (const v of votesRes.data ?? []) {
-      const list = votesByPoll.get(v.poll_id) ?? [];
-      list.push(v);
-      votesByPoll.set(v.poll_id, list);
-    }
-
-    const voterUserIdsToFetch = new Set<string>();
-    for (const pollRow of pollRows) {
-      if (!pollRow.is_anonymous) {
-        const pollVotes = votesByPoll.get(pollRow.id) ?? [];
-        for (const v of pollVotes) voterUserIdsToFetch.add(v.user_id);
-      }
-    }
-    const voterProfiles = voterUserIdsToFetch.size > 0 ? await fetchProfilesById([...voterUserIdsToFetch]) : {};
-
-    for (const pollRow of pollRows) {
-      const pollOptions = optionsByPoll.get(pollRow.id) ?? [];
-      const pollVotes = votesByPoll.get(pollRow.id) ?? [];
-      const uniqueVoters = new Set(pollVotes.map((v: any) => v.user_id));
-      const myVotes = currentUserId
-        ? pollVotes.filter((v: any) => v.user_id === currentUserId).map((v: any) => v.option_id)
-        : [];
-
-      const votesByOption = new Map<number, any[]>();
-      for (const v of pollVotes) {
-        const list = votesByOption.get(v.option_id) ?? [];
-        list.push(v);
-        votesByOption.set(v.option_id, list);
-      }
-
-      const options: BoardPollOption[] = pollOptions.map((opt: any) => {
-        const optionVotes = votesByOption.get(opt.id) ?? [];
-        const voters: BoardPollVoter[] = !pollRow.is_anonymous
-          ? optionVotes.map((v: any) => ({
-              userId: v.user_id,
-              name: voterProfiles[v.user_id]?.display_name || "참여자",
-              avatarUrl: voterProfiles[v.user_id]?.avatar_url ?? null,
-            }))
-          : [];
-
-        return {
-          id: opt.id,
-          pollId: opt.poll_id,
-          text: opt.text,
-          votesCount: optionVotes.length,
-          sortOrder: opt.sort_order,
-          voters,
-        };
-      });
-
-      const isExpired = pollRow.closes_at ? new Date(pollRow.closes_at).getTime() <= Date.now() : false;
-
-      result.set(pollRow.post_id, {
-        id: pollRow.id,
-        postId: pollRow.post_id,
-        question: pollRow.question,
-        allowMultiple: pollRow.allow_multiple,
-        isAnonymous: pollRow.is_anonymous,
-        closed: pollRow.closed || isExpired,
-        closesAt: pollRow.closes_at,
-        createdAt: pollRow.created_at,
-        options,
-        totalVotes: uniqueVoters.size,
-        hasVoted: myVotes.length > 0,
-        myOptionIds: myVotes,
-      });
-    }
-  } catch (err) {
-    console.warn("투표 데이터 조회 실패(무시 가능):", err);
-  }
-
-  // DB에 없는 게시글은 로컬 스토리지에 저장된 투표가 있는지 확인
-  for (const pid of postIds) {
-    if (!result.has(pid)) {
-      const local = getLocalStoredPoll(pid, currentUserId);
-      if (local) result.set(pid, local);
-    }
-  }
-
-  return result;
-}
-
-async function fetchSinglePoll(pollId: number, currentUserId: string | null): Promise<BoardPoll> {
-  try {
-    const { data: pollRow, error: pollErr } = await supabase
-      .from("board_polls")
-      .select("*")
-      .eq("id", pollId)
-      .single();
-    if (pollErr || !pollRow) {
-      const local = getLocalStoredPoll(pollId, currentUserId);
-      if (local) return local;
-      throw pollErr || new Error("투표를 찾을 수 없습니다.");
-    }
-
+  if (pollRows.length === 0) return result;
+  const pollIds = pollRows.map((p: any) => p.id);
   const [optionsRes, votesRes] = await Promise.all([
-    supabase.from("board_poll_options").select("*").eq("poll_id", pollId).order("sort_order", { ascending: true }),
-    supabase.from("board_poll_votes").select("poll_id, option_id, user_id").eq("poll_id", pollId),
+    supabase.from("board_poll_options").select("*").in("poll_id", pollIds).order("sort_order", { ascending: true }),
+    supabase.rpc("board_poll_votes_view", { p_poll_ids: pollIds }),
   ]);
   if (optionsRes.error) throw optionsRes.error;
   if (votesRes.error) throw votesRes.error;
 
-  const pollVotes = votesRes.data ?? [];
-  const uniqueVoters = new Set(pollVotes.map((v: any) => v.user_id));
-  const myVotes = currentUserId
-    ? pollVotes.filter((v: any) => v.user_id === currentUserId).map((v: any) => v.option_id)
-    : [];
-
-  const votesByOption = new Map<number, any[]>();
-  for (const v of pollVotes) {
-    const list = votesByOption.get(v.option_id) ?? [];
+  const votesByPoll = new Map<number, any[]>();
+  for (const v of (votesRes.data ?? []) as any[]) {
+    const list = votesByPoll.get(v.poll_id) ?? [];
     list.push(v);
-    votesByOption.set(v.option_id, list);
+    votesByPoll.set(v.poll_id, list);
   }
+  const voterUserIds = new Set<string>();
+  for (const pollRow of pollRows) {
+    if (pollRow.is_anonymous) continue;
+    for (const v of votesByPoll.get(pollRow.id) ?? []) if (v.user_id) voterUserIds.add(v.user_id);
+  }
+  const voterProfiles = voterUserIds.size > 0 ? await fetchProfilesById([...voterUserIds]) : {};
 
-  const voterProfiles = !pollRow.is_anonymous && pollVotes.length > 0
-    ? await fetchProfilesById([...uniqueVoters])
-    : {};
-
-  const options: BoardPollOption[] = (optionsRes.data ?? []).map((opt: any) => {
-    const optVotes = votesByOption.get(opt.id) ?? [];
-    const voters: BoardPollVoter[] = !pollRow.is_anonymous
-      ? optVotes.map((v: any) => ({
-          userId: v.user_id,
-          name: voterProfiles[v.user_id]?.display_name || "참여자",
-          avatarUrl: voterProfiles[v.user_id]?.avatar_url ?? null,
-        }))
-      : [];
-
-    return {
-      id: opt.id,
-      pollId: opt.poll_id,
-      text: opt.text,
-      votesCount: optVotes.length,
-      sortOrder: opt.sort_order,
-      voters,
-    };
-  });
-
-  const isExpired = pollRow.closes_at ? new Date(pollRow.closes_at).getTime() <= Date.now() : false;
-
-    return {
+  for (const pollRow of pollRows) {
+    const pollVotes = votesByPoll.get(pollRow.id) ?? [];
+    const myOptionIds = currentUserId ? pollVotes.filter((v: any) => v.user_id === currentUserId).map((v: any) => v.option_id) : [];
+    const options: BoardPollOption[] = (optionsRes.data ?? [])
+      .filter((opt: any) => opt.poll_id === pollRow.id)
+      .map((opt: any) => {
+        const optionVotes = pollVotes.filter((v: any) => v.option_id === opt.id);
+        const voters: BoardPollVoter[] = pollRow.is_anonymous
+          ? []
+          : optionVotes
+              .filter((v: any) => v.user_id)
+              .map((v: any) => ({
+                userId: v.user_id,
+                name: voterProfiles[v.user_id]?.display_name || "참여자",
+                avatarUrl: voterProfiles[v.user_id]?.avatar_url ?? null,
+              }));
+        return { id: opt.id, pollId: opt.poll_id, text: opt.text, votesCount: optionVotes.length, sortOrder: opt.sort_order, voters };
+      });
+    const isExpired = pollRow.closes_at ? new Date(pollRow.closes_at).getTime() <= Date.now() : false;
+    result.set(pollRow.post_id, {
       id: pollRow.id,
       postId: pollRow.post_id,
       question: pollRow.question,
@@ -436,15 +307,33 @@ async function fetchSinglePoll(pollId: number, currentUserId: string | null): Pr
       closesAt: pollRow.closes_at,
       createdAt: pollRow.created_at,
       options,
-      totalVotes: uniqueVoters.size,
-      hasVoted: myVotes.length > 0,
-      myOptionIds: myVotes,
-    };
-  } catch (err) {
-    const local = getLocalStoredPoll(pollId, currentUserId);
-    if (local) return local;
-    throw err;
+      totalVotes: new Set(pollVotes.map((v: any) => v.voter_ref)).size,
+      hasVoted: myOptionIds.length > 0,
+      myOptionIds,
+    });
   }
+  return result;
+}
+
+// 투표 마이그레이션 전이거나 조회에 실패해도 게시판 자체는 열리도록 투표만 빼고 보여준다.
+async function fetchPollsForPosts(postIds: number[], currentUserId: string | null): Promise<Map<number, BoardPoll>> {
+  if (postIds.length === 0) return new Map();
+  try {
+    const { data, error } = await supabase.from("board_polls").select("*").in("post_id", postIds);
+    if (error) throw error;
+    return await buildPolls(data ?? [], currentUserId);
+  } catch (err) {
+    console.warn("투표 데이터를 불러오지 못했습니다:", err);
+    return new Map();
+  }
+}
+
+async function fetchSinglePoll(pollId: number, currentUserId: string | null): Promise<BoardPoll> {
+  const { data, error } = await supabase.from("board_polls").select("*").eq("id", pollId).single();
+  if (error || !data) throw error || new Error("투표를 찾을 수 없습니다.");
+  const poll = (await buildPolls([data], currentUserId)).get(data.post_id);
+  if (!poll) throw new Error("투표를 찾을 수 없습니다.");
+  return poll;
 }
 
 import { summarizeEvaluations } from "../../lib/evaluationSummary";
@@ -1626,91 +1515,19 @@ export const supabaseDataRepository: DataRepository = {
       .single();
     if (error) throw error;
 
+    // 투표는 서버 함수로 한 번에 만든다. 실패하면 게시글은 남지만 투표가 없다는 것을 알린다.
     let createdPoll: BoardPoll | null = null;
     if (input.poll && input.poll.question.trim() && input.poll.options.length >= 2) {
-      const fallbackPoll: BoardPoll = {
-        id: data.id,
-        postId: data.id,
-        question: input.poll.question.trim(),
-        allowMultiple: input.poll.allowMultiple,
-        isAnonymous: input.poll.isAnonymous,
-        closed: false,
-        closesAt: input.poll.closesAt || null,
-        createdAt: new Date().toISOString(),
-        options: input.poll.options
-          .map((t) => t.trim())
-          .filter(Boolean)
-          .map((text, idx) => ({
-            id: idx + 1,
-            pollId: data.id,
-            text,
-            votesCount: 0,
-            sortOrder: idx,
-            voters: [],
-          })),
-        totalVotes: 0,
-        hasVoted: false,
-        myOptionIds: [],
-      };
-      createdPoll = fallbackPoll;
-      saveLocalStoredPoll(fallbackPoll);
-
-      try {
-        const { data: pollRow, error: pollErr } = await supabase
-          .from("board_polls")
-          .insert({
-            post_id: data.id,
-            question: input.poll.question.trim(),
-            allow_multiple: input.poll.allowMultiple,
-            is_anonymous: input.poll.isAnonymous,
-            closes_at: input.poll.closesAt || null,
-          })
-          .select()
-          .single();
-
-        if (!pollErr && pollRow) {
-          const optionRows = input.poll.options
-            .map((t) => t.trim())
-            .filter(Boolean)
-            .map((text, idx) => ({
-              poll_id: pollRow.id,
-              text,
-              sort_order: idx,
-              votes_count: 0,
-            }));
-
-          const { data: optRows } = await supabase
-            .from("board_poll_options")
-            .insert(optionRows)
-            .select();
-
-          const dbPoll: BoardPoll = {
-            id: pollRow.id,
-            postId: data.id,
-            question: pollRow.question,
-            allowMultiple: pollRow.allow_multiple,
-            isAnonymous: pollRow.is_anonymous,
-            closed: false,
-            closesAt: pollRow.closes_at,
-            createdAt: pollRow.created_at,
-            options: (optRows ?? []).map((o: any) => ({
-              id: o.id,
-              pollId: o.poll_id,
-              text: o.text,
-              votesCount: 0,
-              sortOrder: o.sort_order,
-              voters: [],
-            })),
-            totalVotes: 0,
-            hasVoted: false,
-            myOptionIds: [],
-          };
-          createdPoll = dbPoll;
-          saveLocalStoredPoll(dbPoll);
-        }
-      } catch (pollErr) {
-        console.warn("투표 DB 등록 실패(로컬 폴백 사용):", pollErr);
-      }
+      const { data: pollId, error: pollErr } = await supabase.rpc("create_board_poll", {
+        p_post_id: data.id,
+        p_question: input.poll.question,
+        p_options: input.poll.options,
+        p_allow_multiple: input.poll.allowMultiple,
+        p_is_anonymous: input.poll.isAnonymous,
+        p_closes_at: input.poll.closesAt || null,
+      });
+      if (pollErr) throw new Error(`게시글은 등록되었지만 투표를 만들지 못했습니다: ${pollErr.message}`);
+      createdPoll = await fetchSinglePoll(pollId as number, userId);
     }
 
     const profileById = await fetchProfilesById([userId]);
@@ -1852,60 +1669,13 @@ export const supabaseDataRepository: DataRepository = {
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
-
-    // Try RPC first
-    const { error: rpcErr } = await supabase.rpc("cast_board_poll_vote", {
-      p_poll_id: pollId,
-      p_option_ids: optionIds,
-    });
-
-    if (rpcErr) {
-      try {
-        const { data: poll, error: selectErr } = await supabase.from("board_polls").select("*").eq("id", pollId).single();
-        if (selectErr || !poll) throw selectErr || new Error("투표를 찾을 수 없습니다.");
-        if (poll.closed) throw new Error("이미 마감된 투표입니다.");
-        if (poll.closes_at && new Date(poll.closes_at).getTime() <= Date.now()) {
-          throw new Error("마감 기한이 지난 투표입니다.");
-        }
-        if (!poll.allow_multiple && optionIds.length > 1) {
-          throw new Error("복수 선택이 허용되지 않은 투표입니다.");
-        }
-
-        await supabase.from("board_poll_votes").delete().eq("poll_id", pollId).eq("user_id", userId);
-        if (optionIds.length > 0) {
-          const inserts = optionIds.map((optId) => ({
-            poll_id: pollId,
-            option_id: optId,
-            user_id: userId,
-          }));
-          const { error: insErr } = await supabase.from("board_poll_votes").insert(inserts);
-          if (insErr) throw insErr;
-        }
-        return fetchSinglePoll(pollId, userId);
-      } catch (tableErr) {
-        // Supabase에 테이블이 없는 경우 로컬 스토리지 폴백으로 즉시 투표 처리
-        const profiles = await fetchProfilesById([userId]);
-        const me = profiles[userId];
-        return voteLocalStoredPoll(
-          pollId,
-          userId,
-          me?.display_name || "참여자",
-          me?.avatar_url ?? null,
-          optionIds
-        );
-      }
-    }
-
+    const { error } = await supabase.rpc("cast_board_poll_vote", { p_poll_id: pollId, p_option_ids: optionIds });
+    if (error) throw error;
     return fetchSinglePoll(pollId, userId);
   },
 
   async closeBoardPoll(pollId) {
-    closeLocalStoredPoll(pollId);
-    try {
-      const { error: rpcErr } = await supabase.rpc("close_board_poll", { p_poll_id: pollId });
-      if (rpcErr) {
-        await supabase.from("board_polls").update({ closed: true }).eq("id", pollId);
-      }
-    } catch {}
+    const { error } = await supabase.rpc("close_board_poll", { p_poll_id: pollId });
+    if (error) throw error;
   },
 };

@@ -163,7 +163,7 @@ export interface DataRepository {
   createBoardPost(input: NewBoardPostInput): Promise<BoardPost>;
   updateBoardPost(
     postId: number,
-    patch: Partial<{ category: BoardCategory; title: string; content: string; attachments: BoardAttachment[] }>
+    patch: Partial<{ category: BoardCategory; title: string; content: string; attachments: BoardAttachment[]; tags: string[]; hideImagePreview: boolean }>
   ): Promise<void>;
   deleteBoardPost(postId: number): Promise<void>;
   incrementBoardPostViews(postId: number): Promise<void>;
