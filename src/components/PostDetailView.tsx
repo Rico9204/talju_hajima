@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import BoardPollView from "./BoardPollView";
+import { sanitizeBoardHtml } from "../lib/boardHtml";
 import { PostReportButton, PostReportList } from "./PostReport";
 import type { BoardPost } from "../api/types";
 
@@ -8,6 +9,7 @@ export default function PostDetailView({
   post,
   currentUserId,
   isAdmin,
+  isOperator = false,
   busy,
   error,
   onBack,
@@ -24,6 +26,7 @@ export default function PostDetailView({
   post: BoardPost;
   currentUserId: string | null;
   isAdmin: boolean;
+  isOperator?: boolean;
   busy: boolean;
   error: string | null;
   onBack: () => void;
@@ -54,14 +57,12 @@ export default function PostDetailView({
   const files = post.attachments.filter((a) => a.kind === "file");
   const isHtml = post.content.includes("<") && post.content.includes(">");
 
+  // 저장된 본문은 신뢰하지 않는다: 허용 목록으로 정리한 HTML만 그린다(실패 시 원문을 그리지 않음).
   function getCleanedHtml(raw: string): string {
     try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(raw, "text/html");
-      doc.querySelectorAll(".img-delete-btn, button").forEach((btn) => btn.remove());
-      return doc.body.innerHTML;
+      return sanitizeBoardHtml(raw);
     } catch {
-      return raw;
+      return "";
     }
   }
 
@@ -124,7 +125,7 @@ export default function PostDetailView({
         )}
       </div>
 
-      {isAdmin && <PostReportList postId={post.id} />}
+      {isOperator && <PostReportList postId={post.id} />}
 
       {error && (
         <div role="alert" className="p-3 text-xs rounded-xl" style={{ background: "#ef444418", color: "#ef4444" }}>

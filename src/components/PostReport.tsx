@@ -76,7 +76,7 @@ export function PostReportButton({ post, onReported }: { post: BoardPost; onRepo
   );
 }
 
-// 관리자용: 이 게시글에 들어온 신고 목록과 처리(처리 완료/기각).
+// 운영자용: 이 게시글에 들어온 신고 목록과 처리(처리 완료/기각).
 export function PostReportList({ postId }: { postId: number }) {
   const [reports, setReports] = useState<BoardPostReport[] | null>(null);
   const [error, setError] = useState("");
@@ -109,7 +109,7 @@ export function PostReportList({ postId }: { postId: number }) {
   const statusText = { open: "미처리", resolved: "처리 완료", dismissed: "기각" } as const;
   return (
     <section className="p-4 space-y-3 border" style={{ background: "#ef444410", borderColor: "#ef444440", borderRadius: "var(--radius)" }}>
-      <h2 className="text-sm font-800" style={{ color: "#ef4444" }}>🚩 신고 {reports.length}건 (미처리 {open}건) — 관리자에게만 보여요</h2>
+      <h2 className="text-sm font-800" style={{ color: "#ef4444" }}>🚩 신고 {reports.length}건 (미처리 {open}건) — 운영자에게만 보여요</h2>
       {error && <p role="alert" className="text-xs" style={{ color: "#ef4444" }}>{error}</p>}
       <ul className="space-y-2">
         {reports.map((r) => (

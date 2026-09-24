@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type ChangeEvent, type ClipboardEvent } from "react";
+import { sanitizeBoardHtml } from "../lib/boardHtml";
 import { useProjectManagement } from "../context/ProjectContext";
 import { dataRepository } from "../api";
 import { BOARD_CATEGORIES } from "../lib/boardData";
@@ -49,7 +50,7 @@ export default function CreatePostView({
 
   useEffect(() => {
     if (editorRef.current && initialPost?.content) {
-      editorRef.current.innerHTML = initialPost.content;
+      editorRef.current.innerHTML = sanitizeBoardHtml(initialPost.content);
       editorRef.current.querySelectorAll("img").forEach((img) => {
         const parent = img.parentElement;
         if (parent && parent.classList.contains("inline-block-img-wrapper") && parent.querySelector(".img-delete-btn")) {

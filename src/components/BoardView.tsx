@@ -65,7 +65,7 @@ function errorMessage(error: unknown): string {
 
 export default function BoardView() {
   const { user } = useAuth();
-  const { isAdmin } = useProjectManagement();
+  const { isAdmin, isOperator } = useProjectManagement();
   const { lineSafeStyle } = useAccountBackground();
 
   const [posts, setPosts] = useState<BoardPost[]>([]);
@@ -296,6 +296,7 @@ export default function BoardView() {
         post={selectedPost}
         currentUserId={user?.id ?? null}
         isAdmin={isAdmin}
+        isOperator={isOperator}
         busy={busy}
         error={error}
         onBack={() => setSelectedPost(null)}
