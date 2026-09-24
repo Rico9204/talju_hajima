@@ -1,3 +1,4 @@
+import StillImg from "./StillImg";
 import { Fragment, useState, useRef, useEffect } from "react";
 import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
 import { belongsToMessageGroup, startsNewChatDay, formatChatDate, formatChatTime } from "../lib/chatDate";
@@ -255,7 +256,7 @@ export default function TeamChat({
                 >
                   <div className="w-9 h-9 relative shrink-0">
                     <div className="w-full h-full rounded-full flex items-center justify-center text-sm font-700 overflow-hidden" style={{ background: c.avatarUrl ? "var(--card)" : `${c.color}18`, color: c.color }}>
-                      {c.avatarUrl ? <img src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
+                      {c.avatarUrl ? <StillImg src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" /> : c.avatar}
                     </div>
                     {c.type === "dm" && c.online && (
                       <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
@@ -301,7 +302,7 @@ export default function TeamChat({
                 title={chan.type === "dm" ? `${chan.name} 프로필 보기` : undefined}
               >
                 <div className="w-full h-full rounded-full flex items-center justify-center text-xs font-700 overflow-hidden" style={{ background: chan.avatarUrl ? "var(--card)" : `${chan.color}18`, color: chan.color }}>
-                  {chan.avatarUrl ? <img src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
+                  {chan.avatarUrl ? <StillImg src={chan.avatarUrl} alt={chan.name} className="w-full h-full object-cover" /> : chan.avatar}
                 </div>
                 {chan.type === "dm" && chan.online && (
                   <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", border: "2px solid var(--card)" }} />
@@ -414,7 +415,7 @@ export default function TeamChat({
                         style={{ background: sender?.avatarUrl ? "var(--card)" : `${sender?.color ?? "#94a3b8"}18`, color: sender?.color ?? "var(--muted-foreground)" }}
                       >
                         {sender?.avatarUrl ? (
-                          <img src={sender.avatarUrl} alt={sender.name} className="w-full h-full object-cover" />
+                          <StillImg src={sender.avatarUrl} alt={sender.name} className="w-full h-full object-cover" />
                         ) : (
                           sender?.avatar ?? "?"
                         )}
@@ -535,7 +536,7 @@ export default function TeamChat({
                               }}
                             >
                               {reader.avatarUrl ? (
-                                <img src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
+                                <StillImg src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
                               ) : (
                                 (reader.avatar.trim() && reader.avatar !== "?" ? reader.avatar : reader.name.trim().slice(0, 1)) || "팀"
                               )}

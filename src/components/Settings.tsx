@@ -21,14 +21,14 @@ const performanceOptions: Array<{ value: PerformanceMode; icon: string; title: s
     icon: "🍃",
     title: "애니메이션 최소화",
     description: "움직이는 장식과 전환 효과를 줄여 편안하게 봅니다.",
-    detail: "배경·카드 디자인은 유지하고 반복 애니메이션만 멈춥니다.",
+    detail: "배경·카드 디자인은 유지하고 반복 애니메이션과 GIF를 멈춥니다. GIF는 프로필 확인창에서만 움직입니다.",
   },
   {
     value: "performance",
     icon: "⚡",
     title: "성능 우선",
     description: "버벅임이 있는 환경을 위해 시각 효과를 가장 적게 사용합니다.",
-    detail: "애니메이션·블러·큰 그림자와 GIF 재생을 줄여 CPU·GPU 사용량을 낮춥니다.",
+    detail: "애니메이션·블러·큰 그림자를 줄이고 GIF는 어디서나 정지 화면으로 보여 CPU·GPU 사용량을 낮춥니다.",
   },
 ];
 

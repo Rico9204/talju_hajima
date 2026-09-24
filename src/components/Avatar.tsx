@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import StillImg from "./StillImg";
 
 // Renders a member's uploaded photo when they have one, falling back to the
 // existing colored-initial badge everywhere else in the app already uses.
 export default function Avatar({
-  url, initial, color, size = 36, className = "", badge,
+  url, initial, color, size = 36, className = "", badge, animate,
 }: {
   url?: string | null;
   initial: string;
@@ -14,9 +15,11 @@ export default function Avatar({
   // Only when set does Avatar grow an extra wrapping element — every other
   // call site keeps rendering the bare <img>/<div> it always has.
   badge?: ReactNode;
+  // Let a GIF play under 애니메이션 최소화 (profile view only).
+  animate?: boolean;
 }) {
   const image = url ? (
-    <img src={url} alt={initial} className={`rounded-full object-cover shrink-0 ${badge ? "" : className}`} style={{ width: size, height: size }} />
+    <StillImg animate={animate} src={url} alt={initial} className={`rounded-full object-cover shrink-0 ${badge ? "" : className}`} style={{ width: size, height: size }} />
   ) : (
     <div
       className={`rounded-full flex items-center justify-center font-700 shrink-0 ${badge ? "" : className}`}

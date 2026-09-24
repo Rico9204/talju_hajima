@@ -30,6 +30,7 @@ import {
 import { canUseTheme, PROFILE_CARD_THEMES } from "../lib/profileThemes";
 import { ACHIEVEMENTS } from "../lib/achievements";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
+import { useStillUrl } from "../lib/useStillUrl";
 import { PROFILE_IMAGE_MIME_TYPES, validateProfileImage } from "../lib/profileImages";
 
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
@@ -68,6 +69,7 @@ export default function ProfileModal() {
   // the edit affordances only render when it's the signed-in user's own id.
   const isSelfProfile = viewedMemberId !== null && viewedMemberId === currentMember?.id;
   const viewedMember = viewedMemberId === currentMember?.id ? currentMember : team.members.find((m) => m.id === viewedMemberId) ?? null;
+  const bannerUrl = useStillUrl(viewedMember?.bannerImageUrl, true); // 성능 우선 only freezes
 
   // 다른 팀원 프로필에는 "이 프로젝트만" 기준인 평가 점수 옆에, 그 사람이
   // 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지도 보여준다 —
@@ -390,10 +392,10 @@ export default function ProfileModal() {
               style={
                 isSelfProfile
                   ? bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl)
-                    ? { backgroundImage: `url(${bannerPreview ?? currentMember?.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+                    ? { backgroundImage: `url(${bannerPreview ?? bannerUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
                     : { background: `linear-gradient(135deg, ${bannerColor}, ${bannerColor}88)` }
                   : viewedMember.bannerImageUrl
-                    ? { backgroundImage: `url(${viewedMember.bannerImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+                    ? { backgroundImage: `url(${bannerUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
                     : { background: `linear-gradient(135deg, ${viewedMember.bannerColor ?? viewedMember.color}, ${viewedMember.bannerColor ?? viewedMember.color}88)` }
               }
             >
@@ -420,6 +422,7 @@ export default function ProfileModal() {
                             initial={isSelfProfile ? myAvatar : viewedMember.avatar}
                             color={(isSelfProfile ? currentMember?.color : viewedMember.color) ?? "#f59e0b"}
                             size={70}
+                            animate
                           />
                         </div>
                       );

@@ -1,3 +1,4 @@
+import StillImg from "./StillImg";
 import { useEffect, useState } from "react";
 import { dataRepository } from "../api";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
@@ -138,7 +139,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
               style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
             >
-              {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+              {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
               {m.isViceLeader && (
                 <span className="absolute -top-1.5 -right-1.5 text-xs" title="부팀장">🚩</span>
               )}
@@ -182,7 +183,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden"
                 style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}
               >
-                {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
+                {sel.avatarUrl ? <StillImg src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
               </button>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">

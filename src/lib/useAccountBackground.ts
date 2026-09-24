@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { useProject } from "../context/ProjectContext";
 import { usePerformanceMode } from "./performancePreferences";
+import { useStillUrl } from "./useStillUrl";
 
 // Shared by every top-level page shell (Layout in App.tsx, Home.tsx) so the
 // signed-in account's background/glass-intensity choice — set in the
@@ -9,15 +10,16 @@ import { usePerformanceMode } from "./performancePreferences";
 export function useAccountBackground() {
   const { currentMember } = useProject();
   const [performanceMode] = usePerformanceMode();
+  const backgroundImage = useStillUrl(currentMember?.backgroundImageUrl); // GIF frozen unless 기본 mode
   const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
   const needsBackgroundFilter = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient);
   const backgroundBlur = Math.min(40, Math.max(0, currentMember?.glassBlur ?? 2));
 
   // Priority: custom background image > gradient preset > solid color preset > default.
   // A dark overlay is blended into the image so the glass cards above it stay legible.
-  const backgroundStyle = currentMember?.backgroundImageUrl
+  const backgroundStyle = currentMember?.backgroundImageUrl && backgroundImage
     ? {
-        backgroundImage: `linear-gradient(rgba(15,18,53,0.28), rgba(15,18,53,0.28)), url(${currentMember.backgroundImageUrl})`,
+        backgroundImage: `linear-gradient(rgba(15,18,53,0.28), rgba(15,18,53,0.28)), url(${backgroundImage})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }
