@@ -45,10 +45,33 @@ export default function CreatePostView({
   const [pollDeadline, setPollDeadline] = useState(
     initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toISOString().slice(0, 16) : ""
   );
+  const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
 
   useEffect(() => {
     if (editorRef.current && initialPost?.content) {
       editorRef.current.innerHTML = initialPost.content;
+      editorRef.current.querySelectorAll("img").forEach((img) => {
+        const parent = img.parentElement;
+        if (parent && parent.classList.contains("inline-block-img-wrapper") && parent.querySelector(".img-delete-btn")) {
+          return;
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "relative inline-block my-3 max-w-full inline-block-img-wrapper group";
+        wrapper.contentEditable = "false";
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.innerHTML = "<span>✕</span><span>삭제</span>";
+        deleteBtn.className = "img-delete-btn absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-white bg-black/60 hover:bg-red-600 rounded-lg shadow-md backdrop-blur-sm transition-all cursor-pointer";
+        deleteBtn.title = "이미지 삭제";
+        deleteBtn.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          wrapper.remove();
+        };
+        img.replaceWith(wrapper);
+        wrapper.appendChild(img);
+        wrapper.appendChild(deleteBtn);
+      });
     }
   }, [initialPost]);
 
@@ -96,17 +119,19 @@ export default function CreatePostView({
       const placeholderEl = editorRef.current?.querySelector(`#${CSS.escape(placeholderId)}`);
       if (!placeholderEl) return;
       const container = document.createElement("div");
-      container.className = "my-3 inline-block-img-wrapper";
+      container.className = "relative inline-block my-3 max-w-full inline-block-img-wrapper group";
       container.contentEditable = "false";
       const img = document.createElement("img");
       img.src = uploaded.url;
       img.alt = "본문 첨부 이미지";
-      img.className = "max-w-full rounded-xl border shadow-sm my-1 block cursor-pointer";
+      img.className = "max-w-full rounded-xl border shadow-sm block cursor-pointer";
       img.style.maxHeight = "450px";
       const deleteBtn = document.createElement("button");
-      deleteBtn.innerText = "✕ 이미지 삭제";
-      deleteBtn.className = "img-delete-btn text-[11px] text-red-500 font-bold mt-1 px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20";
-      deleteBtn.onclick = (e) => { e.preventDefault(); container.remove(); };
+      deleteBtn.type = "button";
+      deleteBtn.innerHTML = "<span>✕</span><span>삭제</span>";
+      deleteBtn.className = "img-delete-btn absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-white bg-black/60 hover:bg-red-600 rounded-lg shadow-md backdrop-blur-sm transition-all cursor-pointer";
+      deleteBtn.title = "이미지 삭제";
+      deleteBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); container.remove(); };
       container.appendChild(img);
       container.appendChild(deleteBtn);
       placeholderEl.replaceWith(container);
@@ -205,9 +230,23 @@ export default function CreatePostView({
     }
 
     if (initialPost && onUpdate) {
-      onUpdate(initialPost.id, { category, title: title.trim(), content: cleanHtml, attachments, poll: pollInput });
+      onUpdate(initialPost.id, {
+        category,
+        title: title.trim(),
+        content: cleanHtml,
+        attachments,
+        poll: pollInput,
+        hideImagePreview,
+      });
     } else {
-      onCreate({ category, title: title.trim(), content: cleanHtml, attachments, poll: pollInput });
+      onCreate({
+        category,
+        title: title.trim(),
+        content: cleanHtml,
+        attachments,
+        poll: pollInput,
+        hideImagePreview,
+      });
     }
   }
 
@@ -279,14 +318,29 @@ export default function CreatePostView({
               <label className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>
                 본문 (원하는 커서 위치에 이미지 Ctrl+V 붙여넣기 가능)
               </label>
-              <label
-                className="cursor-pointer px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all"
-                style={{ background: "#2563eb18", color: "#2563eb", borderRadius: "8px" }}
-                title="커서 위치에 이미지 삽입"
-              >
-                <span>📷 본문에 이미지 삽입</span>
-                <input type="file" accept="image/*" multiple onChange={handleInlineImagePick} className="hidden" />
-              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setHideImagePreview(!hideImagePreview)}
+                  className="px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all rounded-lg cursor-pointer"
+                  style={{
+                    background: hideImagePreview ? "rgba(239, 68, 68, 0.12)" : "var(--muted)",
+                    color: hideImagePreview ? "#ef4444" : "var(--foreground)",
+                    border: hideImagePreview ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid var(--border)",
+                  }}
+                  title="게시글 목록에서 마우스를 올려도 이미지 미리보기가 나타나지 않도록 방지합니다"
+                >
+                  <span>{hideImagePreview ? "🔒 미리보기 방지 ON" : "👁️ 미리보기 방지"}</span>
+                </button>
+                <label
+                  className="cursor-pointer px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all"
+                  style={{ background: "#2563eb18", color: "#2563eb", borderRadius: "8px" }}
+                  title="커서 위치에 이미지 삽입"
+                >
+                  <span>📷 본문에 이미지 삽입</span>
+                  <input type="file" accept="image/*" multiple onChange={handleInlineImagePick} className="hidden" />
+                </label>
+              </div>
             </div>
             <div
               ref={editorRef}

@@ -150,6 +150,16 @@ export default function PostDetailView({
                 📌 필독 공지
               </span>
             )}
+            {post.hideImagePreview && (
+              <span
+                className="text-xs font-700 px-2.5 py-1 flex items-center gap-1"
+                style={{ background: "rgba(100, 116, 139, 0.12)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                title="목록에서 이미지 미리보기가 방지된 게시글입니다"
+              >
+                <span>🔒</span>
+                <span>미리보기 방지</span>
+              </span>
+            )}
           </div>
 
           <h1 className="text-2xl md:text-3xl font-800 leading-snug break-words">{post.title}</h1>

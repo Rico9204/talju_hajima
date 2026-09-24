@@ -214,6 +214,8 @@ async function fetchProfilesById(userIds: string[]): Promise<Record<string, any>
 }
 
 function mapBoardPost(row: any, profile: any, likedByMe: boolean, poll?: BoardPoll | null): BoardPost {
+  const tags: string[] = Array.isArray(row.tags) ? row.tags : [];
+  const hideImagePreview = Boolean(row.hide_image_preview || tags.includes("hide_image_preview") || tags.includes("no_preview"));
   return {
     id: row.id,
     category: row.category,
@@ -227,11 +229,12 @@ function mapBoardPost(row: any, profile: any, likedByMe: boolean, poll?: BoardPo
     likes: row.likes_count,
     likedByMe,
     pinned: row.pinned,
-    tags: row.tags ?? [],
+    tags,
     attachments: row.attachments ?? [],
     commentsCount: row.comments_count,
     comments: [],
     poll: poll ?? null,
+    hideImagePreview,
   };
 }
 
@@ -1550,6 +1553,10 @@ export const supabaseDataRepository: DataRepository = {
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
+    const tags = Array.isArray(input.tags) ? [...input.tags] : [];
+    if (input.hideImagePreview && !tags.includes("hide_image_preview")) {
+      tags.push("hide_image_preview");
+    }
     const { data, error } = await supabase
       .from("board_posts")
       .insert({
@@ -1558,6 +1565,7 @@ export const supabaseDataRepository: DataRepository = {
         content: input.content,
         author_user_id: userId,
         attachments: input.attachments,
+        tags,
       })
       .select()
       .single();
@@ -1660,6 +1668,25 @@ export const supabaseDataRepository: DataRepository = {
     if (patch.title !== undefined) updates.title = patch.title.trim();
     if (patch.content !== undefined) updates.content = patch.content;
     if (patch.attachments !== undefined) updates.attachments = patch.attachments;
+    if (patch.hideImagePreview !== undefined || patch.tags !== undefined) {
+      let baseTags: string[] = patch.tags ? [...patch.tags] : [];
+      if (!patch.tags && patch.hideImagePreview !== undefined) {
+        try {
+          const { data: currentPost } = await supabase.from("board_posts").select("tags").eq("id", postId).single();
+          baseTags = Array.isArray(currentPost?.tags) ? [...currentPost.tags] : [];
+        } catch {
+          baseTags = [];
+        }
+      }
+      if (patch.hideImagePreview !== undefined) {
+        if (patch.hideImagePreview) {
+          if (!baseTags.includes("hide_image_preview")) baseTags.push("hide_image_preview");
+        } else {
+          baseTags = baseTags.filter((t) => t !== "hide_image_preview" && t !== "no_preview");
+        }
+      }
+      updates.tags = baseTags;
+    }
     if (Object.keys(updates).length === 0) return;
     updates.updated_at = new Date().toISOString();
     const { error } = await supabase.from("board_posts").update(updates).eq("id", postId);

@@ -316,6 +316,7 @@ export interface BoardPost {
   commentsCount: number;
   comments: BoardComment[];
   poll?: BoardPoll | null;
+  hideImagePreview?: boolean;
 }
 
 export interface NewBoardPostInput {
@@ -324,6 +325,8 @@ export interface NewBoardPostInput {
   content: string;
   attachments: BoardAttachment[];
   poll?: NewBoardPollInput | null;
+  tags?: string[];
+  hideImagePreview?: boolean;
 }
 
 export interface ChatMessage {
