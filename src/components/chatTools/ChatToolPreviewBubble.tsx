@@ -1,4 +1,5 @@
 import type { ChatToolPayload } from "../../lib/chatTools";
+import LadderIcon from "./LadderIcon"
 
 export default function ChatToolPreviewBubble({
   payload,
@@ -84,7 +85,7 @@ export default function ChatToolPreviewBubble({
               className="text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
               style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}
             >
-              <span>🪜</span>
+              <LadderIcon />
               <span>사다리타기</span>
             </span>
             <span
@@ -115,7 +116,7 @@ export default function ChatToolPreviewBubble({
           className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95"
           style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)" }}
         >
-          <span>🪜</span>
+          <LadderIcon />
           <span>사다리타기 열기</span>
           <span className="text-white/80">➔</span>
         </button>

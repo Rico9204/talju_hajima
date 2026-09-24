@@ -6,12 +6,23 @@ const COLLAPSE_OVER = 300;
 // 카카오톡처럼 긴 메시지는 앞부분만 보여주고 "전체보기"를 누르면 전문을 크게 보여준다.
 export default function ChatMessageText({ text, mine }: { text: string; mine: boolean }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
+
+  async function copyAll() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      window.alert("복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.");
+    }
+  }
 
   if (text.length <= COLLAPSE_OVER) return <>{text}</>;
   return (
@@ -30,7 +41,17 @@ export default function ChatMessageText({ text, mine }: { text: string; mine: bo
           <section role="dialog" aria-label="메시지 전체보기" className="w-[min(92vw,640px)] max-h-[80vh] flex flex-col border" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", color: "var(--foreground)" }}>
             <div className="flex items-center justify-between px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
               <span className="text-sm font-700">메시지 전체보기</span>
-              <button type="button" onClick={() => setOpen(false)} aria-label="닫기" className="w-8 h-8 text-lg">×</button>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => void copyAll()} aria-label="전체 복사" title="전체 복사" className="h-8 px-2 flex items-center gap-1 text-xs font-700 rounded-lg" style={{ color: copied ? "var(--primary)" : "var(--foreground)" }}>
+                  {copied ? (
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
+                  )}
+                  {copied ? "복사됨" : "복사"}
+                </button>
+                <button type="button" onClick={() => setOpen(false)} aria-label="닫기" className="w-8 h-8 text-lg">×</button>
+              </div>
             </div>
             <div className="p-5 overflow-y-auto text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text}</div>
           </section>
