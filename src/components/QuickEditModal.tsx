@@ -2,8 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { WorkspaceFile } from "../api/types";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
 
-// "바로 수정": 여러 명이 같은 텍스트 파일을 동시에 고친다. 자동 저장은 하지 않고, 누구든 "저장"(Ctrl/⌘+S)을
-// 누르면 지금 합쳐진 내용이 새 버전으로 저장된다. 이미 같은 내용이 저장돼 있으면(다른 사람이 먼저 저장) 건너뛴다.
+const AUTOSAVE_MS = 5 * 60 * 1000;
+
+// "바로 수정": 여러 명이 같은 텍스트 파일을 동시에 고친다. 누구든 "저장"(Ctrl/⌘+S)을 누르면 지금 합쳐진 내용이
+// 새 버전으로 저장되고, 열어 둔 동안 5분마다 변경이 있으면 자동으로도 저장한다. 이미 같은 내용이 저장돼 있으면
+// (다른 사람이 먼저 저장) 건너뛴다.
 export default function QuickEditModal({ projectId, file, room, mode, initialText, presence, editors, save, onClose }: {
   projectId: string;
   file: WorkspaceFile;
@@ -12,7 +15,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   initialText: string;
   presence: CollabPresence;
   editors: CollabEditor[];
-  save: (text: string, baseVersionId: number) => Promise<number>;
+  save: (text: string, baseVersionId: number, auto: boolean) => Promise<number>;
   onClose: () => void;
 }) {
   const [value, setValue] = useState(initialText);
@@ -37,7 +40,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   };
 
   // 저장 성공 여부를 돌려준다(닫을 때 저장 후 닫기에서 사용).
-  async function runSave(): Promise<boolean> {
+  async function runSave(auto = false): Promise<boolean> {
     const doc = docRef.current;
     if (!doc || saving.current) return false;
     const text = doc.text();
@@ -45,7 +48,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
     saving.current = true;
     setStatus("saving");
     try {
-      const id = await saveRef.current(text, doc.head());
+      const id = await saveRef.current(text, doc.head(), auto);
       doc.markSaved(id, text);
       setStatus("saved");
       setSavedAt(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }));
@@ -78,6 +81,13 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
       docRef.current = null;
       window.setTimeout(() => doc.destroy(), 1500); // 마지막 저장 알림이 나갈 시간
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 5분마다 자동 저장(변경이 없으면 runSave가 건너뜀).
+  useEffect(() => {
+    const id = window.setInterval(() => { void runSave(true); }, AUTOSAVE_MS);
+    return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -124,7 +134,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   }
 
   const names = [...new Set(roomEditors.map((e) => e.name))];
-  const statusText = status === "saving" ? "저장 중…" : status === "error" ? "저장 실패" : dirty ? "저장하지 않은 변경사항이 있어요" : status === "saved" ? `저장됨 ${savedAt}`.trim() : "변경사항 없음";
+  const statusText = status === "saving" ? "저장 중…" : status === "error" ? "저장 실패" : dirty ? "저장하지 않은 변경사항이 있어요 (5분마다 자동 저장)" : status === "saved" ? `저장됨 ${savedAt}`.trim() : "변경사항 없음";
   const lastEditor = names.length <= 1;
 
   return (

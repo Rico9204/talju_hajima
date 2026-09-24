@@ -132,11 +132,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     }
   }
 
-  async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number): Promise<number> {
+  async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number, auto: boolean): Promise<number> {
     const base = f.versions.find((v) => v.id === room);
     const result = await uploadWorkspaceFile({
       file: new File([text], base?.originalName ?? f.name, { type: base?.mimeType ?? "text/plain" }),
-      fileId: f.id, folderId: f.folderId, baseVersionId, note: "바로 수정으로 저장", tags: f.tags,
+      fileId: f.id, folderId: f.folderId, baseVersionId, note: auto ? "바로 수정 자동 저장" : "바로 수정으로 저장", tags: f.tags,
     });
     return result.versionId;
   }
@@ -630,7 +630,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           initialText={editing.initialText}
           presence={presenceRef.current}
           editors={editors}
-          save={(text, base) => saveQuickEdit(files.find((f) => f.id === editing.fileId)!, editing.room, text, base)}
+          save={(text, base, auto) => saveQuickEdit(files.find((f) => f.id === editing.fileId)!, editing.room, text, base, auto)}
           onClose={() => setEditing(null)}
         />
       )}
