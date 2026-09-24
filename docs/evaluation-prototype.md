@@ -6,7 +6,7 @@
 중복 제출 방지, 본인 제외, 프로젝트 참여자 확인, 항목별 합계 검증은 그대로 적용합니다.
 
 ## 적용
-기존 평가 마이그레이션 이후 supabase/migration_evaluation_prototype.sql을 실행합니다.
+기존 평가 마이그레이션 이후 supabase/migrations/2609151629_evaluation_prototype.sql을 실행합니다.
 새 DB의 schema.sql에도 포함되어 있습니다.
 프로토타입 모드는 DB의 evaluation_prototype_enabled() 반환값으로 화면과 서버가 함께 판단합니다.
 클라이언트에서 모드를 변경할 수는 없습니다.

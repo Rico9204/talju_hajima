@@ -4,8 +4,8 @@ Supabase를 유지하면서 `Temporary_Merge`의 버전 트리·기준 버전 �
 
 ## 적용 순서
 
-1. 기존 DB는 Supabase SQL Editor에서 `supabase/migration_workspace_versioning.sql`을 실행합니다. 새 DB는 갱신된 `supabase/schema.sql`을 사용합니다.
-2. 기존 버전관리 SQL을 이미 적용했다면 `supabase/migration_workspace_storage_unicode.sql`도 실행합니다. 한글 프로젝트 ID의 `Invalid key` 오류를 해결하며 기존 원본은 이동하지 않습니다.
+1. 기존 DB는 Supabase SQL Editor에서 `supabase/migrations/2609171815_workspace_versioning.sql`을 실행합니다. 새 DB는 갱신된 `supabase/schema.sql`을 사용합니다.
+2. 기존 버전관리 SQL을 이미 적용했다면 `supabase/migrations/2609171840_workspace_storage_unicode.sql`도 실행합니다. 한글 프로젝트 ID의 `Invalid key` 오류를 해결하며 기존 원본은 이동하지 않습니다.
 3. 프런트엔드를 배포합니다. 기존 메타데이터 전용 업로드는 SQL 적용 후 사용할 수 없으므로 함께 배포해야 합니다.
 4. 실제 프로젝트에서 PDF·PPTX·이미지를 업로드하고 다운로드한 파일의 내용이 같은지 확인합니다. 이어 다른 팀원 계정에서 조회하고, 비참여 계정에서 접근이 차단되는지 확인합니다.
 
@@ -13,13 +13,13 @@ Supabase를 유지하면서 `Temporary_Merge`의 버전 트리·기준 버전 �
 
 ### 기존 설치의 RLS 오류 수정
 
-한글 경로 마이그레이션을 적용한 뒤에도 업로드가 `new row violates row-level security policy`로 실패하면 `supabase/migration_workspace_storage_policy_scope.sql`을 적용합니다. 기존 정책의 하위 쿼리에서 `name`이 파일 경로 대신 `projects.name`으로 해석되던 오류를 `objects.name` 명시로 수정합니다. 원본 파일·프로젝트 데이터는 변경하지 않고 기존 참여자·업로더·진행 상태 검사를 유지합니다. 최신 전체 마이그레이션에는 이 수정이 포함되어 있습니다.
+한글 경로 마이그레이션을 적용한 뒤에도 업로드가 `new row violates row-level security policy`로 실패하면 `supabase/migrations/2609171905_workspace_storage_policy_scope.sql`을 적용합니다. 기존 정책의 하위 쿼리에서 `name`이 파일 경로 대신 `projects.name`으로 해석되던 오류를 `objects.name` 명시로 수정합니다. 원본 파일·프로젝트 데이터는 변경하지 않고 기존 참여자·업로더·진행 상태 검사를 유지합니다. 최신 전체 마이그레이션에는 이 수정이 포함되어 있습니다.
 
 ## 사용
 
 ### 이미지 필수 태그 및 파일 태그 편집
 
-`supabase/migration_workspace_tags.sql`을 기존 버전관리·경로 정책 마이그레이션 적용 후 실행하고 프런트엔드를 배포합니다. 새 DB에는 최신 `schema.sql`을 사용합니다. 기존 단일 태그는 복수 태그 배열로 옮기며 기본값 `기타`는 사용자가 입력한 태그로 간주하지 않습니다.
+`supabase/migrations/2609171934_workspace_tags.sql`을 기존 버전관리·경로 정책 마이그레이션 적용 후 실행하고 프런트엔드를 배포합니다. 새 DB에는 최신 `schema.sql`을 사용합니다. 기존 단일 태그는 복수 태그 배열로 옮기며 기본값 `기타`는 사용자가 입력한 태그로 간주하지 않습니다.
 
 업로드 전에 쉼표로 태그를 입력합니다. 이미지는 하나 이상의 태그가 필요하며 새 버전 업로드에도 적용됩니다. 파일을 선택한 뒤 `태그 편집`에서 추가·변경·삭제하고 저장할 수 있습니다. 태그는 파일 전체에 적용하며 버전마다 별도로 분리하지 않습니다. 이미지 이력이 있는 파일은 최소 하나를 유지해야 합니다. 일반 파일의 태그는 선택 사항입니다. 최대 10개, 태그당 30자이며 공백과 중복은 정리됩니다. 각 태그로 현재 폴더의 파일을 필터링할 수 있습니다.
 
@@ -59,11 +59,11 @@ DB 테스트에는 별도로 설치한 `@electric-sql/pglite`가 필요합니다
 
 `node tests/preview-workspace.mjs`로 운영 데이터에 접근하지 않는 UI 검증 화면을 열 수 있습니다: `http://127.0.0.1:5183/tests/fixtures/workspace.html`.
 
-업로드 시각 기록: `migration_workspace_upload_time.sql`을 추가 실행합니다. 신규 버전의 업로드 시각은 DB 서버에서 기록하며 화면에서는 한국 시간(YYYY-MM-DD HH:mm)으로 표시합니다. 태그 수정·핀·버전 승격은 업로드 시각을 변경하지 않습니다. 기존 기록은 정확한 시각을 알 수 없어 날짜만 표시합니다.
+업로드 시각 기록: `migrations/2609171935_workspace_upload_time.sql`을 추가 실행합니다. 신규 버전의 업로드 시각은 DB 서버에서 기록하며 화면에서는 한국 시간(YYYY-MM-DD HH:mm)으로 표시합니다. 태그 수정·핀·버전 승격은 업로드 시각을 변경하지 않습니다. 기존 기록은 정확한 시각을 알 수 없어 날짜만 표시합니다.
 
 ### 파일과 폴더 삭제
 
-`migration_workspace_delete.sql`을 위 마이그레이션들 이후 실행합니다.
+`migrations/2609171933_workspace_delete.sql`을 위 마이그레이션들 이후 실행합니다.
 
 - 파일 상세의 **파일 삭제**: 팀장 또는 최초 업로더가 전체 버전·댓글을 삭제합니다. 채팅의 파일 참조는 해제됩니다. 새 버전을 올리는 것으로 파일 소유권이 이전되지는 않습니다.
 - 폴더를 연 뒤 **폴더 삭제**: 팀장 또는 생성자가 빈 폴더를 삭제합니다. 내용물이 있는 폴더는 먼저 파일을 정리해야 합니다.
@@ -73,11 +73,11 @@ DB 테스트에는 별도로 설치한 `@electric-sql/pglite`가 필요합니다
 
 ### 댓글 이모티콘과 프로필
 
-`migration_workspace_comment_reactions.sql`을 실행합니다. 댓글의 이모티콘 입력과 반응 추가·취소를 지원합니다. 신규 댓글 작성자는 DB에서 계정으로 식별하며 현재 프로필 사진·이름을 표시합니다. 기존 댓글은 신원을 추측하지 않고 기존 이름·아바타를 표시합니다. 다른 팀원의 댓글·반응은 창 복귀 또는 30초 주기 갱신으로 반영됩니다. 종료 프로젝트는 조회만 가능합니다.
+`migrations/2609172042_workspace_comment_reactions.sql`을 실행합니다. 댓글의 이모티콘 입력과 반응 추가·취소를 지원합니다. 신규 댓글 작성자는 DB에서 계정으로 식별하며 현재 프로필 사진·이름을 표시합니다. 기존 댓글은 신원을 추측하지 않고 기존 이름·아바타를 표시합니다. 다른 팀원의 댓글·반응은 창 복귀 또는 30초 주기 갱신으로 반영됩니다. 종료 프로젝트는 조회만 가능합니다.
 
 ### 본문 추출·검색·하이라이트
 
-배포 전에 `migration_workspace_search.sql`을 실행합니다. 기존 태그 버전 등록 RPC를 이용하는 검색 지원 RPC를 추가하며, 파일 버전과 추출 본문을 같은 트랜잭션에서 등록합니다. 원본은 기존 private Storage에 유지하고, Base64 원본이나 브라우저 캐시를 DB에 복제하지 않습니다.
+배포 전에 `migrations/2609172119_workspace_search.sql`을 실행합니다. 기존 태그 버전 등록 RPC를 이용하는 검색 지원 RPC를 추가하며, 파일 버전과 추출 본문을 같은 트랜잭션에서 등록합니다. 원본은 기존 private Storage에 유지하고, Base64 원본이나 브라우저 캐시를 DB에 복제하지 않습니다.
 
 - PDF와 TXT·MD·CSV·JSON·소스 코드 등 텍스트 파일을 업로드하면 브라우저에서 본문을 추출합니다. PDF는 최대 100페이지·30초, 일반 텍스트 입력은 1MB, 저장 본문은 최대 20만 문자입니다. 한도를 넘으면 일부 추출 상태를 표시합니다.
 - 스캔 PDF·이미지 OCR 및 DOCX/PPTX 본문 추출은 지원하지 않습니다. 추출 실패·미지원이어도 원본 업로드는 가능하며 버전별 상태가 남습니다.

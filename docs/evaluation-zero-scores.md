@@ -4,7 +4,7 @@
 
 ## 기존 DB 적용
 
-프런트엔드 배포 전에 Supabase SQL Editor에서 `supabase/migration_evaluation_zero_scores.sql`을 실행합니다. 기존 동료 평가 및 프로토타입 마이그레이션이 적용된 DB를 대상으로 합니다.
+프런트엔드 배포 전에 Supabase SQL Editor에서 `supabase/migrations/2609171745_evaluation_zero_scores.sql`을 실행합니다. 기존 동료 평가 및 프로토타입 마이그레이션이 적용된 DB를 대상으로 합니다.
 
 이 마이그레이션은 5개 점수 제약과 제출 함수의 하한을 0으로 변경합니다. 기존 데이터, 접근 정책, 프로토타입 활성화 여부와 평가 시기 제한은 유지합니다. 적용하지 않으면 화면에서 선택한 0점을 DB가 거부합니다.
 

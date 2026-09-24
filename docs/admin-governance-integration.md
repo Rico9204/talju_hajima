@@ -24,7 +24,7 @@
 
 ## 적용
 
-기존 DB에는 최신 main 마이그레이션들이 적용된 상태에서 `supabase/migration_admin_governance.sql`을 적용한 후 프런트엔드를 배포한다. 신규 DB는 `supabase/schema.sql`에 통합되어 있다. 통합 작업 중 운영 DB에는 SQL을 실행하지 않았다.
+기존 DB에는 최신 main 마이그레이션들이 적용된 상태에서 `supabase/migrations/2609180011_admin_governance.sql`을 적용한 후 프런트엔드를 배포한다. 신규 DB는 `supabase/schema.sql`에 통합되어 있다. 통합 작업 중 운영 DB에는 SQL을 실행하지 않았다.
 
 이 마이그레이션은 이전 coffe 마이그레이션 6개를 대신한다. 이전 파일을 추가로 실행하면 권한 정책이 되돌아갈 수 있으므로 실행하지 않는다.
 

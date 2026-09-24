@@ -58,5 +58,5 @@
 
 ## DB 마이그레이션 (SQL 에디터 실행 필요/완료)
 
-- `migration_section_unread_badges.sql` — 과제/일정/워크스페이스 알림 배지용 컬럼·RPC (실행 완료)
-- `migration_dashboard_activity.sql` — 파일 `created_at` 활동 추적용 (뒤늦게 실행 확인됨)
+- `migrations/2609201709_section_unread_badges.sql` — 과제/일정/워크스페이스 알림 배지용 컬럼·RPC (실행 완료)
+- `migrations/2609162333_dashboard_activity.sql` — 파일 `created_at` 활동 추적용 (뒤늦게 실행 확인됨)

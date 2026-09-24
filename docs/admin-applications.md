@@ -39,7 +39,7 @@ update public.profiles set is_operator = true, is_admin = true where id = '<운�
 
 ## 적용 순서(기존 DB)
 
-1. `supabase/migrations/20260921180000_admin_applications.sql`을 SQL Editor에서 한 번 실행한다(부팀장 마이그레이션 `20260921170000`이 먼저 적용되어 있어야 한다).
+1. `supabase/migrations/2609211800_admin_applications.sql`을 SQL Editor에서 한 번 실행한다(부팀장 마이그레이션 `2609211700`이 먼저 적용되어 있어야 한다).
 2. `supabase/verify_runtime.sql`을 실행해 모든 행이 `ready = true`인지 확인한다.
 3. 운영자 계정을 위 SQL로 지정한다.
 4. **이메일 인증(Confirm email)** 설정을 확인한다. 현재 운영 DB는 꺼져 있고, 이 경우 가짜 이메일로도 가입되며 Supabase가 이메일을 자동으로 "인증됨" 처리한다. 그래서 운영자 화면의 "이메일 인증됨" 배지는 기본으로 **숨겨져** 있다(`src/lib/adminApplication.ts`의 `SHOW_EMAIL_VERIFICATION_BADGE`). 이메일 인증을 켜고 운영한다면 이 값을 `true`로 바꾼다. 어느 쪽이든 승인은 운영자가 연락처와 증명서로 직접 확인하는 것이 기준이다.
