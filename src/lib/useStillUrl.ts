@@ -5,9 +5,9 @@ const stills = new Map<string, string>();
 
 // GIF handling per Settings > 그래픽: 고급 = plays; 기본 = frozen
 // unless `animate` (profile view); 성능 우선 = always frozen. Non-GIF urls pass through.
-export function useStillUrl(url: string | null | undefined, animate = false): string | null | undefined {
+export function useStillUrl(url: string | null | undefined, animate = false, forceFreeze = false): string | null | undefined {
   const [mode] = usePerformanceMode();
-  const freeze = !!url && /\.gif(\?|$)/i.test(url) && (mode === "performance" || (mode === "reduced-motion" && !animate));
+  const freeze = !!url && /\.gif(\?|$)/i.test(url) && (forceFreeze ? (!animate || mode === "performance") : mode === "performance" || (mode === "reduced-motion" && !animate));
   const [still, setStill] = useState<string | null>(null);
 
   useEffect(() => {
