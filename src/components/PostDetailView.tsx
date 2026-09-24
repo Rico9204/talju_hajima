@@ -8,6 +8,7 @@ export default function PostDetailView({
   post,
   currentUserId,
   isAdmin,
+  isOperator = false,
   busy,
   error,
   onBack,
@@ -24,6 +25,7 @@ export default function PostDetailView({
   post: BoardPost;
   currentUserId: string | null;
   isAdmin: boolean;
+  isOperator?: boolean;
   busy: boolean;
   error: string | null;
   onBack: () => void;
@@ -124,7 +126,7 @@ export default function PostDetailView({
         )}
       </div>
 
-      {isAdmin && <PostReportList postId={post.id} />}
+      {isOperator && <PostReportList postId={post.id} />}
 
       {error && (
         <div role="alert" className="p-3 text-xs rounded-xl" style={{ background: "#ef444418", color: "#ef4444" }}>

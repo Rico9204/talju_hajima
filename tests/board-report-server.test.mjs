@@ -35,10 +35,12 @@ const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 
 await db.exec(schema);
 // 마이그레이션 단독 파일도 이미 적용된 스키마 위에서 안전해야 한다.
 await db.exec(readFileSync(new URL('../supabase/migrations/2609242300_board_post_reports.sql', import.meta.url), 'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609242330_board_reports_operator_only.sql', import.meta.url), 'utf8'));
 
-const ids = [0, 1, 2, 3].map((n) => `00000000-0000-0000-0000-${String(n + 1).padStart(12, '0')}`); // 0 작성자, 1·2 신고자, 3 관리자
+const ids = [0, 1, 2, 3, 4].map((n) => `00000000-0000-0000-0000-${String(n + 1).padStart(12, '0')}`); // 0 작성자, 1·2 신고자, 3 운영자, 4 일반 관리자
 for (const id of ids) await db.query("insert into auth.users(id,email,raw_user_meta_data) values($1,$2,'{\"display_name\":\"사용자\"}')", [id, `${id}@example.test`]);
-await db.query('update profiles set is_admin=true where id=$1', [ids[3]]);
+await db.query('update profiles set is_admin=true, is_operator=true where id=$1', [ids[3]]);
+await db.query('update profiles set is_admin=true where id=$1', [ids[4]]);
 let count = 0;
 async function check(name, fn) { try { await fn(); } catch (error) { console.log('FAIL ' + name); throw error; } console.log('PASS ' + name); count++; }
 async function login(i) { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)", [ids[i]]); await db.exec('set role authenticated'); }
@@ -61,17 +63,19 @@ await check('신고: 1인 1회, 다른 사용자는 각각 가능', async () => 
   await rejects(report(1, 'spam'), /이미 신고/);
   await report(2, 'spam');
 });
-await check('신고 내용은 신고자 본인과 관리자만 볼 수 있고, 직접 쓸 수 없다', async () => {
+await check('신고 내용은 신고자 본인과 운영자만 볼 수 있고, 직접 쓸 수 없다', async () => {
   await login(1); assert.equal((await db.query('select * from board_post_reports')).rows.length, 1);
   await login(0); assert.equal((await db.query('select * from board_post_reports')).rows.length, 0); // 작성자는 못 봄
+  await login(4); assert.equal((await db.query('select * from board_post_reports')).rows.length, 0); // 일반 관리자는 못 봄
   await login(3); assert.equal((await db.query('select * from board_post_reports')).rows.length, 2);
   await login(1);
   await rejects(db.query("insert into board_post_reports(post_id,reporter_user_id,reason) values($1,$2,'spam')", [postId, ids[2]]), /permission denied/);
   await rejects(db.query("update board_post_reports set status='dismissed'"), /permission denied/);
   await rejects(db.query('delete from board_post_reports'), /permission denied/);
 });
-await check('처리는 관리자만, 처리 후 상태와 처리자가 기록된다', async () => {
-  await rejects(rpc(1, "select review_board_report($1,'dismissed')", [r1]), /관리자만/);
+await check('처리는 운영자만(일반 관리자 불가), 처리 후 상태와 처리자가 기록된다', async () => {
+  await rejects(rpc(1, "select review_board_report($1,'dismissed')", [r1]), /운영자만/);
+  await rejects(rpc(4, "select review_board_report($1,'dismissed')", [r1]), /운영자만/);
   await rejects(rpc(3, "select review_board_report($1,'open')", [r1]), /올바르지 않은/);
   await rpc(3, "select review_board_report($1,'resolved')", [r1]);
   const row = (await db.query('select status,reviewed_by from board_post_reports where id=$1', [r1])).rows[0];
