@@ -3,6 +3,7 @@ import { Fragment, useState, useRef, useEffect } from "react";
 import { useProject, dmChannelId, type WorkspaceFile } from "../context/ProjectContext";
 import { belongsToMessageGroup, startsNewChatDay, formatChatDate, formatChatTime } from "../lib/chatDate";
 import SearchHighlight from "./SearchHighlight";
+import ChatMessageText from "./ChatMessageText";
 
 interface FileRef {
   id: number;
@@ -437,7 +438,7 @@ export default function TeamChat({
                             overflowWrap: "anywhere",
                           }}
                         >
-                          {m.text}
+                          <ChatMessageText text={m.text} mine={mine} />
                         </div>
                       )}
                       {fileRef && (
@@ -475,21 +476,21 @@ export default function TeamChat({
                       >
                         😊
                       </button>
-                      {reactionPickerMessageId === m.id && (
-                        <div className={`absolute top-0 ${mine ? "right-full mr-1" : "left-full ml-1"} flex items-center gap-0.5 p-1`} style={{ background: "var(--card-glass)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
-                          {chatEmojis.map((emoji) => (
-                            <button
-                              key={emoji}
-                              onClick={() => { void toggleChatReaction(m.id, emoji); setReactionPickerMessageId(null); }}
-                              className="w-7 h-7 text-sm transition-transform hover:scale-110"
-                              title={`${emoji} 반응`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
+                    {reactionPickerMessageId === m.id && (
+                      <div className={`absolute top-full mt-1 z-20 ${mine ? "right-0" : "left-0"} flex items-center gap-0.5 p-1`} style={{ background: "var(--card-glass)", border: "1px solid var(--border)", borderRadius: "14px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", animation: "reaction-picker-in 180ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
+                        {chatEmojis.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => { void toggleChatReaction(m.id, emoji); setReactionPickerMessageId(null); }}
+                            className="w-7 h-7 text-sm transition-transform hover:scale-110"
+                            title={`${emoji} 반응`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {m.reactions.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1 mt-1.5 px-0.5">
