@@ -415,8 +415,8 @@ export default function TeamChat({
                         className="w-full h-full flex items-center justify-center text-[11px] font-700"
                         style={{ background: sender?.avatarUrl ? "var(--card)" : `${sender?.color ?? "#94a3b8"}18`, color: sender?.color ?? "var(--muted-foreground)" }}
                       >
-                        {sender?.avatarUrl ? (
-                          <StillImg src={sender.avatarUrl} alt={sender.name} className="w-full h-full object-cover" />
+                        {sender?.avatarUrl && !joinsPrevious ? (
+                          <StillImg hoverPlay src={sender.avatarUrl} alt={sender.name} className="w-full h-full object-cover" />
                         ) : (
                           sender?.avatar ?? "?"
                         )}
@@ -537,7 +537,7 @@ export default function TeamChat({
                               }}
                             >
                               {reader.avatarUrl ? (
-                                <StillImg src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
+                                <StillImg hoverPlay src={reader.avatarUrl} alt={reader.name} className="w-full h-full object-cover" />
                               ) : (
                                 (reader.avatar.trim() && reader.avatar !== "?" ? reader.avatar : reader.name.trim().slice(0, 1)) || "팀"
                               )}
