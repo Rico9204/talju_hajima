@@ -28,6 +28,8 @@ import type {
   BoardAttachment,
   BoardComment,
   BoardPoll,
+  BoardPostReport,
+  BoardReportReason,
   MyAdminApplication,
   AdminApplicationInput,
   AdminApplicationRecord,
@@ -174,4 +176,8 @@ export interface DataRepository {
   uploadBoardAttachment(file: File): Promise<BoardAttachment>;
   castBoardPollVote(pollId: number, optionIds: number[]): Promise<BoardPoll>;
   closeBoardPoll(pollId: number): Promise<void>;
+  reportBoardPost(postId: number, reason: BoardReportReason, detail: string): Promise<void>;
+  listBoardPostReports(postId: number): Promise<BoardPostReport[]>; // 관리자만
+  listAllBoardReports(): Promise<BoardPostReport[]>; // 관리자만, 최신순
+  reviewBoardReport(reportId: number, status: "resolved" | "dismissed"): Promise<void>;
 }

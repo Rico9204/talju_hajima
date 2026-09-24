@@ -261,6 +261,22 @@ export interface BoardComment {
   replies: BoardReply[];
 }
 
+export type BoardReportReason = "spam" | "abuse" | "sexual" | "privacy" | "other";
+
+export interface BoardPostReport {
+  id: number;
+  postId: number | null; // 게시글이 삭제되면 null
+  postTitle: string;
+  postExcerpt: string;
+  postAuthorName: string;
+  reporterUserId: string;
+  reporterName: string;
+  reason: BoardReportReason;
+  detail: string;
+  status: "open" | "resolved" | "dismissed";
+  createdAt: string;
+}
+
 export interface BoardPollVoter {
   userId: string;
   name: string;
@@ -318,6 +334,7 @@ export interface BoardPost {
   comments: BoardComment[];
   poll?: BoardPoll | null;
   hideImagePreview?: boolean;
+  reportedByMe?: boolean;
 }
 
 export interface NewBoardPostInput {
