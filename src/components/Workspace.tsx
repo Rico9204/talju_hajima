@@ -33,7 +33,8 @@ import FolderSync from "./FolderSync";
 import QuickEditModal from "./QuickEditModal";
 import DocEditorModal from "./DocEditorModal";
 import SlidesEditorModal from "./SlidesEditorModal";
-import OfficePreview, { isOfficePreviewablePath } from "./OfficePreview";
+import OfficePreview, { isOfficePreviewablePath, isOfficeEditablePath } from "./OfficePreview";
+import OfficeEditModal from "./OfficeEditModal";
 
 const COLLAB_PRESENCE_POLL_MS = 4000;
 
@@ -1118,6 +1119,8 @@ export default function Workspace() {
   // 지금 열려있는 리치 문서/슬라이드 편집기 대상 파일 id — null이면 안 열림.
   const [docEditorFileId, setDocEditorFileId] = useState<string | null>(null);
   const [slidesEditorFileId, setSlidesEditorFileId] = useState<string | null>(null);
+  // 지금 열려있는 워드/엑셀/PPT(OnlyOffice) 편집기 대상 파일 id — null이면 안 열림.
+  const [officeEditFileId, setOfficeEditFileId] = useState<string | null>(null);
   const [creatingDocOrSlides, setCreatingDocOrSlides] = useState(false);
   const [creatingDocKind, setCreatingDocKind] = useState<"rtdoc" | "slides" | null>(null);
   const [newDocName, setNewDocName] = useState("");
@@ -1845,6 +1848,18 @@ export default function Workspace() {
                   >
                     ✏️
                   </button>
+                ) : isOfficeEditablePath(f.path) ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOfficeEditFileId(f.id);
+                    }}
+                    title="바로 수정 — 워드/엑셀/PPT 편집기로 지금 바로 고치기"
+                    className="w-7 h-7 flex items-center justify-center text-xs shrink-0"
+                    style={{ borderRadius: "50%", background: isSelected ? "rgba(255,255,255,0.2)" : "var(--muted)", color: isSelected ? "#fff" : "var(--foreground)" }}
+                  >
+                    ✏️
+                  </button>
                 ) : (
                   !isBinaryPath(f.path) && (
                   <button
@@ -1952,6 +1967,15 @@ export default function Workspace() {
                           else setSlidesEditorFileId(selectedFile.id);
                         }}
                         title="바로 수정 — 실시간 공동편집으로 지금 바로 고치기"
+                        className="w-9 shrink-0 flex items-center justify-center text-sm"
+                        style={{ borderRadius: "10px", border: "2px solid var(--border)", color: "var(--foreground)", background: "transparent" }}
+                      >
+                        ✏️
+                      </button>
+                    ) : isOfficeEditablePath(selectedFile.path) ? (
+                      <button
+                        onClick={() => setOfficeEditFileId(selectedFile.id)}
+                        title="바로 수정 — 워드/엑셀/PPT 편집기로 지금 바로 고치기"
                         className="w-9 shrink-0 flex items-center justify-center text-sm"
                         style={{ borderRadius: "10px", border: "2px solid var(--border)", color: "var(--foreground)", background: "transparent" }}
                       >
@@ -2382,6 +2406,23 @@ export default function Workspace() {
               myName={currentMember.name}
               onClose={async () => {
                 setSlidesEditorFileId(null);
+                await refresh();
+              }}
+            />
+          );
+        })()}
+
+      {officeEditFileId &&
+        (() => {
+          const target = files.find((f) => f.id === officeEditFileId);
+          if (!target) return null;
+          return (
+            <OfficeEditModal
+              projectId={project.id}
+              fileId={target.id}
+              filePath={target.path}
+              onClose={async () => {
+                setOfficeEditFileId(null);
                 await refresh();
               }}
             />

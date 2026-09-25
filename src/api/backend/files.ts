@@ -60,6 +60,18 @@ export function listFileVersions(projectId: string, fileId: string) {
   return apiClient.get<FileVersion[]>(`/projects/${projectId}/files/${fileId}/versions`);
 }
 
+// OnlyOffice(워드/엑셀/PPT 인앱 편집기) 설정 — 그대로 OnlyOffice의 DocEditor에 넘기면 된다.
+export interface OnlyofficeConfig {
+  document: { fileType: string; key: string; title: string; url: string; permissions: Record<string, boolean> };
+  documentType: "word" | "cell" | "slide";
+  editorConfig: { callbackUrl: string; lang: string; user: { id: string; name: string }; customization: Record<string, boolean> };
+  token: string;
+}
+
+export function getOnlyofficeConfig(projectId: string, fileId: string) {
+  return apiClient.get<OnlyofficeConfig>(`/projects/${projectId}/files/${fileId}/onlyoffice/config`);
+}
+
 export function promoteVersion(projectId: string, fileId: string, versionId: string) {
   return apiClient.post<ProjectFile>(`/projects/${projectId}/files/${fileId}/versions/${versionId}/promote`);
 }

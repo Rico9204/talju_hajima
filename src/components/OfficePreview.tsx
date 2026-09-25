@@ -202,6 +202,15 @@ export function isOfficePreviewablePath(path: string): boolean {
   return PREVIEWABLE_EXTENSIONS.has(ext);
 }
 
+// OnlyOffice(백엔드에 붙여둔 문서 편집 서버)로 실제 편집 가능한 확장자 — backend의
+// onlyoffice.service.ts EXT_TYPE_MAP과 반드시 맞춰야 한다. PDF는 뷰어는 있어도 편집 대상은 아님.
+const EDITABLE_EXTENSIONS = new Set(["docx", "doc", "xlsx", "xls", "pptx", "ppt"]);
+
+export function isOfficeEditablePath(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return EDITABLE_EXTENSIONS.has(ext);
+}
+
 export default function OfficePreview({ path, content }: { path: string; content: string }) {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return (

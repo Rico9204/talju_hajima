@@ -19,6 +19,19 @@ export function collabAuthToken(): string {
   return getAccessToken() ?? "";
 }
 
+// OnlyOffice(워드/엑셀/PPT 편집기)의 DocsAPI.js 스크립트를 백엔드(OnlyOffice 프록시 경유)에서
+// 그대로 불러오는 데 쓴다. /api, /collab과 달리 이 경로들은 vite.config.ts에 프록시로 등록돼
+// 있지 않으므로(백엔드가 직접 처리하는 프록시라 vite가 몰라도 됨), 상대경로("/api")로 붙는
+// 로컬 개발 환경에서는 window.location.origin이 아니라 백엔드가 실제로 떠 있는 주소(3000번
+// 포트)로 바로 가야 한다.
+export function buildBackendHttpOrigin(): string {
+  const base = apiClient.defaults.baseURL || "/api";
+  if (base.startsWith("http")) {
+    return base.replace(/\/api\/?$/, "");
+  }
+  return `${window.location.protocol}//${window.location.hostname}:3000`;
+}
+
 // textarea의 onChange에서 "이전 값 -> 새 값"만 보고, 실제로 바뀐 구간(공통 접두사/접미사를
 // 뺀 가운데 부분)만 Y.Text에 반영한다. 매번 전체를 지우고 다시 쓰면 다른 사람 화면의 커서가
 // 계속 튀고, 동시 편집 시 병합도 지저분해지므로 최소 diff로 반영하는 게 중요하다.
