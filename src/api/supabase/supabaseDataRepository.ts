@@ -1468,17 +1468,20 @@ export const supabaseDataRepository: DataRepository = {
       config: { private: true, presence: { key: memberId } },
     });
 
+    // 한 사람이 탭을 여러 개 열면 탭마다 상태가 따로 온다. 하나라도 활동 중이면 온라인,
+    // 마지막 활동은 가장 늦은 시각, 접속 시각은 가장 이른 시각으로 합친다.
     const parsePresenceStates = (presenceState: Record<string, any[]>): Record<string, MemberPresenceState> => {
       const result: Record<string, MemberPresenceState> = {};
+      const now = new Date().toISOString();
       for (const [key, presences] of Object.entries(presenceState)) {
-        const latest = presences?.[presences.length - 1];
-        if (latest) {
-          result[key] = {
-            status: latest.status === "idle" ? "idle" : "active",
-            lastActiveAt: latest.last_active_at || latest.online_at || new Date().toISOString(),
-            onlineAt: latest.online_at || new Date().toISOString(),
-          };
-        }
+        if (!presences?.length) continue;
+        const lastActive = presences.map((p) => p.last_active_at || p.online_at || now).sort();
+        const onlineAt = presences.map((p) => p.online_at || now).sort();
+        result[key] = {
+          status: presences.some((p) => p.status !== "idle") ? "active" : "idle",
+          lastActiveAt: lastActive[lastActive.length - 1],
+          onlineAt: onlineAt[0],
+        };
       }
       return result;
     };

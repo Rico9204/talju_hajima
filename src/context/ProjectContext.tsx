@@ -163,10 +163,12 @@ interface ProjectContextValue {
   isViceLeader: boolean;
   isManager: boolean;
   loading: boolean;
+  // 온라인 팀원별 접속 상태(활동 중/자리비움, 접속·마지막 활동 시각). Realtime Presence 기준.
+  onlineMemberStates: Record<string, MemberPresenceState>;
   // Which member's profile card (Sidebar's bottom-left avatar modal) is
   // currently open, if any — set from anywhere a member's avatar is
   // clickable (chat, comments, task cards, team view) so the same modal
-  onlineMemberStates: Record<string, MemberPresenceState>;
+  // opens for them, not just for the signed-in user's own avatar.
   viewedMemberId: string | null;
   openMemberProfile: (memberId: string) => void;
   closeMemberProfile: () => void;
