@@ -5,6 +5,8 @@ import { summarizeDashboardTasks } from "../lib/dashboardTasks";
 import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
+import type { Task } from "../api/types";
+import { useDraggableScroll } from "../hooks/useDraggableScroll";
 
 interface Deadline { label: string; due: string; days: number; color: string }
 interface Activity { who: string; action: string; time: string; avatar: string; color: string }
@@ -87,6 +89,135 @@ const emptyDashboardData: ProjectDashboardData = {
   deadlines: [],
   activity: [],
 };
+
+function DashboardTaskColumnList({
+  columnStatus,
+  filteredItems,
+}: {
+  columnStatus: string;
+  filteredItems: Task[];
+}) {
+  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLUListElement>({ direction: "y" });
+
+  return (
+    <ul
+      ref={ref}
+      {...events}
+      id={"dashboard-tasks-" + columnStatus}
+      className="flex flex-col gap-2 max-h-[140px] overflow-y-auto pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+    >
+      {filteredItems.map((task) => (
+        <li key={task.id}>
+          <Link
+            to={`/tasks/${task.id}`}
+            onClick={preventClickIfDragged}
+            draggable={false}
+            className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
+            style={{ background: "var(--muted)", borderRadius: "10px", userSelect: "none", WebkitUserSelect: "none" }}
+          >
+            <span className="text-sm break-words min-w-0 select-none pointer-events-none">{task.title}</span>
+            {task.due && <span className="text-xs shrink-0 select-none pointer-events-none" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+          </Link>
+        </li>
+      ))}
+      {filteredItems.length === 0 && (
+        <li className="text-xs py-2 select-none" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</li>
+      )}
+    </ul>
+  );
+}
+
+function DashboardDeadlinesList({
+  deadlines,
+  emptyMessage,
+}: {
+  deadlines: { id: string | number; label: string; due: string; color: string; badge: string; days: number }[];
+  emptyMessage: string | null;
+}) {
+  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLDivElement>({ direction: "y" });
+
+  return (
+    <div
+      ref={ref}
+      {...events}
+      className="flex flex-col gap-2.5 max-h-[160px] overflow-y-auto pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+    >
+      {deadlines.map((d) => (
+        <Link
+          key={d.id}
+          to={`/tasks/${d.id}`}
+          onClick={preventClickIfDragged}
+          draggable={false}
+          className="flex items-center justify-between p-2.5 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
+          style={{ background: "var(--muted)", borderRadius: "10px", userSelect: "none", WebkitUserSelect: "none" }}
+        >
+          <div className="flex items-center gap-2 pointer-events-none select-none">
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+            <div><div className="text-xs font-500">{d.label}</div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{d.due}</div></div>
+          </div>
+          <span
+            className="text-xs font-700 px-2 py-0.5 pointer-events-none select-none"
+            style={{
+              background: d.days <= 7 ? `${d.color}20` : "var(--card)",
+              color: d.days <= 7 ? d.color : "var(--muted-foreground)",
+              borderRadius: "20px",
+              fontFamily: "var(--font-jetbrains)",
+            }}
+          >
+            {d.badge}
+          </span>
+        </Link>
+      ))}
+      {emptyMessage && (
+        <div className="text-xs text-center py-3 select-none" style={{ color: "var(--muted-foreground)" }}>
+          {emptyMessage}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DashboardActivityList({
+  activities,
+  emptyMessage,
+}: {
+  activities: { id: string; href: string; who: string; action: string; time: string; avatar: string; color: string }[];
+  emptyMessage: string | null;
+}) {
+  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLDivElement>({ direction: "y" });
+
+  return (
+    <div
+      ref={ref}
+      {...events}
+      className="flex flex-col gap-3 max-h-[165px] overflow-y-auto overflow-x-hidden pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+    >
+      {emptyMessage && (
+        <div className="text-xs text-center py-3 select-none" style={{ color: "var(--muted-foreground)" }}>
+          {emptyMessage}
+        </div>
+      )}
+      {activities.map((a) => (
+        <Link
+          key={a.id}
+          to={a.href}
+          onClick={preventClickIfDragged}
+          draggable={false}
+          className="flex items-center gap-2.5 rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-[var(--muted)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
+          style={{ userSelect: "none", WebkitUserSelect: "none" }}
+        >
+          <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm leading-none shrink-0 pointer-events-none select-none" aria-hidden="true" style={{ background: `${a.color}20`, color: a.color }}>
+            {a.avatar}
+          </div>
+          <div className="flex-1 min-w-0 text-xs leading-5 pointer-events-none select-none">
+            <div className="truncate"><span className="font-700">{a.who} </span><span style={{ color: "var(--muted-foreground)" }}>{a.action}</span></div>
+            <div className="text-xs leading-4 mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const { project, team, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
@@ -284,22 +415,11 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   )}
                 </div>
                 {items.length ? (
-                  <ul id={"dashboard-tasks-" + column.status} className="flex flex-col gap-2 max-h-[140px] overflow-y-auto pr-1">
-                    {filteredItems.map((task) => <li key={task.id}>
-                      <Link
-                        to={`/tasks/${task.id}`}
-                        className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
-                        style={{ background: "var(--muted)", borderRadius: "10px" }}
-                      >
-                        <span className="text-sm break-words min-w-0">{task.title}</span>
-                        {task.due && <span className="text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
-                      </Link>
-                    </li>)}
-                    {filteredItems.length === 0 && (
-                      <li className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</li>
-                    )}
-                  </ul>
-                ) : <p className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
+                  <DashboardTaskColumnList
+                    columnStatus={column.status}
+                    filteredItems={filteredItems}
+                  />
+                ) : <p className="text-xs py-2 select-none" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
               </section>;
             })}
           </div>
@@ -320,41 +440,18 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                 style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
               />
             )}
-            <div className="flex flex-col gap-2.5 max-h-[160px] overflow-y-auto pr-1">
-              {searchableDeadlines.map((d) => (
-                <Link
-                  key={d.id}
-                  to={`/tasks/${d.id}`}
-                  className="flex items-center justify-between p-2.5 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
-                  style={{ background: "var(--muted)", borderRadius: "10px" }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                    <div><div className="text-xs font-500">{d.label}</div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{d.due}</div></div>
-                  </div>
-                  <span
-                    className="text-xs font-700 px-2 py-0.5"
-                    style={{
-                      background: d.days <= 7 ? `${d.color}20` : "var(--card)",
-                      color: d.days <= 7 ? d.color : "var(--muted-foreground)",
-                      borderRadius: "20px",
-                      fontFamily: "var(--font-jetbrains)",
-                    }}
-                  >
-                    {d.badge}
-                  </span>
-                </Link>
-              ))}
-              {searchableDeadlines.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                  {data.deadlines.length === 0
+            <DashboardDeadlinesList
+              deadlines={searchableDeadlines}
+              emptyMessage={
+                searchableDeadlines.length === 0
+                  ? data.deadlines.length === 0
                     ? "마감일이 지정된 미완료 과제가 없습니다."
                     : upcomingDeadlines.length === 0
                       ? "7일 이내로 임박한 마감이 없어요."
-                      : "검색 결과가 없어요"}
-                </div>
-              )}
-            </div>
+                      : "검색 결과가 없어요"
+                  : null
+              }
+            />
           </div>
 
           {/* Recent activity */}
@@ -369,24 +466,16 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                 style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
               />
             )}
-            <div className="flex flex-col gap-3 max-h-[165px] overflow-y-auto overflow-x-hidden pr-1">
-              {searchableActivity.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                  {data.activity.length === 0 ? "최근 3일 이내 등록·수정된 일정이나 자료가 없습니다." : "검색 결과가 없어요"}
-                </div>
-              )}
-              {searchableActivity.map((a) => (
-                <Link key={a.id} to={a.href} className="flex items-center gap-2.5 rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-[var(--muted)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm leading-none shrink-0" aria-hidden="true" style={{ background: `${a.color}20`, color: a.color }}>
-                    {a.avatar}
-                  </div>
-                  <div className="flex-1 min-w-0 text-xs leading-5">
-                    <div className="truncate"><span className="font-700">{a.who} </span><span style={{ color: "var(--muted-foreground)" }}>{a.action}</span></div>
-                    <div className="text-xs leading-4 mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <DashboardActivityList
+              activities={searchableActivity}
+              emptyMessage={
+                searchableActivity.length === 0
+                  ? data.activity.length === 0
+                    ? "최근 3일 이내 등록·수정된 일정이나 자료가 없습니다."
+                    : "검색 결과가 없어요"
+                  : null
+              }
+            />
           </div>
         </div>
       </div>

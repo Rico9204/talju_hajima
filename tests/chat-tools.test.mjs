@@ -70,6 +70,17 @@ test("createLadderData creates valid ladder and matches every participant to a u
   for (const match of ladder.matches) {
     assert.ok(results.includes(match.resultText))
   }
+
+  // shuffleResults: false일 때는 원래 순서 유지 확인
+  const ladderNoShuffle = createLadderData({
+    title: "순서 유지 사다리",
+    creatorId: "user-1",
+    creatorName: "철수",
+    participants,
+    results,
+    shuffleResults: false,
+  })
+  assert.deepEqual(ladderNoShuffle.results, results)
 })
 
 test("applyToolAction updates poll votes correctly", () => {

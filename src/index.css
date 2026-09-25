@@ -737,3 +737,13 @@ html, body, #root {
 .scrollbar-dark::-webkit-scrollbar-thumb:hover {
   background: var(--foreground);
 }
+
+/* 가로 스크롤 컨테이너 내부의 카드/버튼들은 좌우 스크롤 시 텍스트 선택 방지 */
+.overflow-x-auto button,
+.overflow-x-auto [role="button"],
+.overflow-x-scroll button,
+.overflow-x-scroll [role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+

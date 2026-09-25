@@ -10,9 +10,11 @@ export default function ChatToolPreviewBubble({
 }) {
   if (payload.type === "draw") {
     const data = payload.data;
-    const total = data.items.length;
-    const openedCount = data.items.filter((it) => it.openedByMemberId || data.allRevealed).length;
-    const isFinished = data.allRevealed || openedCount === total;
+    const items = data?.items || [];
+    const total = items.length;
+    const openedCount = items.filter((it) => it.openedByMemberId || data?.allRevealed).length;
+    const isFinished = Boolean(data?.allRevealed || (total > 0 && openedCount === total));
+    const winnerCount = data.winnerCount ?? items.filter((i) => i.isWinner).length;
 
     return (
       <div
@@ -43,21 +45,21 @@ export default function ChatToolPreviewBubble({
             </span>
           </div>
           <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-            {data.creatorName}
+            {data?.creatorName || ""}
           </span>
         </div>
 
         <h4 className="text-sm font-bold truncate mb-1" style={{ color: "var(--foreground)" }}>
-          {data.title}
+          {data?.title || "제비뽑기"}
         </h4>
         <p className="text-[11px] mb-3 truncate" style={{ color: "var(--muted-foreground)" }}>
-          총 {total}명 (당첨 {data.winnerCount ?? data.items.filter((i) => i.isWinner).length}명)
+          총 {total}명 (당첨 {winnerCount}명)
         </p>
 
         <button
           type="button"
           onClick={onOpenOverlay}
-          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95"
+          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
           style={{ background: "linear-gradient(135deg, #f43f5e, #fb7185)" }}
         >
           <span>🎯</span>
@@ -70,6 +72,7 @@ export default function ChatToolPreviewBubble({
 
   if (payload.type === "ladder") {
     const data = payload.data;
+    const participants = data?.participants || [];
     return (
       <div
         className="w-72 sm:w-80 p-3.5 rounded-2xl border transition-all text-left shadow-sm"
@@ -91,29 +94,29 @@ export default function ChatToolPreviewBubble({
             <span
               className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
               style={{
-                background: data.revealed ? "var(--muted)" : "rgba(34, 197, 94, 0.15)",
-                color: data.revealed ? "var(--muted-foreground)" : "#22c55e",
+                background: data?.revealed ? "var(--muted)" : "rgba(34, 197, 94, 0.15)",
+                color: data?.revealed ? "var(--muted-foreground)" : "#22c55e",
               }}
             >
-              {data.revealed ? "발표 완료" : "준비 완료"}
+              {data?.revealed ? "발표 완료" : "준비 완료"}
             </span>
           </div>
           <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-            {data.creatorName}
+            {data?.creatorName || ""}
           </span>
         </div>
 
         <h4 className="text-sm font-bold truncate mb-1" style={{ color: "var(--foreground)" }}>
-          {data.title}
+          {data?.title || "사다리타기"}
         </h4>
         <p className="text-[11px] mb-3 truncate" style={{ color: "var(--muted-foreground)" }}>
-          참가: {data.participants.map((p) => p.name).join(", ")}
+          참가: {participants.map((p) => p.name).join(", ")}
         </p>
 
         <button
           type="button"
           onClick={onOpenOverlay}
-          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95"
+          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
           style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)" }}
         >
           <LadderIcon />
@@ -127,9 +130,10 @@ export default function ChatToolPreviewBubble({
   if (payload.type === "poll") {
     const data = payload.data;
     const isExpired = Boolean(
-      data.expiresAt && new Date(data.expiresAt).getTime() <= Date.now()
+      data?.expiresAt && new Date(data.expiresAt).getTime() <= Date.now()
     );
-    const isClosed = data.closed || isExpired;
+    const isClosed = data?.closed || isExpired;
+    const options = data?.options || [];
 
     return (
       <div
@@ -160,21 +164,21 @@ export default function ChatToolPreviewBubble({
             </span>
           </div>
           <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-            {data.totalVotes}명 참여
+            {data?.totalVotes ?? 0}명 참여
           </span>
         </div>
 
         <h4 className="text-sm font-bold truncate mb-1" style={{ color: "var(--foreground)" }}>
-          {data.question}
+          {data?.question || "투표"}
         </h4>
         <p className="text-[11px] mb-3 truncate" style={{ color: "var(--muted-foreground)" }}>
-          보기: {data.options.map((o) => o.text).join(", ")}
+          보기: {options.map((o) => o.text).join(", ")}
         </p>
 
         <button
           type="button"
           onClick={onOpenOverlay}
-          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95"
+          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
           style={{ background: "linear-gradient(135deg, #a855f7, #6366f1)" }}
         >
           <span>📊</span>
@@ -187,8 +191,9 @@ export default function ChatToolPreviewBubble({
 
   if (payload.type === "roulette") {
     const data = payload.data;
-    const isFinished = data.spinned;
-    const winner = data.options.find((o) => o.id === data.winnerOptionId);
+    const isFinished = Boolean(data?.spinned);
+    const options = data?.options || [];
+    const winner = options.find((o) => o.id === data?.winnerOptionId);
 
     return (
       <div
@@ -219,23 +224,23 @@ export default function ChatToolPreviewBubble({
             </span>
           </div>
           <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-            {data.creatorName}
+            {data?.creatorName || ""}
           </span>
         </div>
 
         <h4 className="text-sm font-bold truncate mb-1" style={{ color: "var(--foreground)" }}>
-          {data.title}
+          {data?.title || "돌림판"}
         </h4>
         <p className="text-[11px] mb-3 truncate" style={{ color: "var(--muted-foreground)" }}>
           {isFinished && winner
             ? `🎉 당첨: [${winner.text}]`
-            : `항목: ${data.options.map((o) => o.text).join(", ")}`}
+            : `항목: ${options.map((o) => o.text).join(", ")}`}
         </p>
 
         <button
           type="button"
           onClick={onOpenOverlay}
-          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95"
+          className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
           style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)" }}
         >
           <span>🎡</span>
