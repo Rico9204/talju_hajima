@@ -44,7 +44,8 @@ export default function CreatePostView({
   const [pollIsAnonymous, setPollIsAnonymous] = useState(initialPost?.poll?.isAnonymous ?? false);
   const [pollHasDeadline, setPollHasDeadline] = useState(!!initialPost?.poll?.closesAt);
   const [pollDeadline, setPollDeadline] = useState(
-    initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toISOString().slice(0, 16) : ""
+    // datetime-local 입력은 기기 시간 기준이라 UTC(toISOString)로 넣으면 9시간 어긋난다.
+    initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toLocaleString("sv-SE").slice(0, 16).replace(" ", "T") : ""
   );
   const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
 

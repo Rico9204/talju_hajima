@@ -40,8 +40,9 @@ function slugify(name: string): string {
   return (base || "project") + "-" + Date.now().toString(36);
 }
 
+// 사용자 기기 시간대 기준 오늘(YYYY-MM-DD). toISOString()은 UTC라 한국 시간 새벽 0~9시에 전날이 된다.
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("sv-SE");
 }
 
 function mapProject(row: any): Project {

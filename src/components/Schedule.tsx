@@ -9,8 +9,9 @@ const typeMeta: Record<ScheduleEventType, { label: string; color: string }> = {
   other: { label: "기타", color: "#8b5cf6" },
 };
 
+// 기기 시간대 기준 오늘(YYYY-MM-DD). toISOString()은 UTC라 한국 시간 새벽 0~9시에 전날이 된다.
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("sv-SE");
 }
 
 function shiftMonth(yearMonth: string, delta: number) {
