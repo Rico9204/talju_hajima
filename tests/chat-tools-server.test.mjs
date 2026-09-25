@@ -35,6 +35,7 @@ const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 
 await db.exec(schema);
 // 마이그레이션 단독 파일도 이미 적용된 스키마 위에서 안전해야 한다.
 await db.exec(readFileSync(new URL('../supabase/migrations/2609242100_chat_tools_server.sql', import.meta.url), 'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2609250200_chat_tool_create_atomic.sql', import.meta.url), 'utf8'));
 
 // 0 관리자, 1 만든 사람(팀장), 2·3 팀원, 4 프로젝트 밖
 const ids = [0, 1, 2, 3, 4].map((n) => `00000000-0000-0000-0000-${String(n + 1).padStart(12, '0')}`);
@@ -117,5 +118,21 @@ await check('룰렛: 서버가 항목 중 하나를 정하고 첫 결과만 인�
 await check('server 표시가 없는 옛 도구 메시지는 서버 함수를 쓸 수 없다', async () => {
   const legacy = await post(1, { type: 'roulette', data: { title: '옛', options: [] } });
   await rejects(rpc(1, "select chat_tool_init($1,'{}'::jsonb) as r", [legacy]), /서버 처리 도구가 아닙니다/);
+});
+const toolText = (payload) => '[TALJU_CHAT_TOOL]:' + JSON.stringify(payload);
+const countMessages = async () => { await login(1); return (await db.query("select count(*)::int as n from chat_messages where project_id='p'")).rows[0].n; };
+await check('chat_tool_create: 메시지 등록과 준비를 한 번에, 준비가 실패하면 메시지도 남지 않음', async () => {
+  const before = await countMessages();
+  const ok = await rpc(1, "select chat_tool_create('p','all',$1,$2::jsonb) as r", [toolText({ type: 'draw', server: true, data: { title: '원자' } }), drawItems]);
+  assert.equal(ok.event.event, 'init'); assert.equal(ok.message.sender_id, mem[1]);
+  assert.equal(await countMessages(), before + 1);
+  await rejects(rpc(1, "select chat_tool_create('p','all',$1,'{}'::jsonb) as r", [toolText({ type: 'draw', server: true, data: { title: '항목 없음' } })]), /2~50개/);
+  await rejects(rpc(1, "select chat_tool_create('p','all',$1,'{}'::jsonb) as r", [toolText({ type: 'roulette', server: true, data: { title: '옵션 없음' } })]), /2~20개/);
+  await rejects(rpc(1, "select chat_tool_create('p','all',$1,'{}'::jsonb) as r", [toolText({ type: 'ladder', server: true, data: { title: '참가자 없음' } })]), /2~20명/);
+  assert.equal(await countMessages(), before + 1); // 실패한 3건은 메시지도 남지 않음
+});
+await check('chat_tool_create: 프로젝트 밖 사용자·접근 못 하는 채널은 거절', async () => {
+  await rejects(rpc(4, "select chat_tool_create('p','all',$1,$2::jsonb) as r", [toolText({ type: 'draw', server: true, data: { title: 'x' } }), drawItems]), /참여자만/);
+  await rejects(rpc(1, "select chat_tool_create('p',$1,$2,$3::jsonb) as r", [`dm:${mem[2]}:${mem[3]}`, toolText({ type: 'draw', server: true, data: { title: 'x' } }), drawItems]), /row-level security|찾을 수 없/);
 });
 console.log(count + ' chat-tools-server checks passed');

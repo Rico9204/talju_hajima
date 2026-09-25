@@ -142,10 +142,11 @@ interface ProjectContextValue {
   removeScheduleEvent: (id: number) => Promise<void>;
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
+  chatHistoryLoaded: boolean; // 채널 기록을 처음 다 불러왔는지(그 전의 안 읽음 수 변화는 새 메시지가 아님)
   chatMessages: Record<string, ChatMessage[]>;
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<number | null>;
   chatToolEvents: Record<number, ChatToolEvent[]>;
-  initChatTool: (messageId: number, config: Record<string, unknown>) => Promise<ChatToolEvent>;
+  createChatTool: (channelId: string, text: string, config: Record<string, unknown>) => Promise<void>;
   actChatTool: (messageId: number, action: string, args?: Record<string, unknown>) => Promise<ChatToolEvent>;
   toggleChatReaction: (messageId: number, emoji: string) => Promise<void>;
   markChannelMessagesRead: (channelId: string) => Promise<void>;
@@ -383,6 +384,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // project only. Eagerly loaded for every channel once the team is known
   // (see the effect below) and kept live via the realtime subscription.
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false);
   const [chatToolEvents, setChatToolEvents] = useState<Record<number, ChatToolEvent[]>>({});
   const [viewedMemberId, setViewedMemberId] = useState<string | null>(null);
   // A project-scoped Realtime Presence channel supplies the member ids that
@@ -683,12 +685,14 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // DM per other member) once the team roster is known, so the sidebar
   // unread badge is accurate without first opening /chat.
   useEffect(() => {
+    setChatHistoryLoaded(false);
     if (!projectId || !myMemberId) return;
     let cancelled = false;
     const channelIds = ["all", ...team.members.filter((m) => m.id !== myMemberId).map((m) => dmChannelId(myMemberId, m.id))];
     Promise.all(channelIds.map((cid) => dataRepository.listMessages(projectId, cid)))
       .then((results) => {
         if (cancelled) return;
+        setChatHistoryLoaded(true);
         setChatMessages((prev) => {
           const next = { ...prev };
           channelIds.forEach((cid, i) => {
@@ -700,6 +704,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         // Best-effort — the realtime subscription still keeps things live
         // going forward even if this initial bulk load fails.
+        if (!cancelled) setChatHistoryLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -1003,8 +1008,15 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     });
     return e;
   }
-  async function initChatTool(messageId: number, config: Record<string, unknown>) {
-    return recordToolEvent(await dataRepository.chatToolInit(messageId, config));
+  async function createChatTool(channelId: string, text: string, config: Record<string, unknown>) {
+    if (!projectId) return;
+    const { message, event } = await dataRepository.chatToolCreate(projectId, channelId, text, config);
+    setChatMessages((prev) => {
+      const list = prev[channelId] ?? [];
+      if (list.some((m) => m.id === message.id)) return prev;
+      return { ...prev, [channelId]: [...list, message] };
+    });
+    recordToolEvent(event);
   }
   async function actChatTool(messageId: number, action: string, args: Record<string, unknown> = {}) {
     return recordToolEvent(await dataRepository.chatToolAct(messageId, action, args));
@@ -1163,10 +1175,11 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         removeScheduleEvent,
         chatUnread,
         chatUnreadTotal,
+        chatHistoryLoaded,
         chatMessages,
         sendChatMessage,
         chatToolEvents,
-        initChatTool,
+        createChatTool,
         actChatTool,
         toggleChatReaction,
         markChannelMessagesRead,

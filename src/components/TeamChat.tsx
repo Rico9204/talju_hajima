@@ -75,7 +75,7 @@ export default function TeamChat({
     chatUnread,
     sendChatMessage,
     chatToolEvents,
-    initChatTool,
+    createChatTool,
     actChatTool,
     toggleChatReaction,
     markChannelMessagesRead,
@@ -513,13 +513,9 @@ export default function TeamChat({
   // 제비뽑기·사다리·룰렛은 메시지에 공개 정보만 올리고, 정답·결과는 서버가 정한다. 투표는 기존 방식.
   async function handleSendTool(payload: ChatToolPayload) {
     const server = toServerToolPayload(payload)
-    if (!server) {
-      void sendChatMessage(active, encodeChatToolMessage(payload))
-      return
-    }
     try {
-      const id = await sendChatMessage(active, `${TOOL_MESSAGE_PREFIX}${JSON.stringify(server.payload)}`)
-      if (id !== null) await initChatTool(id, server.config)
+      if (!server) await sendChatMessage(active, encodeChatToolMessage(payload))
+      else await createChatTool(active, `${TOOL_MESSAGE_PREFIX}${JSON.stringify(server.payload)}`, server.config)
     } catch (error) {
       reportToolError(error)
     }
@@ -536,7 +532,7 @@ export default function TeamChat({
       actChatTool(action.targetMessageId, action.action, args).catch(reportToolError)
       return
     }
-    void sendChatMessage(active, encodeChatToolAction(action))
+    sendChatMessage(active, encodeChatToolAction(action)).catch(reportToolError)
   }
 
   async function handleServerSpin(messageId: number): Promise<string | null> {
