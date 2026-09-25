@@ -195,7 +195,8 @@ export default function TeamChat({
         avatar: "📢",
         color: "#f59e0b",
       },
-      ...team.members.map((m) => ({
+      // 본인은 멘션 대상에서 뺀다.
+      ...team.members.filter((m) => m.id !== currentMember?.id).map((m) => ({
         id: m.id,
         name: m.name,
         role: m.role,
@@ -215,7 +216,7 @@ export default function TeamChat({
         c.name.toLowerCase().includes(q) ||
         (c.role && c.role.toLowerCase().includes(q))
     )
-  }, [team.members, mentionQuery])
+  }, [team.members, mentionQuery, currentMember?.id])
 
   function applyMention(candidate: MentionCandidate) {
     if (mentionStartIndex === null) return
@@ -1670,6 +1671,7 @@ export default function TeamChat({
                       return (
                         <button
                           key={c.id}
+                          ref={isSelected ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
                           type="button"
                           onClick={() => applyMention(c)}
                           onMouseEnter={() => setMentionSelectedIdx(idx)}

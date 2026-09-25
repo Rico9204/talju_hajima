@@ -663,6 +663,7 @@
 }
 
 :root {
+  color-scheme: light; /* 드롭다운 펼친 목록·날짜 선택 창·스크롤바 등 브라우저 기본 입력창 색 */
   --background: #edf0fb;
   --foreground: #0f1235;
   --card: #ffffff;
@@ -712,6 +713,7 @@
 
 :root[data-theme="dark"],
 .dark {
+  color-scheme: dark;
   --background: #090c15;
   --foreground: #f1f5f9;
   --card: #121629;

@@ -407,6 +407,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // currently have this project open in one or more browser tabs.
   const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
   const [onlineMemberStates, setOnlineMemberStates] = useState<Record<string, MemberPresenceState>>({});
+  // 이 화면을 보는 동안 오프라인이 된 팀원의 퇴장 시각. 팀원 목록(last_seen_at)은 처음 불러올 때 값이라
+  // 그 뒤 나간 팀원은 "접속 기록 없음"이나 옛 시각으로 보이므로, 온라인 목록에서 빠지는 순간을 기록한다.
+  const [leftAt, setLeftAt] = useState<Record<string, string>>({});
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
@@ -695,8 +698,16 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setOnlineMemberIds(new Set());
     setOnlineMemberStates({});
+    setLeftAt({});
     if (!projectId || !myMemberId) return;
+    let previousIds = new Set<string>();
     return dataRepository.subscribeToPresence(projectId, myMemberId, (ids, states) => {
+      const gone = [...previousIds].filter((id) => !ids.has(id));
+      if (gone.length > 0) {
+        const now = new Date().toISOString();
+        setLeftAt((prev) => ({ ...prev, ...Object.fromEntries(gone.map((id) => [id, now])) }));
+      }
+      previousIds = ids;
       setOnlineMemberIds(ids);
       setOnlineMemberStates(states);
     });
@@ -1185,7 +1196,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       return {
         ...m,
         online: isOnline,
-        lastSeenAt: state?.lastActiveAt || m.lastSeenAt,
+        // 온라인이면 지금 상태, 아니면 퇴장 시각과 DB 기록 중 늦은 쪽
+        lastSeenAt: state?.lastActiveAt || [leftAt[m.id], m.lastSeenAt].filter((v): v is string => !!v).sort((x, y) => Date.parse(x) - Date.parse(y)).pop() || null,
       };
     }),
   };
