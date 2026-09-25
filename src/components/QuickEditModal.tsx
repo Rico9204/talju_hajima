@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
-import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
+import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta } from "../lib/collab";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
 
@@ -29,6 +29,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const docRef = useRef<CollabDoc | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef<string | null>(null); // IME 조합 시작 시점의 텍스트
+  const remoteWhileComposing = useRef<Delta[]>([]); // 조합 중에 들어온 원격 변경(조합 끝에 위치 보정용)
   const pendingSel = useRef<[number, number] | null>(null);
   const saving = useRef(false);
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
@@ -71,6 +72,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
         const el = areaRef.current;
         if (el) pendingSel.current = [transformIndex(el.selectionStart, delta), transformIndex(el.selectionEnd, delta)];
         if (composing.current === null) { valueRef.current = next; setValue(next); }
+        else remoteWhileComposing.current.push(delta);
         refreshDirty();
       },
       onSaved: () => { setStatus("saved"); setError(""); refreshDirty(); },
@@ -115,8 +117,14 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
 
   function onCompositionEnd(el: HTMLTextAreaElement) {
     const base = composing.current ?? valueRef.current;
+    const remote = remoteWhileComposing.current;
     composing.current = null;
-    docRef.current?.edit(base, el.value);
+    remoteWhileComposing.current = [];
+    docRef.current?.edit(base, el.value, remote);
+    // 커서도 조합 중 들어온 원격 변경만큼 옮긴다(안 옮기면 내용이 바뀌면서 커서가 엉뚱한 곳으로 간다).
+    let [selStart, selEnd] = [el.selectionStart, el.selectionEnd];
+    for (const delta of remote) { selStart = transformIndex(selStart, delta); selEnd = transformIndex(selEnd, delta); }
+    pendingSel.current = [selStart, selEnd];
     const merged = docRef.current?.text() ?? el.value;
     valueRef.current = merged;
     setValue(merged);
@@ -171,7 +179,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); } }}
-          onCompositionStart={() => { composing.current = valueRef.current; }}
+          onCompositionStart={() => { composing.current = valueRef.current; remoteWhileComposing.current = []; }}
           onCompositionEnd={(e) => onCompositionEnd(e.currentTarget)}
           spellCheck={false}
           className="flex-1 min-h-0 m-5 p-3 text-sm resize-none outline-none border"
