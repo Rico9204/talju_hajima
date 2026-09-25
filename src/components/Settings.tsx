@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { type PerformanceMode, usePerformanceMode } from "../lib/performancePreferences";
+import { type ThemeMode, useThemeMode } from "../lib/themePreferences";
 import {
   getNotificationPermission,
   isBrowserNotificationsEnabled,
@@ -71,44 +72,88 @@ function SectionHeader({ title, hint, badge }: { title: string; hint: string; ba
 }
 
 function GraphicsSettings() {
+  const [, setThemeMode, isDark] = useThemeMode();
   const [mode, setMode] = usePerformanceMode();
   return (
-    <>
-      <SectionHeader title="그래픽 및 화면 효과" hint="이 브라우저에서만 적용됩니다 · 하드웨어 가속 자체는 브라우저에서 관리" badge="자동 저장됨" />
-      <div className="grid gap-2.5">
-        {performanceOptions.map((option) => {
-          const selected = mode === option.value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setMode(option.value)}
-              className="w-full text-left p-3.5 transition-colors"
-              style={{ borderRadius: "12px", border: selected ? "2px solid var(--primary)" : "1px solid var(--border)", background: selected ? "color-mix(in srgb, var(--primary) 8%, var(--card-glass))" : "var(--card)" }}
-              aria-pressed={selected}
+    <div className="space-y-6">
+      <div>
+        <SectionHeader title="화면 테마" hint="눈의 피로를 덜어주는 다크 모드를 켜거나 끌 수 있습니다" badge="자동 저장됨" />
+        <div
+          className="p-3.5 rounded-xl border flex items-center justify-between gap-4 transition-all"
+          style={{ background: "var(--card)", borderColor: "var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 transition-transform"
+              style={{ background: isDark ? "rgba(59, 130, 246, 0.18)" : "var(--muted)" }}
             >
-              <div className="flex gap-3 items-start">
-                <span className="w-9 h-9 shrink-0 flex items-center justify-center text-base" style={{ borderRadius: "9px", background: selected ? "var(--primary)" : "var(--muted)" }}>
-                  {option.icon}
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="flex items-center gap-2">
-                    <span className="font-700 text-sm">{option.title}</span>
-                    {selected && <span className="text-xs px-1.5 py-0.5 font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}>사용 중</span>}
-                  </span>
-                  <span className="block text-sm mt-1" style={{ color: "var(--foreground)" }}>{option.description}</span>
-                  <span className="block text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{option.detail}</span>
+              {isDark ? "🌙" : "☀️"}
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm" style={{ color: "var(--foreground)" }}>
+                  다크 모드
                 </span>
                 <span
-                  className="mt-1 w-5 h-5 shrink-0 flex items-center justify-center"
-                  style={{ borderRadius: "999px", border: selected ? "5px solid var(--primary)" : "1px solid var(--border)" }}
-                />
+                  className="text-[10px] px-1.5 py-0.5 font-bold rounded-full transition-colors"
+                  style={{
+                    background: isDark ? "var(--primary)" : "var(--muted)",
+                    color: isDark ? "#fff" : "var(--muted-foreground)",
+                  }}
+                >
+                  {isDark ? "켜짐" : "꺼짐"}
+                </span>
               </div>
-            </button>
-          );
-        })}
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+                {isDark ? "어둡고 눈이 편안한 테마 사용 중" : "화사하고 밝은 기본 테마 사용 중"}
+              </div>
+            </div>
+          </div>
+          <ToggleSwitch
+            checked={isDark}
+            onClick={() => setThemeMode(isDark ? "light" : "dark")}
+            label="다크 모드 켜기/끄기"
+          />
+        </div>
       </div>
-    </>
+
+      <div>
+        <SectionHeader title="그래픽 및 성능 효과" hint="이 브라우저에서만 적용됩니다 · 하드웨어 가속 자체는 브라우저에서 관리" />
+        <div className="grid gap-2.5">
+          {performanceOptions.map((option) => {
+            const selected = mode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setMode(option.value)}
+                className="w-full text-left p-3.5 transition-colors cursor-pointer"
+                style={{ borderRadius: "12px", border: selected ? "2px solid var(--primary)" : "1px solid var(--border)", background: selected ? "color-mix(in srgb, var(--primary) 8%, var(--card-glass))" : "var(--card)" }}
+                aria-pressed={selected}
+              >
+                <div className="flex gap-3 items-start">
+                  <span className="w-9 h-9 shrink-0 flex items-center justify-center text-base" style={{ borderRadius: "9px", background: selected ? "var(--primary)" : "var(--muted)" }}>
+                    {option.icon}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-2">
+                      <span className="font-700 text-sm">{option.title}</span>
+                      {selected && <span className="text-xs px-1.5 py-0.5 font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}>사용 중</span>}
+                    </span>
+                    <span className="block text-sm mt-1" style={{ color: "var(--foreground)" }}>{option.description}</span>
+                    <span className="block text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{option.detail}</span>
+                  </span>
+                  <span
+                    className="mt-1 w-5 h-5 shrink-0 flex items-center justify-center"
+                    style={{ borderRadius: "999px", border: selected ? "5px solid var(--primary)" : "1px solid var(--border)" }}
+                  />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -294,7 +294,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             )}
           </div>
 
-          {folderError && <p role="alert" className="mb-3 text-sm text-red-700">{folderError}</p>}
+          {folderError && <p role="alert" className="mb-3 text-sm text-red-500">{folderError}</p>}
           {creatingFolder && (
             <div className="flex gap-2 mb-3">
               <input
@@ -493,7 +493,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           )}
         </div>
       </div>
-      {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-700">{bulkDeleteError}</p>}
+      {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}
@@ -649,7 +649,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           )}
         </div>
       </div>
-      {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-50 text-red-700 p-3">{editError}</p>}
+      {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-500/10 text-red-500 p-3">{editError}</p>}
       {editing && presenceRef.current && files.find((f) => f.id === editing.fileId) && (
         <QuickEditModal
           key={`${editing.fileId}:${editing.room}:${editing.mode}`}

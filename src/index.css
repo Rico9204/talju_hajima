@@ -678,6 +678,7 @@
   --panel-blur: blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05);
   --primary: #2563eb;
   --primary-foreground: #ffffff;
+  --primary-glow: rgba(37, 99, 235, 0.25);
   --secondary: #e8eeff;
   --secondary-foreground: #2563eb;
   --muted: #f4f6ff;
@@ -691,9 +692,61 @@
   --radius: 16px;
   --shadow-card: 0 2px 16px rgba(37, 99, 235, 0.07), 0 1px 4px rgba(15, 18, 53, 0.05);
   --shadow-hover: 0 8px 32px rgba(37, 99, 235, 0.13), 0 2px 8px rgba(15, 18, 53, 0.07);
+  --hero-banner-bg: linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%);
+  --hero-banner-border: 1px solid transparent;
+  --hero-banner-shadow: 0 8px 32px rgba(37, 99, 235, 0.3);
+  --hero-banner-btn-bg: #ffffff;
+  --hero-banner-btn-text: var(--primary);
+  --hero-banner-circle-bg: rgba(255, 255, 255, 0.06);
+  --nav-active-bg: var(--primary);
+  --nav-active-text: #ffffff;
+  --nav-active-border: 1px solid transparent;
+  --nav-active-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  --nav-active-icon-bg: rgba(255, 255, 255, 0.2);
+  --status-inprogress: #2563eb;
+  --status-inprogress-bg: rgba(37, 99, 235, 0.4);
   --font-outfit: 'Outfit', sans-serif;
   --font-fraunces: 'Fraunces', serif;
   --font-jetbrains: 'JetBrains Mono', monospace;
+}
+
+:root[data-theme="dark"],
+.dark {
+  --background: #090c15;
+  --foreground: #f1f5f9;
+  --card: #121629;
+  --card-foreground: #f1f5f9;
+  --surface-opaque: #171c34;
+  --glass-alpha: 0.52;
+  --panel-blur-px: 3px;
+  --card-glass: rgba(18, 22, 41, var(--glass-alpha));
+  --panel-blur: blur(var(--panel-blur-px)) saturate(1.8) brightness(0.95);
+  --primary: #3b6fd9;
+  --primary-foreground: #ffffff;
+  --primary-glow: rgba(0, 0, 0, 0.35);
+  --secondary: #16203c;
+  --secondary-foreground: #93bbfd;
+  --muted: #171c33;
+  --muted-foreground: #94a3b8;
+  --accent: #f59e0b;
+  --accent-foreground: #ffffff;
+  --border: #232b49;
+  --ring: #3b6fd9;
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --hero-banner-bg: linear-gradient(135deg, #172242 0%, #121a33 50%, #0d1325 100%);
+  --hero-banner-border: 1px solid rgba(96, 165, 250, 0.22);
+  --hero-banner-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 24px rgba(59, 130, 246, 0.07);
+  --hero-banner-btn-bg: #f8fafc;
+  --hero-banner-btn-text: #0f172a;
+  --hero-banner-circle-bg: rgba(96, 165, 250, 0.04);
+  --nav-active-bg: linear-gradient(135deg, #253d79 0%, #1b2e5c 100%);
+  --nav-active-text: #ffffff;
+  --nav-active-border: 1px solid rgba(96, 165, 250, 0.32);
+  --nav-active-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --nav-active-icon-bg: rgba(255, 255, 255, 0.15);
+  --status-inprogress: #60a5fa;
+  --status-inprogress-bg: rgba(96, 165, 250, 0.2);
 }
 
 html, body, #root {

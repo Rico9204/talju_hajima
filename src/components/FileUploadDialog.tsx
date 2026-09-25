@@ -69,7 +69,7 @@ export default function FileUploadDialog({ file, destination, initialTags = [], 
         <span className="text-xs">쉼표로 구분 · 최대 10개 · 태그당 30자</span>
       </label>
       <label className="block text-sm">업로드 메모 (선택)<input disabled={busy} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} className="block w-full mt-1 p-3 rounded-xl border" /></label>
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" disabled={busy} onClick={onCancel} className="px-4 py-2 rounded-xl border disabled:opacity-50">취소</button>
         <button type="submit" disabled={busy} className="px-4 py-2 rounded-xl disabled:opacity-50" style={{ background: "var(--primary)", color: "white" }}>{busy ? "본문 분석·업로드 중…" : "확인 · 업로드"}</button>

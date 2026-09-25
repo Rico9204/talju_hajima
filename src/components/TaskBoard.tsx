@@ -12,7 +12,7 @@ export function memberInfo(members: Member[], id: string): { name: string; avata
 
 const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
   { id: "todo", label: "예정", color: "#454b6e", bg: "#454b6e66" },
-  { id: "inprogress", label: "진행 중", color: "#2563eb", bg: "#2563eb66" },
+  { id: "inprogress", label: "진행 중", color: "var(--status-inprogress)", bg: "var(--status-inprogress-bg)" },
   { id: "review", label: "검토 중", color: "#f59e0b", bg: "#f59e0b66" },
   { id: "done", label: "완료", color: "#22c55e", bg: "#22c55e66" },
 ];
@@ -174,7 +174,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
               background: filter === a.id ? "var(--primary)" : "var(--card)",
               color: filter === a.id ? "#fff" : "var(--foreground)",
               borderRadius: "40px",
-              boxShadow: filter === a.id ? "0 4px 12px rgba(37,99,235,0.25)" : "var(--shadow-card)",
+              boxShadow: filter === a.id ? "0 4px 12px var(--primary-glow)" : "var(--shadow-card)",
             }}
           >
             {a.label}

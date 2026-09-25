@@ -62,7 +62,7 @@ export default function WorkspaceComments({ file, focusedVersionId }: { file: Wo
       </div>;
     })}
     {!shown.length && <p className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>{filter === "version" ? "이 버전에 남긴 댓글이 아직 없어요." : "아직 댓글이 없어요. 첫 코멘트를 남겨보세요."}</p>}
-    {error && <p role="alert" className="text-xs text-red-700 rounded-lg bg-red-50 p-3">{error}</p>}
+    {error && <p role="alert" className="text-xs text-red-500 rounded-lg bg-red-500/10 p-3">{error}</p>}
     {!locked && <div>
       {picker === "draft" && <div className="flex gap-1 mb-2 p-1 rounded-xl" style={{ background: "var(--secondary)" }}>{emojis.map((emoji) => <button key={emoji} disabled={busy} title={`${emoji} 입력`} className="w-8 h-8" onClick={() => { setDraft((text) => text + emoji); setPicker(null); input.current?.focus(); }}>{emoji}</button>)}</div>}
       <form className="flex gap-2 mt-1" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) void run(async () => { await addFileComment(file.id, draft, attachToVersion ? focusedVersion?.id ?? null : null); setDraft(""); setPicker(null); }); }}>

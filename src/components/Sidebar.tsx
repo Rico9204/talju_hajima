@@ -183,7 +183,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 background: "var(--primary)",
                 color: "#fff",
                 borderRadius: "10px",
-                boxShadow: "0 4px 12px rgba(37,99,235,0.35)",
+                boxShadow: "0 4px 12px var(--primary-glow)",
               }}
             >
               CP
@@ -225,8 +225,21 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         {notifOpen && notifPos && createPortal(
           <div
             ref={notifPanelRef}
-            className="w-72 max-w-[85vw] p-1.5 z-[999]"
-            style={{ position: "fixed", top: notifPos.top, left: notifPos.left, background: "rgba(255, 255, 255, 0.94)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)", backdropFilter: "blur(20px) saturate(1.7)", WebkitBackdropFilter: "blur(20px) saturate(1.7)", maxHeight: 360, overflowY: "auto" }}
+            className="w-72 max-w-[85vw] p-2 z-[999] border animate-fadeIn"
+            style={{
+              position: "fixed",
+              top: notifPos.top,
+              left: notifPos.left,
+              background: "var(--card)",
+              borderColor: "var(--border)",
+              color: "var(--foreground)",
+              borderRadius: "14px",
+              boxShadow: "0 16px 40px rgba(0, 0, 0, 0.25)",
+              backdropFilter: "var(--panel-blur)",
+              WebkitBackdropFilter: "var(--panel-blur)",
+              maxHeight: 380,
+              overflowY: "auto",
+            }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
               알림
@@ -267,7 +280,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                         routerNavigate(`/chat/${encodeURIComponent(m.channelId)}?messageId=${m.messageId}`);
                       }}
                       className="w-full text-left p-2 rounded-lg transition-all hover:bg-[var(--card)] hover:shadow-xs group cursor-pointer border border-transparent hover:border-[var(--border)]"
-                      style={{ background: "rgba(255, 255, 255, 0.6)" }}
+                      style={{ background: "var(--card)" }}
                     >
                       <div className="flex items-center justify-between text-[11px] mb-0.5">
                         <span className="font-bold truncate" style={{ color: "var(--foreground)" }}>
@@ -398,11 +411,13 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               // A floating menu needs to read as clearly separate from
               // whatever's behind it, so it stays near-opaque regardless
               // of the account's card-transparency setting.
-              background: "rgba(255, 255, 255, 0.94)",
-              borderRadius: "12px",
-              boxShadow: "0 16px 40px rgba(15,18,53,0.18)",
-              backdropFilter: "blur(20px) saturate(1.7)",
-              WebkitBackdropFilter: "blur(20px) saturate(1.7)",
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
+              borderRadius: "14px",
+              boxShadow: "0 16px 40px rgba(0, 0, 0, 0.25)",
+              backdropFilter: "var(--panel-blur)",
+              WebkitBackdropFilter: "var(--panel-blur)",
             }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
@@ -514,17 +529,18 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
                 style={{
                   borderRadius: "10px",
-                  background: active ? "var(--primary)" : "transparent",
-                  color: active ? "#fff" : "var(--foreground)",
+                  background: active ? "var(--nav-active-bg)" : "transparent",
+                  color: active ? "var(--nav-active-text)" : "var(--foreground)",
                   fontWeight: active ? 600 : 400,
                   fontSize: "13.5px",
-                  boxShadow: active ? "0 4px 12px rgba(37,99,235,0.25)" : "none",
+                  border: active ? "var(--nav-active-border)" : "1px solid transparent",
+                  boxShadow: active ? "var(--nav-active-shadow)" : "none",
                 }}
               >
                 <span
                   className="text-sm w-6 h-6 flex items-center justify-center shrink-0"
                   style={{
-                    background: active ? "rgba(255,255,255,0.2)" : "var(--muted)",
+                    background: active ? "var(--nav-active-icon-bg)" : "var(--muted)",
                     borderRadius: "7px",
                   }}
                 >

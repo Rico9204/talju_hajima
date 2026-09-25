@@ -269,10 +269,16 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const evaluationSummary = (<div
             aria-label={isDone ? "프로젝트 최종 평가 평균" : "내 중간 피드백 평균"}
             className="relative overflow-hidden p-6 mb-5"
-            style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
+            style={{
+              background: "var(--hero-banner-bg)",
+              borderRadius: "var(--radius)",
+              border: "var(--hero-banner-border)",
+              boxShadow: "var(--hero-banner-shadow)",
+              color: "#fff",
+            }}
           >
-            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.06)", right: -40, top: -60 }} />
-            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.05)", right: 80, bottom: -40 }} />
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 200, height: 200, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: -40, top: -60 }} />
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: 80, bottom: -40 }} />
             <div className="relative">
             <button
               type="button"
