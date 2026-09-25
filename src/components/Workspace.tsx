@@ -28,8 +28,12 @@ import {
 } from "../api/backend/files";
 import { MAX_FILE_SIZE } from "../lib/folderSync";
 import { classifyMajor } from "../api/backend/majors";
+import { isRichDocPath, isSlidesPath, isSnapshotContent } from "../lib/richDoc";
 import FolderSync from "./FolderSync";
 import QuickEditModal from "./QuickEditModal";
+import DocEditorModal from "./DocEditorModal";
+import SlidesEditorModal from "./SlidesEditorModal";
+import OfficePreview, { isOfficePreviewablePath } from "./OfficePreview";
 
 const COLLAB_PRESENCE_POLL_MS = 4000;
 
@@ -68,6 +72,8 @@ const TYPE_META: Record<string, TypeMeta> = {
   tsx: { bg: "#2563eb18", color: "#2563eb", label: "TSX" },
   js: { bg: "#f59e0b18", color: "#f59e0b", label: "JS" },
   json: { bg: "#6b728018", color: "#6b7280", label: "JSON" },
+  rtdoc: { bg: "#2563eb18", color: "#2563eb", label: "문서" },
+  slides: { bg: "#f0a50018", color: "#f0a500", label: "슬라이드" },
 };
 const DEFAULT_TYPE_META: TypeMeta = { bg: "#6b728018", color: "#6b7280", label: "FILE" };
 
@@ -84,10 +90,11 @@ function isBinaryPath(path: string): boolean {
   return BINARY_EXTENSIONS.has(ext);
 }
 
-// content가 data: URL(base64)로 저장된 바이너리 파일인지 — 업로드 시점의 확장자 판별과 별개로,
-// 실제 저장된 내용 기준으로도 다시 확인할 수 있게(예: 과거에 텍스트로 잘못 올라간 값 방어).
+// content가 data: URL(base64, 업로드된 바이너리 파일) 또는 Yjs 스냅샷(리치 문서/슬라이드)인지 —
+// 둘 다 줄 단위 diff로 비교하면 의미가 없어서(전자는 원본이 텍스트가 아니고, 후자는 내부 구조가
+// base64 한 덩어리라 바뀔 때마다 전체가 다르게 보임) 버전 비교 화면에서 공통으로 건너뛴다.
 function isBinaryContent(content: string): boolean {
-  return content.startsWith("data:");
+  return content.startsWith("data:") || isSnapshotContent(content);
 }
 
 function getTypeMeta(path: string): TypeMeta {
@@ -416,12 +423,14 @@ function VersionPageFlip({
   onShowFull,
   onViewingVersionChange,
   jumpTo,
+  path,
 }: {
   versions: FileVersion[];
   currentVersionId: string | null;
   memberNameById: Map<string, string>;
   onPromote: (versionId: string) => void;
   onShowFull: (version: FileVersion) => void;
+  path: string;
   // 지금 몇 번째 페이지(어느 버전)를 보고 있는지 부모에 알려준다 — "이 페이지에 댓글 달기"가
   // 트리 보기의 focusedVersionId와 같은 방식으로 동작하게 하기 위해 필요.
   onViewingVersionChange: (versionId: string | null) => void;
@@ -529,6 +538,10 @@ function VersionPageFlip({
             {isBinary ? (
               version.content.startsWith("data:image/") ? (
                 <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
+              ) : isSnapshotContent(version.content) ? (
+                <span style={{ opacity: 0.7 }}>문서/슬라이드는 줄글 비교 대신 열어서 확인하세요 (파일 목록의 ✏️ 바로 수정 버튼).</span>
+              ) : isOfficePreviewablePath(path) ? (
+                <OfficePreview path={path} content={version.content} />
               ) : (
                 <span style={{ opacity: 0.7 }}>이미지가 아닌 바이너리 파일이에요. 더블클릭하거나 "전체 내용 보기"로 다운로드하세요.</span>
               )
@@ -784,6 +797,7 @@ function VersionNode({
   onCreatePin,
   onUploadToPin,
   onShowFull,
+  path,
 }: {
   version: FileVersion;
   childrenByParent: Map<string | null, FileVersion[]>;
@@ -799,6 +813,7 @@ function VersionNode({
   onCreatePin: (versionId: string) => void;
   onUploadToPin: (pinId: string) => void;
   onShowFull: (version: FileVersion) => void;
+  path: string;
 }) {
   const isCurrent = version.id === currentVersionId;
   const isOpenBranch = openBranchIds.has(version.id);
@@ -893,6 +908,10 @@ function VersionNode({
               {isBinary ? (
                 version.content.startsWith("data:image/") ? (
                   <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
+                ) : isSnapshotContent(version.content) ? (
+                  <span style={{ opacity: 0.7 }}>문서/슬라이드는 줄글 비교 대신 열어서 확인하세요 (파일 목록의 ✏️ 바로 수정 버튼).</span>
+                ) : isOfficePreviewablePath(path) ? (
+                  <OfficePreview path={path} content={version.content} />
                 ) : (
                   <span style={{ opacity: 0.7 }}>이미지가 아닌 바이너리 파일이에요. 우측 상단 "+"로 다운로드하세요.</span>
                 )
@@ -1001,6 +1020,7 @@ function VersionNode({
               onCreatePin={onCreatePin}
               onUploadToPin={onUploadToPin}
               onShowFull={onShowFull}
+              path={path}
             />
           ))}
         </ul>
@@ -1095,6 +1115,12 @@ export default function Workspace() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   // 핀 기준 "바로 수정" 대상 — 파일 목록/버전 패널의 ✏️(핀)에서 켠다. null이면 파일 메인 버전 기준.
   const [quickEditPin, setQuickEditPin] = useState<{ pinId: string; label: string } | null>(null);
+  // 지금 열려있는 리치 문서/슬라이드 편집기 대상 파일 id — null이면 안 열림.
+  const [docEditorFileId, setDocEditorFileId] = useState<string | null>(null);
+  const [slidesEditorFileId, setSlidesEditorFileId] = useState<string | null>(null);
+  const [creatingDocOrSlides, setCreatingDocOrSlides] = useState(false);
+  const [creatingDocKind, setCreatingDocKind] = useState<"rtdoc" | "slides" | null>(null);
+  const [newDocName, setNewDocName] = useState("");
   const uploadTargetPinIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const newVersionInputRef = useRef<HTMLInputElement>(null);
@@ -1216,6 +1242,32 @@ export default function Workspace() {
       await refresh();
     } catch {
       setUploadError("폴더 생성에 실패했습니다.");
+    }
+  }
+
+  // 새 리치 문서/슬라이드 파일을 빈 내용으로 만들고(워크스페이스 파일 목록에 등록), 바로
+  // 해당 편집기를 연다 — 실제 내용(문서 구조)은 편집기가 열리면서 웹소켓으로 채워진다
+  // (collab.service.ts: 빈 content면 클라이언트가 기본 구조를 만듦).
+  async function handleCreateDocOrSlides() {
+    if (!creatingDocKind) return;
+    const kind = creatingDocKind;
+    const name = newDocName.trim() || (kind === "rtdoc" ? "새 문서" : "새 슬라이드");
+    setCreatingDocOrSlides(true);
+    setUploadError(null);
+    try {
+      const path = currentDir ? `${currentDir}/${name}.${kind}` : `${name}.${kind}`;
+      await syncFiles(project.id, [{ path, content: "" }]);
+      const refreshed = await refresh();
+      const created = refreshed.find((f) => f.path === path);
+      setCreatingDocKind(null);
+      setNewDocName("");
+      if (!created) return;
+      if (kind === "rtdoc") setDocEditorFileId(created.id);
+      else setSlidesEditorFileId(created.id);
+    } catch {
+      setUploadError(kind === "rtdoc" ? "문서 생성에 실패했습니다." : "슬라이드 생성에 실패했습니다.");
+    } finally {
+      setCreatingDocOrSlides(false);
     }
   }
 
@@ -1554,18 +1606,78 @@ export default function Workspace() {
 
       {/* 하위 폴더 그리드 */}
       <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <h2 className="text-sm font-700">폴더</h2>
-          {!creatingFolder && (
-            <button
-              onClick={() => setCreatingFolder(true)}
-              className="text-xs font-700 px-3 py-1.5 transition-all"
-              style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
-            >
-              + 새 폴더 만들기
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {!creatingFolder && (
+              <button
+                onClick={() => setCreatingFolder(true)}
+                className="text-xs font-700 px-3 py-1.5 transition-all"
+                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+              >
+                + 새 폴더 만들기
+              </button>
+            )}
+            {!creatingDocKind && (
+              <>
+                <button
+                  onClick={() => {
+                    setCreatingDocKind("rtdoc");
+                    setNewDocName("");
+                  }}
+                  disabled={creatingDocOrSlides}
+                  className="text-xs font-700 px-3 py-1.5 transition-all"
+                  style={{ background: "#2563eb18", color: "#2563eb", borderRadius: "20px", opacity: creatingDocOrSlides ? 0.6 : 1 }}
+                >
+                  + 새 문서 만들기
+                </button>
+                <button
+                  onClick={() => {
+                    setCreatingDocKind("slides");
+                    setNewDocName("");
+                  }}
+                  disabled={creatingDocOrSlides}
+                  className="text-xs font-700 px-3 py-1.5 transition-all"
+                  style={{ background: "#f0a50018", color: "#f0a500", borderRadius: "20px", opacity: creatingDocOrSlides ? 0.6 : 1 }}
+                >
+                  + 새 슬라이드 만들기
+                </button>
+              </>
+            )}
+          </div>
         </div>
+
+        {creatingDocKind && (
+          <div className="flex gap-2 mb-3">
+            <input
+              autoFocus
+              value={newDocName}
+              onChange={(e) => setNewDocName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateDocOrSlides()}
+              placeholder={creatingDocKind === "rtdoc" ? "문서 이름 (예: 회의록)" : "슬라이드 이름 (예: 발표자료)"}
+              className="flex-1 text-sm px-3 py-2 outline-none"
+              style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--muted)" }}
+            />
+            <button
+              onClick={handleCreateDocOrSlides}
+              disabled={creatingDocOrSlides}
+              className="text-xs font-700 px-4 py-2"
+              style={{ borderRadius: "var(--radius-sm)", color: "#fff", background: "var(--primary)", opacity: creatingDocOrSlides ? 0.6 : 1 }}
+            >
+              {creatingDocOrSlides ? "만드는 중..." : "만들기"}
+            </button>
+            <button
+              onClick={() => {
+                setCreatingDocKind(null);
+                setNewDocName("");
+              }}
+              className="text-xs font-600 px-3 py-2"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}
+            >
+              취소
+            </button>
+          </div>
+        )}
 
         {creatingFolder && (
           <div className="flex gap-2 mb-3">
@@ -1720,7 +1832,21 @@ export default function Workspace() {
                     </span>
                   )}
                 </button>
-                {!isBinaryPath(f.path) && (
+                {isRichDocPath(f.path) || isSlidesPath(f.path) ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isRichDocPath(f.path)) setDocEditorFileId(f.id);
+                      else setSlidesEditorFileId(f.id);
+                    }}
+                    title="바로 수정 — 실시간 공동편집으로 지금 바로 고치기"
+                    className="w-7 h-7 flex items-center justify-center text-xs shrink-0"
+                    style={{ borderRadius: "50%", background: isSelected ? "rgba(255,255,255,0.2)" : "var(--muted)", color: isSelected ? "#fff" : "var(--foreground)" }}
+                  >
+                    ✏️
+                  </button>
+                ) : (
+                  !isBinaryPath(f.path) && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1732,6 +1858,7 @@ export default function Workspace() {
                   >
                     ✏️
                   </button>
+                  )
                 )}
                 {editingTagFileId === f.id ? (
                   <input
@@ -1818,15 +1945,29 @@ export default function Workspace() {
                     >
                       📅
                     </button>
-                    {!isBinaryContent(selectedFile.content) && (
+                    {isRichDocPath(selectedFile.path) || isSlidesPath(selectedFile.path) ? (
                       <button
-                        onClick={() => setQuickEditFileId(selectedFile.id)}
-                        title="바로 수정 — 폴더 연동 없이 지금 바로 고치기"
+                        onClick={() => {
+                          if (isRichDocPath(selectedFile.path)) setDocEditorFileId(selectedFile.id);
+                          else setSlidesEditorFileId(selectedFile.id);
+                        }}
+                        title="바로 수정 — 실시간 공동편집으로 지금 바로 고치기"
                         className="w-9 shrink-0 flex items-center justify-center text-sm"
                         style={{ borderRadius: "10px", border: "2px solid var(--border)", color: "var(--foreground)", background: "transparent" }}
                       >
                         ✏️
                       </button>
+                    ) : (
+                      !isBinaryContent(selectedFile.content) && (
+                        <button
+                          onClick={() => setQuickEditFileId(selectedFile.id)}
+                          title="바로 수정 — 폴더 연동 없이 지금 바로 고치기"
+                          className="w-9 shrink-0 flex items-center justify-center text-sm"
+                          style={{ borderRadius: "10px", border: "2px solid var(--border)", color: "var(--foreground)", background: "transparent" }}
+                        >
+                          ✏️
+                        </button>
+                      )
                     )}
                   </div>
                 </>
@@ -1904,6 +2045,7 @@ export default function Workspace() {
                         onShowFull={setFullTextVersion}
                         onViewingVersionChange={setPageFlipVersionId}
                         jumpTo={pageJumpRequest}
+                        path={selectedFile.path}
                       />
                     </div>
                   ) : (
@@ -1927,6 +2069,7 @@ export default function Workspace() {
                               onCreatePin={handleCreatePin}
                               onUploadToPin={handleUploadToPin}
                               onShowFull={setFullTextVersion}
+                              path={selectedFile.path}
                             />
                           ))}
                         </ul>
@@ -2059,13 +2202,26 @@ export default function Workspace() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isBinaryContent(fullTextVersion.content) && (
+                {isBinaryContent(fullTextVersion.content) && !isSnapshotContent(fullTextVersion.content) && (
                   <button
                     onClick={() => downloadFile(selectedFile?.path ?? "file", fullTextVersion.content)}
                     className="text-xs font-700 px-3 py-1.5"
                     style={{ borderRadius: "20px", background: "var(--primary)", color: "#fff" }}
                   >
                     다운로드
+                  </button>
+                )}
+                {isSnapshotContent(fullTextVersion.content) && selectedFile && (
+                  <button
+                    onClick={() => {
+                      setFullTextVersion(null);
+                      if (isRichDocPath(selectedFile.path)) setDocEditorFileId(selectedFile.id);
+                      else if (isSlidesPath(selectedFile.path)) setSlidesEditorFileId(selectedFile.id);
+                    }}
+                    className="text-xs font-700 px-3 py-1.5"
+                    style={{ borderRadius: "20px", background: "var(--primary)", color: "#fff" }}
+                  >
+                    바로 수정
                   </button>
                 )}
                 <button
@@ -2081,6 +2237,15 @@ export default function Workspace() {
               fullTextVersion.content.startsWith("data:image/") ? (
                 <div className="flex-1 overflow-auto flex items-center justify-center p-4">
                   <img src={fullTextVersion.content} alt="전문 미리보기" className="max-w-full max-h-full object-contain" />
+                </div>
+              ) : isSnapshotContent(fullTextVersion.content) ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  <span>문서/슬라이드는 여기서 바로 볼 수 없어요.</span>
+                  <span>위의 "바로 수정" 버튼으로 최신 내용을 확인해주세요.</span>
+                </div>
+              ) : selectedFile && isOfficePreviewablePath(selectedFile.path) ? (
+                <div className="flex-1 overflow-auto p-4">
+                  <OfficePreview path={selectedFile.path} content={fullTextVersion.content} />
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
@@ -2178,6 +2343,46 @@ export default function Workspace() {
                 setQuickEditPin(null);
                 await refresh();
                 await refreshVersionsAndPins();
+              }}
+            />
+          );
+        })()}
+
+      {docEditorFileId &&
+        currentMember?.userId &&
+        (() => {
+          const target = files.find((f) => f.id === docEditorFileId);
+          if (!target) return null;
+          return (
+            <DocEditorModal
+              projectId={project.id}
+              fileId={target.id}
+              filePath={target.path}
+              myUserId={currentMember.userId}
+              myName={currentMember.name}
+              onClose={async () => {
+                setDocEditorFileId(null);
+                await refresh();
+              }}
+            />
+          );
+        })()}
+
+      {slidesEditorFileId &&
+        currentMember?.userId &&
+        (() => {
+          const target = files.find((f) => f.id === slidesEditorFileId);
+          if (!target) return null;
+          return (
+            <SlidesEditorModal
+              projectId={project.id}
+              fileId={target.id}
+              filePath={target.path}
+              myUserId={currentMember.userId}
+              myName={currentMember.name}
+              onClose={async () => {
+                setSlidesEditorFileId(null);
+                await refresh();
               }}
             />
           );
