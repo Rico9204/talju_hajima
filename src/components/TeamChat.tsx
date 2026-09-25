@@ -1046,7 +1046,8 @@ export default function TeamChat({
                           ) : (
                             m.text && (
                               <div
-                                className="px-3.5 py-2.5 text-sm max-w-none leading-relaxed break-words"
+                                data-chat-bubble="true"
+                                className="chat-bubble px-3.5 py-2.5 text-sm max-w-none leading-relaxed break-words"
                                 style={{
                                   background: mine
                                     ? "var(--primary)"

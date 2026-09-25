@@ -8,6 +8,7 @@ import Landing from "./components/Landing";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useAccountBackground } from "./lib/useAccountBackground";
+import { useGlobalDragScroll } from "./hooks/useGlobalDragScroll";
 
 // Keep sign-in and the selected route responsive while infrequently visited
 // workspace, evaluation and profile-related pages download in the background.
@@ -166,6 +167,8 @@ function AppRoutes() {
 }
 
 export default function App() {
+  useGlobalDragScroll();
+
   return (
     <AuthProvider>
       <BrowserRouter>
