@@ -2,7 +2,7 @@ import SearchHighlight from "./SearchHighlight";
 import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/workspaceSearch";
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
-import { latestFileUploadTime } from "../lib/workspaceFiles";
+import { latestFileUploadTime, sortWorkspaceFiles, type FileSortOption } from "../lib/workspaceFiles";
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
@@ -63,6 +63,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTag, setFilterTag] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<FileSortOption>("latest");
   const [dragOver, setDragOver] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -103,6 +104,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setCurrentFolderId(null);
     setSelected(null);
     setFilterTag(null);
+    setSortBy("latest");
     setCreatingFolder(false);
     setFolderError("");
     setSelectMode(false);
@@ -161,6 +163,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const searchScope = searchQuery.trim() ? files.filter((f) => matchesWorkspaceSearch(f, searchQuery)) : scoped;
   const tags = [null, ...Array.from(new Set(searchScope.flatMap((f) => f.tags)))];
   const filtered = filterTag === null ? searchScope : searchScope.filter((f) => f.tags.includes(filterTag));
+  const sortedFiles = sortWorkspaceFiles(filtered, sortBy);
   const selFile = selected !== null ? files.find((f) => f.id === selected) || null : null;
   const locked = project.status === "done";
   useEffect(() => {
@@ -431,9 +434,35 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-          파일 {filtered.length}개
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>
+            파일 {filtered.length}개
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="workspace-file-sort" className="text-xs shrink-0 font-600" style={{ color: "var(--muted-foreground)" }}>
+              정렬
+            </label>
+            <select
+              id="workspace-file-sort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as FileSortOption)}
+              className="text-xs px-2.5 py-1 border rounded-lg outline-none cursor-pointer transition-all"
+              style={{
+                background: "var(--card-glass)",
+                borderColor: "var(--border)",
+                color: "var(--foreground)",
+                fontFamily: "var(--font-outfit)",
+              }}
+            >
+              <option value="latest">최신순</option>
+              <option value="oldest">오래된순</option>
+              <option value="nameAsc">이름 오름차순</option>
+              <option value="nameDesc">이름 내림차순</option>
+              <option value="sizeDesc">크기 큰순</option>
+              <option value="sizeAsc">크기 작은순</option>
+            </select>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {selectMode && selectedIds.size > 0 && (
@@ -469,7 +498,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}
         <div className="col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1">
-          {filtered.map((f) => {
+          {sortedFiles.map((f) => {
             const tc = typeColors[f.type] || typeColors.doc;
             const deletable = canDeleteFile(f);
             const isSelected = selectMode ? selectedIds.has(f.id) : selected === f.id;

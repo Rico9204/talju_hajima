@@ -54,9 +54,49 @@ export function formatUploadTime(uploadedAt: string | null | undefined, date: st
   const parts = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(uploadedAt));
   return parts;
 }
+// 가장 나중에 올린 버전(id가 가장 큰 버전).
+function latestVersion(file: WorkspaceFile): FileVersion | undefined {
+  return [...file.versions].sort((a, b) => b.id - a.id)[0];
+}
 export function latestFileUploadTime(file: WorkspaceFile): string {
-  const latest = [...file.versions].sort((a, b) => b.id - a.id)[0];
+  const latest = latestVersion(file);
   return latest ? formatUploadTime(latest.uploadedAt, latest.date) : formatUploadTime(file.createdAt, file.date);
+}
+
+export type FileSortOption = "latest" | "oldest" | "nameAsc" | "nameDesc" | "sizeDesc" | "sizeAsc";
+
+// 목록에 보이는 날짜(latestFileUploadTime)와 같은 기준: 마지막 버전을 올린 시각. 시각이 없는 옛 기록은 날짜, 그것도 없으면 id.
+function fileTimestamp(file: WorkspaceFile): number {
+  const latest = latestVersion(file);
+  for (const value of [latest?.uploadedAt, file.createdAt, latest?.date?.replace(/\.\s*/g, "-"), file.date?.replace(/\.\s*/g, "-")]) {
+    const t = value ? Date.parse(value) : NaN;
+    if (!Number.isNaN(t)) return t;
+  }
+  return file.id;
+}
+
+// 현재 버전 크기(바이트). 옛 기록처럼 byteSize가 없으면 표시용 크기 문자열("1.2 MB")을 바이트로 되돌린다.
+function fileByteSize(file: WorkspaceFile): number {
+  const current = file.versions.find((v) => v.current) ?? file.versions[0];
+  if (current?.byteSize != null) return current.byteSize;
+  const match = file.size.match(/^([\d.]+)\s*(B|KB|MB|GB)?$/i);
+  if (!match) return 0;
+  const unit = { GB: 1024 ** 3, MB: 1024 ** 2, KB: 1024 }[(match[2] ?? "").toUpperCase()] ?? 1;
+  return parseFloat(match[1]) * unit;
+}
+
+const byName = (a: WorkspaceFile, b: WorkspaceFile) => a.name.localeCompare(b.name, "ko", { numeric: true, sensitivity: "base" });
+
+export function sortWorkspaceFiles(items: WorkspaceFile[], sortBy: FileSortOption): WorkspaceFile[] {
+  const compare: Record<FileSortOption, (a: WorkspaceFile, b: WorkspaceFile) => number> = {
+    latest: (a, b) => fileTimestamp(b) - fileTimestamp(a) || b.id - a.id,
+    oldest: (a, b) => fileTimestamp(a) - fileTimestamp(b) || a.id - b.id,
+    nameAsc: byName,
+    nameDesc: (a, b) => byName(b, a),
+    sizeDesc: (a, b) => fileByteSize(b) - fileByteSize(a) || b.id - a.id,
+    sizeAsc: (a, b) => fileByteSize(a) - fileByteSize(b) || a.id - b.id,
+  };
+  return [...items].sort(compare[sortBy]);
 }
 
 // 바로 수정(동시 편집)이 가능한 텍스트 파일 — 원본 텍스트를 그대로 다루고 크기 제한을 둔다.
