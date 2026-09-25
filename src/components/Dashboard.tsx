@@ -30,7 +30,7 @@ const dashboardData: Record<string, ProjectDashboardData> = {
       { label: "완료 과제", value: "14", sub: "전체 22개 중", icon: "✓", color: "#22c55e" },
       { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "남은 마감", value: "3", sub: "다가오는 기한", icon: "◷", color: "#ef4444" },
-      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "#2563eb" },
+      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "var(--status-inprogress)" },
     ],
     phases: [
       { label: "기획 및 자료 조사 계획", pct: 100 },
@@ -58,7 +58,7 @@ const dashboardData: Record<string, ProjectDashboardData> = {
       { label: "완료 과제", value: "16", sub: "전체 16개 중", icon: "✓", color: "#22c55e" },
       { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#454b6e" },
-      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "#2563eb" },
+      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "var(--status-inprogress)" },
     ],
     phases: [
       { label: "방언 조사 지역 선정 및 계획", pct: 100 },
@@ -83,7 +83,7 @@ const emptyDashboardData: ProjectDashboardData = {
     { label: "완료 과제", value: "0", sub: "전체 0개 중", icon: "✓", color: "#22c55e" },
     { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "#f59e0b" },
     { label: "남은 마감", value: "0", sub: "등록된 일정 없음", icon: "◷", color: "#ef4444" },
-    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "#2563eb" },
+    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "var(--status-inprogress)" },
   ],
   phases: [],
   deadlines: [],
@@ -307,20 +307,27 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               ? "linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)"
               : isDone
                 ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
-                : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)",
+                : "var(--hero-banner-bg)",
           borderRadius: "calc(var(--radius) + 8px)",
           padding: "44px 48px",
-          boxShadow: isDone ? "0 8px 32px rgba(22,163,74,0.3)" : "0 8px 32px rgba(37,99,235,0.3)",
+          border: isRejected || isPending || isDone ? "none" : "var(--hero-banner-border)",
+          boxShadow: isDone
+            ? "0 8px 32px rgba(22,163,74,0.3)"
+            : isRejected
+              ? "0 8px 32px rgba(239,68,68,0.3)"
+              : isPending
+                ? "0 8px 32px rgba(245,158,11,0.3)"
+                : "var(--hero-banner-shadow)",
         }}
       >
         {/* decorative circles */}
         <div
           className="absolute"
-          style={{ width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.06)", right: -40, top: -60 }}
+          style={{ width: 200, height: 200, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: -40, top: -60 }}
         />
         <div
           className="absolute"
-          style={{ width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.05)", right: 80, bottom: -40 }}
+          style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: 80, bottom: -40 }}
         />
 
         <div className="relative">
@@ -340,7 +347,12 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               <button
                 onClick={() => onNavigate(data.ctaPrimary.page)}
                 className="px-5 py-2.5 text-sm font-700 transition-all"
-                style={{ background: "#fff", color: isDone ? "#16a34a" : "var(--primary)", borderRadius: "40px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
+                style={{
+                  background: isDone ? "#fff" : "var(--hero-banner-btn-bg)",
+                  color: isDone ? "#16a34a" : "var(--hero-banner-btn-text)",
+                  borderRadius: "40px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                }}
               >
                 {data.ctaPrimary.label}
               </button>
@@ -392,7 +404,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           <div className="flex flex-col gap-4">
             {([
               { status: "todo", label: "예정", color: "#454b6e" },
-              { status: "inprogress", label: "진행", color: "#2563eb" },
+              { status: "inprogress", label: "진행", color: "var(--status-inprogress)" },
               { status: "review", label: "검토", color: "#f59e0b" },
             ] as const).map((column) => {
               const items = tasks.filter((task) => task.status === column.status);

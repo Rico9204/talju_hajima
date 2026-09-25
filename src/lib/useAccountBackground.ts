@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { useProject } from "../context/ProjectContext";
 import { usePerformanceMode } from "./performancePreferences";
+import { useThemeMode } from "./themePreferences";
 import { useStillUrl } from "./useStillUrl";
 
 // Shared by every top-level page shell (Layout in App.tsx, Home.tsx) so the
@@ -10,6 +11,7 @@ import { useStillUrl } from "./useStillUrl";
 export function useAccountBackground() {
   const { currentMember } = useProject();
   const [performanceMode] = usePerformanceMode();
+  const [, , isDark] = useThemeMode();
   const backgroundImage = useStillUrl(currentMember?.backgroundImageUrl); // GIF frozen unless 고급 mode
   const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
   const needsBackgroundFilter = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient);
@@ -44,7 +46,9 @@ export function useAccountBackground() {
     "--glass-alpha": String((currentMember?.glassOpacity ?? 32) / 100),
     "--panel-blur-px": `${backgroundBlur}px`,
     // Re-declare here so the account opacity resolves in this scope.
-    "--card-glass": "rgba(255, 255, 255, var(--glass-alpha))",
+    "--card-glass": isDark
+      ? "rgba(18, 22, 41, var(--glass-alpha))"
+      : "rgba(255, 255, 255, var(--glass-alpha))",
     "--panel-blur": "none",
   } as CSSProperties;
 

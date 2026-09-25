@@ -376,7 +376,7 @@ export default function ProfileModal() {
               // it needs to read clearly regardless of how translucent the
               // account has dialed the rest of the glass UI down to — stay
               // near-opaque white here rather than following --card-glass.
-              background: "rgba(255, 255, 255, 0.94)",
+              background: "var(--card)",
               borderRadius: "var(--radius)",
               maxHeight: "calc(100dvh - 2rem)",
               overflowY: "auto",

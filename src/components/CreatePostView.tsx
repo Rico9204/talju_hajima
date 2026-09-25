@@ -535,7 +535,7 @@ export default function CreatePostView({
             <button type="button" onClick={onCancel} className="px-6 py-2.5 text-xs font-600" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "40px" }}>
               취소
             </button>
-            <button type="submit" disabled={uploading || busy} className="px-6 py-2.5 text-xs font-700 disabled:opacity-50" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}>
+            <button type="submit" disabled={uploading || busy} className="px-6 py-2.5 text-xs font-700 disabled:opacity-50" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}>
               {busy ? "저장 중…" : initialPost ? "수정 완료" : "작성 완료"}
             </button>
           </div>
