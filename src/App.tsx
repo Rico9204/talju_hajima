@@ -1,5 +1,5 @@
 import { lazy, Suspense, type CSSProperties } from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { WorkspaceFocus } from "./components/Workspace";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
@@ -108,9 +108,13 @@ function TeamViewRoute() {
 function ChatRoute() {
   const navigate = useNavigate();
   const { channel } = useParams();
+  const [searchParams] = useSearchParams();
+  const messageIdParam = searchParams.get("messageId");
+  const focusMessageId = messageIdParam ? Number(messageIdParam) : undefined;
   return (
     <TeamChat
       initialChannel={channel ? decodeURIComponent(channel) : undefined}
+      focusMessageId={focusMessageId}
       onOpenFile={(fileId, folderId) => navigate(`/workspace/${folderId ?? "none"}/${fileId}`)}
     />
   );
