@@ -17,6 +17,7 @@ import type {
   ScheduleEventType,
   ScheduleEventVisibility,
   Member,
+  MemberPresenceState,
   ProfileLink,
   ChatMessage,
   ChatReaction,
@@ -159,7 +160,13 @@ export interface DataRepository {
   listChatToolEvents(projectId: string): Promise<ChatToolEvent[]>;
   subscribeToChatToolEvents(projectId: string, onEvent: (e: ChatToolEvent) => void): () => void;
   subscribeToReads(projectId: string, onRead: (r: { messageId: number; memberId: string }) => void): () => void;
-  subscribeToPresence(projectId: string, memberId: string, onChange: (onlineMemberIds: Set<string>) => void): () => void;
+  subscribeToPresence(
+    projectId: string,
+    memberId: string,
+    onChange: (onlineMemberIds: Set<string>, states: Record<string, MemberPresenceState>) => void
+  ): () => void;
+  updatePresenceStatus(projectId: string, memberId: string, status: "active" | "idle"): Promise<void>;
+  touchMemberPresence(memberId: string): Promise<void>;
 
   // Main-screen community board — global, not scoped to any project.
   listBoardPosts(): Promise<BoardPost[]>;

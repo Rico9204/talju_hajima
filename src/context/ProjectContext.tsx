@@ -16,6 +16,7 @@ import type {
   ScheduleEventType,
   ScheduleEventVisibility,
   Member,
+  MemberPresenceState,
   ProfileLink,
   ChatMessage,
   ChatToolEvent,
@@ -165,7 +166,7 @@ interface ProjectContextValue {
   // Which member's profile card (Sidebar's bottom-left avatar modal) is
   // currently open, if any — set from anywhere a member's avatar is
   // clickable (chat, comments, task cards, team view) so the same modal
-  // opens for them, not just for the signed-in user's own avatar.
+  onlineMemberStates: Record<string, MemberPresenceState>;
   viewedMemberId: string | null;
   openMemberProfile: (memberId: string) => void;
   closeMemberProfile: () => void;
@@ -390,6 +391,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // A project-scoped Realtime Presence channel supplies the member ids that
   // currently have this project open in one or more browser tabs.
   const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
+  const [onlineMemberStates, setOnlineMemberStates] = useState<Record<string, MemberPresenceState>>({});
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
@@ -677,8 +679,102 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // or opens an additional tab.
   useEffect(() => {
     setOnlineMemberIds(new Set());
+    setOnlineMemberStates({});
     if (!projectId || !myMemberId) return;
-    return dataRepository.subscribeToPresence(projectId, myMemberId, setOnlineMemberIds);
+    return dataRepository.subscribeToPresence(projectId, myMemberId, (ids, states) => {
+      setOnlineMemberIds(ids);
+      setOnlineMemberStates(states);
+    });
+  }, [projectId, myMemberId]);
+
+  // 10분 동안 사용자 인터랙션(마우스, 키보드, 터치, 스크롤 등)이 없을 때 'idle' (자리비움)로 상태 전환.
+  // 활동 재개 시 'active' (온라인) 복귀 및 DB touch_member_presence로 마지막 접속 시간 기록.
+  useEffect(() => {
+    if (!projectId || !myMemberId) return;
+
+    const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10분
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let isIdle = false;
+    let lastTouchTime = 0;
+
+    const touchDbPresence = () => {
+      const now = Date.now();
+      // DB touch는 최소 2분에 한 번 발생하도록 throttle
+      if (now - lastTouchTime > 2 * 60 * 1000) {
+        lastTouchTime = now;
+        void dataRepository.touchMemberPresence(myMemberId);
+      }
+    };
+
+    const setPresenceStatus = (status: "active" | "idle") => {
+      isIdle = status === "idle";
+      void dataRepository.updatePresenceStatus(projectId, myMemberId, status);
+      if (status === "active") {
+        touchDbPresence();
+      }
+    };
+
+    const resetIdleTimer = () => {
+      if (isIdle) {
+        // 자리비움에서 활동 재개!
+        setPresenceStatus("active");
+      } else {
+        touchDbPresence();
+      }
+
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        setPresenceStatus("idle");
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    // 초기 접속 시 DB 갱신 및 10분 타이머 가동
+    void dataRepository.touchMemberPresence(myMemberId);
+    lastTouchTime = Date.now();
+    idleTimer = setTimeout(() => {
+      setPresenceStatus("idle");
+    }, IDLE_TIMEOUT_MS);
+
+    // 사용자 조작 이벤트 (쓰로틀링 적용)
+    let eventThrottleTimer: ReturnType<typeof setTimeout> | undefined;
+    const handleActivity = () => {
+      if (eventThrottleTimer) return;
+      eventThrottleTimer = setTimeout(() => {
+        eventThrottleTimer = undefined;
+      }, 1000);
+      resetIdleTimer();
+    };
+
+    const activityEvents = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"] as const;
+    activityEvents.forEach((ev) => {
+      window.addEventListener(ev, handleActivity, { passive: true });
+    });
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        resetIdleTimer();
+      } else {
+        // 페이지가 백그라운드로 가거나 탭을 전환할 때 DB에 마지막 시각 기록
+        void dataRepository.touchMemberPresence(myMemberId);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const handleBeforeUnload = () => {
+      void dataRepository.touchMemberPresence(myMemberId);
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (eventThrottleTimer) clearTimeout(eventThrottleTimer);
+      activityEvents.forEach((ev) => {
+        window.removeEventListener(ev, handleActivity);
+      });
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      void dataRepository.touchMemberPresence(myMemberId);
+    };
   }, [projectId, myMemberId]);
 
   // Eagerly load every channel's message history (the group channel + one
@@ -1066,7 +1162,18 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   if (!initialized || loadedProjectId !== projectId) return <StatusScreen kind="loading" />;
 
   const project = projects.find((p) => p.id === projectId) ?? projects[0];
-  const liveTeam: TeamData = { ...team, members: team.members.map((m) => ({ ...m, online: onlineMemberIds.has(m.id) })) };
+  const liveTeam: TeamData = {
+    ...team,
+    members: team.members.map((m) => {
+      const isOnline = onlineMemberIds.has(m.id);
+      const state = onlineMemberStates[m.id];
+      return {
+        ...m,
+        online: isOnline,
+        lastSeenAt: state?.lastActiveAt || m.lastSeenAt,
+      };
+    }),
+  };
   const currentMember = liveTeam.members.find((m) => m.userId === session.user.id) ?? null;
   const isLeader = currentMember?.isLeader === true;
   const isViceLeader = currentMember?.isViceLeader === true;
@@ -1195,6 +1302,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         isViceLeader,
         isManager,
         loading,
+        onlineMemberStates,
         viewedMemberId,
         openMemberProfile: setViewedMemberId,
         closeMemberProfile: () => setViewedMemberId(null),

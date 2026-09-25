@@ -65,6 +65,7 @@ export interface Member {
   score: number;
   evalCount: number;
   online: boolean;
+  lastSeenAt: string | null;
   responsibilities: string[];
   color: string;
   criteriaScores: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
@@ -77,6 +78,12 @@ export interface Member {
   tasksViewedAt: string | null;
   scheduleViewedAt: string | null;
   workspaceViewedAt: string | null;
+}
+
+export interface MemberPresenceState {
+  status: "active" | "idle";
+  lastActiveAt: string;
+  onlineAt: string;
 }
 
 export interface TeamData {
