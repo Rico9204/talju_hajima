@@ -580,7 +580,8 @@ export default function ChatLadderCard({
           onScroll={checkScrollability}
           className="overflow-x-auto pb-2 scroll-smooth"
         >
-          <div className="min-w-fit flex flex-col items-center px-4">
+          {/* 가로 스크롤 영역은 위쪽으로 넘치는 부분도 잘라낸다: 선택돼 커지는 프로필이 잘리지 않게 위 여백을 둔다 */}
+          <div className="min-w-fit flex flex-col items-center px-4 pt-3">
             {/* 상단 참가자 목록 (프로필 사진으로 통일, 텍스트 제거로 줄밀림 방지, 사다리 기둥과 1:1 수직 정렬) */}
             <div
               className="relative h-14 select-none mb-1 shrink-0"
@@ -602,7 +603,7 @@ export default function ChatLadderCard({
                   >
                     {/* 마우스 호버 시 참가자 이름 툴팁 */}
                     <div
-                      className="absolute -top-7 px-2 py-0.5 rounded-md text-[11px] font-bold text-white bg-black/85 backdrop-blur-sm pointer-events-none opacity-0 group-hover/member:opacity-100 transition-opacity duration-150 whitespace-nowrap z-30 shadow-md"
+                      className="absolute top-full mt-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold text-white bg-black/85 backdrop-blur-sm pointer-events-none opacity-0 group-hover/member:opacity-100 transition-opacity duration-150 whitespace-nowrap z-30 shadow-md"
                       style={{ border: `1px solid ${pColor}60` }}
                     >
                       {p.name}
@@ -797,6 +798,7 @@ export default function ChatLadderCard({
                         r="8"
                         fill={participantColor}
                         className="animate-ping opacity-75"
+                        style={{ transformBox: "fill-box", transformOrigin: "center" }}
                       />
                       <circle
                         cx={(activePath.endCol + 1) * colSpacing}
