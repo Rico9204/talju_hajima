@@ -6,9 +6,54 @@ import PentagonChart from "./PentagonChart";
 import { collaborationTrust } from "../lib/collaborationTrust";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import { useDraggableScroll } from "../hooks/useDraggableScroll";
+import type { Member, MemberPresenceState } from "../api/types";
+
+function formatPresenceTooltip(m: Member, state?: MemberPresenceState): string {
+  const isOnline = m.online && !!state;
+  const isIdle = isOnline && state?.status === "idle";
+
+  if (isOnline && state) {
+    const onlineDate = new Date(state.onlineAt);
+    const timeStr = onlineDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    if (isIdle) {
+      return `[자리비움] 10분 이상 비활동\n접속 시각: 오늘 ${timeStr}`;
+    }
+    return `[온라인] 접속 시각: 오늘 ${timeStr}`;
+  }
+
+  if (!m.lastSeenAt) {
+    return "[오프라인] 접속 기록 없음";
+  }
+
+  const seenDate = new Date(m.lastSeenAt);
+  const now = new Date();
+  const diffMs = now.getTime() - seenDate.getTime();
+  const diffMins = Math.floor(diffMs / (60 * 1000));
+
+  let timeDesc = "";
+  if (diffMs < 0 || diffMins < 1) {
+    timeDesc = "방금 전";
+  } else if (diffMins < 60) {
+    timeDesc = `${diffMins}분 전`;
+  } else if (diffMins < 24 * 60 && seenDate.getDate() === now.getDate()) {
+    const timeStr = seenDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    timeDesc = `오늘 ${timeStr}`;
+  } else {
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (yesterday.getDate() === seenDate.getDate() && yesterday.getMonth() === seenDate.getMonth()) {
+      const timeStr = seenDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      timeDesc = `어제 ${timeStr}`;
+    } else {
+      timeDesc = `${seenDate.getMonth() + 1}월 ${seenDate.getDate()}일`;
+    }
+  }
+
+  return `[오프라인] 마지막 접속: ${timeDesc}`;
+}
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, tasks, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile } = useProject();
+  const { project, team, tasks, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile, onlineMemberStates } = useProject();
   const { isAdmin } = useProjectManagement();
   const { lineSafeStyle } = useAccountBackground();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -135,6 +180,33 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
         >
           {filteredMembers.map((m) => {
             const isSelected = sel.id === m.id;
+            const presence = onlineMemberStates[m.id];
+            const isOnline = m.online && !!presence;
+            const isIdle = isOnline && presence?.status === "idle";
+            const tooltip = formatPresenceTooltip(m, presence);
+            const statusLabel = isOnline ? (isIdle ? "자리비움" : "온라인") : "오프라인";
+            const dotColor = isSelected
+              ? "#fff"
+              : isOnline
+              ? isIdle
+                ? "#f59e0b"
+                : "#22c55e"
+              : "#94a3b8";
+            const badgeBg = isSelected
+              ? "rgba(255, 255, 255, 0.2)"
+              : isOnline
+              ? isIdle
+                ? "rgba(245, 158, 11, 0.12)"
+                : "rgba(34, 197, 94, 0.12)"
+              : "rgba(148, 163, 184, 0.12)";
+            const badgeColor = isSelected
+              ? "#fff"
+              : isOnline
+              ? isIdle
+                ? "#d97706"
+                : "#16a34a"
+              : "var(--muted-foreground)";
+
             return (
             <button
               key={m.id}
@@ -145,7 +217,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   setSelectedId(m.id);
                 }
               }}
-              className="flex flex-col items-center p-4 shrink-0 transition-all select-none cursor-pointer"
+              title={`${m.name} (${m.role})\n${tooltip}`}
+              className="flex flex-col items-center p-3.5 shrink-0 transition-all select-none cursor-pointer"
               style={{
                 background: isSelected ? "var(--primary)" : "var(--card)",
                 borderRadius: "var(--radius)",
@@ -157,7 +230,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               }}
             >
               <div
-                className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden pointer-events-none"
+                className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-1.5 relative overflow-hidden pointer-events-none"
                 style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
               >
                 {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} /> : m.avatar}
@@ -168,21 +241,32 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
                 )}
               </div>
-              <div className="text-xs font-700">{m.name}</div>
-              <div className="text-xs mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+              <div className="text-xs font-700 truncate max-w-full">{m.name}</div>
+              <div className="text-xs mt-0.5 truncate max-w-full" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
                 {m.role}
               </div>
               {m.id === currentMember?.id && m.evalCount > 0 ? (
-                <div className="flex items-center gap-1 mt-2">
+                <div className="flex items-center gap-1 mt-1.5">
                   <span className="text-xs">★</span>
                   <span className="text-xs font-700">{m.score.toFixed(1)}</span>
                 </div>
               ) : (
-                <div className="text-xs mt-2" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
+                <div className="text-xs mt-1.5" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
                   평가 대기
                 </div>
               )}
-              {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: isSelected ? "#fff" : "#22c55e" }} />}
+              {/* 온라인 / 자리비움 / 오프라인 상태 배지 */}
+              <div
+                className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-600 transition-all pointer-events-auto"
+                style={{ background: badgeBg, color: badgeColor }}
+                title={tooltip}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline && !isIdle ? "animate-pulse" : ""}`}
+                  style={{ background: dotColor }}
+                />
+                <span>{statusLabel}</span>
+              </div>
             </button>
             );
           })}

@@ -7,6 +7,7 @@ import type {
   Project,
   TeamData,
   Member,
+  MemberPresenceState,
   Folder,
   WorkspaceFile,
   FileComment,
@@ -91,6 +92,7 @@ function mapMember(row: any, profile?: any): Member {
     score: Number(row.score),
     evalCount: row.eval_count,
     online: row.online,
+    lastSeenAt: row.last_seen_at ?? null,
     responsibilities: row.responsibilities ?? [],
     color: row.color,
     criteriaScores: {
@@ -1461,26 +1463,57 @@ export const supabaseDataRepository: DataRepository = {
   // database heartbeat, Realtime immediately broadcasts joins/leaves to all
   // subscribed teammates and cleans up a disconnected socket automatically.
   subscribeToPresence(projectId, memberId, onChange) {
-    const channel = supabase.channel(`presence:${projectId}`, {
+    const channelKey = `presence:${projectId}`;
+    const channel = supabase.channel(channelKey, {
       config: { private: true, presence: { key: memberId } },
     });
+
+    // 한 사람이 탭을 여러 개 열면 탭마다 상태가 따로 온다. 하나라도 활동 중이면 온라인,
+    // 마지막 활동은 가장 늦은 시각, 접속 시각은 가장 이른 시각으로 합친다.
+    const parsePresenceStates = (presenceState: Record<string, any[]>): Record<string, MemberPresenceState> => {
+      const result: Record<string, MemberPresenceState> = {};
+      const now = new Date().toISOString();
+      for (const [key, presences] of Object.entries(presenceState)) {
+        if (!presences?.length) continue;
+        const lastActive = presences.map((p) => p.last_active_at || p.online_at || now).sort();
+        const onlineAt = presences.map((p) => p.online_at || now).sort();
+        result[key] = {
+          status: presences.some((p) => p.status !== "idle") ? "active" : "idle",
+          lastActiveAt: lastActive[lastActive.length - 1],
+          onlineAt: onlineAt[0],
+        };
+      }
+      return result;
+    };
+
+    const emit = () => {
+      const state = channel.presenceState();
+      const onlineIds = new Set(Object.keys(state));
+      const states = parsePresenceStates(state);
+      onChange(onlineIds, states);
+    };
+
     channel
       .on("presence", { event: "sync" }, () => {
-        onChange(new Set(Object.keys(channel.presenceState())));
+        emit();
       })
       .subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
+          const now = new Date().toISOString();
           void channel
-            .track({ online_at: new Date().toISOString() })
+            .track({ status: "active", last_active_at: now, online_at: now })
             .then((result) => {
               if (result !== "ok") {
                 console.error("온라인 상태 발행에 실패했습니다:", result);
                 return;
               }
-              // Presence sync normally follows track(), but immediately add
-              // the current user as well so a delayed sync cannot leave the
-              // user's own profile falsely marked offline.
-              onChange(new Set([...Object.keys(channel.presenceState()), memberId]));
+              const state = channel.presenceState();
+              const onlineIds = new Set([...Object.keys(state), memberId]);
+              const states = parsePresenceStates(state);
+              if (!states[memberId]) {
+                states[memberId] = { status: "active", lastActiveAt: now, onlineAt: now };
+              }
+              onChange(onlineIds, states);
             })
             .catch((trackError) => console.error("온라인 상태 발행에 실패했습니다:", trackError));
         } else if (status !== "CLOSED") {
@@ -1492,6 +1525,22 @@ export const supabaseDataRepository: DataRepository = {
     return () => {
       void supabase.removeChannel(channel);
     };
+  },
+
+  async updatePresenceStatus(projectId, memberId, status) {
+    const channel = supabase.getChannels().find((c) => c.topic === `realtime:presence:${projectId}` || c.topic === `presence:${projectId}`);
+    if (!channel) return;
+    const now = new Date().toISOString();
+    const existing = (channel.presenceState()?.[memberId] as any[])?.[0];
+    const onlineAt = existing?.online_at || now;
+    await channel.track({ status, last_active_at: now, online_at: onlineAt });
+  },
+
+  async touchMemberPresence(memberId) {
+    const { error } = await supabase.rpc("touch_member_presence", { p_member_id: memberId });
+    if (error) {
+      console.warn("touch_member_presence warning:", error.message);
+    }
   },
 
   async listBoardPosts() {
