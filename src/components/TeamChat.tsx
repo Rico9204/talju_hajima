@@ -85,8 +85,8 @@ export default function TeamChat({
 
   const [input, setInput] = useState("")
 
-  // 이스터에그: 점메추·저메추 봇 메시지 (로컬 상태)
-  const [botMessages, setBotMessages] = useState<{ id: string; channelId: string; text: string; createdAt: string }[]>([])
+  // 이스터에그: 봇 메시지 (로컬 상태, 새로고침 시 사라짐)
+  const [botMessages, setBotMessages] = useState<{ id: string; channelId: string; text: string; createdAt: string; icon: string }[]>([])
 
   const LUNCH_FOODS = [
     "순대국밥", "김치찌개", "된장찌개", "제육볶음", "비빔밥", "냉면", "칼국수", "짜장면",
@@ -131,10 +131,38 @@ export default function TeamChat({
         id: `bot-${Date.now()}`,
         channelId: active,
         text,
+        icon: "🍽️",
         createdAt: new Date().toISOString(),
       },
     ])
   }
+
+  function triggerDiceBot(sides: number = 6) {
+    const result = Math.floor(Math.random() * sides) + 1
+    const DICE_FACES: Record<number, string> = { 1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅" }
+    const face = sides === 6 ? (DICE_FACES[result] ?? "🎲") : "🎲"
+    const flavors: Record<number, string> = {
+      1: "최악이네요... 🙈 하지만 괜찮아요!",
+      2: "아깝다... 🥲",
+      3: "평범하네요. 🙂",
+      4: "나쁘지 않은걸요? 😏",
+      5: "꽤 잘 나왔는데요! 😄",
+      6: "대박!! 🎉🎉🎉 완벽한 숫자!",
+    }
+    const flavor = sides === 6 ? (flavors[result] ?? "") : ""
+    const text = `${face} **${result}** 이(가) 나왔어요!${flavor ? ` ${flavor}` : ""}`
+    setBotMessages((prev) => [
+      ...prev,
+      {
+        id: `bot-${Date.now()}`,
+        channelId: active,
+        text,
+        icon: "🎲",
+        createdAt: new Date().toISOString(),
+      },
+    ])
+  }
+
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // 입력 내용에 맞춰 입력창 높이를 조절한다(최대 높이를 넘으면 스크롤).
   useLayoutEffect(() => {
@@ -552,6 +580,14 @@ export default function TeamChat({
     if (trimmed === "저메추") {
       setInput("")
       triggerFoodBot("dinner")
+      return
+    }
+    // 주사위: /주사위 또는 주사위 [N]면 형식 지원 (기본 6면체)
+    const diceMatch = trimmed.match(/^\/?(주사위)(?:\s+(\d+)면?)?$/)
+    if (diceMatch) {
+      const sides = diceMatch[2] ? Math.min(Math.max(parseInt(diceMatch[2], 10), 2), 100) : 6
+      setInput("")
+      triggerDiceBot(sides)
       return
     }
 
@@ -1366,7 +1402,7 @@ export default function TeamChat({
                           boxShadow: "0 2px 8px rgba(249,115,22,0.35)",
                         }}
                       >
-                        🍽️
+                        {b.icon}
                       </div>
                       <div className="flex flex-col min-w-0 max-w-[75%]" style={{ alignItems: "flex-start" }}>
                         <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>
