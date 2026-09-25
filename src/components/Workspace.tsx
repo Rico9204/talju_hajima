@@ -2,8 +2,8 @@ import SearchHighlight from "./SearchHighlight";
 import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/workspaceSearch";
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
-import { latestFileUploadTime } from "../lib/workspaceFiles";
-import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
+import { latestFileUploadTime, sortWorkspaceFiles, type FileSortOption } from "../lib/workspaceFiles";
+import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
@@ -31,56 +31,6 @@ const tagColors: Record<string, string> = {
   전사: "#2563eb",
   영상: "#ef4444",
 };
-
-export type FileSortOption = "latest" | "oldest" | "nameAsc" | "nameDesc" | "sizeDesc" | "sizeAsc";
-
-function getFileTimestamp(file: WorkspaceFile): number {
-  const latestVersion = [...file.versions].sort((a, b) => b.id - a.id)[0];
-  const timeStr = latestVersion?.uploadedAt || file.createdAt || file.updatedAt;
-  if (timeStr) {
-    const t = new Date(timeStr).getTime();
-    if (!Number.isNaN(t)) return t;
-  }
-  if (file.date) {
-    const t = new Date(file.date.replace(/\.\s*/g, "-")).getTime();
-    if (!Number.isNaN(t)) return t;
-  }
-  return file.id;
-}
-
-function getFileByteSize(file: WorkspaceFile): number {
-  const current = file.versions.find((v) => v.current) ?? file.versions[0];
-  if (current?.byteSize != null) return current.byteSize;
-  const match = file.size.match(/^([\d.]+)\s*(B|KB|MB|GB)?$/i);
-  if (!match) return 0;
-  const num = parseFloat(match[1]);
-  const unit = (match[2] || "").toUpperCase();
-  if (unit === "GB") return num * 1024 * 1024 * 1024;
-  if (unit === "MB") return num * 1024 * 1024;
-  if (unit === "KB") return num * 1024;
-  return num;
-}
-
-function sortWorkspaceFiles(items: WorkspaceFile[], sortBy: FileSortOption): WorkspaceFile[] {
-  return [...items].sort((a, b) => {
-    switch (sortBy) {
-      case "latest":
-        return getFileTimestamp(b) - getFileTimestamp(a) || b.id - a.id;
-      case "oldest":
-        return getFileTimestamp(a) - getFileTimestamp(b) || a.id - b.id;
-      case "nameAsc":
-        return a.name.localeCompare(b.name, "ko", { numeric: true, sensitivity: "base" });
-      case "nameDesc":
-        return b.name.localeCompare(a.name, "ko", { numeric: true, sensitivity: "base" });
-      case "sizeDesc":
-        return getFileByteSize(b) - getFileByteSize(a) || b.id - a.id;
-      case "sizeAsc":
-        return getFileByteSize(a) - getFileByteSize(b) || a.id - b.id;
-      default:
-        return 0;
-    }
-  });
-}
 
 export interface WorkspaceFocus {
   fileId: number;
@@ -213,7 +163,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const searchScope = searchQuery.trim() ? files.filter((f) => matchesWorkspaceSearch(f, searchQuery)) : scoped;
   const tags = [null, ...Array.from(new Set(searchScope.flatMap((f) => f.tags)))];
   const filtered = filterTag === null ? searchScope : searchScope.filter((f) => f.tags.includes(filterTag));
-  const sortedFiles = useMemo(() => sortWorkspaceFiles(filtered, sortBy), [filtered, sortBy]);
+  const sortedFiles = sortWorkspaceFiles(filtered, sortBy);
   const selFile = selected !== null ? files.find((f) => f.id === selected) || null : null;
   const locked = project.status === "done";
   useEffect(() => {
@@ -507,8 +457,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             >
               <option value="latest">최신순</option>
               <option value="oldest">오래된순</option>
-              <option value="nameAsc">이름순 (ㄱ-ㅎ)</option>
-              <option value="nameDesc">이름순 (ㅎ-ㄱ)</option>
+              <option value="nameAsc">이름 오름차순</option>
+              <option value="nameDesc">이름 내림차순</option>
               <option value="sizeDesc">크기 큰순</option>
               <option value="sizeAsc">크기 작은순</option>
             </select>
