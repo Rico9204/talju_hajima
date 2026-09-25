@@ -84,6 +84,57 @@ export default function TeamChat({
   } = useProject()
 
   const [input, setInput] = useState("")
+
+  // 이스터에그: 점메추·저메추 봇 메시지 (로컬 상태)
+  const [botMessages, setBotMessages] = useState<{ id: string; channelId: string; text: string; createdAt: string }[]>([])
+
+  const LUNCH_FOODS = [
+    "순대국밥", "김치찌개", "된장찌개", "제육볶음", "비빔밥", "냉면", "칼국수", "짜장면",
+    "짬뽕", "탕수육", "삼겹살", "닭갈비", "부대찌개", "떡볶이", "라멘", "우동",
+    "돈까스", "오므라이스", "파스타", "피자", "버거", "샌드위치", "초밥", "회덮밥",
+    "갈비탕", "설렁탕", "육개장", "콩나물국밥", "해물파전", "보쌈", "족발",
+  ]
+
+  const DINNER_FOODS = [
+    "삼겹살", "갈비", "족발", "보쌈", "치킨", "피자", "초밥", "회", "양꼬치",
+    "곱창", "대창", "닭발", "쭈꾸미", "낙지볶음", "해물탕", "감자탕", "뼈다귀해장국",
+    "스테이크", "파스타", "리조또", "타코", "부리토", "마라탕", "훠궈", "샤브샤브",
+    "돼지국밥", "조개구이", "장어구이", "오리불고기", "닭도리탕",
+  ]
+
+  const FOOD_EMOJIS: Record<string, string> = {
+    "순대국밥": "🍲", "김치찌개": "🌶️", "된장찌개": "🫕", "제육볶음": "🥩",
+    "비빔밥": "🥗", "냉면": "🍜", "칼국수": "🍜", "짜장면": "🍝",
+    "짬뽕": "🦐", "탕수육": "🍖", "삼겹살": "🥓", "닭갈비": "🍗",
+    "부대찌개": "🫕", "떡볶이": "🌶️", "라멘": "🍜", "우동": "🍜",
+    "돈까스": "🍛", "오므라이스": "🍳", "파스타": "🍝", "피자": "🍕",
+    "버거": "🍔", "샌드위치": "🥪", "초밥": "🍣", "회덮밥": "🐟",
+    "갈비탕": "🍲", "설렁탕": "🍲", "육개장": "🌶️", "콩나물국밥": "🥣",
+    "해물파전": "🥘", "보쌈": "🥬", "족발": "🐷", "갈비": "🥩",
+    "치킨": "🍗", "회": "🐟", "양꼬치": "🍢", "곱창": "💪", "대창": "💪",
+    "닭발": "🦶", "쭈꾸미": "🐙", "낙지볶음": "🐙", "해물탕": "🦞",
+    "감자탕": "🦴", "뼈다귀해장국": "🦴", "스테이크": "🥩", "리조또": "🍚",
+    "타코": "🌮", "부리토": "🌯", "마라탕": "🌶️", "훠궈": "🫕",
+    "샤브샤브": "🥘", "돼지국밥": "🍲", "조개구이": "🦪", "장어구이": "🐍",
+    "오리불고기": "🦆", "닭도리탕": "🍗",
+  }
+
+  function triggerFoodBot(type: "lunch" | "dinner") {
+    const list = type === "lunch" ? LUNCH_FOODS : DINNER_FOODS
+    const food = list[Math.floor(Math.random() * list.length)]
+    const emoji = FOOD_EMOJIS[food] ?? "🍽️"
+    const prefix = type === "lunch" ? "오늘 점심은" : "오늘 저녁은"
+    const text = `${prefix} ${emoji} **${food}** 어떠세요? 맛있게 드세요! 🎉`
+    setBotMessages((prev) => [
+      ...prev,
+      {
+        id: `bot-${Date.now()}`,
+        channelId: active,
+        text,
+        createdAt: new Date().toISOString(),
+      },
+    ])
+  }
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // 입력 내용에 맞춰 입력창 높이를 조절한다(최대 높이를 넘으면 스크롤).
   useLayoutEffect(() => {
@@ -490,8 +541,23 @@ export default function TeamChat({
   // 입력창은 바로 비우고, 전송이 실패하면 쓴 내용과 첨부를 되돌려 다시 보낼 수 있게 한다.
   async function send() {
     if (!input.trim() && !pendingFile) return
+
+    // 이스터에그: 점메추·저메추 키워드 감지
+    const trimmed = input.trim()
+    if (trimmed === "점메추") {
+      setInput("")
+      triggerFoodBot("lunch")
+      return
+    }
+    if (trimmed === "저메추") {
+      setInput("")
+      triggerFoodBot("dinner")
+      return
+    }
+
     const text = input
     const file = pendingFile
+
     setInput("")
     setPendingFile(null)
     setSendError("")
@@ -1279,7 +1345,58 @@ export default function TeamChat({
                   </Fragment>
                 )
               })}
-              {visibleThread.length === 0 && (
+              {/* 이스터에그: 탈주봇 음식 추천 메시지 */}
+              {botMessages
+                .filter((b) => b.channelId === active)
+                .map((b) => {
+                  // **text** → <strong>text</strong> 파싱
+                  const parts = b.text.split(/(\*\*[^*]+\*\*)/)
+                  return (
+                    <div
+                      key={b.id}
+                      className="flex w-full min-w-0 items-start gap-2 mt-3 animate-[fadeSlideIn_0.35s_ease]"
+                      style={{ justifyContent: "flex-start" }}
+                    >
+                      {/* 봇 아바타 */}
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0 select-none"
+                        title="탈주봇"
+                        style={{
+                          background: "linear-gradient(135deg, #f97316, #ef4444)",
+                          boxShadow: "0 2px 8px rgba(249,115,22,0.35)",
+                        }}
+                      >
+                        🍽️
+                      </div>
+                      <div className="flex flex-col min-w-0 max-w-[75%]" style={{ alignItems: "flex-start" }}>
+                        <span className="text-xs font-600 mb-1 px-1" style={{ color: "var(--muted-foreground)" }}>
+                          탈주봇
+                        </span>
+                        <div
+                          className="px-3 py-2 text-sm leading-relaxed"
+                          style={{
+                            background: "linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.08))",
+                            border: "1px solid rgba(249,115,22,0.25)",
+                            borderRadius: "14px 14px 14px 2px",
+                            color: "var(--foreground)",
+                          }}
+                        >
+                          {parts.map((part, i) =>
+                            part.startsWith("**") && part.endsWith("**") ? (
+                              <strong key={i}>{part.slice(2, -2)}</strong>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </div>
+                        <span className="text-[10px] mt-0.5 px-1" style={{ color: "var(--muted-foreground)" }}>
+                          {new Date(b.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              {visibleThread.length === 0 && botMessages.filter((b) => b.channelId === active).length === 0 && (
                 <div
                   className="flex-1 flex items-center justify-center text-xs"
                   style={{ color: "var(--muted-foreground)" }}
