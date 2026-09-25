@@ -343,7 +343,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                         autoFocus
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && submitQuickAdd(col.id)}
+                        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submitQuickAdd(col.id)}
                         placeholder="과제 제목"
                         className="text-xs px-2.5 py-2 border outline-none"
                         style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}

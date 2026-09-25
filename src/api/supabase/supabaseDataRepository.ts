@@ -40,8 +40,9 @@ function slugify(name: string): string {
   return (base || "project") + "-" + Date.now().toString(36);
 }
 
+// 사용자 기기 시간대 기준 오늘(YYYY-MM-DD). toISOString()은 UTC라 한국 시간 새벽 0~9시에 전날이 된다.
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("sv-SE");
 }
 
 function mapProject(row: any): Project {
@@ -1410,10 +1411,10 @@ export const supabaseDataRepository: DataRepository = {
     };
   },
 
-  async chatToolInit(messageId, config) {
-    const { data, error } = await supabase.rpc("chat_tool_init", { p_message_id: messageId, p_config: config });
+  async chatToolCreate(projectId, channelId, text, config) {
+    const { data, error } = await supabase.rpc("chat_tool_create", { p_project_id: projectId, p_channel_id: channelId, p_text: text, p_config: config });
     if (error) throw error;
-    return mapToolEvent(data);
+    return { message: mapMessage({ ...data.message, message_reads: [], message_reactions: [] }), event: mapToolEvent(data.event) };
   },
 
   async chatToolAct(messageId, action, args = {}) {
@@ -1678,7 +1679,9 @@ export const supabaseDataRepository: DataRepository = {
     const userId = auth.user?.id;
     if (!userId) throw new Error("로그인이 필요합니다.");
     if (file.size > 20 * 1024 * 1024) throw new Error("첨부파일은 20MB까지 업로드할 수 있습니다.");
-    const ext = file.name.split(".").pop() || "bin";
+    // 확장자는 영문·숫자 10자까지만 쓴다(공백·특수문자가 주소에 들어가면 첨부 주소 검증에 걸려 게시글 저장이 실패한다).
+    const rawExt = file.name.includes(".") ? file.name.split(".").pop() ?? "" : "";
+    const ext = /^[a-z0-9]{1,10}$/i.test(rawExt) ? rawExt.toLowerCase() : "bin";
     const path = `${userId}/${crypto.randomUUID()}.${ext}`;
     const { error } = await supabase.storage.from("board-attachments").upload(path, file, { contentType: file.type || "application/octet-stream" });
     if (error) throw error;

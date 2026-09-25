@@ -258,7 +258,7 @@ export default function TaskDetailPanel({
                 <input
                   value={tagDraft}
                   onChange={(e) => setTagDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addTag()}
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addTag()}
                   placeholder="+ 태그"
                   className="text-xs px-2 py-1 outline-none w-16"
                   style={{ background: "var(--muted)", borderRadius: "20px" }}
@@ -340,7 +340,7 @@ export default function TaskDetailPanel({
                 <input
                   value={checklistDraft}
                   onChange={(e) => setChecklistDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (onAddChecklistItem(checklistDraft), setChecklistDraft(""))}
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (onAddChecklistItem(checklistDraft), setChecklistDraft(""))}
                   placeholder="항목 추가..."
                   className="flex-1 text-xs px-3 py-1.5 outline-none"
                   style={{ background: "var(--muted)", borderRadius: "20px" }}
@@ -464,7 +464,7 @@ export default function TaskDetailPanel({
                 <input
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (onAddComment(commentDraft), setCommentDraft(""))}
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (onAddComment(commentDraft), setCommentDraft(""))}
                   placeholder="댓글 남기기..."
                   className="flex-1 text-xs px-3 py-2 outline-none"
                   style={{ background: "var(--muted)", borderRadius: "20px" }}

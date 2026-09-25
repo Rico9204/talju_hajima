@@ -75,7 +75,7 @@ export default function TeamChat({
     chatUnread,
     sendChatMessage,
     chatToolEvents,
-    initChatTool,
+    createChatTool,
     actChatTool,
     toggleChatReaction,
     markChannelMessagesRead,
@@ -105,6 +105,7 @@ export default function TeamChat({
     useState<number | null>(null)
 
   const [pendingFile, setPendingFile] = useState<FileRef | null>(null)
+  const [sendError, setSendError] = useState("")
 
   const [messageSearchOpen, setMessageSearchOpen] = useState(false)
 
@@ -486,14 +487,22 @@ export default function TeamChat({
     setFileMentionSearch("")
   }
 
-  function send() {
+  // 입력창은 바로 비우고, 전송이 실패하면 쓴 내용과 첨부를 되돌려 다시 보낼 수 있게 한다.
+  async function send() {
     if (!input.trim() && !pendingFile) return
-
-    sendChatMessage(active, input, pendingFile?.id)
-
+    const text = input
+    const file = pendingFile
     setInput("")
-
     setPendingFile(null)
+    setSendError("")
+    try {
+      await sendChatMessage(active, text, file?.id)
+    } catch (error) {
+      setInput((current) => current || text) // 그 사이 새로 입력했다면 덮어쓰지 않는다
+      setPendingFile((current) => current ?? file)
+      const message = error instanceof Error ? error.message : (error as { message?: string })?.message
+      setSendError(`메시지를 보내지 못했어요. 다시 시도해 주세요.${message ? ` (${message})` : ""}`)
+    }
   }
 
   function reportToolError(error: unknown) {
@@ -504,13 +513,9 @@ export default function TeamChat({
   // 제비뽑기·사다리·룰렛은 메시지에 공개 정보만 올리고, 정답·결과는 서버가 정한다. 투표는 기존 방식.
   async function handleSendTool(payload: ChatToolPayload) {
     const server = toServerToolPayload(payload)
-    if (!server) {
-      void sendChatMessage(active, encodeChatToolMessage(payload))
-      return
-    }
     try {
-      const id = await sendChatMessage(active, `${TOOL_MESSAGE_PREFIX}${JSON.stringify(server.payload)}`)
-      if (id !== null) await initChatTool(id, server.config)
+      if (!server) await sendChatMessage(active, encodeChatToolMessage(payload))
+      else await createChatTool(active, `${TOOL_MESSAGE_PREFIX}${JSON.stringify(server.payload)}`, server.config)
     } catch (error) {
       reportToolError(error)
     }
@@ -527,7 +532,7 @@ export default function TeamChat({
       actChatTool(action.targetMessageId, action.action, args).catch(reportToolError)
       return
     }
-    void sendChatMessage(active, encodeChatToolAction(action))
+    sendChatMessage(active, encodeChatToolAction(action)).catch(reportToolError)
   }
 
   async function handleServerSpin(messageId: number): Promise<string | null> {
@@ -1612,6 +1617,9 @@ export default function TeamChat({
               </div>
             )}
 
+            {sendError && (
+              <p role="alert" className="px-4 pt-2 text-xs" style={{ color: "#ef4444" }}>{sendError}</p>
+            )}
             <div className="px-4 py-3 flex items-end gap-2">
               {/* 카카오톡 스타일 + 메뉴 버튼 */}
               <button
@@ -1666,7 +1674,7 @@ export default function TeamChat({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault()
-                    send()
+                    void send()
                   }
                 }}
                 placeholder={

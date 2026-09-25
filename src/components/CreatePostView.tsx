@@ -44,7 +44,8 @@ export default function CreatePostView({
   const [pollIsAnonymous, setPollIsAnonymous] = useState(initialPost?.poll?.isAnonymous ?? false);
   const [pollHasDeadline, setPollHasDeadline] = useState(!!initialPost?.poll?.closesAt);
   const [pollDeadline, setPollDeadline] = useState(
-    initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toISOString().slice(0, 16) : ""
+    // datetime-local 입력은 기기 시간 기준이라 UTC(toISOString)로 넣으면 9시간 어긋난다.
+    initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toLocaleString("sv-SE").slice(0, 16).replace(" ", "T") : ""
   );
   const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
 
@@ -210,8 +211,10 @@ export default function CreatePostView({
     const textOnly = editorRef.current?.innerText.trim() ?? "";
     if (!textOnly && !cleanHtml.includes("<img")) { setError("내용을 입력해주세요."); return; }
 
+    // 투표는 새 글을 쓸 때만 만든다. 수정 시에는 투표를 저장하지 않으므로 검사하지 않는다
+    // (검사하면 마감이 지난 투표가 있는 글은 제목·본문도 고칠 수 없게 된다).
     let pollInput = undefined;
-    if (hasPoll) {
+    if (hasPoll && !initialPost) {
       const pollValidationError = validateNewPollInput({
         question: pollQuestion,
         options: pollOptions,

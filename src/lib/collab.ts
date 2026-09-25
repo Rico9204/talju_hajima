@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { applyTextEdit, fromB64, seedDoc, textHash, toB64, transformIndex, type Delta } from "./collabCore";
 
 export { textHash, transformIndex };
+export type { Delta };
 
 // 워크스페이스 "바로 수정"(동시 편집). Yjs 문서를 Supabase Realtime으로 동기화한다.
 //  - collab_presence:<project> : 누가 어떤 파일을 수정 중인지 (목록 배지, 편집창의 함께 수정 중 표시)
@@ -53,7 +54,7 @@ export function joinCollabPresence(projectId: string, me: { id: string; name: st
 
 export interface CollabDoc {
   text: () => string;
-  edit: (oldValue: string, newValue: string) => void;
+  edit: (oldValue: string, newValue: string, remoteSince?: Delta[]) => void;
   head: () => number;
   savedHash: () => string;
   markSaved: (head: number, text: string) => void;
@@ -115,7 +116,7 @@ export function openCollabDoc(opts: {
 
   return {
     text: () => ytext.toString(),
-    edit: (oldValue, newValue) => applyTextEdit(doc, oldValue, newValue),
+    edit: (oldValue, newValue, remoteSince) => applyTextEdit(doc, oldValue, newValue, remoteSince),
     head: () => head,
     savedHash: () => saved,
     markSaved: (newHead, text) => {

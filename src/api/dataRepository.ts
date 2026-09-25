@@ -153,7 +153,8 @@ export interface DataRepository {
     onInsert: (m: ChatMessage) => void,
     onReaction: (change: { active: boolean; reaction: ChatReaction }) => void
   ): () => void;
-  chatToolInit(messageId: number, config: Record<string, unknown>): Promise<ChatToolEvent>;
+  // 도구 메시지 등록 + 준비를 한 트랜잭션으로(준비가 실패하면 메시지도 남지 않는다).
+  chatToolCreate(projectId: string, channelId: string, text: string, config: Record<string, unknown>): Promise<{ message: ChatMessage; event: ChatToolEvent }>;
   chatToolAct(messageId: number, action: string, args?: Record<string, unknown>): Promise<ChatToolEvent>;
   listChatToolEvents(projectId: string): Promise<ChatToolEvent[]>;
   subscribeToChatToolEvents(projectId: string, onEvent: (e: ChatToolEvent) => void): () => void;
