@@ -1,6 +1,7 @@
 import StillImg from "./StillImg"
 import ChatMessageText from "./ChatMessageText"
-import { Fragment, useState, useRef, useEffect, useLayoutEffect } from "react"
+import { isMentionForMember } from "../lib/chatMentions"
+import { Fragment, useState, useRef, useEffect, useLayoutEffect, useMemo } from "react"
 
 import {
   useProject,
@@ -59,9 +60,13 @@ const chatEmojis = ["👍", "❤️", "😂", "🎉", "👀", "✅"]
 
 export default function TeamChat({
   initialChannel,
+  focusMessageId,
+  onFocusHandled,
   onOpenFile,
 }: {
   initialChannel?: string
+  focusMessageId?: number
+  onFocusHandled?: () => void // 바로가기 이동을 마쳤을 때(주소의 messageId를 지워 새 메시지마다 다시 끌려가지 않게)
   onOpenFile?: (fileId: number, folderId: number | null) => void
 }) {
   const {
@@ -163,6 +168,152 @@ export default function TeamChat({
 
   const otherMembers = team.members.filter((m) => m.id !== currentMember?.id)
 
+  interface MentionCandidate {
+    id: string
+    name: string
+    role?: string
+    avatar?: string
+    avatarUrl?: string | null
+    color?: string
+    isLeader?: boolean
+    isViceLeader?: boolean
+    online?: boolean
+  }
+
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState("")
+  const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
+  const [mentionStartIndex, setMentionStartIndex] = useState<number | null>(null)
+  const mentionPickerRef = useRef<HTMLDivElement>(null)
+
+  const mentionCandidates = useMemo(() => {
+    const list: MentionCandidate[] = [
+      {
+        id: "all",
+        name: "전체",
+        role: "모든 팀원 멘션",
+        avatar: "📢",
+        color: "#f59e0b",
+      },
+      ...team.members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        avatar: m.avatar,
+        avatarUrl: m.avatarUrl,
+        color: m.color,
+        isLeader: m.isLeader,
+        isViceLeader: m.isViceLeader,
+        online: m.online,
+      })),
+    ]
+
+    if (!mentionQuery.trim()) return list
+    const q = mentionQuery.trim().toLowerCase()
+    return list.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.role && c.role.toLowerCase().includes(q))
+    )
+  }, [team.members, mentionQuery])
+
+  function applyMention(candidate: MentionCandidate) {
+    if (mentionStartIndex === null) return
+    const textarea = inputRef.current
+    const cursor = textarea?.selectionStart ?? input.length
+    const beforeAt = input.slice(0, mentionStartIndex)
+    const afterCursor = input.slice(cursor)
+    const replacement = `@${candidate.name} `
+    const nextInput = beforeAt + replacement + afterCursor
+    setInput(nextInput)
+    setMentionPickerOpen(false)
+    setMentionStartIndex(null)
+
+    setTimeout(() => {
+      if (textarea) {
+        textarea.focus()
+        const newPos = beforeAt.length + replacement.length
+        textarea.setSelectionRange(newPos, newPos)
+      }
+    }, 0)
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value
+    setInput(val)
+
+    const cursor = e.target.selectionStart ?? val.length
+    const textBeforeCursor = val.slice(0, cursor)
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@")
+
+    if (lastAtIndex !== -1) {
+      const charBeforeAt = lastAtIndex === 0 ? " " : textBeforeCursor[lastAtIndex - 1]
+      const textAfterAt = textBeforeCursor.slice(lastAtIndex + 1)
+      if (/[\s\n]/.test(charBeforeAt) || lastAtIndex === 0) {
+        if (!/[\s\n]/.test(textAfterAt)) {
+          setMentionPickerOpen(true)
+          setMentionQuery(textAfterAt)
+          setMentionStartIndex(lastAtIndex)
+          setMentionSelectedIdx(0)
+          return
+        }
+      }
+    }
+    setMentionPickerOpen(false)
+    setMentionStartIndex(null)
+  }
+
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionPickerOpen && mentionCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setMentionSelectedIdx((prev) => (prev + 1) % mentionCandidates.length)
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setMentionSelectedIdx((prev) => (prev - 1 + mentionCandidates.length) % mentionCandidates.length)
+        return
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault()
+        const target = mentionCandidates[mentionSelectedIdx]
+        if (target) {
+          applyMention(target)
+          return
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setMentionPickerOpen(false)
+        return
+      }
+    }
+
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      void send()
+    }
+  }
+
+  useEffect(() => {
+    if (!mentionPickerOpen) return
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        mentionPickerRef.current &&
+        !mentionPickerRef.current.contains(e.target as Node) &&
+        inputRef.current &&
+        !inputRef.current.contains(e.target as Node)
+      ) {
+        setMentionPickerOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [mentionPickerOpen])
+
   // 개인 채팅(팀 채팅 제외)은 최근에 대화한 순서대로 정렬 — 아직 대화가 없는 상대는 뒤로 밀린다.
 
   const dmChannels = currentMember
@@ -243,10 +394,12 @@ export default function TeamChat({
       )
     : files
 
-  const initialChannelId =
-    currentMember && initialChannel
-      ? dmChannelId(currentMember.id, initialChannel)
-      : "all"
+  const initialChannelId = (() => {
+    if (!currentMember || !initialChannel) return "all"
+    if (initialChannel === "all") return "all"
+    if (initialChannel.startsWith("dm:")) return initialChannel
+    return dmChannelId(currentMember.id, initialChannel)
+  })()
 
   const [active, setActive] = useState<string>(initialChannelId)
 
@@ -267,9 +420,15 @@ export default function TeamChat({
   }
 
   useEffect(() => {
+    if (initialChannelId && channels.some((c) => c.id === initialChannelId)) {
+      setActive(initialChannelId)
+      markChannelMessagesRead(initialChannelId)
+      return
+    }
+
     const exists = channels.some((c) => c.id === active)
 
-    const channelId = exists ? active : initialChannelId
+    const channelId = exists ? active : "all"
 
     setActive(channelId)
 
@@ -292,7 +451,7 @@ export default function TeamChat({
     setActionMenuOpen(false)
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id, initialChannel, currentMember?.id])
+  }, [project.id, initialChannelId, currentMember?.id])
 
   // Do not use the whole chatMessages object here: a reaction or read receipt
 
@@ -333,6 +492,31 @@ export default function TeamChat({
 
     setPendingScrollMessageId(null)
   }, [pendingScrollMessageId, messageSearch])
+
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null)
+  const teamMemberNames = team.members.map((m) => m.name)
+
+  // 알림에서 온 메시지 바로가기: 메시지가 그려지면 한 번만 이동·강조하고 onFocusHandled로 주소의 messageId를 지운다.
+  // (지우지 않으면 새 메시지가 올 때마다 옛 메시지로 다시 스크롤된다.) 아직 안 불러왔으면 메시지가 늘 때 다시 시도.
+  useEffect(() => {
+    if (!focusMessageId) return
+    setMobileShowThread(true)
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`chat-message-${focusMessageId}`)
+      if (!el) return
+      el.scrollIntoView({ block: "center", behavior: "smooth" })
+      setHighlightedMessageId(focusMessageId)
+      onFocusHandled?.()
+    }, 150)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusMessageId, active, chatMessages[active]?.length])
+
+  useEffect(() => {
+    if (highlightedMessageId === null) return
+    const timer = setTimeout(() => setHighlightedMessageId(null), 3000)
+    return () => clearTimeout(timer)
+  }, [highlightedMessageId])
 
   // Selecting a channel marks its current messages as read, but a message
 
@@ -984,7 +1168,11 @@ export default function TeamChat({
                     )}
                     <div
                       id={`chat-message-${m.id}`}
-                      className={`group/message flex w-full min-w-0 items-start gap-2 ${
+                      className={`group/message flex w-full min-w-0 items-start gap-2 transition-all duration-700 ${
+                        highlightedMessageId === m.id
+                          ? "ring-2 ring-[var(--primary)] ring-offset-2 rounded-2xl p-2 bg-[var(--primary)]/10 shadow-lg scale-[1.01]"
+                          : ""
+                      } ${
                         joinsPrevious ? "mt-0.5" : "mt-3"
                       }`}
                       style={{
@@ -1049,22 +1237,37 @@ export default function TeamChat({
                               onOpenOverlay={() => setOverlayToolMessageId(m.id)}
                             />
                           ) : (
-                            m.text && (
-                              <div
-                                className="px-3.5 py-2.5 text-sm max-w-none leading-relaxed break-words"
-                                style={{
-                                  background: mine
-                                    ? "var(--primary)"
-                                    : "var(--muted)",
-                                  color: mine ? "#fff" : "var(--foreground)",
-                                  borderRadius: bubbleRadius,
-                                  overflowWrap: "anywhere",
-                                  whiteSpace: "pre-wrap",
-                                }}
-                              >
-                                <ChatMessageText text={m.text} mine={mine} />
-                              </div>
-                            )
+                            m.text && (() => {
+                              const isMentioned = !mine && !!currentMember && isMentionForMember(m.text, currentMember.name, teamMemberNames)
+                              return (
+                                <div
+                                  className="px-3.5 py-2.5 text-sm max-w-none leading-relaxed break-words relative transition-all"
+                                  style={{
+                                    background: mine
+                                      ? "var(--primary)"
+                                      : isMentioned
+                                      ? "rgba(59, 130, 246, 0.12)"
+                                      : "var(--muted)",
+                                    color: mine ? "#fff" : "var(--foreground)",
+                                    border: isMentioned ? "1.5px solid rgba(59, 130, 246, 0.4)" : "none",
+                                    boxShadow: isMentioned ? "0 0 14px rgba(59, 130, 246, 0.15)" : undefined,
+                                    borderRadius: bubbleRadius,
+                                    overflowWrap: "anywhere",
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {isMentioned && (
+                                    <div
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 mb-1 rounded select-none"
+                                      style={{ background: "rgba(59, 130, 246, 0.2)", color: "var(--primary)" }}
+                                    >
+                                      @ 나를 멘션함
+                                    </div>
+                                  )}
+                                  <ChatMessageText text={m.text} mine={mine} myName={currentMember?.name} mentionNames={teamMemberNames} />
+                                </div>
+                              )
+                            })()
                           )}
                           {fileRef && (
                             <button
@@ -1425,6 +1628,138 @@ export default function TeamChat({
               </div>
             )}
 
+            {/* 멘션 자동완성 팝업 */}
+            {mentionPickerOpen && (
+              <div
+                ref={mentionPickerRef}
+                className="absolute bottom-full left-4 mb-2 w-72 max-h-64 overflow-y-auto p-1.5 z-30 shadow-2xl rounded-2xl border animate-fadeIn"
+                style={{
+                  background: "var(--card)",
+                  borderColor: "var(--border)",
+                  boxShadow: "0 16px 40px rgba(15, 18, 53, 0.2)",
+                  backdropFilter: "var(--panel-blur)",
+                  WebkitBackdropFilter: "var(--panel-blur)",
+                }}
+              >
+                <div
+                  className="text-[11px] font-bold px-2 py-1 flex items-center justify-between border-b mb-1 select-none"
+                  style={{
+                    borderColor: "var(--border)",
+                    color: "var(--muted-foreground)",
+                  }}
+                >
+                  <span className="flex items-center gap-1">
+                    <span>@</span>
+                    <span>팀원 멘션</span>
+                  </span>
+                  <span className="text-[10px] font-normal">
+                    ↑↓ 이동 · Enter / Tab 선택
+                  </span>
+                </div>
+                {mentionCandidates.length === 0 ? (
+                  <div
+                    className="text-xs text-center py-4 select-none"
+                    style={{ color: "var(--muted-foreground)" }}
+                  >
+                    일치하는 멤버가 없어요
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {mentionCandidates.map((c, idx) => {
+                      const isSelected = idx === mentionSelectedIdx
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => applyMention(c)}
+                          onMouseEnter={() => setMentionSelectedIdx(idx)}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-colors cursor-pointer ${
+                            isSelected
+                              ? "bg-[var(--primary)] text-white"
+                              : "hover:bg-[var(--muted)] text-[var(--foreground)]"
+                          }`}
+                        >
+                          <div className="relative shrink-0">
+                            <div
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden"
+                              style={{
+                                background: isSelected
+                                  ? "rgba(255,255,255,0.25)"
+                                  : (c.color || "var(--primary)"),
+                                color: "#fff",
+                              }}
+                            >
+                              {c.avatarUrl ? (
+                                <StillImg
+                                  src={c.avatarUrl}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                c.avatar || c.name.slice(0, 1)
+                              )}
+                            </div>
+                            {c.online && (
+                              <span
+                                className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white"
+                                style={{ background: "#22c55e" }}
+                                title="온라인"
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold truncate">
+                                {c.name}
+                              </span>
+                              {c.isLeader && (
+                                <span
+                                  className="text-[9px] px-1 py-0.2 rounded font-bold"
+                                  style={{
+                                    background: isSelected
+                                      ? "rgba(255,255,255,0.2)"
+                                      : "rgba(234, 179, 8, 0.15)",
+                                    color: isSelected ? "#fff" : "#ca8a04",
+                                  }}
+                                >
+                                  팀장
+                                </span>
+                              )}
+                              {c.isViceLeader && (
+                                <span
+                                  className="text-[9px] px-1 py-0.2 rounded font-bold"
+                                  style={{
+                                    background: isSelected
+                                      ? "rgba(255,255,255,0.2)"
+                                      : "rgba(99, 102, 241, 0.15)",
+                                    color: isSelected ? "#fff" : "var(--primary)",
+                                  }}
+                                >
+                                  부팀장
+                                </span>
+                              )}
+                            </div>
+                            {c.role && (
+                              <div
+                                className="text-[10px] truncate"
+                                style={{
+                                  color: isSelected
+                                    ? "rgba(255,255,255,0.8)"
+                                    : "var(--muted-foreground)",
+                                }}
+                              >
+                                {c.role}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 카카오톡 스타일 + 메뉴 팝오버 */}
             {actionMenuOpen && (
               <div
@@ -1670,13 +2005,8 @@ export default function TeamChat({
                 ref={inputRef}
                 rows={1}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    void send()
-                  }
-                }}
+                onChange={handleInputChange}
+                onKeyDown={handleInputKeyDown}
                 placeholder={
                   pendingFile
                     ? "메시지 추가 (선택)..."

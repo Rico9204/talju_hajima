@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { Page } from "../App";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
+import { formatChatTime } from "../lib/chatDate";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
@@ -46,8 +48,9 @@ const navItems: { id: Page; label: string; icon: ReactNode }[] = [
 const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
 
 export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
+  const routerNavigate = useNavigate();
   const {
-    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, currentMember,
+    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, unreadMentions, currentMember,
     openMemberProfile, tasksUnread, scheduleUnread, workspaceUnread,
     newTasks, newScheduleEvents, newFiles,
   } = useProject();
@@ -233,14 +236,73 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 새로운 알림이 없어요
               </div>
             )}
-            {chatUnreadTotal > 0 && (
+            {unreadMentions.length > 0 && (
+              <div
+                className="p-2 mb-2 rounded-xl border transition-all"
+                style={{
+                  background: "rgba(59, 130, 246, 0.08)",
+                  borderColor: "rgba(59, 130, 246, 0.25)",
+                }}
+              >
+                <div className="flex items-center justify-between gap-1 mb-1.5 px-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>📢 멘션 알림</span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.2 rounded-full font-bold"
+                      style={{ background: "var(--primary)", color: "#fff" }}
+                    >
+                      {unreadMentions.length}
+                    </span>
+                  </div>
+                  <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>클릭하여 바로가기</span>
+                </div>
+                <div className="space-y-1">
+                  {unreadMentions.slice(0, 5).map((m) => (
+                    <button
+                      key={m.messageId}
+                      type="button"
+                      onClick={() => {
+                        setNotifOpen(false);
+                        setMobileOpen(false);
+                        routerNavigate(`/chat/${encodeURIComponent(m.channelId)}?messageId=${m.messageId}`);
+                      }}
+                      className="w-full text-left p-2 rounded-lg transition-all hover:bg-[var(--card)] hover:shadow-xs group cursor-pointer border border-transparent hover:border-[var(--border)]"
+                      style={{ background: "rgba(255, 255, 255, 0.6)" }}
+                    >
+                      <div className="flex items-center justify-between text-[11px] mb-0.5">
+                        <span className="font-bold truncate" style={{ color: "var(--foreground)" }}>
+                          {m.senderName}
+                        </span>
+                        <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
+                          {formatChatTime(m.createdAt)}
+                        </span>
+                      </div>
+                      <div className="text-xs truncate font-medium" style={{ color: "var(--foreground)" }}>
+                        {m.text}
+                      </div>
+                    </button>
+                  ))}
+                  {unreadMentions.length > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => { setNotifOpen(false); navigate("chat"); }}
+                      className="w-full text-center text-[11px] font-700 py-1"
+                      style={{ color: "var(--primary)" }}
+                    >
+                      외 {unreadMentions.length - 5}건 더 보기
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {Math.max(0, chatUnreadTotal - unreadMentions.length) > 0 && (
               <button
                 onClick={() => { setNotifOpen(false); navigate("chat"); }}
                 className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
                 style={{ borderRadius: "8px" }}
               >
                 <span className="text-xs font-700">💬 새 메시지</span>
-                <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{chatUnreadTotal}건</span>
+                <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{Math.max(0, chatUnreadTotal - unreadMentions.length)}건</span>
               </button>
             )}
             {newTasks.length > 0 && (
