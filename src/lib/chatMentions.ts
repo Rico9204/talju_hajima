@@ -17,11 +17,24 @@ export interface MentionRange {
   name: string;
 }
 
+// 이름 목록이 같으면 검색 규칙(정규식)을 다시 만들지 않는다. 채팅 화면은 글자를 칠 때마다 모든 메시지를 다시
+// 그리므로, 메시지마다 규칙을 새로 만들면 대화가 길 때 입력이 느려진다.
+let cachedKey = "";
+let cachedPattern: RegExp | null = null;
+function mentionPattern(names: string[]): RegExp {
+  const candidates = [...new Set([...MENTION_ALL, ...names.map((n) => n.trim()).filter(Boolean)])].sort((a, b) => b.length - a.length);
+  const key = candidates.join("\u0000");
+  if (key !== cachedKey || !cachedPattern) {
+    cachedKey = key;
+    cachedPattern = new RegExp(`@(${candidates.map(escapeRegExp).join("|")})`, "gi");
+  }
+  return cachedPattern;
+}
+
 // 팀원 이름과 @전체/@all을 텍스트에서 찾는다. 긴 이름을 먼저 맞춰 "김"이 "김철수"를 가로채지 않게 한다.
 export function findMentions(text: string, names: string[]): MentionRange[] {
-  const candidates = [...new Set([...MENTION_ALL, ...names.map((n) => n.trim()).filter(Boolean)])].sort((a, b) => b.length - a.length);
-  if (!text.includes("@") || candidates.length === 0) return [];
-  const pattern = new RegExp(`@(${candidates.map(escapeRegExp).join("|")})`, "gi");
+  if (!text.includes("@")) return [];
+  const pattern = mentionPattern(names);
   const found: MentionRange[] = [];
   for (const match of text.matchAll(pattern)) {
     const start = match.index ?? 0;

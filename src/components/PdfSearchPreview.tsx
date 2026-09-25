@@ -79,7 +79,7 @@ export default function PdfSearchPreview({ source, query, zoom = 1 }: { source: 
       <button disabled={!pdf || pageNumber >= pdf.numPages} onClick={() => setPageNumber((n) => n + 1)} className="disabled:opacity-40">다음 →</button>
     </div>
     {busy && <p role="status" className="text-xs">PDF 페이지를 불러오는 중…</p>}
-    {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+    {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
     <div ref={host} className="w-full overflow-auto max-h-[620px]" />
   </div>;
 }

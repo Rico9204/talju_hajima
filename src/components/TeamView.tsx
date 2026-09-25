@@ -518,7 +518,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               <button
                 onClick={() => { transferLeadership(pendingTransfer.id); setPendingTransfer(null); }}
                 className="flex-1 py-2.5 text-sm font-700 transition-all"
-                style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}
+                style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}
               >
                 위임하기
               </button>

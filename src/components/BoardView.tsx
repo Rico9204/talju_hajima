@@ -330,7 +330,7 @@ export default function BoardView() {
         <button
           onClick={() => { setIsCreatingPost(true); setSelectedPost(null); setEditingPost(null); }}
           className="text-xs font-700 px-4 py-2.5 transition-all flex items-center gap-1.5 shrink-0"
-          style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px", boxShadow: "0 4px 12px rgba(37,99,235,0.25)" }}
+          style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px", boxShadow: "0 4px 12px var(--primary-glow)" }}
         >
           <span>✏️</span>
           <span>글쓰기</span>
@@ -351,7 +351,7 @@ export default function BoardView() {
             background: selectedCategory === "all" ? "var(--primary)" : "var(--card)",
             color: selectedCategory === "all" ? "#fff" : "var(--foreground)",
             borderRadius: "20px",
-            boxShadow: selectedCategory === "all" ? "0 4px 12px rgba(37,99,235,0.2)" : "var(--shadow-card)",
+            boxShadow: selectedCategory === "all" ? "0 4px 12px var(--primary-glow)" : "var(--shadow-card)",
           }}
         >
           전체 ({posts.length})
@@ -577,7 +577,7 @@ export default function BoardView() {
                   background: page === currentPage ? "var(--primary)" : "var(--card)",
                   color: page === currentPage ? "#fff" : "var(--foreground)",
                   borderRadius: "8px",
-                  boxShadow: page === currentPage ? "0 4px 12px rgba(37,99,235,0.25)" : "var(--shadow-card)",
+                  boxShadow: page === currentPage ? "0 4px 12px var(--primary-glow)" : "var(--shadow-card)",
                 }}
               >
                 {page}

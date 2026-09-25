@@ -160,7 +160,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       setPendingUpload(null); setBaseId(result.versionId); setOnlyPinned(false);
       setMessage(result.branched ? "분기 버전으로 저장했습니다. 검토 후 현재 버전으로 지정할 수 있습니다." : "새 현재 버전으로 저장했습니다.");
     }} />}
-    {error && <p role="alert" className="text-sm p-3 mb-3 rounded-lg bg-red-50 text-red-700">{error}</p>}
+    {error && <p role="alert" className="text-sm p-3 mb-3 rounded-lg bg-red-500/10 text-red-500">{error}</p>}
     {message && <p role="status" className="text-xs p-3 mb-3 rounded-lg" style={{ background: "var(--secondary)" }}>{message}</p>}
     {!locked && <div className="p-3 mb-4 rounded-xl space-y-2" style={{ background: "var(--muted)" }}>
       <label className="text-xs block">새 버전의 기준
