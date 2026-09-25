@@ -1,6 +1,11 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import LadderIcon from "./LadderIcon"
-import type { LadderData } from "../../lib/chatTools";
+import Avatar from "../Avatar";
+import {
+  type LadderData,
+  type LadderLine,
+  type LadderMatch,
+} from "../../lib/chatTools";
 
 export default function ChatLadderCard({
   data,
@@ -10,16 +15,57 @@ export default function ChatLadderCard({
   onReveal: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [selectedCol, setSelectedCol] = useState<number | null>(
-    data.revealed ? 0 : null
-  );
+  const participants = data?.participants || [];
+  const results = data?.results || [];
 
-  const numCols = data.participants.length;
-  const numSteps = data.numSteps;
+  // 사다리 가로선(좌우 연결선)과 매칭. 서버 처리 사다리는 선이 조금 늦게 도착할 수 있는데, 그 사이 화면에서
+  // 무작위 사다리를 만들면 사람마다 다른(틀린) 결과가 보이므로 만들지 않고 "준비 중"을 보여준다.
+  const { lines, matches, numSteps } = useMemo(() => {
+    if (data?.lines && data.lines.length > 0) {
+      return {
+        lines: data.lines,
+        matches: data.matches && data.matches.length > 0 ? data.matches : [],
+        numSteps: data.numSteps || Math.max(participants.length * 2 + 2, 8),
+      };
+    }
+    return {
+      lines: [] as LadderLine[],
+      matches: [] as LadderMatch[],
+      numSteps: 8,
+    };
+  }, [
+    data?.lines,
+    data?.matches,
+    data?.numSteps,
+    data?.title,
+    data?.creatorId,
+    data?.creatorName,
+    participants,
+    results,
+  ]);
+
+  const numCols = participants.length;
+
+  type TargetSelection = { type: "top" | "bottom"; col: number };
+
+  const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(
+    data.revealed && numCols > 0 ? { type: "top", col: 0 } : null
+  );
+  const [showAllPaths, setShowAllPaths] = useState(false);
+  const [isInstant, setIsInstant] = useState(data.revealed ? true : false);
+  const [isCompleted, setIsCompleted] = useState(data.revealed ? true : false);
+  const [animKey, setAnimKey] = useState(0);
+
+  const isRevealed = data.revealed || showAllPaths;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const lastClickRef = useRef<{ type: "top" | "bottom"; col: number; time: number }>({
+    type: "top",
+    col: -1,
+    time: 0,
+  });
 
   function checkScrollability() {
     const el = scrollRef.current;
@@ -40,15 +86,16 @@ export default function ChatLadderCard({
     return () => observer.disconnect();
   }, [numCols]);
 
-  // 선택된 참가자가 화면 밖으로 벗어났을 때 부드럽게 스크롤 중앙으로 이동
+  // 선택된 대상이 화면 밖으로 벗어났을 때 부드럽게 스크롤 중앙으로 이동
   useEffect(() => {
-    if (selectedCol === null) return;
+    if (!selectedTarget) return;
     const el = scrollRef.current;
     if (!el) return;
-    const targetX = (selectedCol + 1) * (Math.max(numCols * 90, 280) / (numCols + 1));
+    const svgW = Math.max(numCols * 90, 280);
+    const targetX = (selectedTarget.col + 1) * (svgW / (numCols + 1));
     const centerOffset = targetX - el.clientWidth / 2;
     el.scrollTo({ left: Math.max(0, centerOffset), behavior: "smooth" });
-  }, [selectedCol, numCols]);
+  }, [selectedTarget, numCols]);
 
   function scroll(direction: "left" | "right") {
     const el = scrollRef.current;
@@ -61,7 +108,7 @@ export default function ChatLadderCard({
     const summary = [
       `🔀 [사다리타기] ${data.title}`,
       "-------------------------",
-      ...data.matches.map((m) => `${m.participantName} → ${m.resultText}`),
+      ...matches.map((m) => `${m.participantName} → ${m.resultText}`),
     ].join("\n");
 
     navigator.clipboard.writeText(summary);
@@ -75,70 +122,213 @@ export default function ChatLadderCard({
   const colSpacing = svgWidth / (numCols + 1);
   const stepSpacing = (svgHeight - 50) / (numSteps + 1);
 
-  // 사다리 가로선을 따라 이동하는 경로(Zigzag path) 계산 함수
+  // 사다리 경로 계산 공통 함수
+  const computeLadderPath = useCallback(
+    (startCol: number, direction: "down" | "up") => {
+      const points: { x: number; y: number }[] = [];
+      let currentCol = startCol;
+
+      if (direction === "down") {
+        const startX = (currentCol + 1) * colSpacing;
+        points.push({ x: startX, y: 10 });
+
+        for (let step = 0; step < numSteps; step++) {
+          const rungY = 25 + (step + 1) * stepSpacing;
+          const curX = (currentCol + 1) * colSpacing;
+          points.push({ x: curX, y: rungY });
+
+          const rightLine = lines.find((l) => l.step === step && l.fromCol === currentCol);
+          if (rightLine) {
+            currentCol += 1;
+            const nextX = (currentCol + 1) * colSpacing;
+            points.push({ x: nextX, y: rungY });
+            continue;
+          }
+
+          const leftLine = lines.find((l) => l.step === step && l.fromCol === currentCol - 1);
+          if (leftLine) {
+            currentCol -= 1;
+            const nextX = (currentCol + 1) * colSpacing;
+            points.push({ x: nextX, y: rungY });
+            continue;
+          }
+        }
+
+        const finalX = (currentCol + 1) * colSpacing;
+        points.push({ x: finalX, y: svgHeight - 10 });
+      } else {
+        const startX = (currentCol + 1) * colSpacing;
+        points.push({ x: startX, y: svgHeight - 10 });
+
+        for (let step = numSteps - 1; step >= 0; step--) {
+          const rungY = 25 + (step + 1) * stepSpacing;
+          const curX = (currentCol + 1) * colSpacing;
+          points.push({ x: curX, y: rungY });
+
+          const rightLine = lines.find((l) => l.step === step && l.fromCol === currentCol);
+          if (rightLine) {
+            currentCol += 1;
+            const nextX = (currentCol + 1) * colSpacing;
+            points.push({ x: nextX, y: rungY });
+            continue;
+          }
+
+          const leftLine = lines.find((l) => l.step === step && l.fromCol === currentCol - 1);
+          if (leftLine) {
+            currentCol -= 1;
+            const nextX = (currentCol + 1) * colSpacing;
+            points.push({ x: nextX, y: rungY });
+            continue;
+          }
+        }
+
+        const finalX = (currentCol + 1) * colSpacing;
+        points.push({ x: finalX, y: 10 });
+      }
+
+      let totalLength = 0;
+      for (let i = 0; i < points.length - 1; i++) {
+        totalLength += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+      }
+      const d = points
+        .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+        .join(" ");
+
+      return {
+        direction,
+        startCol,
+        endCol: currentCol,
+        points,
+        d,
+        totalLength,
+      };
+    },
+    [colSpacing, lines, numSteps, stepSpacing, svgHeight]
+  );
+
+  // 모든 참가자의 전체 사다리 경로 목록
+  const allParticipantPaths = useMemo(() => {
+    return participants.map((p, col) => {
+      const path = computeLadderPath(col, "down");
+      return {
+        ...path,
+        color: p.color || "#3b82f6",
+        participant: p,
+      };
+    });
+  }, [computeLadderPath, participants]);
+
+  // 개별 활성 경로 (상단 팀원 또는 하단 결과 클릭 시)
   const activePath = useMemo(() => {
-    if (selectedCol === null || selectedCol < 0 || selectedCol >= numCols) {
+    if (!selectedTarget || selectedTarget.col < 0 || selectedTarget.col >= numCols) {
       return null;
     }
+    return computeLadderPath(selectedTarget.col, selectedTarget.type === "top" ? "down" : "up");
+  }, [selectedTarget, numCols, computeLadderPath]);
 
-    const points: { x: number; y: number }[] = [];
-    let currentCol = selectedCol;
-
-    // 시작점 (상단)
-    const startX = (currentCol + 1) * colSpacing;
-    points.push({ x: startX, y: 10 });
-
-    // 스텝별로 내려가며 가로선 만나면 꺾이기
-    for (let step = 0; step < numSteps; step++) {
-      const rungY = 25 + (step + 1) * stepSpacing;
-      const curX = (currentCol + 1) * colSpacing;
-
-      // 1. 해당 발판 높이까지 수직 하강
-      points.push({ x: curX, y: rungY });
-
-      // 2. 오른쪽으로 가는 선 확인 (currentCol -> currentCol + 1)
-      const rightLine = data.lines.find(
-        (l) => l.step === step && l.fromCol === currentCol
-      );
-      if (rightLine) {
-        currentCol += 1;
-        const nextX = (currentCol + 1) * colSpacing;
-        points.push({ x: nextX, y: rungY });
-        continue;
-      }
-
-      // 3. 왼쪽으로 가는 선 확인 (currentCol - 1 -> currentCol)
-      const leftLine = data.lines.find(
-        (l) => l.step === step && l.fromCol === currentCol - 1
-      );
-      if (leftLine) {
-        currentCol -= 1;
-        const nextX = (currentCol + 1) * colSpacing;
-        points.push({ x: nextX, y: rungY });
-        continue;
-      }
+  const participantColor = useMemo(() => {
+    if (!activePath) return "#3b82f6";
+    if (activePath.direction === "down") {
+      return participants[activePath.startCol]?.color || "#3b82f6";
+    } else {
+      return participants[activePath.endCol]?.color || "#a855f7";
     }
+  }, [activePath, participants]);
 
-    // 4. 마지막 결과 바닥까지 수직 하강
-    const finalX = (currentCol + 1) * colSpacing;
-    points.push({ x: finalX, y: svgHeight - 10 });
+  const selectTarget = useCallback((target: TargetSelection, forceInstant: boolean = false) => {
+    setShowAllPaths(false);
+    setSelectedTarget(target);
+    setIsInstant(forceInstant);
+    setIsCompleted(forceInstant);
+    setAnimKey((k) => k + 1);
+  }, []);
 
-    const d = points
-      .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-      .join(" ");
+  // 전체 결과 즉시보기 핸들러
+  const handleShowAllResults = useCallback(() => {
+    onReveal();
+    setShowAllPaths(true);
+    setSelectedTarget(null);
+    setIsInstant(true);
+    setIsCompleted(true);
+  }, [onReveal]);
 
-    return { points, endCol: currentCol, d };
-  }, [selectedCol, numCols, numSteps, data.lines, colSpacing, stepSpacing, svgHeight]);
+  // 전체 결과 보기 토글 핸들러
+  const handleToggleAllResults = useCallback(() => {
+    if (showAllPaths) {
+      setShowAllPaths(false);
+      selectTarget({ type: "top", col: 0 }, true);
+    } else {
+      handleShowAllResults();
+    }
+  }, [showAllPaths, handleShowAllResults, selectTarget]);
 
-  const selectedParticipant =
-    selectedCol !== null ? data.participants[selectedCol] : null;
-  const participantColor = selectedParticipant?.color || "#3b82f6";
+  // 상단 팀원 클릭 핸들러
+  const handleTopClick = (idx: number) => {
+    const now = Date.now();
+    const isFastClick =
+      lastClickRef.current.type === "top" &&
+      lastClickRef.current.col === idx &&
+      now - lastClickRef.current.time < 350;
+
+    if (isFastClick) {
+      lastClickRef.current = { type: "top", col: -1, time: 0 };
+      selectTarget({ type: "top", col: idx }, true);
+    } else {
+      lastClickRef.current = { type: "top", col: idx, time: now };
+      selectTarget({ type: "top", col: idx }, false);
+    }
+  };
+
+  const handleTopDoubleClick = (idx: number) => {
+    lastClickRef.current = { type: "top", col: -1, time: 0 };
+    selectTarget({ type: "top", col: idx }, true);
+  };
+
+  // 하단 결과 클릭 핸들러 (밑에서부터 선이 거꾸로 올라감!)
+  const handleBottomClick = (idx: number) => {
+    const now = Date.now();
+    const isFastClick =
+      lastClickRef.current.type === "bottom" &&
+      lastClickRef.current.col === idx &&
+      now - lastClickRef.current.time < 350;
+
+    if (isFastClick) {
+      lastClickRef.current = { type: "bottom", col: -1, time: 0 };
+      selectTarget({ type: "bottom", col: idx }, true);
+    } else {
+      lastClickRef.current = { type: "bottom", col: idx, time: now };
+      selectTarget({ type: "bottom", col: idx }, false);
+    }
+  };
+
+  const handleBottomDoubleClick = (idx: number) => {
+    lastClickRef.current = { type: "bottom", col: -1, time: 0 };
+    selectTarget({ type: "bottom", col: idx }, true);
+  };
 
   function handleStartLadder() {
     onReveal();
-    if (selectedCol === null) {
-      setSelectedCol(0);
-    }
+    selectTarget({ type: "top", col: 0 }, false);
+  }
+
+  function handleNextParticipant() {
+    const curCol = selectedTarget?.type === "top" ? selectedTarget.col : -1;
+    const nextCol = (curCol + 1) % (numCols || 1);
+    selectTarget({ type: "top", col: nextCol }, false);
+  }
+
+  const pathLen = Math.ceil(activePath?.totalLength || 1000);
+  const durationSec = Math.min(Math.max(pathLen / 450, 0.8), 1.5);
+
+  if (lines.length === 0) {
+    return (
+      <div className="p-5 my-1.5 rounded-2xl border text-left max-w-xl w-full" style={{ background: "var(--card-glass)", borderColor: "rgba(59, 130, 246, 0.35)" }}>
+        <div className="flex items-center gap-2 text-sm font-bold pr-10" style={{ color: "var(--foreground)" }}>
+          <LadderIcon /> {data?.title || "사다리타기"}
+        </div>
+        <p className="text-xs mt-2" role="status" style={{ color: "var(--muted-foreground)" }}>사다리를 준비하는 중이에요…</p>
+      </div>
+    );
   }
 
   return (
@@ -153,9 +343,9 @@ export default function ChatLadderCard({
       }}
     >
       <style>{`
-        @keyframes ladder-draw-path {
+        @keyframes ladder-draw-line {
           from {
-            stroke-dashoffset: 1400;
+            stroke-dashoffset: var(--ladder-path-length, 1000);
           }
           to {
             stroke-dashoffset: 0;
@@ -164,7 +354,7 @@ export default function ChatLadderCard({
       `}</style>
 
       {/* 헤더 */}
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap pr-10">
         <div className="flex items-center gap-2">
           <span
             className="text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1"
@@ -180,34 +370,83 @@ export default function ChatLadderCard({
             개설자: {data.creatorName}
           </span>
         </div>
-        <span
-          className="text-xs font-semibold px-2 py-0.5 rounded-full"
-          style={{
-            background: data.revealed
-              ? "var(--muted)"
-              : "rgba(34, 197, 94, 0.15)",
-            color: data.revealed ? "var(--muted-foreground)" : "#22c55e",
-          }}
-        >
-          {data.revealed ? "결과 발표 완료" : "준비 완료"}
-        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={handleToggleAllResults}
+            className="text-xs font-bold px-2.5 py-1 rounded-full border transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1 shadow-sm"
+            style={{
+              background: showAllPaths
+                ? "linear-gradient(135deg, rgba(234, 179, 8, 0.25), rgba(245, 158, 11, 0.25))"
+                : "rgba(245, 158, 11, 0.12)",
+              borderColor: showAllPaths ? "#f59e0b" : "rgba(245, 158, 11, 0.4)",
+              color: "#d97706",
+            }}
+            title="모든 사다리 결과를 즉시 한눈에 확인합니다"
+          >
+            <span>⚡</span>
+            <span>{showAllPaths ? "개별 보기" : "전체 결과 즉시보기"}</span>
+          </button>
+          <span
+            className="text-xs font-semibold px-2 py-0.5 rounded-full"
+            style={{
+              background: isRevealed
+                ? "var(--muted)"
+                : "rgba(34, 197, 94, 0.15)",
+              color: isRevealed ? "var(--muted-foreground)" : "#22c55e",
+            }}
+          >
+            {isRevealed ? "결과 발표 완료" : "준비 완료"}
+          </span>
+        </div>
       </div>
 
-      {/* 제목 */}
-      <div className="flex items-center justify-between gap-2 mb-2">
+      {/* 제목 및 조작 가이드 */}
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
         <h4
           className="text-base font-bold"
           style={{ color: "var(--foreground)" }}
         >
           {data.title}
         </h4>
-        <span className="text-[11px] text-muted-foreground">
-          {data.revealed ? "팀원을 클릭해 경로를 확인하세요" : "팀원 클릭 시 경로 미리보기"}
+        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+          <span>팀원/결과 클릭 시 선 이동 · 더블클릭 시 즉시 확인</span>
         </span>
       </div>
 
-      {/* 실시간 경로 추적 알림 바 */}
-      {activePath && selectedParticipant && (
+      {/* 전체 결과 즉시보기 모드 알림 바 */}
+      {showAllPaths && (
+        <div
+          className="mb-3 px-3 py-2 rounded-xl text-xs flex items-center justify-between font-semibold transition-all animate-fadeIn"
+          style={{
+            background: "linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(168, 85, 247, 0.15))",
+            border: "1px solid rgba(245, 158, 11, 0.4)",
+            color: "var(--foreground)",
+          }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-base shrink-0">⚡</span>
+            <span className="truncate">
+              <strong>전체 결과가 공개되었습니다!</strong> 모든 팀원의 사다리 경로가 표시됩니다.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => selectTarget({ type: "top", col: 0 }, false)}
+            className="text-[11px] font-bold shrink-0 ml-2 px-2.5 py-1 rounded transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+            style={{
+              background: "linear-gradient(135deg, #2563eb, #3b82f6)",
+              color: "#ffffff",
+            }}
+          >
+            한 명씩 타보기 ➔
+          </button>
+        </div>
+      )}
+
+      {/* 실시간 경로 추적 알림 바 (개별 선택 시) */}
+      {!showAllPaths && activePath && (
         <div
           className="mb-3 px-3 py-2 rounded-xl text-xs flex items-center justify-between font-semibold transition-all animate-fadeIn"
           style={{
@@ -216,26 +455,74 @@ export default function ChatLadderCard({
           }}
         >
           <div className="flex items-center gap-2 min-w-0">
-            <span
-              className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold shrink-0"
-              style={{ background: participantColor }}
-            >
-              {selectedParticipant.avatar || selectedParticipant.name[0]}
-            </span>
+            {activePath.direction === "down" ? (
+              <Avatar
+                url={
+                  participants[activePath.startCol]?.avatarUrl ||
+                  (participants[activePath.startCol]?.avatar?.startsWith("http") ||
+                  participants[activePath.startCol]?.avatar?.startsWith("data:") ||
+                  participants[activePath.startCol]?.avatar?.startsWith("/")
+                    ? participants[activePath.startCol]?.avatar
+                    : undefined)
+                }
+                initial={
+                  participants[activePath.startCol]?.avatar &&
+                  participants[activePath.startCol]?.avatar.length <= 2
+                    ? participants[activePath.startCol]?.avatar
+                    : participants[activePath.startCol]?.name.slice(0, 1) || "?"
+                }
+                color={participantColor}
+                size={22}
+                className="rounded-full shrink-0"
+              />
+            ) : (
+              <span className="text-base shrink-0">🎯</span>
+            )}
             <span className="truncate">
-              <strong>{selectedParticipant.name}</strong> 님이 사다리를 타고{" "}
-              <span className="font-bold underline" style={{ color: participantColor }}>
-                [{data.results[activePath.endCol]}]
-              </span>{" "}
-              도착!
+              {activePath.direction === "down" ? (
+                isCompleted ? (
+                  <>
+                    <strong>{participants[activePath.startCol]?.name}</strong> 님이 사다리를 타고{" "}
+                    <span className="font-bold underline" style={{ color: participantColor }}>
+                      [{results[activePath.endCol] || "결과"}]
+                    </span>{" "}
+                    도착!
+                  </>
+                ) : (
+                  <>
+                    <strong>{participants[activePath.startCol]?.name}</strong> 님이 사다리를 타고 내려가는 중...
+                  </>
+                )
+              ) : (
+                isCompleted ? (
+                  <>
+                    [{results[activePath.startCol] || "결과"}]의 주인공은 바로{" "}
+                    <span className="font-bold underline" style={{ color: participantColor }}>
+                      <strong>{participants[activePath.endCol]?.name}</strong>
+                    </span>{" "}
+                    님! 🎉
+                  </>
+                ) : (
+                  <>
+                    [{results[activePath.startCol] || "결과"}]의 주인공을 찾는 중... (밑에서 올라가는 중 🏃‍♂️)
+                  </>
+                )
+              )}
             </span>
           </div>
-          <span
-            className="text-[11px] font-bold shrink-0 ml-2 px-1.5 py-0.5 rounded"
-            style={{ background: `${participantColor}20`, color: participantColor }}
+          <button
+            type="button"
+            onClick={() => selectTarget(selectedTarget!, true)}
+            className="text-[11px] font-bold shrink-0 ml-2 px-2 py-0.5 rounded transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            style={{
+              background: isCompleted ? `${participantColor}20` : `${participantColor}30`,
+              color: participantColor,
+              border: isCompleted ? "none" : `1px solid ${participantColor}50`,
+            }}
+            title={isCompleted ? undefined : "클릭하여 즉시 확인"}
           >
-            경로 표시 중 ✨
-          </span>
+            {isCompleted ? "도착 완료 ✨" : "즉시 보기 ⏩"}
+          </button>
         </div>
       )}
 
@@ -294,37 +581,89 @@ export default function ChatLadderCard({
           className="overflow-x-auto pb-2 scroll-smooth"
         >
           <div className="min-w-fit flex flex-col items-center px-4">
-            {/* 상단 참가자 목록 (클릭 시 사다리 타기 경로 애니메이션) */}
-            <div className="flex justify-around w-full px-2 mb-2 gap-2">
-              {data.participants.map((p, idx) => {
-                const isSelected = selectedCol === idx;
+            {/* 상단 참가자 목록 (프로필 사진으로 통일, 텍스트 제거로 줄밀림 방지, 사다리 기둥과 1:1 수직 정렬) */}
+            <div
+              className="relative h-14 select-none mb-1 shrink-0"
+              style={{ width: `${svgWidth}px`, minWidth: `${svgWidth}px` }}
+            >
+              {participants.map((p, idx) => {
+                const isStart = selectedTarget?.type === "top" && selectedTarget.col === idx;
+                const isDestArrived =
+                  activePath?.direction === "up" && activePath.endCol === idx && isCompleted;
+                const isSelected = isStart || isDestArrived;
                 const pColor = p.color || "#3b82f6";
+                const posX = (idx + 1) * colSpacing;
+
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
-                    onClick={() => setSelectedCol(isSelected ? null : idx)}
-                    className="flex flex-col items-center min-w-16 px-1.5 py-1.5 rounded-xl transition-all hover:scale-105 active:scale-95"
-                    style={{
-                      background: isSelected ? `${pColor}20` : "var(--muted)",
-                      border: isSelected ? `2px solid ${pColor}` : "1px solid var(--border)",
-                      boxShadow: isSelected ? `0 4px 12px ${pColor}30` : "none",
-                    }}
-                    title={`${p.name} 사다리 타기`}
+                    className="absolute top-0 -translate-x-1/2 flex flex-col items-center group/member"
+                    style={{ left: `${posX}px` }}
                   >
+                    {/* 마우스 호버 시 참가자 이름 툴팁 */}
                     <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white mb-1 shadow-sm"
-                      style={{ background: pColor }}
-                    >
-                      {p.avatar || p.name[0]}
-                    </div>
-                    <span
-                      className="text-xs font-bold truncate max-w-16"
-                      style={{ color: isSelected ? pColor : "var(--foreground)" }}
+                      className="absolute -top-7 px-2 py-0.5 rounded-md text-[11px] font-bold text-white bg-black/85 backdrop-blur-sm pointer-events-none opacity-0 group-hover/member:opacity-100 transition-opacity duration-150 whitespace-nowrap z-30 shadow-md"
+                      style={{ border: `1px solid ${pColor}60` }}
                     >
                       {p.name}
-                    </span>
-                  </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleTopClick(idx)}
+                      onDoubleClick={() => handleTopDoubleClick(idx)}
+                      className={`relative rounded-full transition-all duration-200 cursor-pointer flex items-center justify-center ${
+                        isSelected
+                          ? "scale-115 -translate-y-0.5"
+                          : "hover:scale-105 opacity-85 hover:opacity-100"
+                      }`}
+                      style={{
+                        padding: "3px",
+                        background: isSelected
+                          ? `linear-gradient(135deg, ${pColor}, #ffffff)`
+                          : "transparent",
+                        boxShadow: isSelected
+                          ? `0 0 0 2px ${pColor}, 0 6px 14px ${pColor}50`
+                          : "0 2px 6px rgba(0,0,0,0.12)",
+                      }}
+                      title={`${p.name} (클릭: 내려가기 / 더블클릭: 즉시 확인)`}
+                      aria-label={`${p.name} 사다리 타기`}
+                    >
+                      <Avatar
+                        url={
+                          p.avatarUrl ||
+                          (p.avatar?.startsWith("http") ||
+                          p.avatar?.startsWith("data:") ||
+                          p.avatar?.startsWith("/")
+                            ? p.avatar
+                            : undefined)
+                        }
+                        initial={
+                          p.avatar && p.avatar.length <= 2
+                            ? p.avatar
+                            : p.name.slice(0, 1)
+                        }
+                        color={pColor}
+                        size={38}
+                        className="rounded-full shadow-inner"
+                      />
+
+                      {/* 상단에서 출발할 때 아래 화살표 인디케이터 */}
+                      {isStart && (
+                        <div
+                          className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-4 pointer-events-none"
+                          style={{ borderTopColor: pColor }}
+                        />
+                      )}
+
+                      {/* 하단에서 올라와서 도착했을 때 상단 핑 인디케이터 */}
+                      {isDestArrived && (
+                        <div className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[10px] text-white flex items-center justify-center font-bold shadow-md animate-bounce">
+                          ✓
+                        </div>
+                      )}
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -336,7 +675,7 @@ export default function ChatLadderCard({
               style={{ minWidth: `${svgWidth}px` }}
             >
               {/* 기본 세로 기둥들 */}
-              {data.participants.map((_, col) => {
+              {participants.map((_, col) => {
                 const x = (col + 1) * colSpacing;
                 return (
                   <line
@@ -353,7 +692,7 @@ export default function ChatLadderCard({
               })}
 
               {/* 기본 가로 사다리 발판들 */}
-              {data.lines.map((line, idx) => {
+              {lines.map((line, idx) => {
                 const x1 = (line.fromCol + 1) * colSpacing;
                 const x2 = (line.fromCol + 2) * colSpacing;
                 const y = 25 + (line.step + 1) * stepSpacing;
@@ -371,10 +710,49 @@ export default function ChatLadderCard({
                 );
               })}
 
+              {/* 전체 결과 즉시보기 모드: 모든 참가자의 사다리 경로가 일제히 표시됨 */}
+              {showAllPaths && (
+                <g key="all-participant-paths">
+                  {allParticipantPaths.map((pPath, i) => (
+                    <g key={`all-p-${i}`}>
+                      {/* 은은한 배경 선 */}
+                      <path
+                        d={pPath.d}
+                        fill="none"
+                        stroke={pPath.color}
+                        strokeWidth="5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeOpacity="0.25"
+                      />
+                      {/* 메인 경로 선 */}
+                      <path
+                        d={pPath.d}
+                        fill="none"
+                        stroke={pPath.color}
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeOpacity="0.9"
+                      />
+                      {/* 하단 도착 지점 원형 마커 */}
+                      <circle
+                        cx={(pPath.endCol + 1) * colSpacing}
+                        cy={svgHeight - 10}
+                        r="6"
+                        fill={pPath.color}
+                        stroke="#ffffff"
+                        strokeWidth="2"
+                      />
+                    </g>
+                  ))}
+                </g>
+              )}
+
               {/* 활성화된 참가자의 줄 따라가기(Zigzag) 경로 오버레이 */}
-              {activePath && (
-                <g key={`path-${selectedCol}`}>
-                  {/* 외곽 글로우 효과 */}
+              {!showAllPaths && activePath && (
+                <g key={`path-${selectedTarget?.type}-${selectedTarget?.col}-${animKey}`}>
+                  {/* 외곽 글로우 효과 (선 진행에 맞춰 함께 이동) */}
                   <path
                     d={activePath.d}
                     fill="none"
@@ -383,6 +761,14 @@ export default function ChatLadderCard({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeOpacity="0.25"
+                    style={{
+                      strokeDasharray: pathLen,
+                      strokeDashoffset: isInstant ? 0 : undefined,
+                      animation: isInstant
+                        ? "none"
+                        : `ladder-draw-line ${durationSec}s linear forwards`,
+                      ["--ladder-path-length" as string]: `${pathLen}`,
+                    }}
                   />
                   {/* 실제 사다리 경로 선 (애니메이션 탑승) */}
                   <path
@@ -393,63 +779,99 @@ export default function ChatLadderCard({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     style={{
-                      strokeDasharray: 1400,
-                      strokeDashoffset: 0,
-                      animation: "ladder-draw-path 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards",
+                      strokeDasharray: pathLen,
+                      strokeDashoffset: isInstant ? 0 : undefined,
+                      animation: isInstant
+                        ? "none"
+                        : `ladder-draw-line ${durationSec}s linear forwards`,
+                      ["--ladder-path-length" as string]: `${pathLen}`,
                     }}
+                    onAnimationEnd={() => setIsCompleted(true)}
                   />
-                  {/* 도착 지점 원형 마커 */}
-                  <circle
-                    cx={(activePath.endCol + 1) * colSpacing}
-                    cy={svgHeight - 10}
-                    r="7"
-                    fill={participantColor}
-                    className="animate-ping opacity-75"
-                  />
-                  <circle
-                    cx={(activePath.endCol + 1) * colSpacing}
-                    cy={svgHeight - 10}
-                    r="5.5"
-                    fill={participantColor}
-                    stroke="#ffffff"
-                    strokeWidth="2"
-                  />
+                  {/* 도착 지점 원형 마커 - 선이 끝에 도달했을 때(isCompleted)만 등장 */}
+                  {isCompleted && (
+                    <g>
+                      <circle
+                        cx={(activePath.endCol + 1) * colSpacing}
+                        cy={activePath.direction === "down" ? svgHeight - 10 : 10}
+                        r="8"
+                        fill={participantColor}
+                        className="animate-ping opacity-75"
+                      />
+                      <circle
+                        cx={(activePath.endCol + 1) * colSpacing}
+                        cy={activePath.direction === "down" ? svgHeight - 10 : 10}
+                        r="6"
+                        fill={participantColor}
+                        stroke="#ffffff"
+                        strokeWidth="2.5"
+                      />
+                    </g>
+                  )}
                 </g>
               )}
             </svg>
 
-            {/* 하단 결과 목록 */}
-            <div className="flex justify-around w-full px-2 mt-1 gap-2">
-              {data.results.map((r, idx) => {
-                const isDestination = activePath?.endCol === idx;
+            {/* 하단 결과 목록 (사다리 기둥과 1:1 수직 정렬, 클릭 시 아래에서 위로 선 역추적) */}
+            <div
+              className="relative h-11 select-none mt-1 shrink-0"
+              style={{ width: `${svgWidth}px`, minWidth: `${svgWidth}px` }}
+            >
+              {results.map((r, idx) => {
+                const isStart = selectedTarget?.type === "bottom" && selectedTarget.col === idx;
+                const isDestArrived =
+                  activePath?.direction === "down" && activePath.endCol === idx && isCompleted;
+                const isHighlight = isStart || isDestArrived;
+                const posX = (idx + 1) * colSpacing;
+                const itemWidth = Math.min(Math.max(colSpacing - 12, 54), 86);
+
                 return (
                   <div
                     key={idx}
-                    className="min-w-16 px-2 py-1.5 rounded-xl border text-center text-xs font-bold truncate max-w-20 transition-all"
-                    style={{
-                      background: isDestination
-                        ? `${participantColor}25`
-                        : data.revealed
-                        ? "rgba(168, 85, 247, 0.12)"
-                        : "var(--muted)",
-                      borderColor: isDestination
-                        ? participantColor
-                        : data.revealed
-                        ? "rgba(168, 85, 247, 0.3)"
-                        : "var(--border)",
-                      color: isDestination
-                        ? participantColor
-                        : data.revealed
-                        ? "#a855f7"
-                        : "var(--muted-foreground)",
-                      transform: isDestination ? "scale(1.08)" : "scale(1)",
-                      boxShadow: isDestination
-                        ? `0 4px 12px ${participantColor}35`
-                        : "none",
-                    }}
+                    className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
+                    style={{ left: `${posX}px` }}
                   >
-                    {isDestination && <span className="mr-0.5">🎯</span>}
-                    {r}
+                    <button
+                      type="button"
+                      onClick={() => handleBottomClick(idx)}
+                      onDoubleClick={() => handleBottomDoubleClick(idx)}
+                      className={`relative px-2 py-1 rounded-xl border text-center text-xs font-bold truncate transition-all duration-200 cursor-pointer ${
+                        isHighlight ? "scale-110 shadow-lg -translate-y-0.5" : "hover:scale-105"
+                      }`}
+                      style={{
+                        width: `${itemWidth}px`,
+                        background: isHighlight
+                          ? `${participantColor}25`
+                          : isRevealed
+                          ? "rgba(168, 85, 247, 0.12)"
+                          : "var(--muted)",
+                        borderColor: isHighlight
+                          ? participantColor
+                          : isRevealed
+                          ? "rgba(168, 85, 247, 0.3)"
+                          : "var(--border)",
+                        color: isHighlight
+                          ? participantColor
+                          : isRevealed
+                          ? "#a855f7"
+                          : "var(--muted-foreground)",
+                        boxShadow: isHighlight
+                          ? `0 4px 14px ${participantColor}45`
+                          : "none",
+                      }}
+                      title={`${r} (클릭: 밑에서 거꾸로 타기 / 더블클릭: 즉시 확인)`}
+                      aria-label={`${r} 사다리 거꾸로 타기`}
+                    >
+                      {/* 아래에서 출발할 때 상향 화살표 인디케이터 */}
+                      {isStart && (
+                        <div
+                          className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-b-4 pointer-events-none"
+                          style={{ borderBottomColor: participantColor }}
+                        />
+                      )}
+                      {isDestArrived && <span className="mr-0.5">🎯</span>}
+                      {r}
+                    </button>
                   </div>
                 );
               })}
@@ -459,7 +881,7 @@ export default function ChatLadderCard({
       </div>
 
       {/* 결과 매칭 표 (결과 공개 후 표시) */}
-      {data.revealed && (
+      {isRevealed && (
         <div
           className="p-3 mb-3 rounded-xl border space-y-1.5 animate-fadeIn"
           style={{ background: "var(--card)", borderColor: "var(--border)" }}
@@ -473,36 +895,51 @@ export default function ChatLadderCard({
               <span>최종 매칭 결과</span>
             </div>
             <span className="text-[11px] text-muted-foreground font-normal">
-              팀원을 클릭해 이동 선을 확인해보세요
+              팀원/결과 클릭: 선 그리기 · 더블 클릭: 즉시 확인
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            {data.matches.map((m) => {
-              const pIndex = data.participants.findIndex((p) => p.id === m.participantId);
-              const isSelected = selectedCol === pIndex;
-              const pObj = data.participants[pIndex];
+            {matches.map((m) => {
+              const pIndex = participants.findIndex((p) => p.id === m.participantId);
+              const isSelected =
+                (selectedTarget?.type === "top" && selectedTarget.col === pIndex) ||
+                (activePath?.direction === "up" && activePath.endCol === pIndex);
+              const pObj = participants[pIndex];
               const pColor = pObj?.color || "#3b82f6";
               return (
                 <button
                   key={m.participantId}
                   type="button"
-                  onClick={() => setSelectedCol(pIndex)}
-                  className="flex items-center justify-between p-2 rounded-lg text-left transition-all hover:scale-[1.02]"
+                  onClick={() => handleTopClick(pIndex)}
+                  onDoubleClick={() => handleTopDoubleClick(pIndex)}
+                  className="flex items-center justify-between p-2 rounded-lg text-left transition-all hover:scale-[1.02] cursor-pointer"
                   style={{
                     background: isSelected ? `${pColor}18` : "var(--muted)",
-                    border: isSelected ? `1.5px solid ${pColor}` : "1px solid transparent",
+                    border: isSelected ? `1.5px solid ${pColor}` : "1px solid var(--border)",
                   }}
                 >
                   <span
-                    className="font-semibold flex items-center gap-1.5 truncate"
+                    className="font-semibold flex items-center gap-2 truncate"
                     style={{ color: "var(--foreground)" }}
                   >
-                    <span
-                      className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] text-white font-bold shrink-0"
-                      style={{ background: pColor }}
-                    >
-                      {pObj?.avatar || m.participantName[0]}
-                    </span>
+                    <Avatar
+                      url={
+                        pObj?.avatarUrl ||
+                        (pObj?.avatar?.startsWith("http") ||
+                        pObj?.avatar?.startsWith("data:") ||
+                        pObj?.avatar?.startsWith("/")
+                          ? pObj.avatar
+                          : undefined)
+                      }
+                      initial={
+                        pObj?.avatar && pObj.avatar.length <= 2
+                          ? pObj.avatar
+                          : m.participantName[0]
+                      }
+                      color={pColor}
+                      size={20}
+                      className="rounded-full shrink-0"
+                    />
                     <span className="truncate">{m.participantName}</span>
                   </span>
                   <span className="font-bold shrink-0 ml-1" style={{ color: pColor }}>
@@ -523,7 +960,7 @@ export default function ChatLadderCard({
         <button
           type="button"
           onClick={copyResults}
-          className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all hover:bg-[var(--muted)]"
+          className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all hover:bg-[var(--muted)] cursor-pointer"
           style={{
             background: "var(--card)",
             borderColor: "var(--border)",
@@ -533,33 +970,53 @@ export default function ChatLadderCard({
           {copied ? "✓ 복사 완료!" : "📋 결과 복사"}
         </button>
 
-        {!data.revealed ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* 전체 결과 즉시보기 버튼 */}
           <button
             type="button"
-            onClick={handleStartLadder}
-            className="text-xs px-4 py-1.5 rounded-lg font-bold transition-all shadow-sm hover:opacity-90 active:scale-95"
+            onClick={handleToggleAllResults}
+            className="text-xs px-3.5 py-1.5 rounded-lg font-bold transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer flex items-center gap-1.5"
             style={{
-              background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+              background: showAllPaths
+                ? "linear-gradient(135deg, #4b5563, #374151)"
+                : "linear-gradient(135deg, #f59e0b, #d97706)",
               color: "#ffffff",
+              boxShadow: "0 2px 10px rgba(245, 158, 11, 0.3)",
             }}
           >
-            사다리 타기 시작!
+            <span>⚡</span>
+            <span>{showAllPaths ? "개별 사다리 보기" : "전체 결과 즉시보기"}</span>
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setSelectedCol((prev) => ((prev ?? -1) + 1) % numCols)}
-            className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:bg-[var(--muted)]"
-            style={{
-              background: "var(--card)",
-              border: "1px solid var(--border)",
-              color: "var(--foreground)",
-            }}
-          >
-            다음 팀원 보기 ➔
-          </button>
-        )}
+
+          {!isRevealed ? (
+            <button
+              type="button"
+              onClick={handleStartLadder}
+              className="text-xs px-4 py-1.5 rounded-lg font-bold transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
+              style={{
+                background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+                color: "#ffffff",
+              }}
+            >
+              사다리 타기 시작! ▶
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleNextParticipant}
+              className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-all hover:bg-[var(--muted)] cursor-pointer"
+              style={{
+                background: "var(--card)",
+                border: "1px solid var(--border)",
+                color: "var(--foreground)",
+              }}
+            >
+              다음 팀원 보기 ➔
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
+

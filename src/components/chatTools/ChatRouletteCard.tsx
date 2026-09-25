@@ -113,7 +113,7 @@ export default function ChatRouletteCard({
       }}
     >
       {/* 헤더 */}
-      <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex items-center justify-between gap-2 mb-3 pr-10">
         <div className="flex items-center gap-2">
           <span
             className="text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5"
