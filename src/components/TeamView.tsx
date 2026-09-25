@@ -5,6 +5,7 @@ import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 import { collaborationTrust } from "../lib/collaborationTrust";
 import { useAccountBackground } from "../lib/useAccountBackground";
+import { useDraggableScroll } from "../hooks/useDraggableScroll";
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
   const { project, team, tasks, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile } = useProject();
@@ -16,6 +17,13 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const {
+    ref: memberListRef,
+    events: memberListDragEvents,
+    preventClickIfDragged,
+  } = useDraggableScroll<HTMLDivElement>({ direction: "x" });
+
   async function runAction(action: () => Promise<void>, done: () => void) {
     if (busy) return; setBusy(true); setActionError(null);
     try { await action(); done(); }
@@ -119,55 +127,97 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
       </div>
 
       {/* Member cards grid */}
-      <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
-        {filteredMembers.map((m) => {
-          const isSelected = sel.id === m.id;
-          return (
-          <button
-            key={m.id}
-            onClick={() => setSelectedId(m.id)}
-            className="flex flex-col items-center p-4 shrink-0 transition-all"
-            style={{
-              background: isSelected ? "var(--primary)" : "var(--card)",
-              borderRadius: "var(--radius)",
-              boxShadow: isSelected ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
-              width: 110,
-              color: isSelected ? "#fff" : "var(--foreground)",
-            }}
-          >
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
-              style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
+      <div className="relative group/carousel mb-6">
+        <div
+          ref={memberListRef}
+          {...memberListDragEvents}
+          className="flex gap-3 overflow-x-auto pb-2 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+        >
+          {filteredMembers.map((m) => {
+            const isSelected = sel.id === m.id;
+            return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={(e) => {
+                preventClickIfDragged(e);
+                if (!e.defaultPrevented) {
+                  setSelectedId(m.id);
+                }
+              }}
+              className="flex flex-col items-center p-4 shrink-0 transition-all select-none cursor-pointer"
+              style={{
+                background: isSelected ? "var(--primary)" : "var(--card)",
+                borderRadius: "var(--radius)",
+                boxShadow: isSelected ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
+                width: 110,
+                color: isSelected ? "#fff" : "var(--foreground)",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
             >
-              {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-              {m.isViceLeader && (
-                <span className="absolute -top-1.5 -right-1.5 text-xs" title="부팀장">🚩</span>
-              )}
-              {m.isLeader && (
-                <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
-              )}
-            </div>
-            <div className="text-xs font-700">{m.name}</div>
-            <div className="text-xs mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
-              {m.role}
-            </div>
-            {m.id === currentMember?.id && m.evalCount > 0 ? (
-              <div className="flex items-center gap-1 mt-2">
-                <span className="text-xs">★</span>
-                <span className="text-xs font-700">{m.score.toFixed(1)}</span>
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden pointer-events-none"
+                style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
+              >
+                {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} /> : m.avatar}
+                {m.isViceLeader && (
+                  <span className="absolute -top-1.5 -right-1.5 text-xs" title="부팀장">🚩</span>
+                )}
+                {m.isLeader && (
+                  <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
+                )}
               </div>
-            ) : (
-              <div className="text-xs mt-2" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
-                평가 대기
+              <div className="text-xs font-700">{m.name}</div>
+              <div className="text-xs mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+                {m.role}
               </div>
-            )}
-            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: isSelected ? "#fff" : "#22c55e" }} />}
-          </button>
-          );
-        })}
-        {filteredMembers.length === 0 && (
-          <div className="text-xs py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
-        )}
+              {m.id === currentMember?.id && m.evalCount > 0 ? (
+                <div className="flex items-center gap-1 mt-2">
+                  <span className="text-xs">★</span>
+                  <span className="text-xs font-700">{m.score.toFixed(1)}</span>
+                </div>
+              ) : (
+                <div className="text-xs mt-2" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
+                  평가 대기
+                </div>
+              )}
+              {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: isSelected ? "#fff" : "#22c55e" }} />}
+            </button>
+            );
+          })}
+          {filteredMembers.length === 0 && (
+            <div className="text-xs py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+          )}
+        </div>
+
+        {/* 좌우 이동 버튼 (hover 시 표시) */}
+        <button
+          type="button"
+          onClick={() => {
+            if (memberListRef.current) {
+              memberListRef.current.scrollBy({ left: -240, behavior: "smooth" });
+            }
+          }}
+          className="hidden md:flex absolute -left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full items-center justify-center shadow-lg transition-all opacity-0 group-hover/carousel:opacity-100 z-10 text-lg font-bold"
+          style={{ background: "var(--card)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+          aria-label="이전 팀원 보기"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (memberListRef.current) {
+              memberListRef.current.scrollBy({ left: 240, behavior: "smooth" });
+            }
+          }}
+          className="hidden md:flex absolute -right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full items-center justify-center shadow-lg transition-all opacity-0 group-hover/carousel:opacity-100 z-10 text-lg font-bold"
+          style={{ background: "var(--card)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+          aria-label="다음 팀원 보기"
+        >
+          ›
+        </button>
       </div>
 
       {/* Detail */}
