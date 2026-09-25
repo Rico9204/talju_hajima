@@ -16,19 +16,20 @@ export default function ChatLuckyDrawCard({
 }) {
   const [copied, setCopied] = useState(false)
 
-  const total = data.items.length
-  const openedCount = data.items.filter(
+  const items = data.items || []
+  const total = (data as any)?.total ?? items.length
+  const openedCount = items.filter(
     (it) => it.openedByMemberId || data.allRevealed,
   ).length
-  const winnersCount = data.items.filter((it) => it.isWinner).length
-  const isFinished = data.allRevealed || openedCount === total
+  const winnersCount = (data as any)?.winnerCount ?? items.filter((it) => it.isWinner).length
+  const isFinished = Boolean(data.allRevealed || (total > 0 && openedCount === total))
 
   function copyResults() {
     const summary = [
       `🎯 [제비뽑기] ${data.title}`,
       `총 ${total}명 (당첨 ${winnersCount}명)`,
       "-------------------------",
-      ...data.items.map((it, idx) => {
+      ...items.map((it, idx) => {
         const picker = it.openedByMemberName
           ? ` (${it.openedByMemberName})`
           : ""
@@ -53,7 +54,7 @@ export default function ChatLuckyDrawCard({
       }}
     >
       {/* 헤더 */}
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap pr-10">
         <div className="flex items-center gap-2">
           <span
             className="text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1"
@@ -87,7 +88,7 @@ export default function ChatLuckyDrawCard({
 
       {/* 제비 카드 그리드 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 mb-4">
-        {data.items.map((item, idx) => {
+        {items.map((item, idx) => {
           const isOpened = !!item.openedByMemberId || data.allRevealed
           const isMyPick = item.openedByMemberId === currentMemberId
 

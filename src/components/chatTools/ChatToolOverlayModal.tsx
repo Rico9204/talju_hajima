@@ -53,13 +53,14 @@ export default function ChatToolOverlayModal({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-3.5 right-3.5 z-30 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-md transition-all hover:scale-105 active:scale-95 cursor-pointer"
+          className="absolute top-3.5 right-3.5 z-30 w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold shadow-md transition-all hover:scale-105 hover:bg-[var(--muted)] active:scale-95 cursor-pointer"
           style={{
             background: "var(--card)",
             border: "1px solid var(--border)",
             color: "var(--foreground)",
           }}
-          title="닫기"
+          title="닫기 (ESC)"
+          aria-label="닫기"
         >
           ✕
         </button>

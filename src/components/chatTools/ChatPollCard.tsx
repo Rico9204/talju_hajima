@@ -87,7 +87,7 @@ export default function ChatPollCard({
       }}
     >
       {/* 헤더 */}
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap pr-10">
         <div className="flex items-center gap-1.5 text-xs font-bold flex-wrap">
           <span
             className="px-2.5 py-0.5 rounded-full flex items-center gap-1"

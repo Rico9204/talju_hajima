@@ -139,6 +139,7 @@ export default function ChatToolModal({
         id: m.id,
         name: m.name,
         avatar: m.avatar,
+        avatarUrl: m.avatarUrl || null,
         color: m.color || "#3b82f6",
       }))
 

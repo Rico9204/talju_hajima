@@ -26,6 +26,7 @@ export interface LadderParticipant {
   id: string
   name: string
   avatar: string
+  avatarUrl?: string | null
   color: string
 }
 
@@ -241,6 +242,7 @@ export function createLadderData({
   participants,
   results,
   numSteps,
+  shuffleResults = true,
 }: {
   title: string;
   creatorId: string;
@@ -248,9 +250,13 @@ export function createLadderData({
   participants: LadderParticipant[];
   results: string[];
   numSteps?: number;
+  shuffleResults?: boolean;
 }): LadderData {
   const n = participants.length;
   const totalSteps = numSteps ?? Math.max(n * 2 + 2, 8);
+
+  // 하단 항목들이 순서대로 들어가지 않도록 랜덤하게 셔플
+  const finalResults = shuffleResults ? shuffleArray(results) : [...results];
 
   // 사다리 가로선 생성 및 매칭 계산 (직선 낙하 방지 및 충실한 이동 보장)
   let finalLines: LadderLine[] = [];
@@ -309,13 +315,13 @@ export function createLadderData({
       return {
         participantId: p.id,
         participantName: p.name,
-        resultText: results[currentCol] || `결과 ${currentCol + 1}`,
+        resultText: finalResults[currentCol] || `결과 ${currentCol + 1}`,
       };
     });
 
     // 모든 참가자가 자기 자리에 일직선으로 떨어지는 경우 방지
     const straightCount = matches.filter(
-      (m, idx) => m.resultText === results[idx]
+      (m, idx) => m.resultText === finalResults[idx]
     ).length;
     if (straightCount < n) {
       finalLines = lines;
@@ -351,7 +357,7 @@ export function createLadderData({
       return {
         participantId: p.id,
         participantName: p.name,
-        resultText: results[currentCol] || `결과 ${currentCol + 1}`,
+        resultText: finalResults[currentCol] || `결과 ${currentCol + 1}`,
       };
     });
   }
@@ -361,7 +367,7 @@ export function createLadderData({
     creatorId,
     creatorName,
     participants,
-    results,
+    results: finalResults,
     lines: finalLines,
     numSteps: totalSteps,
     matches: finalMatches,
@@ -464,13 +470,14 @@ export function applyToolAction(
     (action.action === "draw_pick" || action.action === "draw_reveal_all")
   ) {
     const draw = { ...current.data }
+    const items = draw.items || []
     if (action.action === "draw_reveal_all") {
       return {
         type: "draw",
         data: {
           ...draw,
           allRevealed: true,
-          items: draw.items.map((it) => ({
+          items: items.map((it) => ({
             ...it,
             openedByMemberName: it.openedByMemberName || "공개됨",
           })),
@@ -478,7 +485,7 @@ export function applyToolAction(
       }
     }
     if (action.action === "draw_pick" && action.itemId) {
-      const items = draw.items.map((it) => {
+      const nextItems = items.map((it) => {
         if (it.id === action.itemId && !it.openedByMemberId) {
           return {
             ...it,
@@ -489,10 +496,10 @@ export function applyToolAction(
         }
         return it
       })
-      const allOpened = items.every((it) => !!it.openedByMemberId)
+      const allOpened = nextItems.length > 0 && nextItems.every((it) => !!it.openedByMemberId)
       return {
         type: "draw",
-        data: { ...draw, items, allRevealed: draw.allRevealed || allOpened },
+        data: { ...draw, items: nextItems, allRevealed: draw.allRevealed || allOpened },
       }
     }
   }
@@ -523,8 +530,7 @@ export function applyToolAction(
       !isExpired
     ) {
       const selected = new Set(action.optionIds)
-      // 기존 투표 제거 후 새로 집계
-      const options = poll.options.map((opt) => {
+      const options = (poll.options || []).map((opt) => {
         const remainingVoterIds = opt.voterMemberIds.filter(
           (id) => id !== action.memberId,
         )
