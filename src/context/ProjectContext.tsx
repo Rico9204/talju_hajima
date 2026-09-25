@@ -30,6 +30,7 @@ import AdminPanel from "../components/AdminPanel";
 import AdminApplicationNotice from "../components/AdminApplicationNotice";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
 import UnreadNotifier from "../components/UnreadNotifier";
+import { isMentionForMember } from "../lib/chatMentions";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
 import { TOOL_ACTION_PREFIX } from "../lib/chatTools";
 
@@ -62,6 +63,17 @@ const SHORT_TERM_THRESHOLD_DAYS = 14;
 export function dmChannelId(memberIdA: string, memberIdB: string): string {
   const [a, b] = [memberIdA, memberIdB].sort();
   return `dm:${a}:${b}`;
+}
+
+export interface ChatMentionItem {
+  messageId: number;
+  channelId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string;
+  senderAvatarUrl?: string | null;
+  text: string;
+  createdAt: string;
 }
 
 export function getDurationDays(p: Project): number | null {
@@ -143,6 +155,7 @@ interface ProjectContextValue {
   removeScheduleEvent: (id: number) => Promise<void>;
   chatUnread: Record<string, number>;
   chatUnreadTotal: number;
+  unreadMentions: ChatMentionItem[];
   chatHistoryLoaded: boolean; // 채널 기록을 처음 다 불러왔는지(그 전의 안 읽음 수 변화는 새 메시지가 아님)
   chatMessages: Record<string, ChatMessage[]>;
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<number | null>;
@@ -1190,6 +1203,34 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   }
   const chatUnreadTotal = Object.values(chatUnread).reduce((sum, n) => sum + n, 0);
 
+  const unreadMentions: ChatMentionItem[] = [];
+  const teamMemberNames = team.members.map((tm) => tm.name);
+  if (currentMember) {
+    for (const [cid, list] of Object.entries(chatMessages)) {
+      for (const m of list) {
+        if (
+          m.senderId !== currentMember.id &&
+          !m.readBy.includes(currentMember.id) &&
+          !m.text?.startsWith(TOOL_ACTION_PREFIX) &&
+          isMentionForMember(m.text, currentMember.name, teamMemberNames)
+        ) {
+          const sender = team.members.find((tm) => tm.id === m.senderId);
+          unreadMentions.push({
+            messageId: m.id,
+            channelId: cid,
+            senderId: m.senderId,
+            senderName: sender?.name ?? "알 수 없음",
+            senderAvatar: sender?.avatar,
+            senderAvatarUrl: sender?.avatarUrl,
+            text: m.text,
+            createdAt: m.createdAt,
+          });
+        }
+      }
+    }
+  }
+  unreadMentions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
   function createdAfter<T extends { createdAt?: string | null }>(items: T[], viewedAt: string | null): T[] {
     if (!currentMember) return [];
     const since = viewedAt ? new Date(viewedAt).getTime() : 0;
@@ -1284,6 +1325,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         removeScheduleEvent,
         chatUnread,
         chatUnreadTotal,
+        unreadMentions,
         chatHistoryLoaded,
         chatMessages,
         sendChatMessage,

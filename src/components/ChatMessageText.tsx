@@ -1,10 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { findMentions, isMentionForMember } from "../lib/chatMentions";
 
 const COLLAPSE_OVER = 300;
 
+// 멘션(@팀원 이름, @전체)만 배지로 강조한다. 판정 기준은 lib/chatMentions(메일 주소·이름 일부 제외).
+export function renderMentionText(text: string, mine: boolean, myName?: string, mentionNames: string[] = []): ReactNode {
+  const ranges = findMentions(text, myName ? [...mentionNames, myName] : mentionNames);
+  if (ranges.length === 0) return text;
+  const out: ReactNode[] = [];
+  let pos = 0;
+  for (const r of ranges) {
+    if (r.start > pos) out.push(text.slice(pos, r.start));
+    const isMe = !!myName && isMentionForMember(text.slice(r.start, r.end), myName);
+    out.push(
+      <span
+        key={r.start}
+        className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded font-700 text-xs transition-all"
+        style={{
+          background: mine ? "rgba(255, 255, 255, 0.28)" : isMe ? "rgba(239, 68, 68, 0.18)" : "rgba(37, 99, 235, 0.15)",
+          color: mine ? "#fff" : isMe ? "#ef4444" : "var(--primary)",
+          boxShadow: isMe && !mine ? "0 0 0 1px rgba(239, 68, 68, 0.3)" : undefined,
+        }}
+      >
+        {text.slice(r.start, r.end)}
+      </span>,
+    );
+    pos = r.end;
+  }
+  if (pos < text.length) out.push(text.slice(pos));
+  return out;
+}
+
 // 카카오톡처럼 긴 메시지는 앞부분만 보여주고 "전체보기"를 누르면 전문을 크게 보여준다.
-export default function ChatMessageText({ text, mine }: { text: string; mine: boolean }) {
+export default function ChatMessageText({ text, mine, myName, mentionNames = [] }: { text: string; mine: boolean; myName?: string; mentionNames?: string[] }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -24,10 +53,10 @@ export default function ChatMessageText({ text, mine }: { text: string; mine: bo
     }
   }
 
-  if (text.length <= COLLAPSE_OVER) return <>{text}</>;
+  if (text.length <= COLLAPSE_OVER) return <>{renderMentionText(text, mine, myName, mentionNames)}</>;
   return (
     <>
-      {text.slice(0, COLLAPSE_OVER).trimEnd()}…
+      {renderMentionText(text.slice(0, COLLAPSE_OVER).trimEnd(), mine, myName, mentionNames)}…
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -53,7 +82,7 @@ export default function ChatMessageText({ text, mine }: { text: string; mine: bo
                 <button type="button" onClick={() => setOpen(false)} aria-label="닫기" className="w-8 h-8 text-lg">×</button>
               </div>
             </div>
-            <div className="p-5 overflow-y-auto text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text}</div>
+            <div className="p-5 overflow-y-auto text-sm leading-relaxed" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{renderMentionText(text, false, myName, mentionNames)}</div>
           </section>
         </div>,
         document.body,

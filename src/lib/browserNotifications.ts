@@ -42,13 +42,14 @@ export function setBrowserNotificationsEnabled(enabled: boolean) {
 // Fires only while this tab isn't the one the user is looking at — when it's
 // visible and focused, the in-app bell (Sidebar.tsx) already covers it, and a
 // system popup on top would just be a redundant interruption.
-export function notifyIfAway(title: string, body: string) {
+export function notifyIfAway(title: string, body: string, onClick?: () => void) {
   if (!isBrowserNotificationsEnabled()) return;
   if (document.visibilityState === "visible" && document.hasFocus()) return;
   try {
     const n = new Notification(title, { body, tag: "collabpeer-unread" });
     n.onclick = () => {
       window.focus();
+      onClick?.();
       n.close();
     };
   } catch {
