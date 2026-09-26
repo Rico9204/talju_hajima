@@ -1,0 +1,33 @@
+{
+  "name": "talju-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "API 서버(NestJS). 기존 Supabase Postgres·권한 규칙을 그대로 쓰며 요청마다 사용자로 접속한다.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsc -p tsconfig.json && node --env-file-if-exists=.env dist/main.js",
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\"",
+    "db:setup": "node --env-file-if-exists=.env scripts/db-setup.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.1.0",
+    "@nestjs/core": "^12.1.0",
+    "@nestjs/platform-express": "^12.1.0",
+    "bcryptjs": "^3.0.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "jose": "^6.2.12",
+    "pg": "^8.23.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.3",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
+  }
+}

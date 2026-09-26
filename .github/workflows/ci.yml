@@ -26,3 +26,8 @@ jobs:
         run: pnpm run build
       - name: Test
         run: pnpm test
+      # 백엔드 API 서버(server/): 별도 패키지라 따로 설치한다. test가 빌드(tsc)까지 한다.
+      - name: Server install
+        run: pnpm --dir server install --frozen-lockfile --ignore-workspace
+      - name: Server build and test
+        run: pnpm --dir server test
