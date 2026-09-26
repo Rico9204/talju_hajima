@@ -85,9 +85,16 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
   const members = team.members;
   const memberSearchTrimmed = memberSearch.trim().toLowerCase();
-  const filteredMembers = memberSearchTrimmed
+  // 접속 상태(온라인 → 자리비움 → 오프라인)가 직책보다 먼저. 같은 상태 안에서는 기존 순서(팀장·부팀장 우선)를 유지한다(안정 정렬).
+  const presenceRank = (m: (typeof members)[number]) => {
+    const presence = onlineMemberStates[m.id];
+    if (!m.online || !presence) return 2;
+    return presence.status === "idle" ? 1 : 0;
+  };
+  const filteredMembers = (memberSearchTrimmed
     ? members.filter((m) => m.name.toLowerCase().includes(memberSearchTrimmed))
-    : members;
+    : members
+  ).slice().sort((a, b) => presenceRank(a) - presenceRank(b));
   const showMemberSearch = members.length > 6;
 
   // 선택된 팀원이 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지 —
