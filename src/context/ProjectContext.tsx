@@ -19,6 +19,7 @@ import type {
   MemberPresenceState,
   ProfileLink,
   ChatMessage,
+  ChatGroup,
   ChatToolEvent,
 } from "../api/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
@@ -122,7 +123,7 @@ interface ProjectContextValue {
   deleteWorkspaceFolder: (id: number) => Promise<void>;
   pendingWorkspaceCleanup: () => Promise<string[]>;
   cleanupWorkspaceFiles: () => Promise<void>;
-  addFolder: (name: string) => Promise<void>;
+  addFolder: (name: string, parentId: number | null) => Promise<void>;
   uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
   // No longer called anywhere after the pdf-workspace-search merge — FileVersionPanel now
@@ -160,6 +161,9 @@ interface ProjectContextValue {
   chatHistoryLoaded: boolean; // 채널 기록을 처음 다 불러왔는지(그 전의 안 읽음 수 변화는 새 메시지가 아님)
   chatMessages: Record<string, ChatMessage[]>;
   sendChatMessage: (channelId: string, text: string, fileId?: number) => Promise<number | null>;
+  chatGroups: ChatGroup[]; // 내가 참여한 단체 채팅방
+  createChatGroup: (name: string, memberIds: string[]) => Promise<string>; // 새 방의 채널 id(grp:…)
+  addChatGroupMembers: (groupId: string, memberIds: string[]) => Promise<void>;
   chatToolEvents: Record<number, ChatToolEvent[]>;
   createChatTool: (channelId: string, text: string, config: Record<string, unknown>) => Promise<void>;
   actChatTool: (messageId: number, action: string, args?: Record<string, unknown>) => Promise<ChatToolEvent>;
@@ -402,6 +406,10 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // (see the effect below) and kept live via the realtime subscription.
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMessage[]>>({});
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState(false);
+  // 프로젝트를 바꾼 직후 이전 프로젝트의 방이 보이지 않도록 어느 프로젝트의 목록인지 함께 둔다.
+  const [chatGroupsState, setChatGroupsState] = useState<{ projectId: string | null; groups: ChatGroup[] }>({ projectId: null, groups: [] });
+  const knownChatGroupIds = useRef(new Set<string>());
+  const refreshChatGroupsRef = useRef<() => void>(() => {});
   const [chatToolEvents, setChatToolEvents] = useState<Record<number, ChatToolEvent[]>>({});
   const [viewedMemberId, setViewedMemberId] = useState<string | null>(null);
   // A project-scoped Realtime Presence channel supplies the member ids that
@@ -578,6 +586,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     const unsubMessages = dataRepository.subscribeToMessages(
       projectId,
       (msg) => {
+        // 모르는 단체방의 메시지 = 누가 나를 넣어 새 방을 만들었다. 방 목록을 다시 받는다.
+        // 초대 안내 메시지(add_chat_group_members)면 참여자가 바뀐 것이므로 인원 수를 새로 받는다.
+        if (msg.channelId.startsWith("grp:") && (!knownChatGroupIds.current.has(msg.channelId.slice(4)) || msg.text.endsWith("을 초대했습니다."))) refreshChatGroupsRef.current();
         setChatMessages((prev) => {
           const list = prev[msg.channelId] ?? [];
           if (list.some((m) => m.id === msg.id)) return prev;
@@ -811,10 +822,18 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     setChatHistoryLoaded(false);
     if (!projectId || !myMemberId) return;
     let cancelled = false;
-    const channelIds = ["all", ...team.members.filter((m) => m.id !== myMemberId).map((m) => dmChannelId(myMemberId, m.id))];
-    Promise.all(channelIds.map((cid) => dataRepository.listMessages(projectId, cid)))
-      .then((results) => {
-        if (cancelled) return;
+    // 단체방 목록을 먼저 받아 같은 한 번의 불러오기에 넣는다(쌓여 있던 메시지를 새 알림으로 착각하지 않게).
+    dataRepository.listChatGroups(projectId).catch(() => [] as ChatGroup[])
+      .then((groups) => {
+        if (cancelled) return null;
+        knownChatGroupIds.current = new Set(groups.map((g) => g.id));
+        setChatGroupsState({ projectId, groups });
+        const channelIds = ["all", ...team.members.filter((m) => m.id !== myMemberId).map((m) => dmChannelId(myMemberId, m.id)), ...groups.map((g) => `grp:${g.id}`)];
+        return Promise.all(channelIds.map((cid) => dataRepository.listMessages(projectId, cid))).then((results) => ({ channelIds, results }));
+      })
+      .then((loaded) => {
+        if (cancelled || !loaded) return;
+        const { channelIds, results } = loaded;
         setChatHistoryLoaded(true);
         setChatMessages((prev) => {
           const next = { ...prev };
@@ -940,11 +959,11 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
-  async function addFolder(name: string) {
+  async function addFolder(name: string, parentId: number | null) {
     if (!projectId || !currentMember) throw new Error("프로젝트 참여자만 폴더를 만들 수 있습니다.");
     if (!name.trim()) throw new Error("폴더 이름을 입력해 주세요.");
     if (project.status === "done") throw new Error("종료된 프로젝트에는 폴더를 만들 수 없습니다.");
-    const created = await dataRepository.createFolder(projectId, name, currentMember.name);
+    const created = await dataRepository.createFolder(projectId, name, currentMember.name, parentId);
     if (evaluationProjectRef.current === projectId) setFolders((prev) => prev.some((folder) => folder.id === created.id) ? prev : [...prev, created]);
   }
 
@@ -1109,6 +1128,41 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       await dataRepository.removeScheduleEvent(task.personalScheduleEventId);
     }
     await Promise.all([refreshTasks(), refreshScheduleEvents()]);
+  }
+
+  const chatGroups = chatGroupsState.projectId === projectId ? chatGroupsState.groups : [];
+  async function refreshChatGroups() {
+    if (!projectId) return;
+    const pid = projectId;
+    const groups = await dataRepository.listChatGroups(pid);
+    if (evaluationProjectRef.current !== pid) return;
+    const added = groups.filter((g) => !knownChatGroupIds.current.has(g.id));
+    knownChatGroupIds.current = new Set(groups.map((g) => g.id));
+    setChatGroupsState({ projectId: pid, groups });
+    // 새 방에서 실시간으로 받기 전에 오간 메시지를 채운다.
+    for (const g of added) {
+      const cid = `grp:${g.id}`;
+      const list = await dataRepository.listMessages(pid, cid);
+      if (evaluationProjectRef.current !== pid) return;
+      setChatMessages((prev) => {
+        const have = new Set(list.map((m) => m.id));
+        return { ...prev, [cid]: [...list, ...(prev[cid] ?? []).filter((m) => !have.has(m.id))] };
+      });
+    }
+  }
+  refreshChatGroupsRef.current = () => { void refreshChatGroups().catch(() => {}); };
+
+  async function createChatGroup(name: string, memberIds: string[]): Promise<string> {
+    if (!projectId || !isManager) throw new Error("팀장 또는 부팀장만 단체 채팅방을 만들 수 있습니다.");
+    const id = await dataRepository.createChatGroup(projectId, name, memberIds);
+    await refreshChatGroups();
+    return `grp:${id}`;
+  }
+
+  async function addChatGroupMembers(groupId: string, memberIds: string[]) {
+    if (!isManager) throw new Error("팀장 또는 부팀장만 초대할 수 있습니다.");
+    await dataRepository.addChatGroupMembers(groupId, memberIds);
+    await refreshChatGroups();
   }
 
   async function sendChatMessage(channelId: string, text: string, fileId?: number): Promise<number | null> {
@@ -1344,6 +1398,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         chatHistoryLoaded,
         chatMessages,
         sendChatMessage,
+        chatGroups,
+        createChatGroup,
+        addChatGroupMembers,
         chatToolEvents,
         createChatTool,
         actChatTool,

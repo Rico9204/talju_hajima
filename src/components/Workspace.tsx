@@ -13,7 +13,7 @@ import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/sl
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
-import { useProject, type FileVersion, type WorkspaceFile } from "../context/ProjectContext";
+import { useProject, type FileVersion, type Folder, type WorkspaceFile } from "../context/ProjectContext";
 import { useAccountBackground } from "../lib/useAccountBackground";
 
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
@@ -251,6 +251,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   const currentFolder = currentFolderId !== null ? folders.find((f) => f.id === currentFolderId) || null : null;
   const scoped = files.filter((f) => f.folderId === currentFolderId);
+  const folderById = new Map(folders.map((f) => [f.id, f]));
+  // 루트부터 한 폴더까지의 경로. 깊이는 DB가 10단계로 막으므로 짧다(상한은 목록이 꼬였을 때의 안전장치).
+  function pathOf(folder: Folder | null): Folder[] {
+    const path: Folder[] = [];
+    for (let f = folder; f && path.length < 10; f = f.parentId !== null ? folderById.get(f.parentId) ?? null : null) path.unshift(f);
+    return path;
+  }
+  const folderPath = pathOf(currentFolder);
+  const parentFolder = folderPath.length > 1 ? folderPath[folderPath.length - 2] : null;
+  const childFolders = folders.filter((f) => f.parentId === (currentFolder?.id ?? null));
+  const canNestFolder = folderPath.length < 10;
   const searchScope = searchQuery.trim() ? files.filter((f) => matchesWorkspaceSearch(f, searchQuery)) : scoped;
   const tags = [null, ...Array.from(new Set(searchScope.flatMap((f) => f.tags)))];
   const filtered = filterTag === null ? searchScope : searchScope.filter((f) => f.tags.includes(filterTag));
@@ -302,7 +313,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const targetProject = project.id;
     folderPending.current = true; setFolderBusy(true); setFolderError("");
     try {
-      await addFolder(newFolderName);
+      await addFolder(newFolderName, currentFolder?.id ?? null);
       if (activeProjectRef.current === targetProject) {
         setNewFolderName(""); setCreatingFolder(false);
       }
@@ -350,7 +361,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       {pendingUpload && <FileUploadDialog key={project.id} file={pendingUpload} destination={currentFolder ? `“${currentFolder.name}” 폴더` : "워크스페이스 루트"} onCancel={() => setPendingUpload(null)} onConfirm={(tags, note) => uploadBinary(pendingUpload, tags, note)} />}
       <WorkspaceCleanupNotice />
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-5 text-sm">
+      <div className="flex items-center gap-2 mb-5 text-sm flex-wrap">
         <button
           onClick={() => openFolder(null)}
           className="font-600"
@@ -358,23 +369,29 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         >
           ⬡ 워크스페이스
         </button>
-        {currentFolder && (
-          <>
+        {folderPath.map((f) => (
+          <span key={f.id} className="contents">
             <span style={{ color: "var(--muted-foreground)" }}>/</span>
-            <span className="font-700 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full" style={{ background: currentFolder.color }} />
-              {currentFolder.name}
-            </span>
-          </>
-        )}
+            {f.id === currentFolder?.id ? (
+              <span className="font-700 flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: f.color }} />
+                <span className="truncate">{f.name}</span>
+              </span>
+            ) : (
+              <button onClick={() => openFolder(f.id)} {...(!locked ? dropHandlers(f.id) : {})} className="font-600 truncate min-w-0" style={{ color: "var(--primary)", ...dropStyle(f.id) }}>
+                {f.name}
+              </button>
+            )}
+          </span>
+        ))}
       </div>
 
-      {/* Root: folder grid */}
-      {!currentFolder && (
+      {/* Folder grid: 루트의 폴더, 또는 현재 폴더의 하위 폴더 */}
+      {(!currentFolder || childFolders.length > 0 || (!locked && canNestFolder)) && (
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-700">폴더</h2>
-            {!locked && !creatingFolder && (
+            <h2 className="text-sm font-700">{currentFolder ? "하위 폴더" : "폴더"}</h2>
+            {!locked && !creatingFolder && canNestFolder && (
               <button
                 onClick={() => setCreatingFolder(true)}
                 className="text-xs font-700 px-3 py-1.5 transition-all"
@@ -422,8 +439,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {folders.map((f) => {
+            {childFolders.map((f) => {
               const count = files.filter((x) => x.folderId === f.id).length;
+              const subCount = folders.filter((x) => x.parentId === f.id).length;
               return (
                 <button
                   key={f.id}
@@ -440,12 +458,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-700 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
-                    <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>파일 {count}개 · {f.createdBy}</div>
+                    <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{subCount > 0 && `폴더 ${subCount}개 · `}파일 {count}개 · {f.createdBy}</div>
                   </div>
                 </button>
               );
             })}
-            {folders.length === 0 && !creatingFolder && (
+            {!currentFolder && childFolders.length === 0 && !creatingFolder && (
               <div className="col-span-1 sm:col-span-2 md:col-span-3 p-6 text-center text-xs border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
                 아직 폴더가 없어요
               </div>
@@ -456,12 +474,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
       {currentFolder && (
         <button
-          onClick={() => openFolder(null)}
-          {...(!locked ? dropHandlers("root") : {})}
+          onClick={() => openFolder(parentFolder?.id ?? null)}
+          {...(!locked ? dropHandlers(parentFolder?.id ?? "root") : {})}
           className="mb-5 text-xs font-600 px-3 py-1.5"
-          style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px", ...dropStyle("root") }}
+          style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px", ...dropStyle(parentFolder?.id ?? "root") }}
         >
-          {draggingFileId !== null ? "⬆ 여기에 놓으면 상위(워크스페이스 루트)로 이동" : "← 전체 폴더로"}
+          {draggingFileId !== null
+            ? `⬆ 여기에 놓으면 상위(${parentFolder ? `“${parentFolder.name}” 폴더` : "워크스페이스 루트"})로 이동`
+            : parentFolder ? "← 상위 폴더로" : "← 전체 폴더로"}
         </button>
       )}
       {moveError && <p role="alert" className="mb-3 text-sm text-red-500">{moveError}</p>}
@@ -499,7 +519,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </div>
       )}
 
-      {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" fileCount={scoped.length} onDeleted={() => openFolder(null)} />}
+      {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" childCount={scoped.length + childFolders.length} onDeleted={() => openFolder(null)} />}
       {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
       {/* Upload zone */}
       {!locked && (
@@ -745,7 +765,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
                   >
                     <option value="">워크스페이스 루트(상위)</option>
-                    {folders.map((fo) => <option key={fo.id} value={fo.id}>📁 {fo.name}</option>)}
+                    {folders.map((fo) => <option key={fo.id} value={fo.id}>📁 {pathOf(fo).map((x) => x.name).join(" / ")}</option>)}
                   </select>
                 </label>
               )}

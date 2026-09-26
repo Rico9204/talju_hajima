@@ -20,6 +20,7 @@ import type {
   MemberPresenceState,
   ProfileLink,
   ChatMessage,
+  ChatGroup,
   ChatReaction,
   ChatToolEvent,
   AdminProfileSummary,
@@ -97,7 +98,7 @@ export interface DataRepository {
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;
-  createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
+  createFolder(projectId: string, name: string, actorName: string, parentId: number | null): Promise<Folder>;
 
   deleteWorkspaceFile(fileId: number): Promise<void>;
   moveWorkspaceFile(fileId: number, folderId: number | null): Promise<void>; // null = 워크스페이스 루트
@@ -141,6 +142,11 @@ export interface DataRepository {
   removeScheduleEvent(eventId: number): Promise<void>;
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
+  listChatGroups(projectId: string): Promise<ChatGroup[]>;
+  // 팀장·부팀장만(서버가 검사). 새 방의 id를 돌려준다.
+  createChatGroup(projectId: string, name: string, memberIds: string[]): Promise<string>;
+  // 그 방에 참여 중인 팀장·부팀장만(서버가 검사). 이미 참여 중인 사람은 건너뛴다.
+  addChatGroupMembers(groupId: string, memberIds: string[]): Promise<void>;
   sendMessage(
     projectId: string,
     channelId: string,

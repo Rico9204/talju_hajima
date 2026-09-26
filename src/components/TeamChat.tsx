@@ -8,6 +8,7 @@ import {
   dmChannelId,
   type WorkspaceFile,
 } from "../context/ProjectContext"
+import type { ChatGroup } from "../api/types"
 
 import {
   belongsToMessageGroup,
@@ -19,6 +20,7 @@ import {
 import SearchHighlight from "./SearchHighlight"
 
 import ChatToolModal from "./chatTools/ChatToolModal"
+import CreateChatGroupModal from "./CreateChatGroupModal"
 import ChatToolPreviewBubble from "./chatTools/ChatToolPreviewBubble"
 import ChatToolOverlayModal from "./chatTools/ChatToolOverlayModal"
 
@@ -86,7 +88,11 @@ export default function TeamChat({
     markChannelMessagesRead,
 
     openMemberProfile,
+    chatGroups,
+    isManager,
   } = useProject()
+  // "create" = 새 단체방 만들기, ChatGroup = 그 방에 팀원 초대
+  const [groupModal, setGroupModal] = useState<"create" | ChatGroup | null>(null)
 
   const [input, setInput] = useState("")
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -373,9 +379,24 @@ export default function TeamChat({
           online: undefined as boolean | undefined,
           role: undefined as string | undefined,
           memberId: undefined as string | undefined,
+          memberCount: otherMembers.length + 1 as number | undefined,
         },
 
-        ...dmChannels,
+        // 팀장·부팀장이 만든 단체방 — 참여한 방만 서버가 돌려준다.
+        ...chatGroups.map((g) => ({
+          id: `grp:${g.id}`,
+          type: "group" as const,
+          name: g.name,
+          avatar: "👥",
+          avatarUrl: null as string | null,
+          color: "#8b5cf6",
+          online: undefined as boolean | undefined,
+          role: undefined as string | undefined,
+          memberId: undefined as string | undefined,
+          memberCount: g.memberIds.length as number | undefined,
+        })),
+
+        ...dmChannels.map((c) => ({ ...c, memberCount: undefined as number | undefined })),
       ]
     : []
 
@@ -398,11 +419,12 @@ export default function TeamChat({
   const initialChannelId = (() => {
     if (!currentMember || !initialChannel) return "all"
     if (initialChannel === "all") return "all"
-    if (initialChannel.startsWith("dm:")) return initialChannel
+    if (initialChannel.startsWith("dm:") || initialChannel.startsWith("grp:")) return initialChannel
     return dmChannelId(currentMember.id, initialChannel)
   })()
 
   const [active, setActive] = useState<string>(initialChannelId)
+  const pendingGroupChannel = useRef<string | null>(null)
 
   // Below md there's only room for one pane at a time — picking a channel
 
@@ -426,6 +448,9 @@ export default function TeamChat({
       markChannelMessagesRead(initialChannelId)
       return
     }
+
+    // 단체방 목록은 따로 늦게 도착하므로, 알림 바로가기 등으로 받은 단체방은 목록이 오면 연다(아래 효과).
+    pendingGroupChannel.current = initialChannelId.startsWith("grp:") ? initialChannelId : null
 
     const exists = channels.some((c) => c.id === active)
 
@@ -453,6 +478,15 @@ export default function TeamChat({
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, initialChannelId, currentMember?.id])
+
+  useEffect(() => {
+    const pending = pendingGroupChannel.current
+    if (!pending || !chatGroups.some((g) => `grp:${g.id}` === pending)) return
+    pendingGroupChannel.current = null
+    setActive(pending)
+    markChannelMessagesRead(pending)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatGroups])
 
   // Do not use the whole chatMessages object here: a reaction or read receipt
 
@@ -785,6 +819,17 @@ export default function TeamChat({
             >
               채널
             </div>
+            {isManager && project.status === "active" && (
+              <button
+                type="button"
+                onClick={() => setGroupModal("create")}
+                title="팀원을 골라 단체 채팅방 만들기"
+                className="text-xs font-700 px-2.5 py-1.5 shrink-0 whitespace-nowrap"
+                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+              >
+                + 단체방
+              </button>
+            )}
             <input
               value={channelSearch}
               onChange={(e) => setChannelSearch(e.target.value)}
@@ -862,7 +907,7 @@ export default function TeamChat({
                       style={{ color: "var(--muted-foreground)" }}
                     >
                       {c.type === "group"
-                        ? `전체 ${otherMembers.length + 1}명`
+                        ? `${c.id === "all" ? "전체" : "참여"} ${c.memberCount}명`
                         : c.role}
                     </div>
                   </div>
@@ -968,12 +1013,27 @@ export default function TeamChat({
                   style={{ color: "var(--muted-foreground)" }}
                 >
                   {chan.type === "group"
-                    ? `전체 ${otherMembers.length + 1}명`
+                    ? `${chan.id === "all" ? "전체" : "참여"} ${chan.memberCount}명`
                     : chan.role}
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              {(() => {
+                const activeGroup = isManager && project.status === "active" ? chatGroups.find((g) => `grp:${g.id}` === chan.id) : undefined
+                return activeGroup && !messageSearchOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setGroupModal(activeGroup)}
+                    title="이 방에 팀원 초대"
+                    aria-label="이 방에 팀원 초대"
+                    className="text-xs font-700 px-2.5 py-1.5 whitespace-nowrap"
+                    style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+                  >
+                    + 초대
+                  </button>
+                )
+              })()}
               <input
                 ref={messageSearchInputRef}
                 value={messageSearch}
@@ -2067,6 +2127,14 @@ export default function TeamChat({
         onSendAction={handleSendAction}
         onServerSpin={handleServerSpin}
       />
+
+      {groupModal && (
+        <CreateChatGroupModal
+          group={groupModal === "create" ? undefined : groupModal}
+          onClose={() => setGroupModal(null)}
+          onDone={(channelId) => { setGroupModal(null); selectChannel(channelId) }}
+        />
+      )}
     </div>
   )
 }

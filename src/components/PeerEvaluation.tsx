@@ -302,37 +302,47 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
               <button type="button" className="underline mt-2" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>중간 피드백 새로고침</button>
             </div>}
             {feedbackAvailable ? (
-              <>
-                <div className="flex justify-center mb-2">
-                  <PentagonChart
-                    size={320}
-                    gridColor="rgba(255,255,255,0.4)"
-                    fillColor="#ffffff"
-                    labelColor="#ffffff"
-                    valueColor="rgba(255,255,255,0.85)"
-                    data={criteria.map((c) => ({
-                      label: c.label,
-                      value: average!.criteria![c.id],
-                    }))}
-                  />
-                </div>
-                <div className="flex items-baseline gap-2 justify-center">
-                  <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
-                    {average?.score?.toFixed(1)}
-                  </span>
-                  <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
-                </div>
-                {!isDone && (average?.comments?.length ?? 0) > 0 && (
-                  <div className="mt-5 grid gap-2" aria-label="받은 종합 코멘트">
+              // 중간 피드백: 왼쪽 동료 종합 코멘트, 오른쪽 오각형 점수(좁은 화면에서는 점수가 위).
+              // 최종 평가는 코멘트를 받지 않으므로 점수만 가운데 둔다.
+              <div className={isDone ? "" : "grid gap-6 md:grid-cols-2 md:items-start"}>
+                {!isDone && (
+                  <div className="grid gap-2 content-start md:order-1" aria-label="받은 종합 코멘트">
                     <h3 className="text-sm font-700">동료들의 종합 코멘트</h3>
-                    {average!.comments!.map((comment, index) => (
-                      <p key={index} className="p-3 text-sm leading-relaxed" style={{ background: "rgba(255,255,255,0.14)", borderRadius: "10px" }}>
-                        {comment}
-                      </p>
-                    ))}
+                    {(average?.comments?.length ?? 0) > 0 ? (
+                      <div className="grid gap-2 max-h-[360px] overflow-y-auto pr-1">
+                        {average!.comments!.map((comment, index) => (
+                          <p key={index} className="p-3 text-sm leading-relaxed" style={{ background: "rgba(255,255,255,0.14)", borderRadius: "10px", overflowWrap: "anywhere" }}>
+                            {comment}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="p-3 text-sm" style={{ background: "rgba(255,255,255,0.1)", borderRadius: "10px", color: "rgba(255,255,255,0.8)" }}>아직 받은 코멘트가 없어요.</p>
+                    )}
                   </div>
                 )}
-              </>
+                <div className={isDone ? "" : "order-first md:order-2"}>
+                  <div className="flex justify-center mb-2">
+                    <PentagonChart
+                      size={320}
+                      gridColor="rgba(255,255,255,0.4)"
+                      fillColor="#ffffff"
+                      labelColor="#ffffff"
+                      valueColor="rgba(255,255,255,0.85)"
+                      data={criteria.map((c) => ({
+                        label: c.label,
+                        value: average!.criteria![c.id],
+                      }))}
+                    />
+                  </div>
+                  <div className="flex items-baseline gap-2 justify-center flex-wrap text-center">
+                    <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
+                      {average?.score?.toFixed(1)}
+                    </span>
+                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
+                  </div>
+                </div>
+              </div>
             ) : (
               <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "평균 공개 대기 중입니다. 평가자가 1명이거나 제출이 진행 중이면 점수를 표시하지 않습니다."}</p>
             )}

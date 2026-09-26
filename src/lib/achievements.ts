@@ -164,6 +164,11 @@ export interface AchievementProgress {
   earned: boolean;
 }
 
+// 업적 수치 표시: 소수점 아래 2자리까지만(끝의 0은 생략 — 7.333… → 7.33, 8 → 8, 7.5 → 7.5).
+export function formatAchievementValue(value: number): string {
+  return String(Number(value.toFixed(2)));
+}
+
 export function achievementProgress(achievement: Achievement, summary: MyEvaluationSummary): AchievementProgress {
   const value = achievement.metric(summary);
   const pct = Math.max(0, Math.min(100, Math.round((value / achievement.threshold) * 100)));

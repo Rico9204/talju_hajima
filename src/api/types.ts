@@ -155,6 +155,7 @@ export interface WorkspaceFile {
 export interface Folder {
   ownerUserId?: string | null;
   id: number;
+  parentId: number | null; // null = 워크스페이스 루트의 폴더. 최대 10단계(DB가 검사)
   name: string;
   color: string;
   createdBy: string;
@@ -352,6 +353,13 @@ export interface NewBoardPostInput {
   poll?: NewBoardPollInput | null;
   tags?: string[];
   hideImagePreview?: boolean;
+}
+
+// 팀장·부팀장이 만든 단체 채팅방. 채널 id는 `grp:${id}`, 참여자에게만 보인다.
+export interface ChatGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
 }
 
 export interface ChatMessage {

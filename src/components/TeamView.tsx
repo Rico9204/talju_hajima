@@ -60,6 +60,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const [memberSearch, setMemberSearch] = useState("");
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
   const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
+  const [pendingVice, setPendingVice] = useState<{ id: string; name: string; appoint: boolean } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -84,9 +85,16 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
   const members = team.members;
   const memberSearchTrimmed = memberSearch.trim().toLowerCase();
-  const filteredMembers = memberSearchTrimmed
+  // 접속 상태(온라인 → 자리비움 → 오프라인)가 직책보다 먼저. 같은 상태 안에서는 기존 순서(팀장·부팀장 우선)를 유지한다(안정 정렬).
+  const presenceRank = (m: (typeof members)[number]) => {
+    const presence = onlineMemberStates[m.id];
+    if (!m.online || !presence) return 2;
+    return presence.status === "idle" ? 1 : 0;
+  };
+  const filteredMembers = (memberSearchTrimmed
     ? members.filter((m) => m.name.toLowerCase().includes(memberSearchTrimmed))
-    : members;
+    : members
+  ).slice().sort((a, b) => presenceRank(a) - presenceRank(b));
   const showMemberSearch = members.length > 6;
 
   // 선택된 팀원이 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지 —
@@ -373,7 +381,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                     {canAppointVice && (
                       <button
                         disabled={busy}
-                        onClick={() => runAction(() => setViceLeader(sel.id, !sel.isViceLeader), () => {})}
+                        onClick={() => { setActionError(null); setPendingVice({ id: sel.id, name: sel.name, appoint: !sel.isViceLeader }); }}
                         title={sel.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
                         aria-label={sel.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
                         className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
@@ -398,7 +406,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             </div>
 
-            {actionError && !pendingTransfer && !pendingKick && !pendingFinish && (
+            {actionError && !pendingTransfer && !pendingKick && !pendingVice && !pendingFinish && (
               <p role="alert" className="mb-4 text-xs" style={{ color: "#ef4444" }}>{actionError}</p>
             )}
 
@@ -521,6 +529,36 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}
               >
                 위임하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingVice && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#3b82f618", borderRadius: "12px" }}>🚩</div>
+            <h3 className="font-700 mb-1">{pendingVice.appoint ? "부팀장으로 임명할까요?" : "부팀장에서 해임할까요?"}</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              <strong>{pendingVice.name}</strong>님이 과제·팀 일정·워크스페이스 정리 같은 운영 권한을 {pendingVice.appoint ? "갖게 됩니다" : "잃고 팀원으로 돌아갑니다"}.
+            </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingVice(null)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => runAction(() => setViceLeader(pendingVice.id, pendingVice.appoint), () => setPendingVice(null))}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#3b82f6", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(59,130,246,0.3)" }}
+              >
+                {pendingVice.appoint ? "임명하기" : "해임하기"}
               </button>
             </div>
           </div>

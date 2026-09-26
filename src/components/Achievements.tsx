@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProject } from "../context/ProjectContext";
 import type { MyEvaluationSummary as Summary } from "../lib/evaluationSummary";
-import { ACHIEVEMENTS, TIERS, achievementProgress, bestEarnedAchievement, subTierIndex, tierFor, tierUpperBound } from "../lib/achievements";
+import { ACHIEVEMENTS, TIERS, achievementProgress, bestEarnedAchievement, formatAchievementValue, subTierIndex, tierFor, tierUpperBound } from "../lib/achievements";
 import { PROFILE_CARD_THEMES } from "../lib/profileThemes";
 import MedalIcon from "./MedalIcon";
 import AchievementBadge from "./AchievementBadge";
@@ -147,7 +147,7 @@ export default function Achievements() {
                   <div className="w-full mt-4">
                     <div className="flex items-center justify-between text-xs font-800 mb-1">
                       <span style={{ color: earned ? achievement.colors[1] : "var(--muted-foreground)" }}>{pct}%</span>
-                      <span style={{ color: "var(--muted-foreground)" }}>{value}{achievement.unit} / {achievement.threshold}{achievement.unit}</span>
+                      <span style={{ color: "var(--muted-foreground)" }}>{formatAchievementValue(value)}{achievement.unit} / {formatAchievementValue(achievement.threshold)}{achievement.unit}</span>
                     </div>
                     <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
                       <div className="h-full rounded-full" style={{ width: `${pct}%`, background: earned ? achievement.colors[1] : "var(--muted-foreground)" }} />

@@ -3820,3 +3820,218 @@ begin
 end $$;
 revoke all on function public.move_workspace_file(bigint, bigint) from public, anon;
 grant execute on function public.move_workspace_file(bigint, bigint) to authenticated;
+
+-- ===== 워크스페이스 하위 폴더 (migrations/2609262000_nested_folders.sql 과 동일) =====
+-- 워크스페이스 폴더 안에 폴더(하위 폴더)를 만들 수 있게 한다.
+--  * parent_id null = 워크스페이스 루트의 폴더.
+--  * 상위 폴더는 같은 프로젝트의 폴더여야 한다(복합 외래키). 하위 폴더가 있는 폴더는 지울 수 없다.
+--  * 깊이는 최대 10단계(루트 폴더가 1단계). 순환·끝없는 사슬로 인한 부하를 막는다.
+--  * 폴더 자체의 이동(parent_id 변경)은 아직 없다. folders 표는 앱에서 직접 수정할 수 없고(update 권한 회수),
+--    이동 기능을 만들 때는 서버 함수에서 순환과 "옮긴 뒤 하위 트리 전체의 깊이"를 함께 검사해야 한다.
+
+alter table public.folders add column if not exists parent_id bigint;
+create unique index if not exists folders_project_id_id_key on public.folders(project_id, id);
+create index if not exists folders_parent_idx on public.folders(parent_id);
+do $$ begin
+  if not exists(select 1 from pg_constraint where conname='folders_parent_fk') then
+    -- no action(기본값): 프로젝트 삭제로 폴더가 한꺼번에 지워질 때는 문장 끝에 검사하므로 통과한다.
+    alter table public.folders add constraint folders_parent_fk
+      foreign key (project_id, parent_id) references public.folders(project_id, id);
+  end if;
+end $$;
+
+create or replace function public.check_folder_depth()
+returns trigger language plpgsql set search_path=public as $$
+declare cur bigint := new.parent_id; depth int := 1;
+begin
+  while cur is not null loop
+    depth := depth + 1;
+    if depth > 10 then raise exception '폴더는 최대 10단계까지만 만들 수 있습니다.'; end if;
+    select parent_id into cur from public.folders where id=cur;
+  end loop;
+  return new;
+end $$;
+drop trigger if exists workspace_folder_depth on public.folders;
+create trigger workspace_folder_depth before insert on public.folders
+for each row execute function public.check_folder_depth();
+
+create or replace function public.delete_workspace_folder(p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.folders%rowtype;
+begin
+  select project_id into pid from public.folders where id=p_folder_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.folders where id=p_folder_id for update;
+  if not found then raise exception '폴더가 존재하지 않습니다.'; end if;
+  if not public.is_project_manager(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장, 부팀장 또는 생성자만 폴더를 삭제할 수 있습니다.';
+  end if;
+  if exists(select 1 from public.folders where parent_id=p_folder_id) then
+    raise exception '하위 폴더가 있는 폴더는 삭제할 수 없습니다. 하위 폴더를 먼저 삭제해 주세요.';
+  end if;
+  if exists(select 1 from public.files where folder_id=p_folder_id) then
+    raise exception '파일이 있는 폴더는 삭제할 수 없습니다. 파일을 먼저 삭제해 주세요.';
+  end if;
+  delete from public.folders where id=p_folder_id;
+end $$;
+revoke all on function public.delete_workspace_folder(bigint) from public, anon;
+grant execute on function public.delete_workspace_folder(bigint) to authenticated;
+
+
+-- ===== 단체 채팅방 (migrations/2609262100_chat_groups.sql 과 동일) =====
+-- 단체 채팅방: 팀장·부팀장이 팀원을 골라 만드는 채팅방. 채널 id는 'grp:<그룹 uuid>'.
+--  * 방과 참여자 목록은 그 방의 참여자만 읽을 수 있다. 앱에서 직접 쓰지 못하고 create_chat_group 으로만 만든다.
+--  * 메시지·읽음·반응·채팅 도구의 권한은 모두 can_access_chat_channel 하나를 거치므로 거기에 'grp:' 분기만 더한다.
+--  * 방을 만들면 만든 사람 이름으로 첫 메시지를 남긴다. 초대받은 사람 화면에 실시간으로 방이 나타나게 하는 신호다.
+
+create table if not exists public.chat_groups (
+  id uuid primary key default gen_random_uuid(),
+  project_id text not null references public.projects(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 30),
+  created_by uuid references public.members(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.chat_group_members (
+  group_id uuid not null references public.chat_groups(id) on delete cascade,
+  member_id uuid not null references public.members(id) on delete cascade,
+  project_id text not null references public.projects(id) on delete cascade,
+  primary key (group_id, member_id)
+);
+create index if not exists chat_group_members_member_idx on public.chat_group_members(member_id);
+create index if not exists chat_groups_project_idx on public.chat_groups(project_id);
+
+-- 내 member id가 이 방의 참여자인가. RLS 정책 안에서 자기 표를 다시 읽지 않도록 security definer.
+create or replace function public.is_chat_group_member(p_group_id uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from public.chat_group_members gm
+    join public.members mine on mine.id = gm.member_id
+    where gm.group_id = p_group_id and mine.user_id = (select auth.uid())
+  );
+$$;
+revoke all on function public.is_chat_group_member(uuid) from public, anon;
+grant execute on function public.is_chat_group_member(uuid) to authenticated;
+
+alter table public.chat_groups enable row level security;
+alter table public.chat_group_members enable row level security;
+revoke insert, update, delete on public.chat_groups, public.chat_group_members from anon, authenticated;
+drop policy if exists chat_groups_read on public.chat_groups;
+create policy chat_groups_read on public.chat_groups for select to authenticated using (public.is_chat_group_member(id));
+drop policy if exists chat_group_members_read on public.chat_group_members;
+create policy chat_group_members_read on public.chat_group_members for select to authenticated using (public.is_chat_group_member(group_id));
+
+create or replace function public.can_access_chat_channel(p_project_id text, p_channel_id text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select case
+    when p_channel_id = 'all' then exists (
+      select 1 from public.members mine
+      where mine.project_id = p_project_id and mine.user_id = (select auth.uid())
+    )
+    when p_channel_id ~ '^dm:[0-9a-f-]{36}:[0-9a-f-]{36}$'
+      and split_part(p_channel_id, ':', 2) <> split_part(p_channel_id, ':', 3)
+    then exists (
+      select 1
+      from public.members mine
+      where mine.project_id = p_project_id
+        and mine.user_id = (select auth.uid())
+        and mine.id::text in (split_part(p_channel_id, ':', 2), split_part(p_channel_id, ':', 3))
+        and exists (
+          select 1 from public.members first_member
+          where first_member.project_id = p_project_id and first_member.id::text = split_part(p_channel_id, ':', 2)
+        )
+        and exists (
+          select 1 from public.members second_member
+          where second_member.project_id = p_project_id and second_member.id::text = split_part(p_channel_id, ':', 3)
+        )
+    )
+    when p_channel_id ~ '^grp:[0-9a-f-]{36}$' then exists (
+      select 1 from public.chat_group_members gm
+      join public.members mine on mine.id = gm.member_id
+      where gm.group_id::text = substr(p_channel_id, 5)
+        and gm.project_id = p_project_id
+        and mine.project_id = p_project_id
+        and mine.user_id = (select auth.uid())
+    )
+    else false
+  end;
+$$;
+revoke all on function public.can_access_chat_channel(text, text) from public;
+grant execute on function public.can_access_chat_channel(text, text) to authenticated;
+
+-- 팀장·부팀장만. 나를 포함해 3명 이상(2명이면 1:1 채팅), 모두 이 프로젝트의 팀원이어야 한다.
+-- ponytail: 방은 프로젝트당 50개까지. 이름 변경·나가기·삭제는 아직 없다.
+create or replace function public.create_chat_group(p_project_id text, p_name text, p_member_ids uuid[])
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_me uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_ids uuid[];
+  v_group uuid;
+begin
+  perform id from public.projects where id = p_project_id and status = 'active' for update;
+  if not found then raise exception '진행 중인 프로젝트에서만 채팅방을 만들 수 있습니다.'; end if;
+  select id into v_me from public.members
+    where project_id = p_project_id and user_id = auth.uid() and (is_leader or is_vice_leader);
+  if v_me is null then raise exception '팀장 또는 부팀장만 단체 채팅방을 만들 수 있습니다.'; end if;
+  if char_length(v_name) not between 1 and 30 then raise exception '채팅방 이름은 1~30자로 입력해 주세요.'; end if;
+  select array_agg(distinct x) into v_ids from unnest(coalesce(p_member_ids, '{}') || v_me) x;
+  if cardinality(v_ids) < 3 then raise exception '나를 제외하고 2명 이상 선택해 주세요.'; end if;
+  if (select count(*) from public.members where project_id = p_project_id and id = any(v_ids)) <> cardinality(v_ids) then
+    raise exception '이 프로젝트의 팀원만 초대할 수 있습니다.';
+  end if;
+  if (select count(*) from public.chat_groups where project_id = p_project_id) >= 50 then
+    raise exception '채팅방은 프로젝트당 50개까지 만들 수 있습니다.';
+  end if;
+  insert into public.chat_groups(project_id, name, created_by) values (p_project_id, v_name, v_me) returning id into v_group;
+  insert into public.chat_group_members(group_id, member_id, project_id) select v_group, x, p_project_id from unnest(v_ids) x;
+  insert into public.chat_messages(project_id, channel_id, sender_id, text)
+    values (p_project_id, 'grp:' || v_group, v_me, format('“%s” 단체 채팅방을 만들었습니다.', v_name));
+  return v_group;
+end $$;
+revoke all on function public.create_chat_group(text, text, uuid[]) from public, anon;
+grant execute on function public.create_chat_group(text, text, uuid[]) to authenticated;
+
+
+-- ===== 단체 채팅방 초대 (migrations/2609262200_chat_group_invite.sql 과 동일) =====
+-- 단체 채팅방에 팀원 추가: 그 방에 참여 중인 팀장·부팀장만.
+--  * 추가할 사람은 같은 프로젝트 팀원이어야 한다. 이미 참여 중인 사람은 건너뛴다.
+--  * 초대한 사람 이름으로 안내 메시지를 남긴다. 새로 들어온 사람 화면에 방이 나타나고,
+--    기존 참여자 화면의 인원 수가 갱신되는 신호다(앱은 "…초대했습니다." 메시지를 받으면 방 목록을 다시 받는다).
+--  * 새 참여자도 방의 지난 대화를 모두 볼 수 있다(권한은 채널 단위).
+
+create or replace function public.add_chat_group_members(p_group_id uuid, p_member_ids uuid[])
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  g public.chat_groups%rowtype;
+  v_me uuid;
+  v_new uuid[];
+begin
+  select * into g from public.chat_groups where id = p_group_id for update;
+  if not found then raise exception '채팅방을 찾을 수 없습니다.'; end if;
+  perform id from public.projects where id = g.project_id and status = 'active';
+  if not found then raise exception '진행 중인 프로젝트에서만 초대할 수 있습니다.'; end if;
+  select m.id into v_me from public.members m
+    join public.chat_group_members gm on gm.member_id = m.id and gm.group_id = p_group_id
+    where m.project_id = g.project_id and m.user_id = auth.uid() and (m.is_leader or m.is_vice_leader);
+  if v_me is null then raise exception '이 방에 참여 중인 팀장 또는 부팀장만 초대할 수 있습니다.'; end if;
+  if (select count(*) from public.members where project_id = g.project_id and id = any(coalesce(p_member_ids, '{}')))
+     <> (select count(distinct x) from unnest(coalesce(p_member_ids, '{}')) x) then
+    raise exception '이 프로젝트의 팀원만 초대할 수 있습니다.';
+  end if;
+  select array_agg(distinct x) into v_new from unnest(coalesce(p_member_ids, '{}')) x
+    where not exists (select 1 from public.chat_group_members gm where gm.group_id = p_group_id and gm.member_id = x);
+  if v_new is null then raise exception '새로 초대할 팀원을 선택해 주세요.'; end if;
+  insert into public.chat_group_members(group_id, member_id, project_id) select p_group_id, x, g.project_id from unnest(v_new) x;
+  insert into public.chat_messages(project_id, channel_id, sender_id, text)
+    values (g.project_id, 'grp:' || p_group_id, v_me,
+      (select string_agg(name || '님', ', ' order by name) from public.members where id = any(v_new)) || '을 초대했습니다.');
+end $$;
+revoke all on function public.add_chat_group_members(uuid, uuid[]) from public, anon;
+grant execute on function public.add_chat_group_members(uuid, uuid[]) to authenticated;
+
