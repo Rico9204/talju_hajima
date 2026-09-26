@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { crawlNotices } from "../src/lib/crawler/crawlerService.ts";
+import { crawlNotices } from "../lib/crawler/crawlerService";
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 mins cache
 const cache = new Map<string, { result: any; cachedAt: number }>();
