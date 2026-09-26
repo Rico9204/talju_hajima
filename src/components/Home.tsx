@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
+import Achievements from "./Achievements";
 import Settings from "./Settings";
 import AdminApplicationNotice from "./AdminApplicationNotice";
 import AdminOperatorPanel from "./AdminOperatorPanel";
@@ -34,7 +35,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board" | "settings" | "operator" | "reports";
+type HomeTab = "projects" | "board" | "achievements" | "settings" | "operator" | "reports";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile } = useProject();
@@ -157,6 +158,14 @@ export default function Home() {
             <span>💬</span>
             <span>게시판</span>
           </button>
+          <button
+            onClick={() => selectTab("achievements")}
+            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
+            style={{ borderRadius: "10px", background: activeTab === "achievements" ? "var(--primary)" : "transparent", color: activeTab === "achievements" ? "#fff" : "var(--foreground)" }}
+          >
+            <span>◈</span>
+            <span>업적</span>
+          </button>
           {isOperator && (
             <button
               onClick={() => selectTab("operator")}
@@ -255,6 +264,8 @@ export default function Home() {
             </div>
           ) : activeTab === "board" ? (
             <BoardView />
+          ) : activeTab === "achievements" ? (
+            <Achievements />
           ) : (
             <>
               <div className="flex items-center justify-between gap-2 mb-6">

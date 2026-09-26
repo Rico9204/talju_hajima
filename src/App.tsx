@@ -21,13 +21,12 @@ const TeamChat = lazy(() => import("./components/TeamChat"));
 const Schedule = lazy(() => import("./components/Schedule"));
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const AdminApplication = lazy(() => import("./components/AdminApplication"));
-const Achievements = lazy(() => import("./components/Achievements"));
 
 function PageLoading() {
   return <div className="flex h-full min-h-48 items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>화면을 불러오는 중…</div>;
 }
 
-export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "achievements" | "admin";
+export type Page = "dashboard" | "team" | "chat" | "tasks" | "schedule" | "workspace" | "evaluation" | "admin";
 
 function RequireAuth() {
   const { session, loading } = useAuth();
@@ -149,6 +148,8 @@ function AppRoutes() {
       <Route element={<RequireAuth />}>
         <Route path="home" element={<Home />} />
         <Route path="admin-application" element={<AdminApplication />} />
+        {/* 업적은 메인 화면(/home) 좌측 메뉴로 옮겼다. 예전 주소는 메인 화면으로. */}
+        <Route path="achievements" element={<Navigate to="/home" replace />} />
         <Route element={<Layout />}>
           <Route path="dashboard" element={<DashboardRoute />} />
           <Route path="team" element={<TeamViewRoute />} />
@@ -161,7 +162,6 @@ function AppRoutes() {
           <Route path="workspace" element={<WorkspaceRoute />} />
           <Route path="workspace/:folderId/:fileId" element={<WorkspaceRoute />} />
           <Route path="evaluation" element={<PeerEvaluation />} />
-          <Route path="achievements" element={<Achievements />} />
           <Route path="admin" element={<RequireAdmin />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
