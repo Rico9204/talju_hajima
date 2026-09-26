@@ -908,6 +908,10 @@ export const supabaseDataRepository: DataRepository = {
     const { error } = await supabase.rpc("delete_workspace_file", { p_file_id: fileId });
     if (error) throw error;
   },
+  async moveWorkspaceFile(fileId, folderId) {
+    const { error } = await supabase.rpc("move_workspace_file", { p_file_id: fileId, p_folder_id: folderId });
+    if (error) throw error;
+  },
   async deleteWorkspaceFolder(folderId) {
     const { error } = await supabase.rpc("delete_workspace_folder", { p_folder_id: folderId });
     if (error) throw error;
