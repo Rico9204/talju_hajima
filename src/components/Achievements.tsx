@@ -40,7 +40,7 @@ export default function Achievements() {
       : null;
 
   return (
-    <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
+    <div>
       <h1 className="text-xl font-800 mb-1">업적</h1>
       <p className="text-sm mb-6" style={{ color: "var(--muted-foreground)" }}>내 평판 등급과 도전과제를 확인해요. 100%를 채우면 뱃지를 획득하고, 가장 돋보이는 뱃지가 프로필에 자동으로 표시돼요.</p>
 

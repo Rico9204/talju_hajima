@@ -582,13 +582,15 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     };
     void dataRepository.listChatToolEvents(projectId).then(putToolEvents).catch(() => {});
     const unsubToolEvents = dataRepository.subscribeToChatToolEvents(projectId, (e) => putToolEvents([e]));
+    // 내가 속한 방에 누가 들어왔다(내가 초대받은 경우 포함) → 방 목록·인원 수를 다시 받는다.
+    const unsubGroupMembers = dataRepository.subscribeToChatGroupMembers(projectId, () => refreshChatGroupsRef.current());
 
     const unsubMessages = dataRepository.subscribeToMessages(
       projectId,
       (msg) => {
         // 모르는 단체방의 메시지 = 누가 나를 넣어 새 방을 만들었다. 방 목록을 다시 받는다.
-        // 초대 안내 메시지(add_chat_group_members)면 참여자가 바뀐 것이므로 인원 수를 새로 받는다.
-        if (msg.channelId.startsWith("grp:") && (!knownChatGroupIds.current.has(msg.channelId.slice(4)) || msg.text.endsWith("을 초대했습니다."))) refreshChatGroupsRef.current();
+        // 참여자 변경(초대)은 아래 subscribeToChatGroupMembers 가 알린다. 메시지 문구로는 판단하지 않는다(누구나 입력 가능).
+        if (msg.channelId.startsWith("grp:") && !knownChatGroupIds.current.has(msg.channelId.slice(4))) refreshChatGroupsRef.current();
         setChatMessages((prev) => {
           const list = prev[msg.channelId] ?? [];
           if (list.some((m) => m.id === msg.id)) return prev;
@@ -625,6 +627,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       unsubMessages();
       unsubReads();
       unsubToolEvents();
+      unsubGroupMembers();
     };
   }, [projectId]);
 

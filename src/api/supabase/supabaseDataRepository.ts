@@ -1424,6 +1424,12 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map((row: any) => ({ id: row.id, name: row.name, memberIds: (row.chat_group_members ?? []).map((m: any) => m.member_id) }));
   },
 
+  async getMyProjectAlerts() {
+    const { data, error } = await supabase.rpc("my_project_alerts");
+    if (error) throw error;
+    return (data ?? []).filter((row: any) => row.has_alert).map((row: any) => row.project_id as string);
+  },
+
   async createChatGroup(projectId, name, memberIds) {
     const { data, error } = await supabase.rpc("create_chat_group", { p_project_id: projectId, p_name: name, p_member_ids: memberIds });
     if (error) throw error;
@@ -1433,6 +1439,20 @@ export const supabaseDataRepository: DataRepository = {
   async addChatGroupMembers(groupId, memberIds) {
     const { error } = await supabase.rpc("add_chat_group_members", { p_group_id: groupId, p_member_ids: memberIds });
     if (error) throw error;
+  },
+
+  subscribeToChatGroupMembers(projectId, onChange) {
+    const channel = supabase
+      .channel(`chat_group_members:${projectId}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_group_members", filter: `project_id=eq.${projectId}` },
+        () => onChange()
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
   },
 
   async chatToolCreate(projectId, channelId, text, config) {

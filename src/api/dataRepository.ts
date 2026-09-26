@@ -143,10 +143,14 @@ export interface DataRepository {
 
   listMessages(projectId: string, channelId: string): Promise<ChatMessage[]>;
   listChatGroups(projectId: string): Promise<ChatGroup[]>;
+  // 메인 화면 프로젝트 목록의 알림 점: 확인하지 않은 채팅·과제·일정·파일이 있는 내 프로젝트 id들.
+  getMyProjectAlerts(): Promise<string[]>;
   // 팀장·부팀장만(서버가 검사). 새 방의 id를 돌려준다.
   createChatGroup(projectId: string, name: string, memberIds: string[]): Promise<string>;
   // 그 방에 참여 중인 팀장·부팀장만(서버가 검사). 이미 참여 중인 사람은 건너뛴다.
   addChatGroupMembers(groupId: string, memberIds: string[]): Promise<void>;
+  // 내가 참여한 방에 누가 들어왔을 때(나 자신 포함). 서버 함수만 참여자를 추가할 수 있으므로 위조할 수 없는 신호다.
+  subscribeToChatGroupMembers(projectId: string, onChange: () => void): () => void;
   sendMessage(
     projectId: string,
     channelId: string,

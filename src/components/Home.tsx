@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
+import Achievements from "./Achievements";
 import Settings from "./Settings";
 import AdminApplicationNotice from "./AdminApplicationNotice";
 import AdminOperatorPanel from "./AdminOperatorPanel";
@@ -34,10 +35,24 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board" | "settings" | "operator" | "reports";
+type HomeTab = "projects" | "board" | "achievements" | "settings" | "operator" | "reports";
 
 export default function Home() {
-  const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile } = useProject();
+  const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
+  // 프로젝트 카드의 주황 알림 점. 지금 선택된 프로젝트는 실시간으로 계산된 안 읽음 수를,
+  // 나머지는 서버(my_project_alerts)에 물어본 결과를 쓴다.
+  // ponytail: 다른 프로젝트는 화면 진입·창 포커스·1분마다 다시 묻는다. 즉시 반영이 필요하면 프로젝트별 실시간 구독으로.
+  const [alertProjectIds, setAlertProjectIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let active = true;
+    const load = () => { dataRepository.getMyProjectAlerts().then((ids) => { if (active) setAlertProjectIds(new Set(ids)); }).catch(() => {}); };
+    load();
+    window.addEventListener("focus", load);
+    const timer = window.setInterval(load, 60_000);
+    return () => { active = false; window.removeEventListener("focus", load); window.clearInterval(timer); };
+  }, [projects.length]);
+  const liveUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
+  const hasAlert = (id: string) => (id === project.id ? liveUnread > 0 : alertProjectIds.has(id));
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const myName = currentMember?.name ?? "참여자";
@@ -157,6 +172,14 @@ export default function Home() {
             <span>💬</span>
             <span>게시판</span>
           </button>
+          <button
+            onClick={() => selectTab("achievements")}
+            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
+            style={{ borderRadius: "10px", background: activeTab === "achievements" ? "var(--primary)" : "transparent", color: activeTab === "achievements" ? "#fff" : "var(--foreground)" }}
+          >
+            <span>◈</span>
+            <span>업적</span>
+          </button>
           {isOperator && (
             <button
               onClick={() => selectTab("operator")}
@@ -255,6 +278,8 @@ export default function Home() {
             </div>
           ) : activeTab === "board" ? (
             <BoardView />
+          ) : activeTab === "achievements" ? (
+            <Achievements />
           ) : (
             <>
               <div className="flex items-center justify-between gap-2 mb-6">
@@ -295,9 +320,18 @@ export default function Home() {
                       <button
                         key={p.id}
                         onClick={() => enterProject(p.id)}
-                        className="text-left p-5 transition-all"
+                        className="relative text-left p-5 transition-all"
                         style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
+                        aria-label={hasAlert(p.id) ? `${p.name} (확인하지 않은 알림 있음)` : undefined}
                       >
+                        {hasAlert(p.id) && (
+                          <span
+                            aria-hidden="true"
+                            title="확인하지 않은 알림이 있어요"
+                            className="absolute top-3 right-3 w-3 h-3 rounded-full"
+                            style={{ background: "#f97316", boxShadow: "0 0 0 3px #f9731633" }}
+                          />
+                        )}
                         <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
                           <span className="text-xs font-700 px-2 py-0.5" style={{ background: st.bg, color: st.color, borderRadius: "20px" }}>
                             {st.label}
