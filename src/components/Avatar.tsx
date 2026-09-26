@@ -23,7 +23,7 @@ export default function Avatar({
   ) : (
     <div
       className={`rounded-full flex items-center justify-center font-700 shrink-0 ${badge ? "" : className}`}
-      style={{ width: size, height: size, background: `${color}18`, color, fontSize: size * 0.4 }}
+      style={{ width: size, height: size, background: `linear-gradient(${color}18, ${color}18) var(--surface-opaque)`, color, fontSize: size * 0.4 }}
     >
       {initial}
     </div>

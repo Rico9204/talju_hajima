@@ -131,7 +131,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         disabled={busyMemberId === m.id}
-                        onClick={() => toggleViceLeader(m.id, !m.isViceLeader)}
+                        onClick={() => { if (window.confirm(m.isViceLeader ? `${m.name}님을 부팀장에서 해임하시겠습니까?` : `${m.name}님을 부팀장으로 임명하시겠습니까?`)) toggleViceLeader(m.id, !m.isViceLeader); }}
                         className="text-xs font-700 px-3 py-1.5 transition-all"
                         style={{ background: "#3b82f618", color: "#3b82f6", borderRadius: "20px" }}
                       >
