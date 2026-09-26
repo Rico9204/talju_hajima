@@ -116,6 +116,15 @@ await check('일반 팀원, 방에 없는 팀장·부팀장, 다른 프로젝트
   await rejects(invite(1, other, [member[3]]), /새로 초대할 팀원/);
   await rejects(invite(1, other, []), /새로 초대할 팀원/);
 });
+await check('참여자 변경 실시간 채널은 그 프로젝트 팀원만 구독할 수 있고, 표는 게시(publication)되어 있다', async () => {
+  await system(); await db.exec(readFileSync(new URL('../supabase/migrations/2609262300_chat_group_members_realtime.sql', import.meta.url), 'utf8')); // 다시 실행해도 안전한지
+  await login(3);
+  assert.equal((await db.query("select can_access_project_realtime_topic('chat_group_members:p') ok")).rows[0].ok, true);
+  await login(5);
+  assert.equal((await db.query("select can_access_project_realtime_topic('chat_group_members:p') ok")).rows[0].ok, false);
+  await system();
+  assert.equal((await db.query("select count(*)::int n from pg_publication_tables where pubname='supabase_realtime' and tablename='chat_group_members'")).rows[0].n, 1);
+});
 await check('종료된 프로젝트에서는 만들 수 없다', async () => {
   await system(); await db.query("update projects set status='done' where id='p'");
   await rejects(create(1, '늦은 방', [member[3], member[4]]), /진행 중인 프로젝트/);

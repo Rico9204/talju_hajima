@@ -1435,6 +1435,20 @@ export const supabaseDataRepository: DataRepository = {
     if (error) throw error;
   },
 
+  subscribeToChatGroupMembers(projectId, onChange) {
+    const channel = supabase
+      .channel(`chat_group_members:${projectId}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_group_members", filter: `project_id=eq.${projectId}` },
+        () => onChange()
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  },
+
   async chatToolCreate(projectId, channelId, text, config) {
     const { data, error } = await supabase.rpc("chat_tool_create", { p_project_id: projectId, p_channel_id: channelId, p_text: text, p_config: config });
     if (error) throw error;

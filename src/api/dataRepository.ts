@@ -147,6 +147,8 @@ export interface DataRepository {
   createChatGroup(projectId: string, name: string, memberIds: string[]): Promise<string>;
   // 그 방에 참여 중인 팀장·부팀장만(서버가 검사). 이미 참여 중인 사람은 건너뛴다.
   addChatGroupMembers(groupId: string, memberIds: string[]): Promise<void>;
+  // 내가 참여한 방에 누가 들어왔을 때(나 자신 포함). 서버 함수만 참여자를 추가할 수 있으므로 위조할 수 없는 신호다.
+  subscribeToChatGroupMembers(projectId: string, onChange: () => void): () => void;
   sendMessage(
     projectId: string,
     channelId: string,
