@@ -3,11 +3,13 @@ import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
 import { latestFileUploadTime, sortWorkspaceFiles, type FileSortOption } from "../lib/workspaceFiles";
-import { useEffect, useLayoutEffect, useState, useRef } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
 import QuickEditModal from "./QuickEditModal";
+import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
+import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
 import { useProject, type FileVersion, type WorkspaceFile } from "../context/ProjectContext";
@@ -31,6 +33,9 @@ const tagColors: Record<string, string> = {
   전사: "#2563eb",
   영상: "#ef4444",
 };
+
+// 문서 편집기(TipTap)는 무거워서 문서를 열 때만 불러온다.
+const DocEditorModal = lazy(() => import("./DocEditorModal"));
 
 export interface WorkspaceFocus {
   fileId: number;
@@ -58,6 +63,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [editors, setEditors] = useState<CollabEditor[]>([]);
   const presenceRef = useRef<CollabPresence | null>(null);
   const [editing, setEditing] = useState<{ fileId: number; room: number; mode: CollabMode; initialText: string } | null>(null);
+  const [docEditing, setDocEditing] = useState<{ fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
+  const [newDocName, setNewDocName] = useState<string | null>(null); // null = 새 문서 입력창 닫힘
+  const [docBusy, setDocBusy] = useState(false);
   const [editError, setEditError] = useState("");
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
@@ -116,7 +124,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     if (!currentMember) return;
     const presence = joinCollabPresence(project.id, { id: currentMember.id, name: currentMember.name }, setEditors);
     presenceRef.current = presence;
-    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); };
+    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, currentMember?.id]);
 
@@ -128,11 +136,44 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         : editors.find((e) => e.fileId === f.id && e.mode === "main")?.room ?? f.versions.find((v) => v.current)?.id;
       const base = f.versions.find((v) => v.id === room);
       if (!base) throw new Error("수정할 버전을 찾지 못했습니다.");
-      const initialText = await (await downloadFileVersion(base.id)).text();
-      setEditing({ fileId: f.id, room: base.id, mode, initialText });
+      const blob = await downloadFileVersion(base.id);
+      if (isRichDocName(base.originalName ?? f.name)) {
+        setDocEditing({ fileId: f.id, room: base.id, mode, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        return;
+      }
+      setEditing({ fileId: f.id, room: base.id, mode, initialText: await blob.text() });
     } catch (e) {
       setEditError(e instanceof Error ? e.message : "바로 수정을 시작하지 못했습니다.");
     }
+  }
+
+  // 문서(.rtdoc) 저장: 문서 상태 바이트를 새 버전으로 올리고, 검색·버전 비교용 글자를 함께 넘긴다.
+  async function saveRichDoc(f: WorkspaceFile, bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean): Promise<number> {
+    const result = await uploadWorkspaceFile({
+      file: new File([new Uint8Array(bytes)], f.name, { type: RICH_DOC_MIME }),
+      fileId: f.id, folderId: f.folderId, baseVersionId, note: auto ? "문서 자동 저장" : "문서 저장", tags: f.tags,
+      extractedText: { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" },
+    });
+    return result.versionId;
+  }
+
+  // 새 문서: 빈 문서를 지금 폴더에 올리고 바로 편집기를 연다.
+  async function createRichDoc() {
+    const name = (newDocName ?? "").trim().replace(/[\\/]/g, "") || "새 문서";
+    if (locked || docBusy) return;
+    setDocBusy(true); setEditError("");
+    try {
+      const bytes = newRichDocBytes();
+      const result = await uploadWorkspaceFile({
+        file: new File([new Uint8Array(bytes)], `${name}.${RICH_DOC_EXT}`, { type: RICH_DOC_MIME }),
+        folderId: currentFolderId, note: "새 문서", tags: [], extractedText: { text: "", status: "ready" },
+      });
+      setNewDocName(null);
+      setSelected(result.fileId); setDetailTab("versions");
+      setDocEditing({ fileId: result.fileId, room: result.versionId, mode: "main", bytes });
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "문서를 만들지 못했습니다.");
+    } finally { setDocBusy(false); }
   }
 
   async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number, auto: boolean): Promise<number> {
@@ -370,6 +411,33 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         >
           ← 전체 폴더로
         </button>
+      )}
+
+      {!locked && (
+        <div className="mb-3 flex items-center gap-2 flex-wrap">
+          {newDocName === null ? (
+            <button type="button" onClick={() => setNewDocName("")} className="text-xs font-700 px-3 py-1.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+              📄 + 새 문서 만들기 (여러 명이 함께 쓰는 문서)
+            </button>
+          ) : (
+            <>
+              <input
+                autoFocus
+                disabled={docBusy}
+                value={newDocName}
+                onChange={(e) => setNewDocName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void createRichDoc(); if (e.key === "Escape") setNewDocName(null); }}
+                placeholder="문서 이름 (예: 회의록)"
+                aria-label="새 문서 이름"
+                maxLength={100}
+                className="flex-1 min-w-40 text-sm px-3 py-2 border outline-none"
+                style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
+              />
+              <button type="button" onClick={() => void createRichDoc()} disabled={docBusy} className="text-xs font-700 px-4 py-2" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}>{docBusy ? "만드는 중…" : "만들기"}</button>
+              <button type="button" onClick={() => setNewDocName(null)} disabled={docBusy} className="text-xs font-600 px-3 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}>취소</button>
+            </>
+          )}
+        </div>
       )}
 
       {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" fileCount={scoped.length} onDeleted={() => openFolder(null)} />}
@@ -663,6 +731,22 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           save={(text, base, auto) => saveQuickEdit(files.find((f) => f.id === editing.fileId)!, editing.room, text, base, auto)}
           onClose={() => setEditing(null)}
         />
+      )}
+      {docEditing && presenceRef.current && files.find((f) => f.id === docEditing.fileId) && (
+        <Suspense fallback={<div role="status" className="fixed inset-0 z-50 flex items-center justify-center text-sm" style={{ background: "rgba(15,18,53,0.48)", color: "#fff" }}>문서 편집기를 불러오는 중…</div>}>
+        <DocEditorModal
+          key={`${docEditing.fileId}:${docEditing.room}:${docEditing.mode}`}
+          projectId={project.id}
+          file={files.find((f) => f.id === docEditing.fileId)!}
+          room={docEditing.room}
+          mode={docEditing.mode}
+          initialBytes={docEditing.bytes}
+          presence={presenceRef.current}
+          editors={editors}
+          save={(bytes, text, base, auto) => saveRichDoc(files.find((f) => f.id === docEditing.fileId)!, bytes, text, base, auto)}
+          onClose={() => setDocEditing(null)}
+        />
+        </Suspense>
       )}
     </div>
   );

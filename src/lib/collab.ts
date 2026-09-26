@@ -61,21 +61,26 @@ export interface CollabDoc {
   destroy: () => void;
 }
 
-export function openCollabDoc(opts: {
+// 방 하나의 전송 담당(Realtime broadcast): 로컬 변경 모아 보내기, 늦게 들어온 사람 따라잡기(sync-req/res),
+// 저장 알림(saved). 문서 내용의 모양(Y.Text, Y.XmlFragment 등)과 무관해서 텍스트·문서 편집이 함께 쓴다.
+// savedKey는 "마지막으로 저장된 내용"을 비교하는 값(텍스트 해시 등)으로, 호출하는 쪽이 정한다.
+export interface CollabRoom {
+  head: () => number;
+  savedKey: () => string;
+  markSaved: (head: number, key: string) => void;
+  destroy: () => void;
+}
+
+export function connectCollabRoom(doc: Y.Doc, opts: {
   projectId: string;
   fileId: number;
   room: number;
   mode: CollabMode;
-  initialText: string;
-  onRemote: (delta: Delta) => void;
+  initialKey: string;
   onSaved: () => void;
-}): CollabDoc {
-  const doc = new Y.Doc();
-  const ytext = doc.getText("t");
-  seedDoc(doc, opts.initialText);
-
+}): CollabRoom {
   let head = opts.room;
-  let saved = textHash(opts.initialText);
+  let saved = opts.initialKey;
   const channel = supabase.channel(`collab_doc:${opts.projectId}:${opts.fileId}:${opts.room}:${opts.mode}`, {
     config: { private: true, broadcast: { self: false } },
   });
@@ -91,12 +96,13 @@ export function openCollabDoc(opts: {
     send("update", { u: toB64(Y.mergeUpdates(pending)) });
     pending = [];
   };
-  doc.on("update", (update: Uint8Array, origin: unknown) => {
-    if (origin !== "local") return;
+  // 원격·초기 적용(origin "remote"/"seed")이 아닌 모든 변경을 보낸다(편집기 라이브러리는 자기 origin을 쓴다).
+  const onUpdate = (update: Uint8Array, origin: unknown) => {
+    if (origin === "remote" || origin === "seed") return;
     pending.push(update);
     flushTimer ??= window.setTimeout(flush, 120);
-  });
-  ytext.observe((event) => { if (event.transaction.origin === "remote") opts.onRemote(event.delta as Delta); });
+  };
+  doc.on("update", onUpdate);
 
   channel
     .on("broadcast", { event: "update" }, ({ payload }) => { Y.applyUpdate(doc, fromB64(payload.u as string), "remote"); })
@@ -115,15 +121,38 @@ export function openCollabDoc(opts: {
     });
 
   return {
+    head: () => head,
+    savedKey: () => saved,
+    markSaved: (newHead, key) => {
+      head = newHead;
+      saved = key;
+      send("saved", { head: newHead, saved: key });
+    },
+    destroy: () => { flush(); doc.off("update", onUpdate); void supabase.removeChannel(channel); },
+  };
+}
+
+export function openCollabDoc(opts: {
+  projectId: string;
+  fileId: number;
+  room: number;
+  mode: CollabMode;
+  initialText: string;
+  onRemote: (delta: Delta) => void;
+  onSaved: () => void;
+}): CollabDoc {
+  const doc = new Y.Doc();
+  const ytext = doc.getText("t");
+  seedDoc(doc, opts.initialText);
+  ytext.observe((event) => { if (event.transaction.origin === "remote") opts.onRemote(event.delta as Delta); });
+  const room = connectCollabRoom(doc, { ...opts, initialKey: textHash(opts.initialText) });
+
+  return {
     text: () => ytext.toString(),
     edit: (oldValue, newValue, remoteSince) => applyTextEdit(doc, oldValue, newValue, remoteSince),
-    head: () => head,
-    savedHash: () => saved,
-    markSaved: (newHead, text) => {
-      head = newHead;
-      saved = textHash(text);
-      send("saved", { head: newHead, saved });
-    },
-    destroy: () => { flush(); void supabase.removeChannel(channel); doc.destroy(); },
+    head: room.head,
+    savedHash: room.savedKey,
+    markSaved: (newHead, text) => room.markSaved(newHead, textHash(text)),
+    destroy: () => { room.destroy(); doc.destroy(); },
   };
 }
