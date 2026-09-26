@@ -28,7 +28,7 @@ import {
   type UiThemeState,
 } from "../lib/uiThemes";
 import { canUseTheme, PROFILE_CARD_THEMES } from "../lib/profileThemes";
-import { ACHIEVEMENTS } from "../lib/achievements";
+import { ACHIEVEMENTS, formatAchievementValue } from "../lib/achievements";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import { useStillUrl } from "../lib/useStillUrl";
 import { PROFILE_IMAGE_MIME_TYPES, validateProfileImage } from "../lib/profileImages";
@@ -441,7 +441,7 @@ export default function ProfileModal() {
                   {isSelfProfile && myBadge && (
                     <HoverTip
                       label={myBadge.achievement.label}
-                      detail={`${myBadge.achievement.description} · 현재 ${myBadge.progress.value}${myBadge.achievement.unit}`}
+                      detail={`${myBadge.achievement.description} · 현재 ${formatAchievementValue(myBadge.progress.value)}${myBadge.achievement.unit}`}
                     >
                       <span className="flex"><AchievementBadge achievement={myBadge.achievement} earned label={myBadge.achievement.label} size={28} /></span>
                     </HoverTip>
