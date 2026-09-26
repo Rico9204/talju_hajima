@@ -21,6 +21,7 @@
     "jspdf": "^4.2.1",
     "officeparser": "^8.0.0",
     "pdfjs-dist": "6.3.289",
+    "pptxgenjs": "^4.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.18.3",

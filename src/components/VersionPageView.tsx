@@ -3,6 +3,7 @@ import type { FileVersion, WorkspaceFile } from "../api/types";
 import { buildFullTextDiff } from "../lib/textDiff";
 import { formatUploadTime, isEditableTextFile } from "../lib/workspaceFiles";
 import { isRichDocName } from "../lib/richDoc";
+import { isSlidesName } from "../lib/slidesDoc";
 
 // 비전공자용 "페이지" 보기 — 분기 트리 대신 저장 순서대로 한 번에 버전 하나만 보여주고
 // 이전/다음으로 넘긴다. 각 페이지는 실제로 고쳐 만든 부모 버전(parentVersionId)과 비교해
@@ -114,7 +115,7 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
             <button className={actionClass} style={{ background: "var(--primary)", color: "#fff" }} disabled={busy} onClick={() => onPromote(version)}>이 버전으로 되돌리기</button>
           )}
           {!locked && <button className={actionClass} style={{ background: "var(--card)", color: "var(--foreground)" }} disabled={busy} onClick={() => onPin(version)}>{version.pinned ? "핀 해제" : "핀 고정"}</button>}
-          {onPinEdit && version.pinned && version.storagePath && (isEditableTextFile(version.originalName ?? file.name, version.byteSize) || isRichDocName(version.originalName ?? file.name)) && (
+          {onPinEdit && version.pinned && version.storagePath && (isEditableTextFile(version.originalName ?? file.name, version.byteSize) || isRichDocName(version.originalName ?? file.name) || isSlidesName(version.originalName ?? file.name)) && (
             <button className={actionClass} style={{ background: "var(--card)", color: "var(--foreground)" }} disabled={busy} onClick={() => onPinEdit(version)}>✏️ 이 핀 버전에서 수정</button>
           )}
         </div>

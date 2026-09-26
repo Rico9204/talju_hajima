@@ -9,6 +9,7 @@ import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
+import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/slidesDoc";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
@@ -36,6 +37,15 @@ const tagColors: Record<string, string> = {
 
 // 문서 편집기(TipTap)는 무거워서 문서를 열 때만 불러온다.
 const DocEditorModal = lazy(() => import("./DocEditorModal"));
+const SlidesEditorModal = lazy(() => import("./SlidesEditorModal"));
+
+// 앱 안에서 함께 편집하는 파일 종류: 문서(.rtdoc), 슬라이드(.slides)
+type CollabFileKind = "doc" | "slides";
+const COLLAB_FILE = {
+  doc: { ext: RICH_DOC_EXT, mime: RICH_DOC_MIME, label: "문서", newBytes: newRichDocBytes },
+  slides: { ext: SLIDES_EXT, mime: SLIDES_MIME, label: "슬라이드", newBytes: newSlidesBytes },
+} as const;
+const collabKindOf = (name: string): CollabFileKind | null => (isRichDocName(name) ? "doc" : isSlidesName(name) ? "slides" : null);
 
 export interface WorkspaceFocus {
   fileId: number;
@@ -63,8 +73,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [editors, setEditors] = useState<CollabEditor[]>([]);
   const presenceRef = useRef<CollabPresence | null>(null);
   const [editing, setEditing] = useState<{ fileId: number; room: number; mode: CollabMode; initialText: string } | null>(null);
-  const [docEditing, setDocEditing] = useState<{ fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
-  const [newDocName, setNewDocName] = useState<string | null>(null); // null = 새 문서 입력창 닫힘
+  const [docEditing, setDocEditing] = useState<{ kind: CollabFileKind; fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
+  const [newDoc, setNewDoc] = useState<{ kind: CollabFileKind; name: string } | null>(null); // null = 새 문서·슬라이드 입력창 닫힘
   const [docBusy, setDocBusy] = useState(false);
   // 파일 끌어서 옮기기: 끌고 있는 파일 id와, 지금 위에 올라가 있는 놓을 곳(폴더 id, "root" = 워크스페이스 루트)
   const [draggingFileId, setDraggingFileId] = useState<number | null>(null);
@@ -141,8 +151,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       const base = f.versions.find((v) => v.id === room);
       if (!base) throw new Error("수정할 버전을 찾지 못했습니다.");
       const blob = await downloadFileVersion(base.id);
-      if (isRichDocName(base.originalName ?? f.name)) {
-        setDocEditing({ fileId: f.id, room: base.id, mode, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      const kind = collabKindOf(base.originalName ?? f.name);
+      if (kind) {
+        setDocEditing({ kind, fileId: f.id, room: base.id, mode, bytes: new Uint8Array(await blob.arrayBuffer()) });
         return;
       }
       setEditing({ fileId: f.id, room: base.id, mode, initialText: await blob.text() });
@@ -151,32 +162,35 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     }
   }
 
-  // 문서(.rtdoc) 저장: 문서 상태 바이트를 새 버전으로 올리고, 검색·버전 비교용 글자를 함께 넘긴다.
-  async function saveRichDoc(f: WorkspaceFile, bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean): Promise<number> {
+  // 문서·슬라이드 저장: 문서 상태 바이트를 새 버전으로 올리고, 검색·버전 비교용 글자를 함께 넘긴다.
+  async function saveCollabFile(kind: CollabFileKind, f: WorkspaceFile, bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean): Promise<number> {
+    const { mime, label } = COLLAB_FILE[kind];
     const result = await uploadWorkspaceFile({
-      file: new File([new Uint8Array(bytes)], f.name, { type: RICH_DOC_MIME }),
-      fileId: f.id, folderId: f.folderId, baseVersionId, note: auto ? "문서 자동 저장" : "문서 저장", tags: f.tags,
+      file: new File([new Uint8Array(bytes)], f.name, { type: mime }),
+      fileId: f.id, folderId: f.folderId, baseVersionId, note: auto ? `${label} 자동 저장` : `${label} 저장`, tags: f.tags,
       extractedText: { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" },
     });
     return result.versionId;
   }
 
-  // 새 문서: 빈 문서를 지금 폴더에 올리고 바로 편집기를 연다.
-  async function createRichDoc() {
-    const name = (newDocName ?? "").trim().replace(/[\\/]/g, "") || "새 문서";
-    if (locked || docBusy) return;
+  // 새 문서·슬라이드: 빈 파일을 지금 폴더에 올리고 바로 편집기를 연다.
+  async function createCollabFile() {
+    if (!newDoc || locked || docBusy) return;
+    const { ext, mime, label, newBytes } = COLLAB_FILE[newDoc.kind];
+    const name = newDoc.name.trim().replace(/[\\/]/g, "") || `새 ${label}`;
     setDocBusy(true); setEditError("");
     try {
-      const bytes = newRichDocBytes();
+      const bytes = newBytes();
       const result = await uploadWorkspaceFile({
-        file: new File([new Uint8Array(bytes)], `${name}.${RICH_DOC_EXT}`, { type: RICH_DOC_MIME }),
-        folderId: currentFolderId, note: "새 문서", tags: [], extractedText: { text: "", status: "ready" },
+        file: new File([new Uint8Array(bytes)], `${name}.${ext}`, { type: mime }),
+        folderId: currentFolderId, note: `새 ${label}`, tags: [], extractedText: { text: "", status: "ready" },
       });
-      setNewDocName(null);
+      const kind = newDoc.kind;
+      setNewDoc(null);
       setSelected(result.fileId); setDetailTab("versions");
-      setDocEditing({ fileId: result.fileId, room: result.versionId, mode: "main", bytes });
+      setDocEditing({ kind, fileId: result.fileId, room: result.versionId, mode: "main", bytes });
     } catch (e) {
-      setEditError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "문서를 만들지 못했습니다.");
+      setEditError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? `${label}를 만들지 못했습니다.`);
     } finally { setDocBusy(false); }
   }
 
@@ -454,26 +468,32 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
       {!locked && (
         <div className="mb-3 flex items-center gap-2 flex-wrap">
-          {newDocName === null ? (
-            <button type="button" onClick={() => setNewDocName("")} className="text-xs font-700 px-3 py-1.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
-              📄 + 새 문서 만들기 (여러 명이 함께 쓰는 문서)
-            </button>
+          {newDoc === null ? (
+            <>
+              <button type="button" onClick={() => setNewDoc({ kind: "doc", name: "" })} className="text-xs font-700 px-3 py-1.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                📄 + 새 문서 만들기
+              </button>
+              <button type="button" onClick={() => setNewDoc({ kind: "slides", name: "" })} className="text-xs font-700 px-3 py-1.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                🖼️ + 새 슬라이드 만들기
+              </button>
+              <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>여러 명이 함께 편집할 수 있어요</span>
+            </>
           ) : (
             <>
               <input
                 autoFocus
                 disabled={docBusy}
-                value={newDocName}
-                onChange={(e) => setNewDocName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void createRichDoc(); if (e.key === "Escape") setNewDocName(null); }}
-                placeholder="문서 이름 (예: 회의록)"
-                aria-label="새 문서 이름"
+                value={newDoc.name}
+                onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void createCollabFile(); if (e.key === "Escape") setNewDoc(null); }}
+                placeholder={newDoc.kind === "doc" ? "문서 이름 (예: 회의록)" : "슬라이드 이름 (예: 중간발표)"}
+                aria-label={newDoc.kind === "doc" ? "새 문서 이름" : "새 슬라이드 이름"}
                 maxLength={100}
                 className="flex-1 min-w-40 text-sm px-3 py-2 border outline-none"
                 style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
               />
-              <button type="button" onClick={() => void createRichDoc()} disabled={docBusy} className="text-xs font-700 px-4 py-2" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}>{docBusy ? "만드는 중…" : "만들기"}</button>
-              <button type="button" onClick={() => setNewDocName(null)} disabled={docBusy} className="text-xs font-600 px-3 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}>취소</button>
+              <button type="button" onClick={() => void createCollabFile()} disabled={docBusy} className="text-xs font-700 px-4 py-2" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}>{docBusy ? "만드는 중…" : "만들기"}</button>
+              <button type="button" onClick={() => setNewDoc(null)} disabled={docBusy} className="text-xs font-600 px-3 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}>취소</button>
             </>
           )}
         </div>
@@ -790,19 +810,24 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         />
       )}
       {docEditing && presenceRef.current && files.find((f) => f.id === docEditing.fileId) && (
-        <Suspense fallback={<div role="status" className="fixed inset-0 z-50 flex items-center justify-center text-sm" style={{ background: "rgba(15,18,53,0.48)", color: "#fff" }}>문서 편집기를 불러오는 중…</div>}>
-        <DocEditorModal
-          key={`${docEditing.fileId}:${docEditing.room}:${docEditing.mode}`}
-          projectId={project.id}
-          file={files.find((f) => f.id === docEditing.fileId)!}
-          room={docEditing.room}
-          mode={docEditing.mode}
-          initialBytes={docEditing.bytes}
-          presence={presenceRef.current}
-          editors={editors}
-          save={(bytes, text, base, auto) => saveRichDoc(files.find((f) => f.id === docEditing.fileId)!, bytes, text, base, auto)}
-          onClose={() => setDocEditing(null)}
-        />
+        <Suspense fallback={<div role="status" className="fixed inset-0 z-50 flex items-center justify-center text-sm" style={{ background: "rgba(15,18,53,0.48)", color: "#fff" }}>편집기를 불러오는 중…</div>}>
+          {(() => {
+            const Editor = docEditing.kind === "doc" ? DocEditorModal : SlidesEditorModal;
+            return (
+              <Editor
+                key={`${docEditing.fileId}:${docEditing.room}:${docEditing.mode}`}
+                projectId={project.id}
+                file={files.find((f) => f.id === docEditing.fileId)!}
+                room={docEditing.room}
+                mode={docEditing.mode}
+                initialBytes={docEditing.bytes}
+                presence={presenceRef.current}
+                editors={editors}
+                save={(bytes, text, base, auto) => saveCollabFile(docEditing.kind, files.find((f) => f.id === docEditing.fileId)!, bytes, text, base, auto)}
+                onClose={() => setDocEditing(null)}
+              />
+            );
+          })()}
         </Suspense>
       )}
     </div>

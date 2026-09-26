@@ -45,8 +45,8 @@ export function seedDoc(doc: Y.Doc, initialText: string) {
 // textarea 값 변경(공통 앞/뒤를 제외한 구간)을 Y.Text에 반영한다.
 // remoteSince: oldValue를 기준으로 삼은 뒤(예: 한글 조합 중) 이미 Y.Text에 들어온 원격 변경들.
 // 변경 위치를 그만큼 옮겨서 적용해야 남의 글자 사이에 끼거나 엉뚱한 글자를 지우지 않는다.
-export function applyTextEdit(doc: Y.Doc, oldValue: string, newValue: string, remoteSince: Delta[] = []) {
-  const ytext = doc.getText("t");
+// ytext: 고칠 Y.Text(기본은 바로 수정의 "t", 슬라이드 글상자처럼 다른 Y.Text도 넘길 수 있다).
+export function applyTextEdit(doc: Y.Doc, oldValue: string, newValue: string, remoteSince: Delta[] = [], ytext: Y.Text = doc.getText("t")) {
   let p = 0;
   while (p < oldValue.length && p < newValue.length && oldValue[p] === newValue[p]) p++;
   let so = oldValue.length;
