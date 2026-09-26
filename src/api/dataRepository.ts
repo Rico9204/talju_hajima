@@ -100,6 +100,7 @@ export interface DataRepository {
   createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
 
   deleteWorkspaceFile(fileId: number): Promise<void>;
+  moveWorkspaceFile(fileId: number, folderId: number | null): Promise<void>; // null = 워크스페이스 루트
   deleteWorkspaceFolder(folderId: number): Promise<void>;
   pendingWorkspaceCleanup(projectId: string): Promise<string[]>;
   cleanupWorkspaceFiles(projectId: string): Promise<void>;

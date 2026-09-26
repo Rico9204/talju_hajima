@@ -118,6 +118,7 @@ interface ProjectContextValue {
   folders: Folder[];
   files: WorkspaceFile[];
   deleteWorkspaceFile: (id: number) => Promise<void>;
+  moveWorkspaceFile: (id: number, folderId: number | null) => Promise<void>;
   deleteWorkspaceFolder: (id: number) => Promise<void>;
   pendingWorkspaceCleanup: () => Promise<string[]>;
   cleanupWorkspaceFiles: () => Promise<void>;
@@ -1298,6 +1299,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         folders,
         files,
         deleteWorkspaceFile: async (id) => { await dataRepository.deleteWorkspaceFile(id); await refreshFiles(); },
+        moveWorkspaceFile: async (id, folderId) => { await dataRepository.moveWorkspaceFile(id, folderId); await refreshFiles(); },
         deleteWorkspaceFolder: async (id) => { await dataRepository.deleteWorkspaceFolder(id); await refreshFolders(); },
         pendingWorkspaceCleanup: () => dataRepository.pendingWorkspaceCleanup(project.id),
         cleanupWorkspaceFiles: () => dataRepository.cleanupWorkspaceFiles(project.id),
