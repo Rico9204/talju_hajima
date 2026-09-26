@@ -950,8 +950,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   async function uploadWorkspaceFile(input: import("../api/types").FileUploadInput) {
     if (!projectId || !currentMember) throw new Error("프로젝트 참여자만 업로드할 수 있습니다.");
     if (input.file.size > 50 * 1024 * 1024) throw new Error("파일은 50MB까지 업로드할 수 있습니다.");
+    // 문서(.rtdoc)처럼 파일에서 글자를 뽑을 수 없는 형식은 호출하는 쪽이 검색용 글자를 넘긴다.
     const { extractWorkspaceText } = await import("../lib/extractWorkspaceText");
-    const extractedText = await extractWorkspaceText(input.file).catch(() => ({ text: "", status: "failed" as const }));
+    const extractedText = input.extractedText ?? await extractWorkspaceText(input.file).catch(() => ({ text: "", status: "failed" as const }));
     const result = await dataRepository.uploadFile(projectId, { ...input, extractedText });
     await refreshFiles();
     // Uploading your own file shouldn't leave a "new content" badge for yourself.

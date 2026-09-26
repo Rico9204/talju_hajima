@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
 import { EDITABLE_TEXT_EXTENSIONS, formatUploadTime, isEditableTextFile, versionTree } from "../lib/workspaceFiles";
+import { isRichDocName } from "../lib/richDoc";
 
 function highlightOfficeHtml(html: string, query: string): string {
   const term = query.trim();
@@ -113,6 +114,8 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
     if (mime) {
       const url = URL.createObjectURL(new Blob([blob], { type: mime })); urls.current.add(url);
       setPreview({ url, kind: ext === "pdf" ? "pdf" : "image", name });
+    } else if (isRichDocName(name)) {
+      setPreview({ text: v.searchText || "(빈 문서)", kind: "text", name });
     } else if (["txt", "md", "csv", "json", "log", "xml", "yaml", "yml"].includes(ext ?? "")) {
       const text = await blob.slice(0, 200_000).text();
       if (mounted.current) setPreview({ text: text + (blob.size > 200_000 ? "\n… 미리보기는 앞부분만 표시합니다." : ""), kind: "text", name });
@@ -177,9 +180,9 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
-    {!locked && onQuickEdit && currentVersion?.storagePath && isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) && (
+    {!locked && onQuickEdit && currentVersion?.storagePath && (isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) || isRichDocName(currentVersion.originalName ?? file.name)) && (
       <button type="button" disabled={busy} onClick={() => onQuickEdit("main")} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
-        ✏️ 바로 수정 (여러 명이 함께){editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
+        {isRichDocName(currentVersion.originalName ?? file.name) ? "📄 문서 열기 (여러 명이 함께)" : "✏️ 바로 수정 (여러 명이 함께)"}{editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
       </button>
     )}
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
