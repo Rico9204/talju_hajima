@@ -63,7 +63,21 @@ function errorMessage(error: unknown): string {
   return message || "요청을 처리하지 못했습니다.";
 }
 
-export default function BoardView() {
+export interface BoardViewProps {
+  initialCategory?: "all" | BoardCategory;
+  initialCreating?: boolean;
+  initialPostTitle?: string;
+  initialPostContent?: string;
+  onResetInitialState?: () => void;
+}
+
+export default function BoardView({
+  initialCategory,
+  initialCreating = false,
+  initialPostTitle,
+  initialPostContent,
+  onResetInitialState,
+}: BoardViewProps = {}) {
   const { user } = useAuth();
   const { isAdmin, isOperator } = useProjectManagement();
   const { lineSafeStyle } = useAccountBackground();
@@ -71,16 +85,23 @@ export default function BoardView() {
   const [posts, setPosts] = useState<BoardPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<"all" | BoardCategory>("all");
+  const [selectedCategory, setSelectedCategory] = useState<"all" | BoardCategory>(
+    initialCategory || "all"
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchTarget, setSearchTarget] = useState<SearchTarget>("title_content");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [isCreatingPost, setIsCreatingPost] = useState(false);
+  const [isCreatingPost, setIsCreatingPost] = useState(initialCreating);
   const [editingPost, setEditingPost] = useState<BoardPost | null>(null);
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
   const [busy, setBusy] = useState(false);
   const [hoveredPreview, setHoveredPreview] = useState<HoveredImagePreview | null>(null);
+
+  useEffect(() => {
+    if (initialCategory) setSelectedCategory(initialCategory);
+    if (initialCreating) setIsCreatingPost(true);
+  }, [initialCategory, initialCreating]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,10 +303,18 @@ export default function BoardView() {
   if (isCreatingPost) {
     return (
       <CreatePostView
-        defaultCategory={selectedCategory === "all" ? "free" : selectedCategory}
+        defaultCategory={selectedCategory === "all" ? "recruit" : selectedCategory}
+        initialTitle={initialPostTitle}
+        initialContent={initialPostContent}
         busy={busy}
-        onCancel={() => setIsCreatingPost(false)}
-        onCreate={handleCreatePost}
+        onCancel={() => {
+          setIsCreatingPost(false);
+          onResetInitialState?.();
+        }}
+        onCreate={async (post) => {
+          await handleCreatePost(post);
+          onResetInitialState?.();
+        }}
       />
     );
   }

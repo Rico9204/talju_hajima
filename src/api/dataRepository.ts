@@ -190,4 +190,9 @@ export interface DataRepository {
   listAllBoardReports(): Promise<BoardPostReport[]>; // 관리자만, 최신순
   getBoardPostContent(postId: number): Promise<string | null>; // 삭제된 글이면 null
   reviewBoardReport(reportId: number, status: "resolved" | "dismissed"): Promise<void>;
+
+  // Campus notices & contests crawler
+  fetchCampusNotices(params: { school?: string; category?: string }): Promise<import("../lib/crawler/types").NoticeItem[]>;
+  listScrappedNotices(): Promise<import("../lib/crawler/types").ScrappedNotice[]>;
+  toggleScrapNotice(notice: import("../lib/crawler/types").NoticeItem): Promise<boolean>;
 }

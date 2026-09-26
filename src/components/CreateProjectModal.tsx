@@ -4,12 +4,17 @@ import { useProjectManagement } from "../context/ProjectContext";
 import type { AdminProfileSummary } from "../api/types";
 
 export default function CreateProjectModal({
-  onCancel, onCreate,
-}: { onCancel: () => void; onCreate: (input: NewProjectInput) => void | Promise<unknown> }) {
+  onCancel, onCreate, initialName = "", initialOrg = "",
+}: {
+  onCancel: () => void;
+  onCreate: (input: NewProjectInput) => void | Promise<unknown>;
+  initialName?: string;
+  initialOrg?: string;
+}) {
   const dataRepository = useProjectManagement();
   const { isAdmin } = dataRepository;
-  const [name, setName] = useState("");
-  const [org, setOrg] = useState("");
+  const [name, setName] = useState(initialName);
+  const [org, setOrg] = useState(initialOrg);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [adminQuery, setAdminQuery] = useState("");

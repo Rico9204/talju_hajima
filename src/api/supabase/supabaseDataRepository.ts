@@ -29,6 +29,7 @@ import type {
   BoardPostReport,
   BoardReportReason,
 } from "../types";
+import type { NoticeItem, ScrappedNotice } from "../../lib/crawler/types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
 
@@ -1789,5 +1790,75 @@ export const supabaseDataRepository: DataRepository = {
   async closeBoardPoll(pollId) {
     const { error } = await supabase.rpc("close_board_poll", { p_poll_id: pollId });
     if (error) throw error;
+  },
+
+  async fetchCampusNotices({ school = "전국", category = "all" }) {
+    try {
+      const res = await fetch(`/api/campus-notices?school=${encodeURIComponent(school)}&category=${encodeURIComponent(category)}`);
+      if (res.ok) {
+        const data = (await res.json()) as { notices: NoticeItem[] };
+        return data.notices || [];
+      }
+    } catch {
+      // Dev / offline fallback: direct call to crawlerService
+    }
+    const { crawlNotices } = await import("../../lib/crawler/crawlerService");
+    const result = await crawlNotices(school, category as any);
+    return result.notices;
+  },
+
+  async listScrappedNotices() {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user?.id) return [];
+
+    const { data, error } = await supabase
+      .from("campus_scrapped_notices")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) return [];
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      schoolCode: row.school_code,
+      schoolName: row.school_name,
+      category: row.category,
+      title: row.title,
+      author: row.author || "",
+      postDate: row.post_date || "",
+      link: row.link,
+      createdAt: row.created_at,
+    }));
+  },
+
+  async toggleScrapNotice(notice: NoticeItem) {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("로그인이 필요합니다.");
+
+    // Check if already scrapped
+    const { data: existing } = await supabase
+      .from("campus_scrapped_notices")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("link", notice.link)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase.from("campus_scrapped_notices").delete().eq("id", existing.id);
+      return false; // unscrapped
+    } else {
+      await supabase.from("campus_scrapped_notices").insert({
+        user_id: userId,
+        school_code: notice.schoolCode,
+        school_name: notice.schoolName,
+        category: notice.category,
+        title: notice.title,
+        author: notice.author,
+        post_date: notice.postDate,
+        link: notice.link,
+      });
+      return true; // scrapped
+    }
   },
 };
