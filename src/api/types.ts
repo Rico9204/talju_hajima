@@ -355,6 +355,13 @@ export interface NewBoardPostInput {
   hideImagePreview?: boolean;
 }
 
+// 팀장·부팀장이 만든 단체 채팅방. 채널 id는 `grp:${id}`, 참여자에게만 보인다.
+export interface ChatGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
+}
+
 export interface ChatMessage {
   id: number;
   channelId: string;

@@ -1418,6 +1418,23 @@ export const supabaseDataRepository: DataRepository = {
     };
   },
 
+  async listChatGroups(projectId) {
+    const { data, error } = await supabase.from("chat_groups").select("id, name, created_at, chat_group_members(member_id)").eq("project_id", projectId).order("created_at");
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({ id: row.id, name: row.name, memberIds: (row.chat_group_members ?? []).map((m: any) => m.member_id) }));
+  },
+
+  async createChatGroup(projectId, name, memberIds) {
+    const { data, error } = await supabase.rpc("create_chat_group", { p_project_id: projectId, p_name: name, p_member_ids: memberIds });
+    if (error) throw error;
+    return data as string;
+  },
+
+  async addChatGroupMembers(groupId, memberIds) {
+    const { error } = await supabase.rpc("add_chat_group_members", { p_group_id: groupId, p_member_ids: memberIds });
+    if (error) throw error;
+  },
+
   async chatToolCreate(projectId, channelId, text, config) {
     const { data, error } = await supabase.rpc("chat_tool_create", { p_project_id: projectId, p_channel_id: channelId, p_text: text, p_config: config });
     if (error) throw error;
