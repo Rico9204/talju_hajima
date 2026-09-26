@@ -122,7 +122,7 @@ interface ProjectContextValue {
   deleteWorkspaceFolder: (id: number) => Promise<void>;
   pendingWorkspaceCleanup: () => Promise<string[]>;
   cleanupWorkspaceFiles: () => Promise<void>;
-  addFolder: (name: string) => Promise<void>;
+  addFolder: (name: string, parentId: number | null) => Promise<void>;
   uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
   // No longer called anywhere after the pdf-workspace-search merge — FileVersionPanel now
@@ -940,11 +940,11 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     setTeam(await dataRepository.getTeam(projectId));
   }
 
-  async function addFolder(name: string) {
+  async function addFolder(name: string, parentId: number | null) {
     if (!projectId || !currentMember) throw new Error("프로젝트 참여자만 폴더를 만들 수 있습니다.");
     if (!name.trim()) throw new Error("폴더 이름을 입력해 주세요.");
     if (project.status === "done") throw new Error("종료된 프로젝트에는 폴더를 만들 수 없습니다.");
-    const created = await dataRepository.createFolder(projectId, name, currentMember.name);
+    const created = await dataRepository.createFolder(projectId, name, currentMember.name, parentId);
     if (evaluationProjectRef.current === projectId) setFolders((prev) => prev.some((folder) => folder.id === created.id) ? prev : [...prev, created]);
   }
 

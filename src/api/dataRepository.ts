@@ -97,7 +97,7 @@ export interface DataRepository {
   transferLeadership(projectId: string, targetName: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;
-  createFolder(projectId: string, name: string, actorName: string): Promise<Folder>;
+  createFolder(projectId: string, name: string, actorName: string, parentId: number | null): Promise<Folder>;
 
   deleteWorkspaceFile(fileId: number): Promise<void>;
   moveWorkspaceFile(fileId: number, folderId: number | null): Promise<void>; // null = 워크스페이스 루트

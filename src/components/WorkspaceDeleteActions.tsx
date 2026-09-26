@@ -5,10 +5,10 @@ function errorMessage(error: unknown): string {
   return (error as { message?: string })?.message ?? "삭제하지 못했습니다. 다시 시도해 주세요.";
 }
 
-export default function WorkspaceDeleteActions({ item, kind, fileCount = 0, onDeleted }: {
+export default function WorkspaceDeleteActions({ item, kind, childCount = 0, onDeleted }: {
   item: { id: number; name: string; ownerUserId?: string | null };
   kind: "file" | "folder";
-  fileCount?: number;
+  childCount?: number; // 폴더 안의 파일 + 하위 폴더 수
   onDeleted?: () => void;
 }) {
   const { project, currentMember, isManager, deleteWorkspaceFile, deleteWorkspaceFolder } = useProject();
@@ -18,7 +18,7 @@ export default function WorkspaceDeleteActions({ item, kind, fileCount = 0, onDe
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   if (project.status === "done" || !currentMember || !(isManager || (item.ownerUserId && item.ownerUserId === currentMember.userId))) return null;
-  const nonempty = kind === "folder" && fileCount > 0;
+  const nonempty = kind === "folder" && childCount > 0;
   async function remove() {
     if (pending.current || nonempty) return;
     const detail = kind === "file" ? "모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다." : "폴더를 삭제하면 복구할 수 없습니다.";
@@ -35,7 +35,7 @@ export default function WorkspaceDeleteActions({ item, kind, fileCount = 0, onDe
     <button disabled={busy || nonempty} onClick={() => void remove()} className="rounded-full px-3 py-2 font-600 whitespace-nowrap text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-colors disabled:opacity-50">
       {busy ? "삭제 중…" : `${kind === "file" ? "파일" : "폴더"} 삭제`}
     </button>
-    {nonempty && <p className="mt-1" style={{ color: "var(--muted-foreground)" }}>폴더 안의 파일을 먼저 삭제해 주세요.</p>}
+    {nonempty && <p className="mt-1" style={{ color: "var(--muted-foreground)" }}>폴더 안의 파일과 하위 폴더를 먼저 삭제해 주세요.</p>}
     {error && <p role="alert" className="mt-2 text-red-500">{error}</p>}
   </div>;
 }

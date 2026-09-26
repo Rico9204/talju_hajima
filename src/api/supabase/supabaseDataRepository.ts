@@ -111,7 +111,7 @@ function mapMember(row: any, profile?: any): Member {
 }
 
 function mapFolder(row: any): Folder {
-  return { id: row.id, name: row.name, color: row.color, createdBy: row.created_by, ownerUserId: row.owner_user_id ?? null, date: row.date };
+  return { id: row.id, parentId: row.parent_id ?? null, name: row.name, color: row.color, createdBy: row.created_by, ownerUserId: row.owner_user_id ?? null, date: row.date };
 }
 
 function mapFile(row: any): WorkspaceFile {
@@ -880,7 +880,7 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map(mapFolder);
   },
 
-  async createFolder(projectId, name, actorName) {
+  async createFolder(projectId, name, actorName, parentId) {
     const trimmed = name.trim();
     if (!trimmed) throw new Error("폴더 이름이 비어 있습니다.");
     const { count, error: countError } = await supabase
@@ -893,6 +893,7 @@ export const supabaseDataRepository: DataRepository = {
       .from("folders")
       .insert({
         project_id: projectId,
+        parent_id: parentId,
         name: trimmed,
         color: FOLDER_COLOR_PALETTE[(count ?? 0) % FOLDER_COLOR_PALETTE.length],
         created_by: actorName,

@@ -155,6 +155,7 @@ export interface WorkspaceFile {
 export interface Folder {
   ownerUserId?: string | null;
   id: number;
+  parentId: number | null; // null = 워크스페이스 루트의 폴더. 최대 10단계(DB가 검사)
   name: string;
   color: string;
   createdBy: string;
