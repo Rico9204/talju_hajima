@@ -1424,6 +1424,12 @@ export const supabaseDataRepository: DataRepository = {
     return (data ?? []).map((row: any) => ({ id: row.id, name: row.name, memberIds: (row.chat_group_members ?? []).map((m: any) => m.member_id) }));
   },
 
+  async getMyProjectAlerts() {
+    const { data, error } = await supabase.rpc("my_project_alerts");
+    if (error) throw error;
+    return (data ?? []).filter((row: any) => row.has_alert).map((row: any) => row.project_id as string);
+  },
+
   async createChatGroup(projectId, name, memberIds) {
     const { data, error } = await supabase.rpc("create_chat_group", { p_project_id: projectId, p_name: name, p_member_ids: memberIds });
     if (error) throw error;
