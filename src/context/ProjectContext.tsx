@@ -22,7 +22,6 @@ import type {
   ChatGroup,
   ChatToolEvent,
 } from "../api/types";
-import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
 import CreateProjectModal from "../components/CreateProjectModal";
@@ -440,8 +439,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // Load the project list whenever the signed-in user changes (login,
   // logout, or switching accounts) and select the first project.
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setError(SUPABASE_SETUP_MESSAGE);
+    if (!import.meta.env.VITE_API_URL) {
+      setError("VITE_API_URL에 자체 API 서버 주소를 설정해 주세요.");
       setProjectsLoaded(true);
       return;
     }
@@ -551,15 +550,6 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     refresh();
     return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [session?.user.id, projectId, projectsLoaded, loadedProjectId]);
-
-  // Private Realtime channels authorize their join with the Realtime
-  // socket's JWT, which is separate from the REST client's request header.
-  // Set it before creating any project subscriptions so a restored browser
-  // session cannot attempt a Presence/chat join as the anonymous role.
-  useEffect(() => {
-    if (!session?.access_token) return;
-    supabase.realtime.setAuth(session.access_token);
-  }, [session?.access_token]);
 
   // Live chat: subscribe to new messages/reads for the current project so
   // the sidebar badge and any open chat view update without polling.
@@ -877,8 +867,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // set at signup is never missed due to any staleness in when that state
   // last updated.
   async function accountIdentity(): Promise<{ name: string; avatar: string }> {
-    const { data } = await supabase.auth.getUser();
-    const name = data.user?.user_metadata?.display_name?.trim() || data.user?.email?.split("@")[0] || "사용자";
+    const name = typeof session?.user.user_metadata?.display_name === "string" ? session.user.user_metadata.display_name.trim() : session?.user.email?.split("@")[0] || "사용자";
     return { name, avatar: name.slice(0, 1) || "U" };
   }
 

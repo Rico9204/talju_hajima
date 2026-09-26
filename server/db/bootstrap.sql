@@ -34,7 +34,18 @@ create table if not exists auth.refresh_tokens (
   created_at timestamptz not null default now()
 );
 create index if not exists refresh_tokens_user_idx on auth.refresh_tokens(user_id);
-revoke all on auth.users, auth.refresh_tokens from public, anon, authenticated;
+-- 메일 링크용 1회용 토큰(가입 확인 24시간, 비밀번호 재설정 1시간). 원문 대신 SHA-256 해시만 저장.
+create table if not exists auth.one_time_tokens (
+  token_hash text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  purpose text not null check (purpose in ('confirm', 'reset')),
+  -- 가입 확인 링크는 "그 링크를 만들 때의 비밀번호"에만 유효하다(미인증 계정을 남이 먼저 만들어 두는 공격 대비).
+  password_fingerprint text,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists one_time_tokens_user_idx on auth.one_time_tokens(user_id, purpose);
+revoke all on auth.users, auth.refresh_tokens, auth.one_time_tokens from public, anon, authenticated;
 
 -- 권한 규칙·DB 함수가 부르는 auth.uid()/auth.role(). 서버가 트랜잭션마다 채우는 설정값을 읽는다(server/src/db.ts).
 create or replace function auth.uid() returns uuid language sql stable as $$

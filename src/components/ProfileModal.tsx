@@ -149,7 +149,7 @@ export default function ProfileModal() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ next: "", confirm: "" });
+  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [passwordNotice, setPasswordNotice] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
 
@@ -336,8 +336,12 @@ export default function ProfileModal() {
   }
 
   async function submitPasswordChange() {
-    if (passwordForm.next.length < 6) {
-      setPasswordNotice("비밀번호는 6자 이상이어야 합니다.");
+    if (!passwordForm.current) {
+      setPasswordNotice("현재 비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (passwordForm.next.length < 8) {
+      setPasswordNotice("새 비밀번호는 8자 이상이어야 합니다.");
       return;
     }
     if (passwordForm.next !== passwordForm.confirm) {
@@ -345,14 +349,14 @@ export default function ProfileModal() {
       return;
     }
     setChangingPassword(true);
-    const result = await updatePassword(passwordForm.next);
+    const result = await updatePassword(passwordForm.current, passwordForm.next);
     setChangingPassword(false);
     if (result.error) {
       setPasswordNotice(result.error);
       return;
     }
     setPasswordNotice("비밀번호가 변경되었습니다.");
-    setPasswordForm({ next: "", confirm: "" });
+    setPasswordForm({ current: "", next: "", confirm: "" });
     setTimeout(() => {
       setPasswordOpen(false);
       setPasswordNotice("");
@@ -634,12 +638,22 @@ export default function ProfileModal() {
 
             <div className="flex flex-col gap-3">
               <div>
+                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>현재 비밀번호</label>
+                <input
+                  type="password"
+                  value={passwordForm.current}
+                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm outline-none"
+                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
+                />
+              </div>
+              <div>
                 <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호</label>
                 <input
                   type="password"
                   value={passwordForm.next}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
-                  placeholder="6자 이상"
+                  placeholder="8자 이상"
                   className="w-full px-3 py-2.5 text-sm outline-none"
                   style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
                 />

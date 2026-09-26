@@ -1,7 +1,7 @@
 // 기능 API: 실제 가입 API로 받은 토큰으로 호출하고, 권한 규칙(RLS)·DB 함수의 검사가 서버 경유로도 그대로인지 본다.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTestDb, startApp } from './helpers.mjs';
+import { createTestDb, signupUsers, startApp } from './helpers.mjs';
 
 let pg, db, app, api;
 // 0 관리자, 1 팀장(p·q), 2 부팀장(p), 3·4 팀원(p)
@@ -11,11 +11,7 @@ const member = {};
 before(async () => {
   ({ pg, db } = await createTestDb());
   ({ app, api } = await startApp(db));
-  for (let i = 0; i < 5; i++) {
-    const res = await api(null, 'POST', '/auth/signup', { email: `user${i}@example.com`, password: 'correct-horse-1', displayName: `사용자${i}` });
-    assert.equal(res.status, 201);
-    user.push({ id: res.body.user.id, token: res.body.accessToken });
-  }
+  user.push(...(await signupUsers(api, 5, 'user')));
   await pg.query('update profiles set is_admin=true where id=$1', [user[0].id]);
   // 프로젝트·팀원 준비는 아직 API가 없어 "그 사용자로서" SQL로 한다(권한 규칙은 그대로 적용).
   const as = (i, sql, params) => db.asUser(user[i].id, (query) => query(sql, params));
@@ -69,8 +65,9 @@ test('읽기 권한(RLS)이 서버 경유로도 그대로: 방 참여자만 방�
   assert.equal(messages.status, 200);
   assert.equal(messages.body.length, 1);
   assert.match(messages.body[0].text, /발표 준비/);
-  assert.deepEqual(messages.body[0].message_reads, []);
-  assert.match(messages.body[0].created_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(messages.body[0].readBy, []);
+  assert.equal(messages.body[0].channelId, `grp:${group}`);
+  assert.match(messages.body[0].createdAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.deepEqual((await call(4, 'GET', `/projects/p/chat/${channel}/messages`)).body, []);
 });
 

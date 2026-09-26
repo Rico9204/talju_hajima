@@ -40,11 +40,8 @@ import type {
 
 /**
  * Every persistence-touching operation the app needs, independent of which
- * backend actually stores the data. Today `./supabase/supabaseDataRepository.ts`
- * is the only implementation. Moving to a self-hosted DB server later means
- * writing a new implementation of this same interface (e.g.
- * `./rest/restDataRepository.ts` calling your own API) and pointing
- * `./index.ts` at it — nothing outside this folder needs to change.
+ * backend actually stores the data. `./rest/restDataRepository.ts` is the
+ * implementation used by the application.
  */
 export interface DataRepository {
   isCurrentUserAdmin(): Promise<boolean>;

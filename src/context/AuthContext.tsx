@@ -1,98 +1,24 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase, isSupabaseConfigured } from "../lib/supabase";
+import { ngrokHeaders } from "../api/rest/ngrok";
 
-interface AuthContextValue {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, displayName: string, signupType?: "admin") => Promise<{ error: string | null; signedIn: boolean }>;
-  signOut: () => Promise<void>;
-  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
-}
-
+export type AuthUser = { id: string; email?: string; user_metadata?: Record<string, unknown> };
+export type AuthSession = { user: AuthUser; accessToken: string; refreshToken: string; access_token: string };
+interface AuthContextValue { user: AuthUser | null; session: AuthSession | null; loading: boolean; signIn: (email: string, password: string) => Promise<{ error: string | null }>; signUp: (email: string, password: string, displayName: string, signupType?: "admin") => Promise<{ error: string | null; signedIn: boolean }>; signOut: () => Promise<void>; updatePassword: (currentPassword: string, newPassword: string) => Promise<{ error: string | null }>; }
 const AuthContext = createContext<AuthContextValue | null>(null);
+const serverUrl = String(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+const storageKey = "talju-server-session";
+async function serverRequest<T>(path: string, init: RequestInit = {}, token?: string) { if (!serverUrl) throw new Error("자체 서버 주소가 설정되지 않았습니다."); const headers = new Headers(init.headers); for (const [name, value] of Object.entries(ngrokHeaders(serverUrl))) headers.set(name, value); if (token) headers.set("Authorization", `Bearer ${token}`); if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); const response = await fetch(`${serverUrl}${path}`, { ...init, headers }); const body = await response.json().catch(() => null); if (!response.ok) throw new Error(body?.message || "요청을 처리하지 못했습니다."); return body as T; }
+function storedSession(): AuthSession | null { try { return JSON.parse(localStorage.getItem(storageKey) ?? "null"); } catch { return null; } }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-
+  const [session, setSession] = useState<AuthSession | null>(null); const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+    const saved = storedSession(); if (!saved) { setLoading(false); return; } void (async () => { try { let active = saved; try { active = { ...active, user: await serverRequest<AuthUser>("/auth/me", {}, active.accessToken) }; } catch { const fresh = await serverRequest<{ accessToken: string; refreshToken: string }>("/auth/refresh", { method: "POST", body: JSON.stringify({ refreshToken: active.refreshToken }) }); active = { ...active, ...fresh, user: await serverRequest<AuthUser>("/auth/me", {}, fresh.accessToken), access_token: fresh.accessToken }; } localStorage.setItem(storageKey, JSON.stringify(active)); setSession(active); } catch { localStorage.removeItem(storageKey); } finally { setLoading(false); } })();
   }, []);
-
-  async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
-  }
-
-  async function signUp(email: string, password: string, displayName: string, signupType?: "admin") {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      // signup_type은 가입 후 어느 화면으로 안내할지 정하는 표시일 뿐이다. 관리자 권한은 이 값과 무관하게 운영자 승인으로만 생긴다.
-      options: { data: { display_name: displayName, ...(signupType === "admin" ? { signup_type: "admin" } : {}) } },
-    });
-    const alreadyRegistered =
-      (error && /already registered|already exists/i.test(error.message)) ||
-      // With email confirmation on, Supabase doesn't error on a duplicate
-      // email — it returns a user with no identities instead. That's the
-      // only signal available to catch this case.
-      (!error && !!data.user && data.user.identities?.length === 0);
-    if (alreadyRegistered) {
-      // Don't tell the caller this email already has an account (that's an
-      // enumeration vector) — instead notify whoever actually owns it via a
-      // password-reset email, which Supabase also won't confirm/deny the
-      // existence of. The UI shows the same "check your email" screen either
-      // way. Awaited (and its error logged, not surfaced) so real send
-      // failures — e.g. hitting Supabase's email rate limit — are still
-      // visible somewhere instead of silently vanishing.
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
-      if (resetError) console.error("resetPasswordForEmail failed for duplicate signup:", resetError.message);
-      return { error: null, signedIn: false };
-    }
-    // Pad a fresh signup's response to roughly match the duplicate-email
-    // branch's extra round trip above, so response timing alone can't be
-    // used to tell the two cases apart.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    // 이메일 인증을 켜 두면 세션이 없고, 꺼 두면 가입과 동시에 로그인된다.
-    return { error: error?.message ?? null, signedIn: !error && !!data.session };
-  }
-
-  async function signOut() {
-    await supabase.auth.signOut();
-  }
-
-  async function updatePassword(newPassword: string) {
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    return { error: error?.message ?? null };
-  }
-
-  return (
-    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  async function signIn(email: string, password: string) { try { const result = await serverRequest<Omit<AuthSession, "access_token">>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }); const active = { ...result, access_token: result.accessToken }; localStorage.setItem(storageKey, JSON.stringify(active)); setSession(active); return { error: null }; } catch (error) { return { error: error instanceof Error ? error.message : "로그인하지 못했습니다." }; } }
+  async function signUp(email: string, password: string, displayName: string, signupType?: "admin") { try { await serverRequest("/auth/signup", { method: "POST", body: JSON.stringify({ email, password, displayName, ...(signupType === "admin" ? { signupType } : {}) }) }); return { error: null, signedIn: false }; } catch (error) { return { error: error instanceof Error ? error.message : "가입하지 못했습니다.", signedIn: false }; } }
+  async function signOut() { const current = session; localStorage.removeItem(storageKey); setSession(null); if (current) await serverRequest("/auth/logout", { method: "POST", body: JSON.stringify({ refreshToken: current.refreshToken }) }).catch(() => {}); }
+  async function updatePassword(currentPassword: string, newPassword: string) { try { if (!session) throw new Error("로그인이 필요합니다."); const result = await serverRequest<{ accessToken: string; refreshToken: string }>("/auth/password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }, session.accessToken); const active = { ...session, ...result, access_token: result.accessToken }; localStorage.setItem(storageKey, JSON.stringify(active)); setSession(active); return { error: null }; } catch (error) { return { error: error instanceof Error ? error.message : "비밀번호를 변경하지 못했습니다." }; } }
+  return <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>{children}</AuthContext.Provider>;
 }
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
-  return ctx;
-}
+export function useAuth() { const ctx = useContext(AuthContext); if (!ctx) throw new Error("useAuth must be used within an AuthProvider"); return ctx; }

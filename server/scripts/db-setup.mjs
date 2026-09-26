@@ -1,4 +1,4 @@
-// 새 PostgreSQL에 server/db/bootstrap.sql → supabase/schema.sql 을 올린다.
+// 새 PostgreSQL에 server/db/bootstrap.sql → supabase/schema.sql → server/db/realtime.sql 을 올린다.
 // 이미 앱 표(public.projects)가 있으면 아무것도 하지 않고 멈춘다 — 기존 DB에는 supabase/migrations/ 를 순서대로 적용.
 // 사용: pnpm --dir server db:setup   (server/.env 의 DATABASE_URL 사용)
 import { readFileSync } from 'node:fs';
@@ -19,7 +19,8 @@ try {
   } else {
     await client.query(readFileSync(new URL('../db/bootstrap.sql', import.meta.url), 'utf8'));
     await client.query(readFileSync(new URL('../../supabase/schema.sql', import.meta.url), 'utf8'));
-    console.log('DB 준비 완료: bootstrap.sql + supabase/schema.sql');
+    await client.query(readFileSync(new URL('../db/realtime.sql', import.meta.url), 'utf8'));
+    console.log('DB 준비 완료: bootstrap.sql + supabase/schema.sql + realtime.sql');
   }
 } finally {
   await client.end();

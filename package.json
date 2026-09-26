@@ -10,7 +10,6 @@
     "test": "node --test \"tests/*.test.mjs\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.116.0",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-collaboration": "^3.31.3",
     "@tiptap/react": "^3.31.3",

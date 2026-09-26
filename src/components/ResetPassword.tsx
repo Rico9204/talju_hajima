@@ -1,22 +1,23 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
+import { Navigate, useSearchParams } from "react-router-dom";
+import { resetPassword } from "../api/rest/authApi";
 
 export default function ResetPassword() {
-  const { user, updatePassword } = useAuth();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get("token");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
-  const canSubmit = password.length >= 6 && password === confirm;
+  const canSubmit = password.length >= 8 && password === confirm;
 
   async function submit() {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
-    const result = await updatePassword(password);
+    const result = await resetPassword(token!, password).then(() => ({ error: null })).catch((error) => ({ error: error instanceof Error ? error.message : "비밀번호를 변경하지 못했습니다." }));
     setSubmitting(false);
     if (result.error) {
       setError(result.error);
@@ -25,10 +26,7 @@ export default function ResetPassword() {
     setDone(true);
   }
 
-  // No session at all means this wasn't reached via a valid reset link (or
-  // an already logged-in user navigating here directly) — there's nothing to
-  // reset.
-  if (!user) return <Navigate to="/login" replace />;
+  if (!token) return <Navigate to="/login" replace />;
   if (done) return <Navigate to="/home" replace />;
 
   return (
@@ -53,7 +51,7 @@ export default function ResetPassword() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="6자 이상"
+          placeholder="8자 이상"
           className="w-full text-sm px-3 py-2.5 outline-none mb-3"
           style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
         />

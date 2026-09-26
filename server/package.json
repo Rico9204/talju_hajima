@@ -19,15 +19,19 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "jose": "^6.2.12",
+    "nodemailer": "^10.0.10",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.3",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.1",
     "typescript": "^7.0.2"
   }
 }

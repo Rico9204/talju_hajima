@@ -4,6 +4,7 @@ import type { WorkspaceFocus } from "./components/Workspace";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
+import ConfirmEmail from "./components/ConfirmEmail";
 import Landing from "./components/Landing";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -145,6 +146,7 @@ function AppRoutes() {
       <Route path="/" element={<Landing />} />
       <Route path="login" element={<Login />} />
       <Route path="reset-password" element={<ResetPassword />} />
+      <Route path="confirm-email" element={<ConfirmEmail />} />
       <Route element={<RequireAuth />}>
         <Route path="home" element={<Home />} />
         <Route path="admin-application" element={<AdminApplication />} />
