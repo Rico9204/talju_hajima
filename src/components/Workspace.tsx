@@ -39,6 +39,10 @@ import OfficeEditModal from "./OfficeEditModal";
 import { isPptxPath, isZipPath, extractPptxTextSummary, listZipEntries, type ZipEntry } from "../lib/binaryPreview";
 
 const COLLAB_PRESENCE_POLL_MS = 4000;
+// 다른 사람이 올린 변경사항(파일 목록/버전 목록)을 내 화면에도 반영하기 위한 폴링 주기 — 이게
+// 없으면 남이 "바로 수정"을 끝내고 저장해도, 내가 새로고침하기 전까지는 옛날 내용/버전 개수가
+// 그대로 보인다.
+const DATA_REFRESH_POLL_MS = 5000;
 
 // 제품개발/frontend의 워크스페이스(ProjectWorkspacePage의 파일 로딩/승격 로직 + WorkspaceTab의
 // 폴더/버전 트리/핀/태그/댓글/동시 동기화 표시 UI)를 이 앱의 화면 형식(페이지 하나 = 화면 하나,
@@ -1332,6 +1336,37 @@ export default function Workspace() {
   function collabUsersFor(fileId: string): { userId: string; name: string }[] {
     return collabActive.find((c) => c.fileId === fileId)?.users ?? [];
   }
+
+  // 다른 사람이 올린 변경사항을 새로고침 없이도 보이게 하는 폴링 — 파일 목록(버전 개수/최근 수정
+  // 시각 등)을 주기적으로 다시 불러온다. currentDir/selectedFileId 같은 지금 보고 있는 화면
+  // 상태는 안 건드리고 데이터만 갱신하므로, 보던 화면이 갑자기 초기화되지 않는다.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      refresh().catch(() => {});
+    }, DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
+  // 지금 선택해서 보고 있는 파일의 버전/댓글/핀도 같은 이유로 주기적으로 다시 불러온다 — 남이
+  // "바로 수정"을 저장하면 몇 초 안에 새 버전이 여기 자동으로 나타난다.
+  useEffect(() => {
+    if (!selectedFileId) return;
+    const timer = setInterval(() => {
+      Promise.all([
+        listFileVersions(project.id, selectedFileId),
+        listFileComments(project.id, selectedFileId),
+        listFilePins(project.id, selectedFileId),
+      ])
+        .then(([versionsRes, commentsRes, pinsRes]) => {
+          setVersions(versionsRes.data);
+          setComments(commentsRes.data);
+          setPins(pinsRes.data);
+        })
+        .catch(() => {});
+    }, DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+  }, [project.id, selectedFileId]);
 
   const branchIdsByFile = new Map(branches.map((b) => [b.file.id, new Set(b.branches.map((v) => v.id))]));
   const openBranchCount = branches.reduce((sum, b) => sum + b.branches.length, 0);

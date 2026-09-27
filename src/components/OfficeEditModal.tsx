@@ -99,7 +99,7 @@ export default function OfficeEditModal({
         <div className="flex-1 relative min-h-0">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>
-              편집기를 불러오는 중...
+              변환 중... (워드/엑셀/PPT를 편집 가능한 형태로 바꾸는 중이에요)
             </div>
           )}
           {error && (
