@@ -1,6 +1,10 @@
 {
     "rewrites": [
         {
+            "source": "/api/:path*",
+            "destination": "https://auction-blurry-profile.ngrok-free.dev/api/:path*"
+        },
+        {
             "source": "/(.*)",
             "destination": "/"
        }

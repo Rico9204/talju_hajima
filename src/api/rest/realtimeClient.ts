@@ -1,4 +1,5 @@
 import type { AccessToken } from "./apiClient";
+import { realtimeUrl } from "./backendUrl";
 
 type Message = { type?: string; topic?: string; event?: string; data?: unknown; payload?: Record<string, unknown>; state?: Record<string, Array<Record<string, unknown>>> };
 type Send = (message: Record<string, unknown>) => void;
@@ -6,7 +7,7 @@ type Send = (message: Record<string, unknown>) => void;
 // 한 주제를 구독하는 WebSocket. 토큰 만료(서버가 4001로 끊음)·네트워크 끊김이면 새 토큰으로 다시 연결하고 다시 join한다
 // → 받는 쪽은 "joined"를 받을 때마다 상태(presence track, 동시 편집 sync)를 다시 보내면 된다.
 export function subscribeTopic(apiUrl: string, accessToken: AccessToken, topic: string, onMessage: (message: Message, send: Send) => void) {
-  const url = apiUrl.replace(/^http/, "ws").replace(/\/api$/, "") + "/realtime";
+  const url = realtimeUrl(apiUrl);
   let socket: WebSocket | null = null;
   let stopped = false;
   let attempt = 0;

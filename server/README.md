@@ -43,6 +43,8 @@ pnpm run dev                                          # http://localhost:3000/ap
 ```
 
 ## 테스트
+
+초기화가 `app_settings does not exist`로 중단된 이전 버전의 빈 DB는 `pnpm run db:setup --resume-empty`로 복구한다. 이 모드는 사용자·public 테이블에 데이터가 있거나 `app_text_settings`가 이미 존재하면 중단한다. 기존 운영 DB에는 사용하지 않는다. 초기화 연결은 함수의 전방 참조를 허용하며 스키마 자체의 트랜잭션 구간을 사용한다.
 `pnpm test` — PGlite(PostgreSQL)에 `bootstrap.sql` → `schema.sql`을 올리고 실제 Nest 앱을 HTTP로 호출한다.
 토큰은 실제 가입·로그인 API로 받는다(가짜 없음). 바꿔 끼우는 것은 DB 연결뿐.
 
@@ -82,3 +84,39 @@ pnpm run dev                                          # http://localhost:3000/ap
 1. 새 PostgreSQL에 `pnpm run db:setup`을 한 번 실행한다.
 2. 기존 데이터를 옮길 경우 `auth.users`와 public 스키마를 덤프·복원한다.
 3. `CORS_ORIGIN`, `PUBLIC_BASE_URL`, `APP_URL`, SMTP, 프런트의 `VITE_API_URL`을 실제 주소로 설정한다.
+
+## Vercel 프론트 + 로컬 백엔드 + 고정 ngrok 도메인
+
+최초 설정:
+
+1. ngrok을 설치하고 계정 대시보드의 인증 토큰을 `ngrok config add-authtoken <토큰>`으로 등록한다. 토큰을 저장소에 넣지 않는다.
+2. ngrok 계정의 고정 개발 도메인을 확인한다.
+3. Vercel에서 이 저장소의 `tobackend` 브랜치를 배포한다. Root Directory는 프로젝트 루트, Framework는 Vite, Build Command는 `pnpm run build`, Output Directory는 `dist`다. Install Command는 `npx --yes pnpm@10.34.3 install --frozen-lockfile`로 지정한다.
+4. 루트 `vercel.json`의 `/api/:path*` 전달 주소를 고정 ngrok 도메인으로 맞춰 커밋한다. 화면이 Vercel 주소의 `/api`로 요청하면 Vercel이 ngrok으로 넘기므로,
+   로그인 유지 쿠키(httpOnly)가 **같은 사이트 쿠키**가 되어 Safari에서도 새로 고침 후 로그인이 유지된다.
+   Vercel 환경변수에 `VITE_API_URL=/api`, `VITE_BACKEND_URL=https://고정-ngrok-도메인`을 등록한다. Vercel은 WebSocket을 전달하지 못하므로
+   실시간·동시 편집과 공개 파일 주소는 `VITE_BACKEND_URL`로 직접 간다(쿠키가 아니라 액세스 토큰으로 인증). 환경변수를 배포 후 변경했다면 Redeploy한다. DB 주소·JWT·ngrok 인증 토큰은 Vercel 프론트 환경변수에 넣지 않는다.
+5. 생성된 Vercel 사이트 주소와 ngrok 주소를 `server/.env`에 입력한다:
+
+```dotenv
+FRONTEND_URL=https://내사이트.vercel.app
+NGROK_URL=https://내고정도메인.ngrok-free.dev
+```
+
+두 주소는 예시다. 실제 계정의 주소로 바꾸고 `/api` 같은 경로는 붙이지 않는다. `DATABASE_URL`과 `JWT_SECRET` 등 기존 서버 설정도 필요하다.
+
+매번 실행할 때 Windows PowerShell의 **프로젝트 루트**에서:
+
+```powershell
+docker compose -f server/docker-compose.yml up -d
+cd server
+# 새 DB에서 최초 한 번만: npx.cmd --yes pnpm@10.34.3 run db:setup
+npx.cmd --yes pnpm@10.34.3 run dev:ngrok
+```
+
+이 명령은 빌드 후 DB의 `storage_host`를 고정 도메인으로 맞추고, `PUBLIC_BASE_URL`, `APP_URL`, `CORS_ORIGIN`, `TRUST_PROXY`, `COOKIE_SAMESITE=lax`를 해당 실행의 환경변수로 자동 설정하고, `vercel.json`의 전달 주소가 `NGROK_URL`과 다르면 경고한다.
+요청이 Vercel을 거쳐 오므로 로그인 실패 제한의 "같은 IP"는 Vercel 서버 주소 기준이다(직접 보낸 `X-Forwarded-For`로 제한을 피하지 못하게 더 믿지 않음). `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 ngrok을 실행한다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
+
+Vercel의 주소를 바꾸면 `FRONTEND_URL` 수정 후 명령을 재실행한다. API 도메인을 바꾸면 `vercel.json`과 Vercel의 `VITE_BACKEND_URL`도 수정하고 재배포해야 하며, 이전 도메인으로 저장된 파일 링크가 영향을 받을 수 있으므로 같은 고정 도메인을 유지한다. 이 명령이 Vercel 설정이나 배포를 자동 변경하지는 않는다.
+
+확인: `https://고정-ngrok-도메인/api/health`와 Vercel 사이트에서 로그인·파일 업로드·채팅을 확인한다. `MAIL_TRANSPORT=console`이면 가입 확인 링크는 백엔드 터미널에 출력된다. 팀원이 직접 메일을 받아야 한다면 SMTP를 설정한다. PC·PostgreSQL·백엔드·ngrok이 실행 중이어야 서비스를 이용할 수 있다.

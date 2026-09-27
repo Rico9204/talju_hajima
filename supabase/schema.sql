@@ -256,7 +256,7 @@ create table if not exists chat_messages (
 );
 do $$ begin
   alter table chat_messages add constraint chat_messages_id_project_unique unique (id, project_id);
-exception when duplicate_object then null;
+exception when duplicate_object or duplicate_table then null;
 end $$;
 create index if not exists chat_messages_channel_idx on chat_messages (project_id, channel_id, created_at);
 
@@ -4106,4 +4106,11 @@ language sql stable security invoker set search_path = public as $$
 $$;
 revoke all on function public.my_project_alerts() from public, anon;
 grant execute on function public.my_project_alerts() to authenticated;
+
+-- migrations/2609270400_chat_unique_retry.sql
+-- Keep the chat identity constraint and allow applying this block again.
+do $$ begin
+  alter table public.chat_messages add constraint chat_messages_id_project_unique unique (id, project_id);
+exception when duplicate_object or duplicate_table then null;
+end $$;
 

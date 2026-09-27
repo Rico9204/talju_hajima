@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "dev": "tsc -p tsconfig.json && node --env-file-if-exists=.env dist/main.js",
+    "dev:ngrok": "tsc -p tsconfig.json && node --env-file-if-exists=.env scripts/dev-ngrok.mjs",
     "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\"",
     "db:setup": "node --env-file-if-exists=.env scripts/db-setup.mjs"
   },

@@ -14,7 +14,7 @@ const app = await createApp({
   cookieSameSite: config.cookieSameSite, cookieSecure: config.cookieSecure,
 });
 app.enableShutdownHooks();
-await app.listen(config.port);
+await app.listen(config.port, process.env.HOST || "0.0.0.0");
 console.log(`API 서버 실행 중: http://localhost:${config.port}/api/health`);
 
 process.once("SIGTERM", () => { void db.close(); });
