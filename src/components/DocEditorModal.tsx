@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import * as Y from "yjs";
 import { Extension } from "@tiptap/core";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
@@ -9,6 +9,7 @@ import { yCursorPlugin } from "@tiptap/y-tiptap";
 import type { WebsocketProvider } from "y-websocket";
 import { useCollabSession } from "../lib/useCollabSession";
 import { exportRichDocAsDocx, exportElementAsPdf } from "../lib/exportRichDoc";
+import { flushCollabRoom } from "../api/backend/files";
 
 // "바로 수정"(QuickEditModal, 일반 텍스트용)과 같은 collab 웹소켓 인프라를 그대로 쓰되, 내용을
 // 통째로 문자열로 다루는 대신 TipTap의 Collaboration 확장이 Y.XmlFragment를 직접 동기화한다 —
@@ -70,13 +71,12 @@ export default function DocEditorModal({
   const [exporting, setExporting] = useState<"docx" | "pdf" | null>(null);
   const baseName = (filePath.split("/").pop() ?? "문서").replace(/\.rtdoc$/i, "");
 
-  // Y.Doc은 마운트 시 한 번만 만들고 언마운트될 때 정리.
-  useEffect(() => {
-    return () => {
-      ydoc.destroy();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ydoc은 일부러 destroy()하지 않는다 — useState로 만들어서 컴포넌트 생애 동안 안정적인 하나의
+  // 인스턴스인데, StrictMode(dev)는 마운트 직후 모든 effect를 정리→재실행하는지라 그 "정리"에서
+  // ydoc.destroy()를 부르면 같은 ydoc 인스턴스가 망가진 채로 재사용돼서 그 뒤로는 에디터에
+  // 타이핑을 해도 Yjs 업데이트가 서버로 전달되지 않는다(편집기를 닫아도 아무것도 저장 안 되는
+  // 버그의 원인이었다). 명시적으로 destroy()를 안 불러도, 모달이 진짜로 닫혀 컴포넌트가 사라지면
+  // 아무 데서도 참조 안 하니 가비지 컬렉션으로 정리된다.
 
   const editor = useEditor(
     {
@@ -100,6 +100,19 @@ export default function DocEditorModal({
       editor?.chain().focus().setImage({ src }).run();
     };
     reader.readAsDataURL(file);
+  }
+
+  // 소켓을 끊기 전에 서버가 "지금까지 내용 저장 끝냈다"고 확인해줄 때까지 기다린 뒤 닫는다 —
+  // 안 그러면 onClose가 바로 이어서 하는 파일 목록 새로고침이 저장 완료 전의 옛 내용을 읽어와서
+  // "방금 닫았는데 안 바뀐 것처럼" 보이는 경합이 생긴다.
+  async function handleClose() {
+    try {
+      await flushCollabRoom(projectId, fileId, pinId);
+    } catch {
+      // 저장 확인에 실패해도 닫기 자체는 막지 않는다 — 서버의 디바운스/연결종료 저장이 뒤이어
+      // 그래도 시도되므로, 여기서 막으면 사용자가 창을 아예 못 닫는 더 나쁜 경험이 된다.
+    }
+    onClose();
   }
 
   async function handleExportDocx() {
@@ -176,7 +189,7 @@ export default function DocEditorModal({
               {exporting === "pdf" ? "내보내는 중..." : "PDF로 내보내기"}
             </button>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="w-8 h-8 flex items-center justify-center text-lg shrink-0"
               style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
             >

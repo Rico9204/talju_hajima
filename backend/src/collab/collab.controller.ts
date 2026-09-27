@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { JwtPayload } from '../auth/jwt.strategy.js';
@@ -18,5 +18,18 @@ export class CollabController {
   async listActive(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
     await this.projectsService.assertMembership(projectId, user.sub);
     return this.collabService.listActiveUsers(projectId);
+  }
+
+  // "바로 수정" 편집창을 닫기 직전에 호출 — 지금까지의 변경을 즉시 저장하고 완료까지 기다린다.
+  @Post(':fileId/flush')
+  async flush(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Query('pinId') pinId?: string,
+  ) {
+    await this.projectsService.assertMembership(projectId, user.sub);
+    await this.collabService.flushRoom(fileId, pinId);
+    return { ok: true };
   }
 }

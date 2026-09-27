@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { buildCollabWsOrigin, collabAuthToken, applyTextareaDelta, colorForUserId, getCaretCoordinates } from "../lib/quickEdit";
+import { flushCollabRoom } from "../api/backend/files";
 
 interface Peer {
   userId: string;
@@ -57,7 +58,10 @@ export default function QuickEditModal({
 
     const params: Record<string, string> = { projectId, fileId, token: collabAuthToken() };
     if (pinId) params.pinId = pinId;
-    const provider = new WebsocketProvider(buildCollabWsOrigin(), "collab", doc, { params });
+    // roomname이 모든 파일에서 "collab"로 고정돼 있어 y-websocket의 BroadcastChannel(같은
+    // 브라우저 탭끼리 채널명 = serverUrl+roomname)이 파일마다 겹친다 — 다른 파일을 같이 열면
+    // 서로의 Yjs 업데이트가 새어 들어가는 버그의 원인이라 꺼둔다(실제 동기화는 서버 WS가 함).
+    const provider = new WebsocketProvider(buildCollabWsOrigin(), "collab", doc, { params, disableBc: true });
     awarenessRef.current = provider.awareness;
     provider.awareness.setLocalStateField("user", { userId: myUserId, name: myName, color: colorForUserId(myUserId) });
 
@@ -152,6 +156,17 @@ export default function QuickEditModal({
     setScrollPos({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft });
   }
 
+  // 소켓을 끊기 전에 서버가 저장을 끝냈다고 확인해줄 때까지 기다린다 — 안 그러면 onClose 뒤
+  // 파일 목록 새로고침이 저장 전 옛 내용을 읽어오는 경합이 생긴다.
+  async function handleClose() {
+    try {
+      await flushCollabRoom(projectId, fileId, pinId);
+    } catch {
+      // 실패해도 닫기는 막지 않는다.
+    }
+    onClose();
+  }
+
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 p-6" style={{ background: "rgba(15,23,42,0.5)" }}>
       <div
@@ -176,7 +191,7 @@ export default function QuickEditModal({
             ))}
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="w-8 h-8 flex items-center justify-center text-lg shrink-0"
             style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
           >

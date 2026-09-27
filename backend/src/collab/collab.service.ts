@@ -234,6 +234,18 @@ export class CollabService {
     }
   }
 
+  // 편집창을 닫을 때 프론트가 명시적으로 호출 — WS가 끊기면 서버가 알아서 즉시 저장하긴 하지만
+  // (setupConnection의 'close' 핸들러) 그건 "소켓이 끊김"과 "REST로 새 내용 조회"가 서로 다른
+  // 네트워크 요청이라 순서가 보장되지 않는다: 클라이언트가 destroy()로 소켓을 닫자마자 곧바로
+  // 파일 목록을 새로고침하면, 서버의 저장(비동기 DB write)이 아직 안 끝난 시점에 새로고침이
+  // 먼저 도착해서 "방금 닫았는데 안 바뀐 것처럼" 보일 수 있다. 그래서 모달을 닫기 *전에* 이
+  // 엔드포인트로 저장 완료를 명시적으로 기다린 뒤에 새로고침하면 이 경합이 사라진다.
+  async flushRoom(fileId: string, pinId?: string | null): Promise<void> {
+    const doc = this.docs.get(pinId ?? fileId);
+    if (!doc) return; // 아무도 접속한 적 없거나 이미 정리된 방 — 저장할 미반영 상태 자체가 없음
+    await this.persistNow(doc);
+  }
+
   // 파일 목록 화면의 "바로 수정 중" 배지용 — 지금 이 프로젝트에서 공동편집 중인 파일별 참여자 목록.
   // 같은 파일이라도 메인 버전 방과 핀 방이 동시에 열려있을 수 있으므로 fileId 기준으로 합친다.
   listActiveUsers(projectId: string): { fileId: string; users: { userId: string; name: string }[] }[] {

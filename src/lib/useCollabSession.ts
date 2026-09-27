@@ -31,7 +31,14 @@ export function useCollabSession(
   const [provider] = useState(() => {
     const params: Record<string, string> = { projectId, fileId, token: collabAuthToken() };
     if (pinId) params.pinId = pinId;
-    return new WebsocketProvider(buildCollabWsOrigin(), "collab", ydoc, { params });
+    // roomname("collab")이 모든 파일에 똑같이 고정돼 있다 — 백엔드가 /collab 경로 하나로만
+    // 업그레이드 요청을 받고 실제 방 구분은 params(fileId 등)로 하기 때문에 일부러 그런 것인데,
+    // y-websocket은 이 roomname으로 브라우저 탭 간 BroadcastChannel 채널명도 만든다
+    // (serverUrl + '/' + roomname). roomname이 파일마다 다 같으니 같은 브라우저에서 다른
+    // 파일 편집창을 열면 그 채널로 서로의 Yjs 업데이트가 새어 들어가 "다른 파일도 같이
+    // 수정되는" 버그가 생긴다. 실제 동기화는 서버 WS 연결이 다 해주므로(BroadcastChannel은
+    // 같은 브라우저 탭끼리의 최적화일 뿐) 꺼도 정상 동작에 지장이 없다.
+    return new WebsocketProvider(buildCollabWsOrigin(), "collab", ydoc, { params, disableBc: true });
   });
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [peers, setPeers] = useState<CollabPeer[]>([]);
@@ -76,7 +83,13 @@ export function useCollabSession(
       provider.off("connection-error", onClose);
       provider.off("sync", onSync);
       provider.awareness.setLocalState(null);
-      provider.destroy();
+      // destroy()가 아니라 disconnect()를 쓴다 — y-websocket의 destroy()는 ydoc의 'update'
+      // 리스너(this.doc.off('update', this._updateHandler))까지 영구히 떼어내는데, connect()는
+      // 그 리스너를 다시 붙여주지 않는다. StrictMode(dev)는 마운트 직후 이 정리→재실행을 한 번
+      // 더 하므로, destroy()를 쓰면 그 시점부터 "화면엔 타이핑이 되는데 서버로는 전혀 전달 안
+      // 되는"(그래서 닫아도 저장이 하나도 안 되는) 버그가 생긴다. disconnect()는 소켓만 끊고
+      // 저 리스너는 그대로 둬서, 뒤이은 connect()가 안전하게 재연결된다.
+      provider.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);

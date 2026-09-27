@@ -163,3 +163,11 @@ export interface CollabActiveFile {
 export function listActiveCollabUsers(projectId: string) {
   return apiClient.get<CollabActiveFile[]>(`/projects/${projectId}/collab/active`);
 }
+
+// "바로 수정" 편집창을 닫기 직전에 호출 — 지금까지의 변경을 즉시 저장하고 완료까지 기다린 뒤
+// 닫아야, 곧바로 이어지는 파일 목록 새로고침이 저장 전의 옛 내용을 읽어오는 경합이 안 생긴다.
+export function flushCollabRoom(projectId: string, fileId: string, pinId?: string) {
+  return apiClient.post<{ ok: boolean }>(`/projects/${projectId}/collab/${fileId}/flush`, null, {
+    params: pinId ? { pinId } : undefined,
+  });
+}

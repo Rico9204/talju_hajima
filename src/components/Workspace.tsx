@@ -28,7 +28,8 @@ import {
 } from "../api/backend/files";
 import { MAX_FILE_SIZE } from "../lib/folderSync";
 import { classifyMajor } from "../api/backend/majors";
-import { isRichDocPath, isSlidesPath, isSnapshotContent } from "../lib/richDoc";
+import { isRichDocPath, isSlidesPath, isCollabDocPath, isSnapshotContent } from "../lib/richDoc";
+import { extractSnapshotTextSummary } from "../lib/snapshotPreview";
 import FolderSync from "./FolderSync";
 import QuickEditModal from "./QuickEditModal";
 import DocEditorModal from "./DocEditorModal";
@@ -417,11 +418,15 @@ function DiffLinesView({ lines, highlightOnDark }: { lines: FullTextDiffLine[]; 
   );
 }
 
-// .pptx는 서식/이미지까지 미리보기할 방법이 없어서, 슬라이드별 텍스트만 뽑아 일반 텍스트 버전
-// 비교(diffLines)에 그대로 흘려보낸다 — "이번 버전에서 뭐가 바뀌었는지" 위주로 보여주는 용도.
-// content가 바뀔 때마다 두 버전(비교 기준/현재)을 다시 비동기로 추출해야 하므로 훅으로 분리.
-function usePptxCompareTexts(parentContent: string | undefined, content: string | undefined, path: string) {
-  const applicable = isPptxPath(path) && !!content?.startsWith("data:");
+// 바이너리/스냅샷 파일에서 텍스트만 뽑아 일반 텍스트 버전 비교(diffLines)에 그대로 흘려보내는
+// 공통 훅 — .pptx(슬라이드 텍스트)와 .rtdoc/.slides(Yjs 스냅샷 텍스트)가 이 로직을 공유한다.
+// content가 바뀔 때마다 두 버전(비교 기준/현재)을 다시 비동기로 추출해야 해서 훅으로 분리.
+function useExtractedCompareTexts(
+  parentContent: string | undefined,
+  content: string | undefined,
+  applicable: boolean,
+  extract: (content: string) => Promise<string>,
+) {
   const [state, setState] = useState<{ parentText: string; text: string; ready: boolean }>({
     parentText: "",
     text: "",
@@ -435,10 +440,7 @@ function usePptxCompareTexts(parentContent: string | undefined, content: string 
     }
     let cancelled = false;
     setState((s) => ({ ...s, ready: false }));
-    Promise.all([
-      parentContent?.startsWith("data:") ? extractPptxTextSummary(parentContent) : Promise.resolve(""),
-      content ? extractPptxTextSummary(content) : Promise.resolve(""),
-    ])
+    Promise.all([parentContent ? extract(parentContent) : Promise.resolve(""), content ? extract(content) : Promise.resolve("")])
       .then(([parentText, text]) => {
         if (!cancelled) setState({ parentText, text, ready: true });
       })
@@ -452,6 +454,27 @@ function usePptxCompareTexts(parentContent: string | undefined, content: string 
   }, [parentContent, content, applicable]);
 
   return { applicable, ...state };
+}
+
+function usePptxCompareTexts(parentContent: string | undefined, content: string | undefined, path: string) {
+  const applicable = isPptxPath(path) && !!content?.startsWith("data:");
+  return useExtractedCompareTexts(
+    parentContent?.startsWith("data:") ? parentContent : undefined,
+    content,
+    applicable,
+    extractPptxTextSummary,
+  );
+}
+
+// .rtdoc/.slides(Yjs 스냅샷)도 pptx와 같은 방식 — 본문/슬라이드 텍스트만 뽑아 줄 단위로 비교한다.
+function useSnapshotCompareTexts(parentContent: string | undefined, content: string | undefined, path: string) {
+  const applicable = isCollabDocPath(path) && !!content && isSnapshotContent(content);
+  return useExtractedCompareTexts(
+    parentContent && isSnapshotContent(parentContent) ? parentContent : undefined,
+    content,
+    applicable,
+    (c) => extractSnapshotTextSummary(c, path),
+  );
 }
 
 // .zip은 "미리보기"할 내용 자체가 없어서, 대신 안에 어떤 파일들이 들어있는지 목록을 보여준다.
@@ -549,14 +572,16 @@ function VersionPageFlip({
   const isCurrent = version?.id === currentVersionId;
   const isBinary = !!version && isBinaryContent(version.content);
   const pptxCompare = usePptxCompareTexts(parent?.content, version?.content, path);
+  const snapshotCompare = useSnapshotCompareTexts(parent?.content, version?.content, path);
+  const textCompare = pptxCompare.applicable ? pptxCompare : snapshotCompare;
   // Hooks는 조건 없이 항상 같은 순서로 호출되어야 하므로(버전 목록이 비동기로 나중에 채워질 때도
   // 안전하게), version이 아직 없을 수 있는 상태를 감안해 옵셔널 체이닝으로 처리하고 useMemo 자체는
   // 아래 "버전 없음" 조기 반환보다 먼저 호출한다. 바이너리 파일은 줄 단위로 의미가 없어 diff는 건너뜀
-  // (단, .pptx는 슬라이드 텍스트만 뽑아 비교하므로 예외).
+  // (단, .pptx/.rtdoc/.slides는 텍스트만 뽑아 비교하므로 예외).
   const fullTextLines = useMemo(() => {
-    if (pptxCompare.applicable) return pptxCompare.ready ? buildFullTextDiff(pptxCompare.parentText, pptxCompare.text) : [];
+    if (textCompare.applicable) return textCompare.ready ? buildFullTextDiff(textCompare.parentText, textCompare.text) : [];
     return isBinary ? [] : buildFullTextDiff(parent?.content ?? "", version?.content ?? "");
-  }, [isBinary, parent, version, pptxCompare]);
+  }, [isBinary, parent, version, textCompare]);
   const changedCount = fullTextLines.filter((l) => l.changed).length;
 
   // Hooks 규칙상 "버전 없음" 조기 반환보다 먼저 호출해야 한다(버전 목록이 비동기로 채워질 때도
@@ -598,14 +623,14 @@ function VersionPageFlip({
           className="text-xs font-600 mb-1.5"
           style={{ color: isCurrent ? "#fff" : "var(--primary)" }}
         >
-          {pptxCompare.applicable
-            ? !pptxCompare.ready
-              ? "슬라이드 내용 불러오는 중..."
+          {textCompare.applicable
+            ? !textCompare.ready
+              ? "내용 불러오는 중..."
               : !parent
                 ? "맨 처음 저장한 내용"
                 : changedCount === 0
                   ? "수정 전 버전과 내용이 같음"
-                  : `${changedCount}줄 수정됨 (슬라이드 텍스트 기준)`
+                  : `${changedCount}줄 수정됨 (텍스트 기준)`
             : isBinary
               ? "바이너리 파일"
               : !parent
@@ -622,8 +647,8 @@ function VersionPageFlip({
             className="text-xs whitespace-pre-wrap p-2 mb-2 max-h-40 overflow-y-auto cursor-zoom-in"
             style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--card)", fontFamily: "var(--font-jetbrains)" }}
           >
-            {pptxCompare.applicable ? (
-              !pptxCompare.ready ? (
+            {textCompare.applicable ? (
+              !textCompare.ready ? (
                 <span style={{ opacity: 0.7 }}>불러오는 중...</span>
               ) : (
                 <DiffLinesView lines={fullTextLines} highlightOnDark={isCurrent} />
@@ -920,13 +945,15 @@ function VersionNode({
   const parentVersion = version.parentVersionId ? versionsById.get(version.parentVersionId) : null;
   const isBinary = isBinaryContent(version.content);
   const pptxCompare = usePptxCompareTexts(parentVersion?.content, version.content, path);
+  const snapshotCompare = useSnapshotCompareTexts(parentVersion?.content, version.content, path);
+  const textCompare = pptxCompare.applicable ? pptxCompare : snapshotCompare;
   // parentVersion이 없으면(맨 첫 버전) 비교 대상이 없으니 전체를 추가된 내용으로 취급.
   // 바이너리 파일은 줄 단위로 비교하는 게 의미 없어(base64 덩어리) diff 자체를 건너뜀
-  // (단, .pptx는 슬라이드 텍스트만 뽑아 비교하므로 예외).
+  // (단, .pptx/.rtdoc/.slides는 텍스트만 뽑아 비교하므로 예외).
   const changedLines =
-    expanded && pptxCompare.applicable
-      ? pptxCompare.ready
-        ? diffLines(pptxCompare.parentText, pptxCompare.text).filter((l) => l.type !== "same")
+    expanded && textCompare.applicable
+      ? textCompare.ready
+        ? diffLines(textCompare.parentText, textCompare.text).filter((l) => l.type !== "same")
         : []
       : expanded && !isBinary
         ? diffLines(parentVersion?.content ?? "", version.content).filter((l) => l.type !== "same")
@@ -985,9 +1012,9 @@ function VersionNode({
             )}
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-600" style={{ color: isCurrent ? "rgba(255,255,255,0.75)" : "var(--muted-foreground)" }}>
-                {pptxCompare.applicable
-                  ? !pptxCompare.ready
-                    ? "슬라이드 내용 불러오는 중..."
+                {textCompare.applicable
+                  ? !textCompare.ready
+                    ? "내용 불러오는 중..."
                     : `수정 사항 ${displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}`
                   : isBinary
                     ? "바이너리 파일"
@@ -1014,9 +1041,9 @@ function VersionNode({
               className="text-xs whitespace-pre-wrap p-2 max-h-28 overflow-y-auto text-left"
               style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--muted)", color: isCurrent ? "#fff" : "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
             >
-              {pptxCompare.applicable && !pptxCompare.ready ? (
+              {textCompare.applicable && !textCompare.ready ? (
                 <span style={{ opacity: 0.7 }}>불러오는 중...</span>
-              ) : isBinary && !pptxCompare.applicable ? (
+              ) : isBinary && !textCompare.applicable ? (
                 version.content.startsWith("data:image/") ? (
                   <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
                 ) : isSnapshotContent(version.content) ? (
@@ -1604,10 +1631,12 @@ export default function Workspace() {
         ? "현재 버전"
         : "포커스된 버전";
   const versionsById = new Map(versions.map((v) => [v.id, v]));
-  // "전문 보기" 모달의 .pptx 슬라이드 텍스트 비교 — 조건부 IIFE 안에서는 훅을 못 부르므로
+  // "전문 보기" 모달의 .pptx/.rtdoc/.slides 텍스트 비교 — 조건부 IIFE 안에서는 훅을 못 부르므로
   // (fullTextVersion이 null↔값 토글될 때 훅 호출 순서가 깨짐) 컴포넌트 최상위에서 항상 호출한다.
   const fullTextParentContent = fullTextVersion?.parentVersionId ? versionsById.get(fullTextVersion.parentVersionId)?.content : undefined;
-  const fullTextPptxCompare = usePptxCompareTexts(fullTextParentContent, fullTextVersion?.content, selectedFile?.path ?? "");
+  const fullTextPptxCompareRaw = usePptxCompareTexts(fullTextParentContent, fullTextVersion?.content, selectedFile?.path ?? "");
+  const fullTextSnapshotCompare = useSnapshotCompareTexts(fullTextParentContent, fullTextVersion?.content, selectedFile?.path ?? "");
+  const fullTextPptxCompare = fullTextPptxCompareRaw.applicable ? fullTextPptxCompareRaw : fullTextSnapshotCompare;
   const highlightIds = new Set<string>();
   if (effectiveFocusId) {
     let cur: string | null = effectiveFocusId;

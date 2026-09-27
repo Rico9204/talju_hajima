@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import { applyTextareaDelta } from "../lib/quickEdit";
 import { useCollabSession } from "../lib/useCollabSession";
 import { exportSlidesAsPptx, captureSlideAsImage, buildSlidesPdf, type ExportSlide } from "../lib/exportSlides";
+import { flushCollabRoom } from "../api/backend/files";
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -90,9 +91,12 @@ export default function SlidesEditorModal({
   useEffect(() => {
     const rerender = () => setTick((t) => t + 1);
     slidesArray.observeDeep(rerender);
+    // ydoc은 일부러 destroy()하지 않는다 — useState로 안정적인 하나의 인스턴스인데, StrictMode
+    // (dev)가 마운트 직후 모든 effect를 정리→재실행할 때 여기서 destroy()를 부르면 같은 ydoc이
+    // 망가진 채로 재사용돼서 편집이 서버로 전달되지 않는(그래서 닫아도 저장 안 되는) 버그가
+    // 생긴다. 컴포넌트가 진짜로 사라지면 참조가 없어져 가비지 컬렉션으로 정리된다.
     return () => {
       slidesArray.unobserveDeep(rerender);
-      ydoc.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slidesArray]);
@@ -147,6 +151,17 @@ export default function SlidesEditorModal({
     const idx = elements.toArray().findIndex((e) => str(e, "id") === id);
     if (idx >= 0) elements.delete(idx, 1);
     setSelectedElementId(null);
+  }
+
+  // 소켓을 끊기 전에 서버가 저장을 끝냈다고 확인해줄 때까지 기다린다 — DocEditorModal과 동일한
+  // 이유(안 그러면 onClose 뒤 파일 목록 새로고침이 저장 전 옛 내용을 읽어오는 경합이 생김).
+  async function handleClose() {
+    try {
+      await flushCollabRoom(projectId, fileId, pinId);
+    } catch {
+      // 실패해도 닫기는 막지 않는다.
+    }
+    onClose();
   }
 
   function slideToPlain(slide: YMapAny): ExportSlide {
@@ -239,7 +254,7 @@ export default function SlidesEditorModal({
               {exporting === "pdf" ? `내보내는 중... (${activeSlideIndex + 1}/${slides.length})` : "PDF로 내보내기"}
             </button>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="w-8 h-8 flex items-center justify-center text-lg shrink-0"
               style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
             >
