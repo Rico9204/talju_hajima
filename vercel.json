@@ -2,7 +2,7 @@
   "regions": ["icn1"],
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|@|src/|node_modules/|favicon.ico).*)",
       "destination": "/"
     }
   ]
