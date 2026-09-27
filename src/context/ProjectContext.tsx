@@ -376,9 +376,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     let active = true; setRoleError(null);
     if (!session) { setIdentity(null); return; }
     const id = session.user.id;
-    Promise.all([dataRepository.isCurrentUserAdmin(), dataRepository.isCurrentUserOperator()]).then(([admin, operator]) => { if (active) setIdentity({ id, admin, operator }); })
-      .catch(() => { if (active) setRoleError("관리자 권한을 확인하지 못했습니다. DB 마이그레이션 적용 여부와 연결을 확인한 뒤 새로고침해 주세요."); });
-    return () => { active = false; };
+    // 접속 직후 첫 요청은 터널·프록시를 거치며 일시적으로 실패할 수 있어 몇 번 다시 시도하고, 그래도 안 되면 원인을 함께 보여 준다.
+    let timer: number | undefined;
+    const check = (attempt: number) => {
+      Promise.all([dataRepository.isCurrentUserAdmin(), dataRepository.isCurrentUserOperator()]).then(([admin, operator]) => { if (active) setIdentity({ id, admin, operator }); })
+        .catch((error) => {
+          if (!active) return;
+          console.error("관리자 권한 확인 실패", error);
+          if (attempt < 3) { timer = window.setTimeout(() => check(attempt + 1), 500 * 2 ** attempt); return; }
+          setRoleError(`관리자 권한을 확인하지 못했습니다(${error instanceof Error ? error.message : String(error)}). DB 마이그레이션 적용 여부와 연결을 확인한 뒤 새로고침해 주세요.`);
+        });
+    };
+    check(0);
+    return () => { active = false; window.clearTimeout(timer); };
   }, [session?.user.id]);
   if (session && roleError) return <StatusScreen kind="error" message={roleError} />;
   if (session && identity?.id !== session.user.id) return <StatusScreen kind="loading" />;
