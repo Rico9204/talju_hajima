@@ -35,6 +35,7 @@ import DocEditorModal from "./DocEditorModal";
 import SlidesEditorModal from "./SlidesEditorModal";
 import OfficePreview, { isOfficePreviewablePath, isOfficeEditablePath } from "./OfficePreview";
 import OfficeEditModal from "./OfficeEditModal";
+import { isPptxPath, isZipPath, extractPptxTextSummary, listZipEntries, type ZipEntry } from "../lib/binaryPreview";
 
 const COLLAB_PRESENCE_POLL_MS = 4000;
 
@@ -416,6 +417,81 @@ function DiffLinesView({ lines, highlightOnDark }: { lines: FullTextDiffLine[]; 
   );
 }
 
+// .pptx는 서식/이미지까지 미리보기할 방법이 없어서, 슬라이드별 텍스트만 뽑아 일반 텍스트 버전
+// 비교(diffLines)에 그대로 흘려보낸다 — "이번 버전에서 뭐가 바뀌었는지" 위주로 보여주는 용도.
+// content가 바뀔 때마다 두 버전(비교 기준/현재)을 다시 비동기로 추출해야 하므로 훅으로 분리.
+function usePptxCompareTexts(parentContent: string | undefined, content: string | undefined, path: string) {
+  const applicable = isPptxPath(path) && !!content?.startsWith("data:");
+  const [state, setState] = useState<{ parentText: string; text: string; ready: boolean }>({
+    parentText: "",
+    text: "",
+    ready: true,
+  });
+
+  useEffect(() => {
+    if (!applicable) {
+      setState({ parentText: "", text: "", ready: true });
+      return;
+    }
+    let cancelled = false;
+    setState((s) => ({ ...s, ready: false }));
+    Promise.all([
+      parentContent?.startsWith("data:") ? extractPptxTextSummary(parentContent) : Promise.resolve(""),
+      content ? extractPptxTextSummary(content) : Promise.resolve(""),
+    ])
+      .then(([parentText, text]) => {
+        if (!cancelled) setState({ parentText, text, ready: true });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ parentText: "", text: "", ready: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parentContent, content, applicable]);
+
+  return { applicable, ...state };
+}
+
+// .zip은 "미리보기"할 내용 자체가 없어서, 대신 안에 어떤 파일들이 들어있는지 목록을 보여준다.
+function ZipEntriesList({ content }: { content: string }) {
+  const [entries, setEntries] = useState<ZipEntry[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEntries(null);
+    setFailed(false);
+    listZipEntries(content)
+      .then((list) => {
+        if (!cancelled) setEntries(list);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [content]);
+
+  if (failed) return <span style={{ opacity: 0.7 }}>압축 파일 목록을 읽지 못했어요.</span>;
+  if (!entries) return <span style={{ opacity: 0.7 }}>목록을 불러오는 중...</span>;
+  if (entries.length === 0) return <span style={{ opacity: 0.7 }}>빈 압축 파일이에요.</span>;
+  return (
+    <div>
+      {entries.map((e) => (
+        <div key={e.path} className="flex justify-between gap-2">
+          <span className="truncate">{e.path}</span>
+          <span className="shrink-0" style={{ opacity: 0.7 }}>
+            {formatSize(e.size)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function VersionPageFlip({
   versions,
   currentVersionId,
@@ -472,13 +548,15 @@ function VersionPageFlip({
   const parent = version?.parentVersionId ? (versionsById.get(version.parentVersionId) ?? null) : null;
   const isCurrent = version?.id === currentVersionId;
   const isBinary = !!version && isBinaryContent(version.content);
+  const pptxCompare = usePptxCompareTexts(parent?.content, version?.content, path);
   // Hooks는 조건 없이 항상 같은 순서로 호출되어야 하므로(버전 목록이 비동기로 나중에 채워질 때도
   // 안전하게), version이 아직 없을 수 있는 상태를 감안해 옵셔널 체이닝으로 처리하고 useMemo 자체는
-  // 아래 "버전 없음" 조기 반환보다 먼저 호출한다. 바이너리 파일은 줄 단위로 의미가 없어 diff는 건너뜀.
-  const fullTextLines = useMemo(
-    () => (isBinary ? [] : buildFullTextDiff(parent?.content ?? "", version?.content ?? "")),
-    [parent, version, isBinary],
-  );
+  // 아래 "버전 없음" 조기 반환보다 먼저 호출한다. 바이너리 파일은 줄 단위로 의미가 없어 diff는 건너뜀
+  // (단, .pptx는 슬라이드 텍스트만 뽑아 비교하므로 예외).
+  const fullTextLines = useMemo(() => {
+    if (pptxCompare.applicable) return pptxCompare.ready ? buildFullTextDiff(pptxCompare.parentText, pptxCompare.text) : [];
+    return isBinary ? [] : buildFullTextDiff(parent?.content ?? "", version?.content ?? "");
+  }, [isBinary, parent, version, pptxCompare]);
   const changedCount = fullTextLines.filter((l) => l.changed).length;
 
   // Hooks 규칙상 "버전 없음" 조기 반환보다 먼저 호출해야 한다(버전 목록이 비동기로 채워질 때도
@@ -520,13 +598,21 @@ function VersionPageFlip({
           className="text-xs font-600 mb-1.5"
           style={{ color: isCurrent ? "#fff" : "var(--primary)" }}
         >
-          {isBinary
-            ? "바이너리 파일"
-            : !parent
-              ? "맨 처음 저장한 내용"
-              : changedCount === 0
-                ? "수정 전 버전과 내용이 같음"
-                : `${changedCount}줄 수정됨`}{" "}
+          {pptxCompare.applicable
+            ? !pptxCompare.ready
+              ? "슬라이드 내용 불러오는 중..."
+              : !parent
+                ? "맨 처음 저장한 내용"
+                : changedCount === 0
+                  ? "수정 전 버전과 내용이 같음"
+                  : `${changedCount}줄 수정됨 (슬라이드 텍스트 기준)`
+            : isBinary
+              ? "바이너리 파일"
+              : !parent
+                ? "맨 처음 저장한 내용"
+                : changedCount === 0
+                  ? "수정 전 버전과 내용이 같음"
+                  : `${changedCount}줄 수정됨`}{" "}
           {expanded ? "▲" : "▼"}
         </button>
         {expanded && (
@@ -536,13 +622,21 @@ function VersionPageFlip({
             className="text-xs whitespace-pre-wrap p-2 mb-2 max-h-40 overflow-y-auto cursor-zoom-in"
             style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--card)", fontFamily: "var(--font-jetbrains)" }}
           >
-            {isBinary ? (
+            {pptxCompare.applicable ? (
+              !pptxCompare.ready ? (
+                <span style={{ opacity: 0.7 }}>불러오는 중...</span>
+              ) : (
+                <DiffLinesView lines={fullTextLines} highlightOnDark={isCurrent} />
+              )
+            ) : isBinary ? (
               version.content.startsWith("data:image/") ? (
                 <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
               ) : isSnapshotContent(version.content) ? (
                 <span style={{ opacity: 0.7 }}>문서/슬라이드는 줄글 비교 대신 열어서 확인하세요 (파일 목록의 ✏️ 바로 수정 버튼).</span>
               ) : isOfficePreviewablePath(path) ? (
                 <OfficePreview path={path} content={version.content} />
+              ) : isZipPath(path) ? (
+                <ZipEntriesList content={version.content} />
               ) : (
                 <span style={{ opacity: 0.7 }}>이미지가 아닌 바이너리 파일이에요. 더블클릭하거나 "전체 내용 보기"로 다운로드하세요.</span>
               )
@@ -825,10 +919,18 @@ function VersionNode({
   const cardRef = useRef<HTMLDivElement>(null);
   const parentVersion = version.parentVersionId ? versionsById.get(version.parentVersionId) : null;
   const isBinary = isBinaryContent(version.content);
+  const pptxCompare = usePptxCompareTexts(parentVersion?.content, version.content, path);
   // parentVersion이 없으면(맨 첫 버전) 비교 대상이 없으니 전체를 추가된 내용으로 취급.
-  // 바이너리 파일은 줄 단위로 비교하는 게 의미 없어(base64 덩어리) diff 자체를 건너뜀.
+  // 바이너리 파일은 줄 단위로 비교하는 게 의미 없어(base64 덩어리) diff 자체를 건너뜀
+  // (단, .pptx는 슬라이드 텍스트만 뽑아 비교하므로 예외).
   const changedLines =
-    expanded && !isBinary ? diffLines(parentVersion?.content ?? "", version.content).filter((l) => l.type !== "same") : [];
+    expanded && pptxCompare.applicable
+      ? pptxCompare.ready
+        ? diffLines(pptxCompare.parentText, pptxCompare.text).filter((l) => l.type !== "same")
+        : []
+      : expanded && !isBinary
+        ? diffLines(parentVersion?.content ?? "", version.content).filter((l) => l.type !== "same")
+        : [];
   const displayChanges = groupChangedLines(changedLines);
 
   useEffect(() => {
@@ -883,7 +985,13 @@ function VersionNode({
             )}
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-600" style={{ color: isCurrent ? "rgba(255,255,255,0.75)" : "var(--muted-foreground)" }}>
-                {isBinary ? "바이너리 파일" : `수정 사항 ${displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}`}
+                {pptxCompare.applicable
+                  ? !pptxCompare.ready
+                    ? "슬라이드 내용 불러오는 중..."
+                    : `수정 사항 ${displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}`
+                  : isBinary
+                    ? "바이너리 파일"
+                    : `수정 사항 ${displayChanges.length > 0 ? `(${displayChanges.length}곳)` : ""}`}
               </span>
               <button
                 onClick={(e) => {
@@ -906,13 +1014,17 @@ function VersionNode({
               className="text-xs whitespace-pre-wrap p-2 max-h-28 overflow-y-auto text-left"
               style={{ borderRadius: "8px", background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--muted)", color: isCurrent ? "#fff" : "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
             >
-              {isBinary ? (
+              {pptxCompare.applicable && !pptxCompare.ready ? (
+                <span style={{ opacity: 0.7 }}>불러오는 중...</span>
+              ) : isBinary && !pptxCompare.applicable ? (
                 version.content.startsWith("data:image/") ? (
                   <img src={version.content} alt={version.note ?? "이미지 미리보기"} className="max-w-full rounded" />
                 ) : isSnapshotContent(version.content) ? (
                   <span style={{ opacity: 0.7 }}>문서/슬라이드는 줄글 비교 대신 열어서 확인하세요 (파일 목록의 ✏️ 바로 수정 버튼).</span>
                 ) : isOfficePreviewablePath(path) ? (
                   <OfficePreview path={path} content={version.content} />
+                ) : isZipPath(path) ? (
+                  <ZipEntriesList content={version.content} />
                 ) : (
                   <span style={{ opacity: 0.7 }}>이미지가 아닌 바이너리 파일이에요. 우측 상단 "+"로 다운로드하세요.</span>
                 )
@@ -1492,6 +1604,10 @@ export default function Workspace() {
         ? "현재 버전"
         : "포커스된 버전";
   const versionsById = new Map(versions.map((v) => [v.id, v]));
+  // "전문 보기" 모달의 .pptx 슬라이드 텍스트 비교 — 조건부 IIFE 안에서는 훅을 못 부르므로
+  // (fullTextVersion이 null↔값 토글될 때 훅 호출 순서가 깨짐) 컴포넌트 최상위에서 항상 호출한다.
+  const fullTextParentContent = fullTextVersion?.parentVersionId ? versionsById.get(fullTextVersion.parentVersionId)?.content : undefined;
+  const fullTextPptxCompare = usePptxCompareTexts(fullTextParentContent, fullTextVersion?.content, selectedFile?.path ?? "");
   const highlightIds = new Set<string>();
   if (effectiveFocusId) {
     let cur: string | null = effectiveFocusId;
@@ -2257,7 +2373,20 @@ export default function Workspace() {
                 </button>
               </div>
             </div>
-            {isBinaryContent(fullTextVersion.content) ? (
+            {fullTextPptxCompare.applicable ? (
+              !fullTextPptxCompare.ready ? (
+                <div className="flex-1 flex items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  슬라이드 내용 불러오는 중...
+                </div>
+              ) : (
+                <div
+                  className="flex-1 overflow-auto text-xs whitespace-pre-wrap p-4"
+                  style={{ color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
+                >
+                  <DiffLinesView lines={buildFullTextDiff(fullTextPptxCompare.parentText, fullTextPptxCompare.text)} highlightOnDark={false} />
+                </div>
+              )
+            ) : isBinaryContent(fullTextVersion.content) ? (
               fullTextVersion.content.startsWith("data:image/") ? (
                 <div className="flex-1 overflow-auto flex items-center justify-center p-4">
                   <img src={fullTextVersion.content} alt="전문 미리보기" className="max-w-full max-h-full object-contain" />
@@ -2270,6 +2399,10 @@ export default function Workspace() {
               ) : selectedFile && isOfficePreviewablePath(selectedFile.path) ? (
                 <div className="flex-1 overflow-auto p-4">
                   <OfficePreview path={selectedFile.path} content={fullTextVersion.content} />
+                </div>
+              ) : selectedFile && isZipPath(selectedFile.path) ? (
+                <div className="flex-1 overflow-auto text-xs p-4" style={{ fontFamily: "var(--font-jetbrains)" }}>
+                  <ZipEntriesList content={fullTextVersion.content} />
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center gap-2 text-sm" style={{ color: "var(--muted-foreground)" }}>
