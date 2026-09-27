@@ -17,6 +17,9 @@ export interface ServerConfig {
   // 리버스 프록시 뒤에서 실제 접속 IP를 쓰기 위한 Express "trust proxy" 값(예: 1, "loopback").
   // 안 쓰면 모든 요청이 프록시 IP로 보여 로그인 실패 제한이 모든 사용자에게 한꺼번에 걸린다.
   trustProxy?: number | boolean | string;
+  // 리프레시 토큰 쿠키. 화면과 서버가 다른 사이트면 none(자동으로 secure).
+  cookieSameSite: "lax" | "strict" | "none";
+  cookieSecure: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -33,6 +36,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   if (production && transport !== "smtp") throw new Error("운영 환경에서는 MAIL_TRANSPORT=smtp 여야 합니다(가입 확인 메일).");
   if (transport === "smtp" && (!env.SMTP_URL || !env.MAIL_FROM)) throw new Error("smtp 메일에는 SMTP_URL과 MAIL_FROM이 필요합니다.");
   if (production && !env.APP_URL) throw new Error("운영 환경에서는 APP_URL(메일 링크가 가리킬 화면 주소)이 필요합니다.");
+  const cookieSameSite = env.COOKIE_SAMESITE || "lax";
+  if (cookieSameSite !== "lax" && cookieSameSite !== "strict" && cookieSameSite !== "none") throw new Error("COOKIE_SAMESITE는 lax, strict, none 중 하나입니다.");
   const port = Number(env.PORT ?? 3000);
   return {
     port,
@@ -42,6 +47,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     jwtSecret: env.JWT_SECRET!,
     corsOrigins: corsOrigins.length > 0 ? corsOrigins : ["http://localhost:5173"],
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    cookieSameSite,
+    cookieSecure: production,
     mail: transport === "smtp" ? { transport, smtpUrl: env.SMTP_URL!, from: env.MAIL_FROM! } : { transport },
     appUrl: (env.APP_URL || "http://localhost:5173").replace(/\/+$/, ""),
     odcloudApiKey: env.ODCLOUD_API_KEY,

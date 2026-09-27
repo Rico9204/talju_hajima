@@ -50,8 +50,10 @@ export async function signupUsers(api, n, prefix = '사용자') {
     const res = await api(null, 'POST', '/auth/signup', { email, password: 'correct-horse-1', displayName: `${prefix}${i}` });
     if (res.status !== 202) throw new Error(`가입 실패: ${JSON.stringify(res.body)}`);
     const confirmed = await api(null, 'POST', '/auth/confirm', { token: tokenInMail(mailer.last(email)) });
-    if (confirmed.status !== 200) throw new Error(`인증 실패: ${JSON.stringify(confirmed.body)}`);
-    users.push({ id: confirmed.body.user.id, email, token: confirmed.body.accessToken, refreshToken: confirmed.body.refreshToken });
+    if (confirmed.status !== 204) throw new Error(`인증 실패: ${JSON.stringify(confirmed.body)}`);
+    const session = await api(null, 'POST', '/auth/login', { email, password: 'correct-horse-1' });
+    if (session.status !== 200) throw new Error(`로그인 실패: ${JSON.stringify(session.body)}`);
+    users.push({ id: session.body.user.id, email, token: session.body.accessToken, cookie: refreshCookie(session) });
   }
   return users;
 }
@@ -105,3 +107,6 @@ export async function startApp(db, extra = {}) {
   mailers.set(api, mailer);
   return { app, api, upload, origin, mailer };
 }
+
+// 응답이 심은 리프레시 토큰 쿠키("talju_refresh=...") — 다음 요청의 cookie 헤더로 그대로 보낸다.
+export const refreshCookie = (res) => res.headers.getSetCookie().find((c) => c.startsWith('talju_refresh='))?.split(';')[0];

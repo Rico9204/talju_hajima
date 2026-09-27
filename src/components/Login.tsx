@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
+import { requestPasswordReset, resendConfirmation } from "../api/rest/authApi";
 import { useAuth } from "../context/AuthContext";
 import { adminApplicationSeenKey, clearAdminApplicationDraft, hasAdminApplicationDraft, setAdminApplicationDraft } from "../lib/adminApplication";
 import AdminApplicationFields, { useAdminApplicationForm } from "./AdminApplicationFields";
@@ -19,7 +20,7 @@ function wantsAdminApplication(user: { id: string; user_metadata?: Record<string
 }
 
 export default function Login() {
-  const { user, signIn, signUp } = useAuth();
+  const { user, loading, signIn, signUp } = useAuth();
   const [searchParams] = useSearchParams();
   const initialMode = searchParams.get("mode");
   const [mode, setMode] = useState<Mode>(initialMode === "signup" ? "signup" : initialMode === "admin" ? "admin" : "signin");
@@ -31,7 +32,25 @@ export default function Login() {
   const [signedUp, setSignedUp] = useState(false);
   // 관리자 가입과 동시에 로그인된 경우: 신청서 화면이 열리면 그곳에서 자동으로 제출한다.
   const [redirecting, setRedirecting] = useState(false);
+  // 로그인 화면 안의 "계정 찾기": 비밀번호 재설정 링크·가입 인증 메일 다시 받기.
+  const [recovering, setRecovering] = useState(false);
+  const [recoverNotice, setRecoverNotice] = useState<string | null>(null);
   const adminForm = useAdminApplicationForm();
+
+  async function recover(send: (email: string) => Promise<unknown>) {
+    if (!email.trim() || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    setRecoverNotice(null);
+    try {
+      await send(email.trim());
+      setRecoverNotice("해당 이메일로 가입된 계정이 있으면 메일을 보냈습니다. 받은 편지함을 확인해주세요.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "메일을 보내지 못했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   const canSubmit =
     email.trim().length > 0 &&
@@ -73,6 +92,7 @@ export default function Login() {
   // there was previously no redirect here at all, so the login button
   // appeared to do nothing.
   // 가입 폼에서 넘어온 신청 내용이 있으면 "이미 봤음" 표시와 무관하게 신청서 화면에서 제출해야 한다.
+  if (loading) return null; // 새로 고침 직후 로그인 상태를 되찾는 중
   if (user) return <Navigate to={hasAdminApplicationDraft() || wantsAdminApplication(user) ? "/admin-application" : "/home"} replace />;
 
   return (
@@ -102,6 +122,7 @@ export default function Login() {
                 setMode(m);
                 setError(null);
                 setSignedUp(false);
+                setRecovering(false);
               }}
               className="flex-1 text-xs font-600 px-2.5 py-1.5 transition-all"
               style={{
@@ -129,6 +150,50 @@ export default function Login() {
               </div>
             )}
           </div>
+        ) : recovering ? (
+          <>
+            <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)", lineHeight: 1.6 }}>
+              가입한 이메일을 입력하세요. 비밀번호 재설정 링크(1시간 유효) 또는 가입 인증 메일을 다시 보내 드립니다.
+            </p>
+            <label className="text-xs font-600 block mb-1.5">이메일</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full text-sm px-3 py-2.5 outline-none mb-3"
+              style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
+            />
+            {recoverNotice && (
+              <div role="status" className="text-xs mb-3 px-3 py-2" style={{ background: "#22c55e12", color: "#22c55e", borderRadius: "10px" }}>
+                {recoverNotice}
+              </div>
+            )}
+            {error && (
+              <div role="alert" className="text-xs mb-3 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "10px" }}>
+                {error}
+              </div>
+            )}
+            <button
+              onClick={() => recover(requestPasswordReset)}
+              disabled={!email.trim() || submitting}
+              className="w-full py-2.5 text-sm font-700 mb-2"
+              style={{ background: email.trim() && !submitting ? "var(--primary)" : "var(--border)", color: email.trim() && !submitting ? "#fff" : "var(--muted-foreground)", borderRadius: "40px", cursor: email.trim() && !submitting ? "pointer" : "not-allowed" }}
+            >
+              {submitting ? "처리 중…" : "비밀번호 재설정 링크 받기"}
+            </button>
+            <button
+              onClick={() => recover(resendConfirmation)}
+              disabled={!email.trim() || submitting}
+              className="w-full py-2.5 text-sm font-600 mb-3"
+              style={{ background: "transparent", color: email.trim() && !submitting ? "var(--primary)" : "var(--muted-foreground)", border: "2px solid var(--border)", borderRadius: "40px", cursor: email.trim() && !submitting ? "pointer" : "not-allowed" }}
+            >
+              가입 인증 메일 다시 받기
+            </button>
+            <button type="button" onClick={() => { setRecovering(false); setError(null); setRecoverNotice(null); }} className="w-full text-xs" style={{ color: "var(--muted-foreground)" }}>
+              로그인으로 돌아가기
+            </button>
+          </>
         ) : (
           <>
             {mode === "admin" && (
@@ -207,6 +272,11 @@ export default function Login() {
             >
               {submitting ? "처리 중…" : mode === "signin" ? "로그인" : mode === "admin" ? "관리자로 가입하기" : "가입하기"}
             </button>
+            {mode === "signin" && (
+              <button type="button" onClick={() => { setRecovering(true); setError(null); setRecoverNotice(null); }} className="w-full text-xs mt-3" style={{ color: "var(--muted-foreground)" }}>
+                비밀번호를 잊으셨나요? · 인증 메일을 못 받으셨나요?
+              </button>
+            )}
           </>
         )}
       </div>

@@ -1,4 +1,6 @@
 import * as Y from "yjs";
+import { subscribeTopic } from "../api/rest/realtimeClient";
+import { accessToken } from "../api/rest/session";
 import { applyTextEdit, fromB64, seedDoc, textHash, toB64, transformIndex, type Delta } from "./collabCore";
 
 export { textHash, transformIndex };
@@ -10,14 +12,11 @@ export interface CollabPresence { key: string; track: (mine: { fileId: number; r
 type Message = { type?: string; topic?: string; event?: string; payload?: Record<string, unknown>; state?: Record<string, Array<Record<string, unknown>>> };
 function connect(topic: string, onMessage: (message: Message, send: (type: string, extra?: Record<string, unknown>) => void) => void) {
   const api = String(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
-  let token: string | null = null;
-  try { token = JSON.parse(localStorage.getItem("talju-server-session") ?? "null")?.accessToken ?? null; } catch { /* empty */ }
-  if (!api || !token) return { send: () => {}, close: () => {} };
-  const socket = new WebSocket(api.replace(/^http/, "ws").replace(/\/api$/, "") + "/realtime");
-  const send = (type: string, extra: Record<string, unknown> = {}) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, ...extra })); };
-  socket.onopen = () => send("auth", { token });
-  socket.onmessage = (event) => { let message: Message; try { message = JSON.parse(String(event.data)); } catch { return; } if (message.type === "ready") send("join", { topic }); else if (message.topic === topic) onMessage(message, send); };
-  return { send, close: () => socket.close() };
+  if (!api) return { send: () => {}, close: () => {} };
+  let raw: (message: Record<string, unknown>) => void = () => {};
+  const send = (type: string, extra: Record<string, unknown> = {}) => raw({ type, ...extra });
+  const close = subscribeTopic(api, accessToken, topic, (message, sendRaw) => { raw = sendRaw; onMessage(message, send); });
+  return { send, close };
 }
 
 export function joinCollabPresence(projectId: string, me: { id: string; name: string }, onChange: (editors: CollabEditor[]) => void): CollabPresence {

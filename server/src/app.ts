@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { Module, ValidationPipe, type DynamicModule, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AdminController } from "./admin.js";
-import { AuthController, AuthGuard, AuthLimits, MailSettings, TokenService } from "./auth.js";
+import { AuthController, AuthGuard, AuthLimits, MailSettings, SessionCookie, TokenService } from "./auth.js";
 import { Mailer } from "./mail.js";
 import { MajorsController, MajorsService } from "./majors.js";
 import { BoardController } from "./board.js";
@@ -27,6 +27,8 @@ export interface AppDeps {
   majorsFetch?: typeof fetch;
   trustProxy?: number | boolean | string;
   authLimits?: AuthLimits; // 테스트에서 작은 한도를 넣을 때만
+  cookieSameSite?: "lax" | "strict" | "none"; // 리프레시 토큰 쿠키(기본 lax)
+  cookieSecure?: boolean; // https에서만 보내기(운영)
 }
 
 @Module({})
@@ -46,6 +48,7 @@ class AppModule {
         { provide: FileStore, useValue: deps.store },
         { provide: Mailer, useValue: deps.mailer },
         { provide: MailSettings, useValue: new MailSettings(deps.appUrl) },
+        { provide: SessionCookie, useValue: new SessionCookie(deps.corsOrigins, deps.cookieSameSite, deps.cookieSecure) },
         { provide: MajorsService, useValue: new MajorsService(deps.odcloudApiKey, deps.majorsFetch) },
         { provide: StorageUrls, useValue: urls },
         AuthGuard,
@@ -70,6 +73,7 @@ export async function createApp(deps: AppDeps): Promise<INestApplication> {
   // 공유 브랜치의 전역 검증을 옮기되, 정의하지 않은 필드는 조용히 버리지 않고 거부한다.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new ApiErrorFilter());
-  app.enableCors({ origin: deps.corsOrigins });
+  // credentials: 리프레시 토큰 쿠키를 허용된 화면 출처에만 주고받는다.
+  app.enableCors({ origin: deps.corsOrigins, credentials: true });
   return app;
 }

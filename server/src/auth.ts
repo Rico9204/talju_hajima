@@ -1,12 +1,12 @@
 import {
   BadRequestException, Body, CanActivate, Controller, ExecutionContext, ForbiddenException, Get, HttpCode, HttpException, Injectable, Ip,
-  Logger, Patch, Post, UnauthorizedException, UseGuards, createParamDecorator,
+  Logger, Patch, Post, Req, Res, UnauthorizedException, UseGuards, createParamDecorator,
 } from "@nestjs/common";
 import { IsEmail, IsIn, IsOptional, IsString, Length, MaxLength } from "class-validator";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { createHash, randomBytes } from "node:crypto";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { Db, selectOneJson, type Query } from "./db.js";
 import { Mailer, mailTemplates, type MailMessage } from "./mail.js";
 
@@ -94,6 +94,39 @@ export class AuthLimits {
   ) {}
 }
 
+// 리프레시 토큰은 응답 본문이 아니라 httpOnly 쿠키로만 준다 → 화면의 스크립트(XSS)가 읽어 갈 수 없다.
+// 액세스 토큰(1시간)은 화면이 메모리에만 들고 있고, 새로 고침하면 이 쿠키로 다시 받는다.
+export const REFRESH_COOKIE = "talju_refresh";
+export class SessionCookie {
+  // sameSite: 화면과 서버가 같은 사이트(예: app.example.com ↔ api.example.com, localhost끼리)면 lax,
+  // 서로 다른 사이트(예: *.vercel.app ↔ 다른 도메인)면 none(+secure). none은 Safari 등이 제3자 쿠키로 막을 수 있다.
+  constructor(readonly origins: string[], readonly sameSite: "lax" | "strict" | "none" = "lax", readonly secure = false) {}
+
+  private get options() {
+    return { httpOnly: true, secure: this.secure || this.sameSite === "none", sameSite: this.sameSite, path: "/api/auth" } as const;
+  }
+
+  set(res: Response, token: string) { res.cookie(REFRESH_COOKIE, token, { ...this.options, maxAge: REFRESH_TTL_DAYS * 86_400_000 }); }
+  clear(res: Response) { res.clearCookie(REFRESH_COOKIE, this.options); }
+
+  read(req: Request): string | null {
+    for (const part of (req.headers.cookie ?? "").split(";")) {
+      const [name, ...value] = part.trim().split("=");
+      if (name !== REFRESH_COOKIE) continue;
+      try { return decodeURIComponent(value.join("=")); } catch { return null; } // 깨진 값은 쿠키 없음(401)으로
+    }
+    return null;
+  }
+
+  // 쿠키를 쓰거나 새로 심는 요청(refresh·logout·login)은 다른 사이트의 폼·fetch로도 보낼 수 있다(CSRF,
+  // 남의 계정으로 로그인시키기) → 브라우저는 다른 출처로 POST할 때 항상 Origin을 붙이므로, 붙어 있으면 우리 화면 출처만 받는다.
+  // Origin이 없는 요청(서버·스크립트 클라이언트)은 브라우저 쿠키를 도용할 수 없으므로 막지 않는다.
+  assertOrigin(req: Request) {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !this.origins.includes(origin)) throw new ForbiddenException("허용되지 않은 출처의 요청입니다.");
+  }
+}
+
 // 메일 링크가 가리킬 화면 주소(예: https://taljuhajima.vercel.app).
 export class MailSettings {
   constructor(readonly appUrl: string) {}
@@ -145,10 +178,6 @@ class LoginDto {
   @IsString() @Length(1, 72) password!: string;
 }
 
-class RefreshDto {
-  @IsString() @Length(20, 200) refreshToken!: string;
-}
-
 class EmailDto {
   @IsEmail() @MaxLength(254) email!: string;
 }
@@ -173,8 +202,14 @@ export class AuthController {
 
   constructor(
     private readonly db: Db, private readonly tokens: TokenService, private readonly limits: AuthLimits,
-    private readonly mailer: Mailer, private readonly mail: MailSettings,
+    private readonly mailer: Mailer, private readonly mail: MailSettings, private readonly cookie: SessionCookie,
   ) {}
+
+  // 새 세션: 리프레시 토큰은 쿠키로, 본문에는 사용자와 액세스 토큰만.
+  private startSession(res: Response, user: object, issued: { accessToken: string; refreshToken: string }) {
+    this.cookie.set(res, issued.refreshToken);
+    return { user, accessToken: issued.accessToken };
+  }
 
   // 메일 링크용 1회용 토큰. 같은 목적의 이전 토큰은 지운다(가장 최근 링크만 유효).
   private async oneTimeToken(query: Query, userId: string, purpose: "confirm" | "reset", hours: number, fingerprint: string | null = null) {
@@ -232,11 +267,13 @@ export class AuthController {
     return CHECK_EMAIL;
   }
 
-  // 메일의 확인 링크 → 인증 완료 + 바로 로그인. 링크를 만든 뒤 비밀번호가 바뀌었으면(다른 가입으로 덮어씀) 무효.
+  // 메일의 확인 링크 → 인증만 한다. 링크를 만든 뒤 비밀번호가 바뀌었으면(다른 가입으로 덮어씀) 무효.
+  // 로그인시키지 않는다: 남이 내 이메일·자기 비밀번호로 먼저 가입해 둔 계정의 링크를 무심코 누르면, 그 계정을 내 것처럼 쓰게 되어
+  // 가입한 사람이 들여다볼 수 있다. 직접 로그인하게 하면 내 비밀번호가 안 맞아 재설정하게 되고, 재설정하면 그 사람은 쫓겨난다.
   @Post("confirm")
-  @HttpCode(200)
-  confirm(@Body() body: OneTimeTokenDto) {
-    return this.db.asSystem(async (query) => {
+  @HttpCode(204)
+  async confirm(@Body() body: OneTimeTokenDto) {
+    await this.db.asSystem(async (query) => {
       const [row] = await query<{ user_id: string; password_fingerprint: string | null }>(
         "delete from auth.one_time_tokens where token_hash = $1 and purpose = 'confirm' and expires_at > now() returning user_id, password_fingerprint",
         [hashToken(body.token)]);
@@ -244,8 +281,7 @@ export class AuthController {
       if (!row || !user || row.password_fingerprint !== passwordFingerprint(user.encrypted_password)) {
         throw new BadRequestException("링크가 만료되었거나 이미 사용되었습니다. 확인 메일을 다시 받아 주세요.");
       }
-      await query("update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()), last_sign_in_at = now() where id = $1", [user.id]);
-      return { user: { id: user.id, email: user.email, user_metadata: user.raw_user_meta_data ?? {} }, ...(await this.issue(query, user.id)) };
+      await query("update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()) where id = $1", [user.id]);
     });
   }
 
@@ -298,7 +334,7 @@ export class AuthController {
   // 로그인한 상태에서 비밀번호 바꾸기(현재 비밀번호 확인). 다른 기기는 로그아웃되고 이 기기에는 새 토큰을 준다.
   @Patch("password")
   @UseGuards(AuthGuard)
-  async changePassword(@UserId() userId: string, @Body() body: ChangePasswordDto) {
+  async changePassword(@UserId() userId: string, @Body() body: ChangePasswordDto, @Res({ passthrough: true }) res: Response) {
     if (tooLongForBcrypt(body.newPassword)) throw new BadRequestException("비밀번호가 너무 깁니다(72바이트, 한글은 약 24자까지).");
     const user = await this.db.asSystem((query) => selectOneJson(query, "select encrypted_password from auth.users where id = $1", [userId]));
     if (!user || tooLongForBcrypt(body.currentPassword) || !(await bcrypt.compare(body.currentPassword, user.encrypted_password))) {
@@ -308,13 +344,16 @@ export class AuthController {
     return this.db.asSystem(async (query) => {
       await query("update auth.users set encrypted_password = $2 where id = $1", [userId, passwordHash]);
       await query("delete from auth.refresh_tokens where user_id = $1", [userId]);
-      return this.issue(query, userId);
+      const issued = await this.issue(query, userId);
+      this.cookie.set(res, issued.refreshToken);
+      return { accessToken: issued.accessToken };
     });
   }
 
   @Post("login")
   @HttpCode(200)
-  async login(@Body() body: LoginDto, @Ip() ip: string) {
+  async login(@Body() body: LoginDto, @Ip() ip: string, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.cookie.assertOrigin(req);
     const email = body.email.trim().toLowerCase();
     const key = `${ip}|${email}`;
     if (this.limits.loginIp.isBlocked(ip) || this.limits.loginPair.isBlocked(key)) {
@@ -336,26 +375,35 @@ export class AuthController {
     if (!user.confirmed) throw new ForbiddenException("이메일 인증을 완료해 주세요. 가입할 때 받은 메일의 링크를 눌러 주세요.");
     return this.db.asSystem(async (query) => {
       await query("update auth.users set last_sign_in_at = now() where id = $1", [user.id]);
-      return { user: { id: user.id, email, user_metadata: user.raw_user_meta_data ?? {} }, ...(await this.issue(query, user.id)) };
+      return this.startSession(res, { id: user.id, email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
     });
   }
 
-  // 리프레시 토큰은 한 번만 쓸 수 있다: 지우면서 새 것을 발급(rotation).
+  // 쿠키의 리프레시 토큰으로 새 액세스 토큰. 한 번만 쓸 수 있다: 지우면서 새 것을 발급(rotation).
+  // 화면을 새로 고칠 때도 이것으로 로그인 상태를 되찾으므로 사용자 정보도 함께 준다.
   @Post("refresh")
   @HttpCode(200)
-  refresh(@Body() body: RefreshDto) {
+  refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.cookie.assertOrigin(req);
+    const token = this.cookie.read(req);
+    if (!token) throw new UnauthorizedException("로그인이 필요합니다.");
     return this.db.asSystem(async (query) => {
       const [row] = await query<{ user_id: string }>(
-        "delete from auth.refresh_tokens where token_hash = $1 and expires_at > now() returning user_id", [hashToken(body.refreshToken)]);
-      if (!row) throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
-      return this.issue(query, row.user_id);
+        "delete from auth.refresh_tokens where token_hash = $1 and expires_at > now() returning user_id", [hashToken(token)]);
+      const user = row ? await selectOneJson(query, "select id, email, raw_user_meta_data from auth.users where id = $1", [row.user_id]) : null;
+      // 쿠키는 지우지 않는다: 다른 탭이 방금 받은 새 쿠키를 지울 수 있다.
+      if (!user) throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+      return this.startSession(res, { id: user.id, email: user.email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
     });
   }
 
   @Post("logout")
   @HttpCode(204)
-  async logout(@Body() body: RefreshDto) {
-    await this.db.asSystem((query) => query("delete from auth.refresh_tokens where token_hash = $1", [hashToken(body.refreshToken)]));
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.cookie.assertOrigin(req);
+    const token = this.cookie.read(req);
+    if (token) await this.db.asSystem((query) => query("delete from auth.refresh_tokens where token_hash = $1", [hashToken(token)]));
+    this.cookie.clear(res);
   }
 
   @Get("me")
