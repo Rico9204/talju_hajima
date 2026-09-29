@@ -176,24 +176,19 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
             aria-label="메인 화면으로"
             className="flex items-center gap-3 min-w-0 text-left"
           >
-            <div
-              className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
-              style={{
-                background: "var(--primary)",
-                color: "#fff",
-                borderRadius: "10px",
-                boxShadow: "0 4px 12px var(--primary-glow)",
-              }}
-            >
-              CP
-            </div>
+            <img
+              src="/slackerspace_gemini_icon.svg"
+              alt="Slackerspace"
+              className="w-9 h-9 shrink-0"
+              style={{ borderRadius: "20%" }}
+            />
             <div className="min-w-0">
-              <div className="text-sm font-700 leading-none">CollabPeer</div>
+              <div className="text-sm font-700 leading-none">Slackerspace</div>
               <div
                 className="text-xs mt-0.5"
                 style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}
               >
-                v2.4.1
+                v1.0.0
               </div>
             </div>
           </button>
