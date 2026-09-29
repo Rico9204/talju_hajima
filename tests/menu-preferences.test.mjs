@@ -7,6 +7,12 @@ import {
   reorderMenuItem,
   moveMenuItem,
   isDefaultMenuOrder,
+  DEFAULT_HOME_MENU_ORDER,
+  HOME_MENU_ITEMS_META,
+  sanitizeHomeMenuOrder,
+  reorderHomeMenuItem,
+  moveHomeMenuItem,
+  isDefaultHomeMenuOrder,
 } from '../src/lib/menuPreferences.ts';
 
 test('DEFAULT_MENU_ORDER includes all 7 standard pages', () => {
@@ -100,4 +106,59 @@ test('isDefaultMenuOrder identifies matching vs non-matching orders', () => {
   assert.equal(isDefaultMenuOrder([...DEFAULT_MENU_ORDER]), true);
   assert.equal(isDefaultMenuOrder(['chat', ...DEFAULT_MENU_ORDER.slice(1)]), false);
   assert.equal(isDefaultMenuOrder(DEFAULT_MENU_ORDER.slice(0, 5)), false);
+});
+
+test('DEFAULT_HOME_MENU_ORDER includes all 4 standard tabs', () => {
+  assert.equal(DEFAULT_HOME_MENU_ORDER.length, 4);
+  assert.deepEqual(DEFAULT_HOME_MENU_ORDER, [
+    'projects',
+    'board',
+    'achievements',
+    'settings',
+  ]);
+
+  for (const tab of DEFAULT_HOME_MENU_ORDER) {
+    assert.ok(HOME_MENU_ITEMS_META[tab]);
+    assert.ok(HOME_MENU_ITEMS_META[tab].label);
+    assert.ok(HOME_MENU_ITEMS_META[tab].icon);
+    assert.ok(HOME_MENU_ITEMS_META[tab].description);
+  }
+});
+
+test('sanitizeHomeMenuOrder preserves valid custom order, deduplicates, and appends missing tabs', () => {
+  const custom = ['settings', 'board'];
+  const sanitized = sanitizeHomeMenuOrder(custom);
+  assert.deepEqual(sanitized, [
+    'settings',
+    'board',
+    'projects',
+    'achievements',
+  ]);
+
+  const messy = ['achievements', 'invalid', 'achievements', 'settings', 999];
+  const sanitizedMessy = sanitizeHomeMenuOrder(messy);
+  assert.deepEqual(sanitizedMessy, [
+    'achievements',
+    'settings',
+    'projects',
+    'board',
+  ]);
+});
+
+test('reorderHomeMenuItem and moveHomeMenuItem correctly adjust Home tabs', () => {
+  const original = ['projects', 'board', 'achievements', 'settings'];
+
+  // Move 'projects' (0) to index 3
+  const reordered = reorderHomeMenuItem(original, 0, 3);
+  assert.deepEqual(reordered, ['board', 'achievements', 'settings', 'projects']);
+
+  // Move 'board' up -> cannot move up
+  assert.deepEqual(moveHomeMenuItem(reordered, 0, 'up'), reordered);
+
+  // Move 'board' down -> index 1
+  const movedDown = moveHomeMenuItem(reordered, 0, 'down');
+  assert.deepEqual(movedDown, ['achievements', 'board', 'settings', 'projects']);
+
+  assert.equal(isDefaultHomeMenuOrder([...DEFAULT_HOME_MENU_ORDER]), true);
+  assert.equal(isDefaultHomeMenuOrder(movedDown), false);
 });

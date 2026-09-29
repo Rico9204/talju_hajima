@@ -15,6 +15,12 @@ import {
   isDefaultMenuOrder,
   MENU_ITEMS_META,
   type NavPage,
+  useHomeMenuOrder,
+  moveHomeMenuItem,
+  reorderHomeMenuItem,
+  isDefaultHomeMenuOrder,
+  HOME_MENU_ITEMS_META,
+  type HomeNavTab,
 } from "../lib/menuPreferences";
 
 const performanceOptions: Array<{ value: PerformanceMode; icon: string; title: string; description: string; detail: string }> = [
@@ -217,192 +223,368 @@ function NotificationSettings() {
 }
 
 function MenuOrderSettings() {
-  const [menuOrder, saveMenuOrder, resetMenuOrder] = useMenuOrder();
-  const isDefault = isDefaultMenuOrder(menuOrder);
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"home" | "sidebar">("home");
 
-  function handleMove(index: number, direction: "up" | "down") {
-    const next = moveMenuItem(menuOrder, index, direction);
-    saveMenuOrder(next);
-  }
+  // Sidebar menu state
+  const [sidebarOrder, saveSidebarOrder, resetSidebarOrder] = useMenuOrder();
+  const isSidebarDefault = isDefaultMenuOrder(sidebarOrder);
+  const [sidebarDragged, setSidebarDragged] = useState<number | null>(null);
+  const [sidebarOver, setSidebarOver] = useState<number | null>(null);
 
-  function handleReset() {
-    resetMenuOrder();
-  }
-
-  function handleDragStart(e: React.DragEvent, index: number) {
-    e.dataTransfer.setData("text/plain", String(index));
-    e.dataTransfer.effectAllowed = "move";
-    setDraggedIndex(index);
-  }
-
-  function handleDragOver(e: React.DragEvent, index: number) {
-    if (draggedIndex === null || draggedIndex === index) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragOverIndex !== index) {
-      setDragOverIndex(index);
-    }
-  }
-
-  function handleDrop(e: React.DragEvent, targetIndex: number) {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === targetIndex) {
-      setDraggedIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-    saveMenuOrder(reorderMenuItem(menuOrder, draggedIndex, targetIndex));
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  }
-
-  function handleDragEnd() {
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  }
+  // Home menu state
+  const [homeOrder, saveHomeMenuOrder, resetHomeMenuOrder] = useHomeMenuOrder();
+  const isHomeDefault = isDefaultHomeMenuOrder(homeOrder);
+  const [homeDragged, setHomeDragged] = useState<number | null>(null);
+  const [homeOver, setHomeOver] = useState<number | null>(null);
 
   return (
     <div className="space-y-6">
       <div>
-        <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <SectionHeader
+          title="메뉴 순서 설정"
+          hint="자주 사용하는 메뉴를 위로 올려 편리하게 구성해보세요. 사이드바 및 메인 화면에서 직접 마우스로 끌어서 순서를 변경할 수도 있습니다."
+        />
+
+        {/* Tab switch */}
+        <div className="flex gap-2 p-1 rounded-xl border mb-6" style={{ background: "var(--muted)", borderColor: "var(--border)" }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab("home")}
+            className="flex-1 py-2 px-3 rounded-lg text-xs font-700 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            style={{
+              background: activeTab === "home" ? "var(--card)" : "transparent",
+              color: activeTab === "home" ? "var(--primary)" : "var(--muted-foreground)",
+              boxShadow: activeTab === "home" ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+            }}
+          >
+            <span>🏠</span>
+            <span>메인 화면 메뉴 (4개)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("sidebar")}
+            className="flex-1 py-2 px-3 rounded-lg text-xs font-700 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            style={{
+              background: activeTab === "sidebar" ? "var(--card)" : "transparent",
+              color: activeTab === "sidebar" ? "var(--primary)" : "var(--muted-foreground)",
+              boxShadow: activeTab === "sidebar" ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+            }}
+          >
+            <span>⊞</span>
+            <span>프로젝트 사이드바 메뉴 (7개)</span>
+          </button>
+        </div>
+
+        {activeTab === "home" ? (
           <div>
-            <h1 className="text-base font-800 leading-tight">사이드바 메뉴 순서</h1>
-            <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
-              자주 사용하는 메뉴를 위로 올려 사이드바를 편리하게 구성해보세요
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className="text-xs px-2 py-0.5 font-700 shrink-0"
-              style={{
-                background: isDefault ? "var(--muted)" : "#22c55e18",
-                color: isDefault ? "var(--muted-foreground)" : "#22c55e",
-                borderRadius: "20px",
-              }}
-            >
-              {isDefault ? "기본 순서 사용 중" : "사용자 지정 순서"}
-            </span>
-            <button
-              type="button"
-              onClick={handleReset}
-              disabled={isDefault}
-              className="text-xs px-2.5 py-1 font-600 rounded-lg border transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
-              style={{
-                background: isDefault ? "transparent" : "var(--card)",
-                borderColor: isDefault ? "var(--border)" : "var(--primary)",
-                color: isDefault ? "var(--muted-foreground)" : "var(--primary)",
-              }}
-              title="원래 기본 순서로 되돌립니다"
-            >
-              <span>↺</span>
-              <span>기본 순서로 초기화</span>
-            </button>
-          </div>
-        </div>
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-800 leading-tight">메인 화면 좌측 메뉴 순서</h2>
+                <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
+                  메인 화면의 [내 프로젝트, 게시판, 업적, 설정] 메뉴 순서를 정렬합니다
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-xs px-2 py-0.5 font-700 shrink-0"
+                  style={{
+                    background: isHomeDefault ? "var(--muted)" : "#22c55e18",
+                    color: isHomeDefault ? "var(--muted-foreground)" : "#22c55e",
+                    borderRadius: "20px",
+                  }}
+                >
+                  {isHomeDefault ? "기본 순서 사용 중" : "사용자 지정 순서"}
+                </span>
+                <button
+                  type="button"
+                  onClick={resetHomeMenuOrder}
+                  disabled={isHomeDefault}
+                  className="text-xs px-2.5 py-1 font-600 rounded-lg border transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  style={{
+                    background: isHomeDefault ? "transparent" : "var(--card)",
+                    borderColor: isHomeDefault ? "var(--border)" : "var(--primary)",
+                    color: isHomeDefault ? "var(--muted-foreground)" : "var(--primary)",
+                  }}
+                  title="원래 기본 순서로 되돌립니다"
+                >
+                  <span>↺</span>
+                  <span>기본 순서로 초기화</span>
+                </button>
+              </div>
+            </div>
 
-        <div className="p-3 mb-4 rounded-xl text-xs flex items-center gap-2.5 border" style={{ background: "color-mix(in srgb, var(--primary) 6%, var(--card))", borderColor: "color-mix(in srgb, var(--primary) 20%, var(--border))" }}>
-          <span className="text-base shrink-0">💡</span>
-          <span style={{ color: "var(--foreground)" }}>
-            <strong>끌어서 정렬 가능:</strong> 위·아래 버튼을 누르거나 항목을 마우스로 직접 드래그하여 순서를 바꿀 수 있습니다. 프로젝트 화면의 사이드바 메뉴에서도 바로 끌어서 바꿀 수 있습니다.
-          </span>
-        </div>
+            <div className="p-3 mb-4 rounded-xl text-xs flex items-center gap-2.5 border" style={{ background: "color-mix(in srgb, var(--primary) 6%, var(--card))", borderColor: "color-mix(in srgb, var(--primary) 20%, var(--border))" }}>
+              <span className="text-base shrink-0">💡</span>
+              <span style={{ color: "var(--foreground)" }}>
+                <strong>끌어서 정렬 가능:</strong> 위·아래 버튼을 누르거나 항목을 마우스로 직접 드래그하여 순서를 바꿀 수 있습니다. 메인 화면 좌측 메뉴에서도 마우스로 바로 끌어서 바꿀 수 있습니다.
+              </span>
+            </div>
 
-        <div className="space-y-2">
-          {menuOrder.map((id, index) => {
-            const meta = MENU_ITEMS_META[id];
-            const isDragging = draggedIndex === index;
-            const isOver = dragOverIndex === index;
-            const isFirst = index === 0;
-            const isLast = index === menuOrder.length - 1;
+            <div className="space-y-2">
+              {homeOrder.map((id, index) => {
+                const meta = HOME_MENU_ITEMS_META[id];
+                const isDragging = homeDragged === index;
+                const isOver = homeOver === index;
+                const isFirst = index === 0;
+                const isLast = index === homeOrder.length - 1;
 
-            return (
-              <div
-                key={id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragOver={(e) => handleDragOver(e, index)}
-                onDrop={(e) => handleDrop(e, index)}
-                onDragEnd={handleDragEnd}
-                className="p-3 rounded-xl border flex items-center justify-between gap-3 transition-all"
-                style={{
-                  background: isOver ? "color-mix(in srgb, var(--primary) 12%, var(--card))" : "var(--card)",
-                  borderColor: isOver ? "var(--primary)" : "var(--border)",
-                  opacity: isDragging ? 0.35 : 1,
-                  transform: isDragging ? "scale(0.98)" : "none",
-                  cursor: "grab",
-                }}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span
-                    className="text-base select-none px-1 text-muted-foreground hover:text-foreground transition-colors"
-                    title="드래그하여 순서 변경"
+                return (
+                  <div
+                    key={id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", String(index));
+                      e.dataTransfer.effectAllowed = "move";
+                      setHomeDragged(index);
+                    }}
+                    onDragOver={(e) => {
+                      if (homeDragged === null || homeDragged === index) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (homeOver !== index) setHomeOver(index);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (homeDragged !== null && homeDragged !== index) {
+                        saveHomeMenuOrder(reorderHomeMenuItem(homeOrder, homeDragged, index));
+                      }
+                      setHomeDragged(null);
+                      setHomeOver(null);
+                    }}
+                    onDragEnd={() => {
+                      setHomeDragged(null);
+                      setHomeOver(null);
+                    }}
+                    className="p-3 rounded-xl border flex items-center justify-between gap-3 transition-all"
+                    style={{
+                      background: isOver ? "color-mix(in srgb, var(--primary) 12%, var(--card))" : "var(--card)",
+                      borderColor: isOver ? "var(--primary)" : "var(--border)",
+                      opacity: isDragging ? 0.35 : 1,
+                      transform: isDragging ? "scale(0.98)" : "none",
+                      cursor: "grab",
+                    }}
                   >
-                    ⠿
-                  </span>
-                  <span
-                    className="w-6 h-6 rounded-lg text-xs font-700 flex items-center justify-center shrink-0"
-                    style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
-                  >
-                    {index + 1}
-                  </span>
-                  <span
-                    className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
-                    style={{ background: "var(--muted)", color: "var(--primary)" }}
-                  >
-                    {meta.icon}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="font-bold text-sm" style={{ color: "var(--foreground)" }}>
-                      {meta.label}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-base select-none px-1 text-muted-foreground hover:text-foreground transition-colors" title="드래그하여 순서 변경">
+                        ⠿
+                      </span>
+                      <span
+                        className="w-6 h-6 rounded-lg text-xs font-700 flex items-center justify-center shrink-0"
+                        style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
+                      >
+                        {index + 1}
+                      </span>
+                      <span
+                        className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
+                        style={{ background: "var(--muted)", color: "var(--primary)" }}
+                      >
+                        {meta.icon}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm" style={{ color: "var(--foreground)" }}>
+                          {meta.label}
+                        </div>
+                        <div className="text-xs truncate mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+                          {meta.description}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs truncate mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-                      {meta.description}
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => saveHomeMenuOrder(moveHomeMenuItem(homeOrder, index, "up"))}
+                        disabled={isFirst}
+                        className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        style={{
+                          background: "var(--muted)",
+                          borderColor: "var(--border)",
+                          color: isFirst ? "var(--muted-foreground)" : "var(--foreground)",
+                        }}
+                        title="위로 이동"
+                        aria-label={`${meta.label} 위로 이동`}
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveHomeMenuOrder(moveHomeMenuItem(homeOrder, index, "down"))}
+                        disabled={isLast}
+                        className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        style={{
+                          background: "var(--muted)",
+                          borderColor: "var(--border)",
+                          color: isLast ? "var(--muted-foreground)" : "var(--foreground)",
+                        }}
+                        title="아래로 이동"
+                        aria-label={`${meta.label} 아래로 이동`}
+                      >
+                        ▼
+                      </button>
                     </div>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleMove(index, "up")}
-                    disabled={isFirst}
-                    className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                    style={{
-                      background: "var(--muted)",
-                      borderColor: "var(--border)",
-                      color: isFirst ? "var(--muted-foreground)" : "var(--foreground)",
-                    }}
-                    title="위로 이동"
-                    aria-label={`${meta.label} 위로 이동`}
-                  >
-                    ▲
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleMove(index, "down")}
-                    disabled={isLast}
-                    className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                    style={{
-                      background: "var(--muted)",
-                      borderColor: "var(--border)",
-                      color: isLast ? "var(--muted-foreground)" : "var(--foreground)",
-                    }}
-                    title="아래로 이동"
-                    aria-label={`${meta.label} 아래로 이동`}
-                  >
-                    ▼
-                  </button>
-                </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-800 leading-tight">프로젝트 사이드바 메뉴 순서</h2>
+                <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
+                  팀 프로젝트 내부 좌측 사이드바의 7개 메뉴 순서를 정렬합니다
+                </p>
               </div>
-            );
-          })}
-        </div>
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-xs px-2 py-0.5 font-700 shrink-0"
+                  style={{
+                    background: isSidebarDefault ? "var(--muted)" : "#22c55e18",
+                    color: isSidebarDefault ? "var(--muted-foreground)" : "#22c55e",
+                    borderRadius: "20px",
+                  }}
+                >
+                  {isSidebarDefault ? "기본 순서 사용 중" : "사용자 지정 순서"}
+                </span>
+                <button
+                  type="button"
+                  onClick={resetSidebarOrder}
+                  disabled={isSidebarDefault}
+                  className="text-xs px-2.5 py-1 font-600 rounded-lg border transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  style={{
+                    background: isSidebarDefault ? "transparent" : "var(--card)",
+                    borderColor: isSidebarDefault ? "var(--border)" : "var(--primary)",
+                    color: isSidebarDefault ? "var(--muted-foreground)" : "var(--primary)",
+                  }}
+                  title="원래 기본 순서로 되돌립니다"
+                >
+                  <span>↺</span>
+                  <span>기본 순서로 초기화</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3 mb-4 rounded-xl text-xs flex items-center gap-2.5 border" style={{ background: "color-mix(in srgb, var(--primary) 6%, var(--card))", borderColor: "color-mix(in srgb, var(--primary) 20%, var(--border))" }}>
+              <span className="text-base shrink-0">💡</span>
+              <span style={{ color: "var(--foreground)" }}>
+                <strong>끌어서 정렬 가능:</strong> 위·아래 버튼을 누르거나 항목을 마우스로 직접 드래그하여 순서를 바꿀 수 있습니다. 프로젝트 화면의 사이드바 메뉴에서도 바로 끌어서 바꿀 수 있습니다.
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {sidebarOrder.map((id, index) => {
+                const meta = MENU_ITEMS_META[id];
+                const isDragging = sidebarDragged === index;
+                const isOver = sidebarOver === index;
+                const isFirst = index === 0;
+                const isLast = index === sidebarOrder.length - 1;
+
+                return (
+                  <div
+                    key={id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", String(index));
+                      e.dataTransfer.effectAllowed = "move";
+                      setSidebarDragged(index);
+                    }}
+                    onDragOver={(e) => {
+                      if (sidebarDragged === null || sidebarDragged === index) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (sidebarOver !== index) setSidebarOver(index);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (sidebarDragged !== null && sidebarDragged !== index) {
+                        saveSidebarOrder(reorderMenuItem(sidebarOrder, sidebarDragged, index));
+                      }
+                      setSidebarDragged(null);
+                      setSidebarOver(null);
+                    }}
+                    onDragEnd={() => {
+                      setSidebarDragged(null);
+                      setSidebarOver(null);
+                    }}
+                    className="p-3 rounded-xl border flex items-center justify-between gap-3 transition-all"
+                    style={{
+                      background: isOver ? "color-mix(in srgb, var(--primary) 12%, var(--card))" : "var(--card)",
+                      borderColor: isOver ? "var(--primary)" : "var(--border)",
+                      opacity: isDragging ? 0.35 : 1,
+                      transform: isDragging ? "scale(0.98)" : "none",
+                      cursor: "grab",
+                    }}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-base select-none px-1 text-muted-foreground hover:text-foreground transition-colors" title="드래그하여 순서 변경">
+                        ⠿
+                      </span>
+                      <span
+                        className="w-6 h-6 rounded-lg text-xs font-700 flex items-center justify-center shrink-0"
+                        style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
+                      >
+                        {index + 1}
+                      </span>
+                      <span
+                        className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
+                        style={{ background: "var(--muted)", color: "var(--primary)" }}
+                      >
+                        {meta.icon}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm" style={{ color: "var(--foreground)" }}>
+                          {meta.label}
+                        </div>
+                        <div className="text-xs truncate mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+                          {meta.description}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => saveSidebarOrder(moveMenuItem(sidebarOrder, index, "up"))}
+                        disabled={isFirst}
+                        className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        style={{
+                          background: "var(--muted)",
+                          borderColor: "var(--border)",
+                          color: isFirst ? "var(--muted-foreground)" : "var(--foreground)",
+                        }}
+                        title="위로 이동"
+                        aria-label={`${meta.label} 위로 이동`}
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveSidebarOrder(moveMenuItem(sidebarOrder, index, "down"))}
+                        disabled={isLast}
+                        className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        style={{
+                          background: "var(--muted)",
+                          borderColor: "var(--border)",
+                          color: isLast ? "var(--muted-foreground)" : "var(--foreground)",
+                        }}
+                        title="아래로 이동"
+                        aria-label={`${meta.label} 아래로 이동`}
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
 
 export default function Settings() {
   const [activeCategory, setActiveCategory] = useState<CategoryId>("graphics");
