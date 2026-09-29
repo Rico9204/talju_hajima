@@ -8,6 +8,14 @@ import {
   requestNotificationPermission,
   setBrowserNotificationsEnabled,
 } from "../lib/browserNotifications";
+import {
+  useMenuOrder,
+  moveMenuItem,
+  reorderMenuItem,
+  isDefaultMenuOrder,
+  MENU_ITEMS_META,
+  type NavPage,
+} from "../lib/menuPreferences";
 
 const performanceOptions: Array<{ value: PerformanceMode; icon: string; title: string; description: string; detail: string }> = [
   {
@@ -33,11 +41,12 @@ const performanceOptions: Array<{ value: PerformanceMode; icon: string; title: s
   },
 ];
 
-type CategoryId = "graphics" | "notifications";
+type CategoryId = "graphics" | "notifications" | "menu";
 
 const categories: Array<{ id: CategoryId; icon: string; label: string }> = [
   { id: "graphics", icon: "🖥️", label: "그래픽" },
   { id: "notifications", icon: "🔔", label: "알림" },
+  { id: "menu", icon: "📋", label: "메뉴 설정" },
 ];
 
 function ToggleSwitch({ checked, onClick, label }: { checked: boolean; onClick: () => void; label: string }) {
@@ -207,6 +216,194 @@ function NotificationSettings() {
   );
 }
 
+function MenuOrderSettings() {
+  const [menuOrder, saveMenuOrder, resetMenuOrder] = useMenuOrder();
+  const isDefault = isDefaultMenuOrder(menuOrder);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  function handleMove(index: number, direction: "up" | "down") {
+    const next = moveMenuItem(menuOrder, index, direction);
+    saveMenuOrder(next);
+  }
+
+  function handleReset() {
+    resetMenuOrder();
+  }
+
+  function handleDragStart(e: React.DragEvent, index: number) {
+    e.dataTransfer.setData("text/plain", String(index));
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedIndex(index);
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    if (draggedIndex === null || draggedIndex === index) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent, targetIndex: number) {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    saveMenuOrder(reorderMenuItem(menuOrder, draggedIndex, targetIndex));
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h1 className="text-base font-800 leading-tight">사이드바 메뉴 순서</h1>
+            <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
+              자주 사용하는 메뉴를 위로 올려 사이드바를 편리하게 구성해보세요
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-xs px-2 py-0.5 font-700 shrink-0"
+              style={{
+                background: isDefault ? "var(--muted)" : "#22c55e18",
+                color: isDefault ? "var(--muted-foreground)" : "#22c55e",
+                borderRadius: "20px",
+              }}
+            >
+              {isDefault ? "기본 순서 사용 중" : "사용자 지정 순서"}
+            </span>
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={isDefault}
+              className="text-xs px-2.5 py-1 font-600 rounded-lg border transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+              style={{
+                background: isDefault ? "transparent" : "var(--card)",
+                borderColor: isDefault ? "var(--border)" : "var(--primary)",
+                color: isDefault ? "var(--muted-foreground)" : "var(--primary)",
+              }}
+              title="원래 기본 순서로 되돌립니다"
+            >
+              <span>↺</span>
+              <span>기본 순서로 초기화</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-3 mb-4 rounded-xl text-xs flex items-center gap-2.5 border" style={{ background: "color-mix(in srgb, var(--primary) 6%, var(--card))", borderColor: "color-mix(in srgb, var(--primary) 20%, var(--border))" }}>
+          <span className="text-base shrink-0">💡</span>
+          <span style={{ color: "var(--foreground)" }}>
+            <strong>끌어서 정렬 가능:</strong> 위·아래 버튼을 누르거나 항목을 마우스로 직접 드래그하여 순서를 바꿀 수 있습니다. 프로젝트 화면의 사이드바 메뉴에서도 바로 끌어서 바꿀 수 있습니다.
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {menuOrder.map((id, index) => {
+            const meta = MENU_ITEMS_META[id];
+            const isDragging = draggedIndex === index;
+            const isOver = dragOverIndex === index;
+            const isFirst = index === 0;
+            const isLast = index === menuOrder.length - 1;
+
+            return (
+              <div
+                key={id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
+                className="p-3 rounded-xl border flex items-center justify-between gap-3 transition-all"
+                style={{
+                  background: isOver ? "color-mix(in srgb, var(--primary) 12%, var(--card))" : "var(--card)",
+                  borderColor: isOver ? "var(--primary)" : "var(--border)",
+                  opacity: isDragging ? 0.35 : 1,
+                  transform: isDragging ? "scale(0.98)" : "none",
+                  cursor: "grab",
+                }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className="text-base select-none px-1 text-muted-foreground hover:text-foreground transition-colors"
+                    title="드래그하여 순서 변경"
+                  >
+                    ⠿
+                  </span>
+                  <span
+                    className="w-6 h-6 rounded-lg text-xs font-700 flex items-center justify-center shrink-0"
+                    style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
+                  >
+                    {index + 1}
+                  </span>
+                  <span
+                    className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
+                    style={{ background: "var(--muted)", color: "var(--primary)" }}
+                  >
+                    {meta.icon}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm" style={{ color: "var(--foreground)" }}>
+                      {meta.label}
+                    </div>
+                    <div className="text-xs truncate mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+                      {meta.description}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleMove(index, "up")}
+                    disabled={isFirst}
+                    className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    style={{
+                      background: "var(--muted)",
+                      borderColor: "var(--border)",
+                      color: isFirst ? "var(--muted-foreground)" : "var(--foreground)",
+                    }}
+                    title="위로 이동"
+                    aria-label={`${meta.label} 위로 이동`}
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleMove(index, "down")}
+                    disabled={isLast}
+                    className="w-8 h-8 rounded-lg border flex items-center justify-center text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    style={{
+                      background: "var(--muted)",
+                      borderColor: "var(--border)",
+                      color: isLast ? "var(--muted-foreground)" : "var(--foreground)",
+                    }}
+                    title="아래로 이동"
+                    aria-label={`${meta.label} 아래로 이동`}
+                  >
+                    ▼
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [activeCategory, setActiveCategory] = useState<CategoryId>("graphics");
 
@@ -238,7 +435,13 @@ export default function Settings() {
         </nav>
 
         <section className="flex-1 min-w-0 p-5 md:p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-          {activeCategory === "graphics" ? <GraphicsSettings /> : <NotificationSettings />}
+          {activeCategory === "graphics" ? (
+            <GraphicsSettings />
+          ) : activeCategory === "notifications" ? (
+            <NotificationSettings />
+          ) : (
+            <MenuOrderSettings />
+          )}
         </section>
       </div>
     </div>
