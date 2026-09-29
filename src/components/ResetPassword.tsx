@@ -37,12 +37,7 @@ export default function ResetPassword() {
         className="w-[24rem] max-w-[92vw] p-6"
         style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
       >
-        <div
-          className="w-10 h-10 flex items-center justify-center text-lg font-700 mb-3"
-          style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "12px" }}
-        >
-          CP
-        </div>
+        <img src="/slackerspace_gemini_icon.svg" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
         <h3 className="font-700 mb-1">비밀번호 재설정</h3>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
           새로 사용할 비밀번호를 입력해주세요.
