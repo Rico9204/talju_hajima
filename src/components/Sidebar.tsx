@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../App";
@@ -13,6 +13,7 @@ import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import type { Tier } from "../lib/achievements";
+import { useMenuOrder, reorderMenuItem, type NavPage } from "../lib/menuPreferences";
 
 // Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
 // same tier medal shown on the 업적 page and profile card, just shrunk to
@@ -71,7 +72,91 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   }
   const { signOut } = useAuth();
   const { isAdmin } = useProjectManagement();
-  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
+  const [menuOrder, saveMenuOrder] = useMenuOrder();
+  const [draggedPage, setDraggedPage] = useState<NavPage | null>(null);
+  const [dragOverPage, setDragOverPage] = useState<NavPage | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  const navItemsMap = useMemo(() => {
+    const map = new Map<Page, { id: Page; label: string; icon: ReactNode }>();
+    for (const item of navItems) {
+      map.set(item.id, item);
+    }
+    return map;
+  }, []);
+
+  const orderedNavItems = useMemo(() => {
+    const list: { id: Page; label: string; icon: ReactNode }[] = [];
+    for (const id of menuOrder) {
+      const item = navItemsMap.get(id);
+      if (item) list.push(item);
+    }
+    return list;
+  }, [menuOrder, navItemsMap]);
+
+  const visibleNavItems = isAdmin ? [...orderedNavItems, adminNavItem] : orderedNavItems;
+
+  function handleDragStart(e: DragEvent<HTMLDivElement>, page: NavPage) {
+    e.dataTransfer.setData("text/plain", page);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedPage(page);
+  }
+
+  function handleDragOver(e: DragEvent<HTMLDivElement>, page: NavPage) {
+    if (!draggedPage || draggedPage === page) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const pos = e.clientY < midpoint ? "before" : "after";
+
+    if (dragOverPage !== page || dropPosition !== pos) {
+      setDragOverPage(page);
+      setDropPosition(pos);
+    }
+  }
+
+  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+    const related = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(related)) {
+      setDragOverPage(null);
+      setDropPosition(null);
+    }
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>, targetPage: NavPage) {
+    e.preventDefault();
+    if (!draggedPage || draggedPage === targetPage) {
+      setDraggedPage(null);
+      setDragOverPage(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const fromIdx = menuOrder.indexOf(draggedPage);
+    const toIdx = menuOrder.indexOf(targetPage);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      let insertIdx = toIdx;
+      if (dropPosition === "after" && fromIdx > toIdx) {
+        insertIdx = toIdx + 1;
+      } else if (dropPosition === "before" && fromIdx < toIdx) {
+        insertIdx = toIdx - 1;
+      }
+      saveMenuOrder(reorderMenuItem(menuOrder, fromIdx, insertIdx));
+    }
+
+    setDraggedPage(null);
+    setDragOverPage(null);
+    setDropPosition(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedPage(null);
+    setDragOverPage(null);
+    setDropPosition(null);
+  }
   const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
   const myAvatar = currentMember?.avatar ?? "?";
@@ -510,46 +595,95 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
           WebkitBackdropFilter: "var(--panel-blur)",
         }}
       >
-        <div className="text-xs font-600 uppercase tracking-widest px-2 mb-3" style={{ color: "var(--muted-foreground)" }}>
-          메뉴
+        <div className="flex items-center justify-between px-2 mb-3">
+          <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>
+            메뉴
+          </span>
+          <span className="text-[10px] hidden md:inline-block select-none" style={{ color: "var(--muted-foreground)", opacity: 0.7 }} title="메뉴를 드래그하여 순서를 바꿀 수 있습니다">
+            끌어서 정렬
+          </span>
         </div>
         <div className="flex flex-col gap-1">
           {visibleNavItems.map((item) => {
             const active = currentPage === item.id;
+            const isReorderable = item.id !== "admin";
+            const isDragging = draggedPage === item.id;
+            const isOver = dragOverPage === item.id;
+
             return (
-              <button
+              <div
                 key={item.id}
-                onClick={() => navigate(item.id)}
-                className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
+                draggable={isReorderable}
+                onDragStart={isReorderable ? (e) => handleDragStart(e, item.id as NavPage) : undefined}
+                onDragOver={isReorderable ? (e) => handleDragOver(e, item.id as NavPage) : undefined}
+                onDragLeave={isReorderable ? handleDragLeave : undefined}
+                onDrop={isReorderable ? (e) => handleDrop(e, item.id as NavPage) : undefined}
+                onDragEnd={isReorderable ? handleDragEnd : undefined}
+                className="relative group transition-all"
                 style={{
-                  borderRadius: "10px",
-                  background: active ? "var(--nav-active-bg)" : "transparent",
-                  color: active ? "var(--nav-active-text)" : "var(--foreground)",
-                  fontWeight: active ? 600 : 400,
-                  fontSize: "13.5px",
-                  border: active ? "var(--nav-active-border)" : "1px solid transparent",
-                  boxShadow: active ? "var(--nav-active-shadow)" : "none",
+                  opacity: isDragging ? 0.35 : 1,
+                  transform: isDragging ? "scale(0.98)" : "none",
                 }}
               >
-                <span
-                  className="text-sm w-6 h-6 flex items-center justify-center shrink-0"
-                  style={{
-                    background: active ? "var(--nav-active-icon-bg)" : "var(--muted)",
-                    borderRadius: "7px",
-                  }}
-                >
-                  {item.icon}
-                </span>
-                <span className="flex-1">{item.label}</span>
-                {!!navUnread[item.id] && (
-                  <span
-                    className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
-                    style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
-                  >
-                    {navUnread[item.id]}
-                  </span>
+                {/* Visual drop indicator line */}
+                {isOver && dropPosition === "before" && (
+                  <div
+                    className="absolute -top-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
                 )}
-              </button>
+                {isOver && dropPosition === "after" && (
+                  <div
+                    className="absolute -bottom-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => navigate(item.id)}
+                  className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
+                  style={{
+                    borderRadius: "10px",
+                    background: active ? "var(--nav-active-bg)" : "transparent",
+                    color: active ? "var(--nav-active-text)" : "var(--foreground)",
+                    fontWeight: active ? 600 : 400,
+                    fontSize: "13.5px",
+                    border: active ? "var(--nav-active-border)" : "1px solid transparent",
+                    boxShadow: active ? "var(--nav-active-shadow)" : "none",
+                    cursor: isReorderable ? "grab" : "pointer",
+                  }}
+                  title={isReorderable ? `${item.label} (드래그하여 순서 변경)` : item.label}
+                >
+                  <span
+                    className="text-sm w-6 h-6 flex items-center justify-center shrink-0"
+                    style={{
+                      background: active ? "var(--nav-active-icon-bg)" : "var(--muted)",
+                      borderRadius: "7px",
+                    }}
+                  >
+                    {item.icon}
+                  </span>
+                  <span className="flex-1">{item.label}</span>
+                  {!!navUnread[item.id] && (
+                    <span
+                      className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
+                      style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
+                    >
+                      {navUnread[item.id]}
+                    </span>
+                  )}
+                  {isReorderable && (
+                    <span
+                      className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block"
+                      style={{ color: "var(--muted-foreground)" }}
+                      aria-hidden="true"
+                    >
+                      ⠿
+                    </span>
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>
