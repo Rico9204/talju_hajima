@@ -182,6 +182,8 @@ export default function Home() {
   function selectTab(tab: HomeTab) {
     setActiveTab(tab);
     setMobileOpen(false);
+    // 공지에서 넘어온 "팀원 모집" 글쓰기는 게시판을 떠나면 버린다(다시 들어올 때 또 열리지 않게).
+    setBoardInitialState(null);
   }
 
   return (

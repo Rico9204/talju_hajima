@@ -47167,12 +47167,20 @@ async function crawlNotices(schoolQuery, category = "all") {
 
 // src/server/campus-notices.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
+var CACHE_MAX = 1e3;
+var NATIONAL = "\uC804\uAD6D \uACF5\uBAA8\uC804\xB7\uCDE8\uC5C5 Pick";
+var CATEGORIES = /* @__PURE__ */ new Set(["all", "contest", "job", "general", "internship"]);
 var cache = /* @__PURE__ */ new Map();
+function normalize(url) {
+  const raw = (url.searchParams.get("school") ?? "").trim();
+  const school = raw && (findSchoolEntry(raw)?.name ?? findUniversity(raw)?.name) || NATIONAL;
+  const rawCategory = url.searchParams.get("category");
+  const category = rawCategory && CATEGORIES.has(rawCategory) ? rawCategory : "all";
+  return { school, category };
+}
 async function handler(req, res) {
   try {
-    const url = new URL(req.url ?? "", "http://localhost");
-    const school = (url.searchParams.get("school") ?? "").trim() || "\uC804\uAD6D";
-    const category = url.searchParams.get("category") ?? "all";
+    const { school, category } = normalize(new URL(req.url ?? "", "http://localhost"));
     const cacheKey = `${school}:${category}`;
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
@@ -47181,12 +47189,14 @@ async function handler(req, res) {
       return;
     }
     const result = await crawlNotices(school, category);
+    if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
     cache.set(cacheKey, { result, cachedAt: Date.now() });
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(result));
   } catch (err) {
+    console.error("campus-notices crawl failed", err);
     res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: err instanceof Error ? err.message : "crawling failed" }));
+    res.end(JSON.stringify({ error: "\uC18C\uC2DD\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." }));
   }
 }
 export {

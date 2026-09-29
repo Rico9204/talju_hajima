@@ -1875,18 +1875,20 @@ export const supabaseDataRepository: DataRepository = {
     if (!userId) throw new Error("로그인이 필요합니다.");
 
     // Check if already scrapped
-    const { data: existing } = await supabase
+    const { data: existing, error: lookupError } = await supabase
       .from("campus_scrapped_notices")
       .select("id")
       .eq("user_id", userId)
       .eq("link", notice.link)
       .maybeSingle();
+    if (lookupError) throw lookupError;
 
     if (existing) {
-      await supabase.from("campus_scrapped_notices").delete().eq("id", existing.id);
+      const { error } = await supabase.from("campus_scrapped_notices").delete().eq("id", existing.id);
+      if (error) throw error;
       return false; // unscrapped
     } else {
-      await supabase.from("campus_scrapped_notices").insert({
+      const { error } = await supabase.from("campus_scrapped_notices").insert({
         user_id: userId,
         school_code: notice.schoolCode,
         school_name: notice.schoolName,
@@ -1896,6 +1898,7 @@ export const supabaseDataRepository: DataRepository = {
         post_date: notice.postDate,
         link: notice.link,
       });
+      if (error) throw error;
       return true; // scrapped
     }
   },

@@ -303,7 +303,7 @@ export default function BoardView({
   if (isCreatingPost) {
     return (
       <CreatePostView
-        defaultCategory={selectedCategory === "all" ? "recruit" : selectedCategory}
+        defaultCategory={selectedCategory === "all" ? "free" : selectedCategory}
         initialTitle={initialPostTitle}
         initialContent={initialPostContent}
         busy={busy}
