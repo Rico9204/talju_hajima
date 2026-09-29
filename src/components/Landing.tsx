@@ -11,7 +11,7 @@ export default function Landing() {
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
       <div className="max-w-lg w-full px-6 text-center">
         <img
-          src="/slackerspace_gemini_icon.svg"
+          src="/slackerspace_icon.png"
           alt="Slackerspace"
           className="w-14 h-14 mx-auto mb-5"
           style={{ borderRadius: "20%" }}

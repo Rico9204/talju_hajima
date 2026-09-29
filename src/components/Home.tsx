@@ -226,7 +226,7 @@ export default function Home() {
         <div className="px-4 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center gap-3 min-w-0">
             <img
-              src="/slackerspace_gemini_icon.svg"
+              src="/slackerspace_icon.png"
               alt="Slackerspace"
               className="w-9 h-9 shrink-0"
               style={{ borderRadius: "20%" }}

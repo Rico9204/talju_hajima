@@ -262,7 +262,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
             className="flex items-center gap-3 min-w-0 text-left"
           >
             <img
-              src="/slackerspace_gemini_icon.svg"
+              src="/slackerspace_icon.png"
               alt="Slackerspace"
               className="w-9 h-9 shrink-0"
               style={{ borderRadius: "20%" }}

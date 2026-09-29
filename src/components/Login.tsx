@@ -81,7 +81,7 @@ export default function Login() {
         className="w-[24rem] max-w-[92vw] p-6 my-auto"
         style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
       >
-        <img src="/slackerspace_gemini_icon.svg" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
+        <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
         <h3 className="font-700 mb-1">{mode === "signin" ? "로그인" : mode === "admin" ? "관리자 회원가입" : "회원가입"}</h3>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
           {mode === "admin" ? "교수·교원 등 프로젝트를 관리하는 분을 위한 가입입니다." : "팀 프로젝트에 참여하려면 계정이 필요합니다."}
