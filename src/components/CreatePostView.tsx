@@ -8,6 +8,8 @@ import type { BoardAttachment, BoardCategory, BoardPost, NewBoardPostInput } fro
 
 export default function CreatePostView({
   initialPost,
+  initialTitle,
+  initialContent,
   defaultCategory,
   busy,
   onCancel,
@@ -15,6 +17,8 @@ export default function CreatePostView({
   onUpdate,
 }: {
   initialPost?: BoardPost;
+  initialTitle?: string;
+  initialContent?: string;
   defaultCategory: BoardCategory;
   busy: boolean;
   onCancel: () => void;
@@ -26,7 +30,7 @@ export default function CreatePostView({
   const initialCat = initialPost?.category ?? defaultCategory;
   const safeCat = !isAdmin && initialCat === "notice" ? "free" : initialCat;
   const [category, setCategory] = useState<BoardCategory>(safeCat);
-  const [title, setTitle] = useState(initialPost?.title ?? "");
+  const [title, setTitle] = useState(initialPost?.title ?? initialTitle ?? "");
   const editorRef = useRef<HTMLDivElement>(null);
   const [attachments, setAttachments] = useState<BoardAttachment[]>(initialPost?.attachments ?? []);
   const [uploading, setUploading] = useState(false);
@@ -50,8 +54,9 @@ export default function CreatePostView({
   const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
 
   useEffect(() => {
-    if (editorRef.current && initialPost?.content) {
-      editorRef.current.innerHTML = sanitizeBoardHtml(initialPost.content);
+    const contentToLoad = initialPost?.content ?? initialContent;
+    if (editorRef.current && contentToLoad) {
+      editorRef.current.innerHTML = sanitizeBoardHtml(contentToLoad);
       editorRef.current.querySelectorAll("img").forEach((img) => {
         const parent = img.parentElement;
         if (parent && parent.classList.contains("inline-block-img-wrapper") && parent.querySelector(".img-delete-btn")) {

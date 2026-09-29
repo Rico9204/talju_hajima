@@ -163,10 +163,11 @@ export function useMenuOrder() {
 // Home (Main screen) menu preferences
 // -------------------------------------------------------------
 
-export type HomeNavTab = "projects" | "board" | "achievements" | "settings";
+export type HomeNavTab = "projects" | "campus" | "board" | "achievements" | "settings";
 
 export const DEFAULT_HOME_MENU_ORDER: readonly HomeNavTab[] = [
   "projects",
+  "campus",
   "board",
   "achievements",
   "settings",
@@ -185,6 +186,12 @@ export const HOME_MENU_ITEMS_META: Record<HomeNavTab, HomeMenuItemMeta> = {
     label: "내 프로젝트",
     icon: "📁",
     description: "참여 중이거나 완료된 내 팀 프로젝트 목록",
+  },
+  campus: {
+    id: "campus",
+    label: "캠퍼스 소식",
+    icon: "🎓",
+    description: "학교 공지·공모전·취업 소식과 팀원 모집 연동",
   },
   board: {
     id: "board",

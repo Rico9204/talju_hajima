@@ -15,6 +15,7 @@ import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
 import AdminReports from "./AdminReports";
+import CampusNoticesView from "./CampusNoticesView";
 import { dataRepository } from "../api";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
@@ -24,6 +25,7 @@ import {
   reorderHomeMenuItem,
   type HomeNavTab,
 } from "../lib/menuPreferences";
+import type { BoardCategory } from "../api/types";
 
 // Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
 // mirrors the same treatment in Sidebar.tsx's bottom user card.
@@ -40,7 +42,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board" | "achievements" | "settings" | "operator" | "reports";
+type HomeTab = "projects" | "campus" | "board" | "achievements" | "settings" | "operator" | "reports";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
@@ -134,6 +136,25 @@ export default function Home() {
     setDragOverTab(null);
     setDropPosition(null);
   }
+
+  // 공모전 공지에서 '팀원 모집' 클릭 시 게시판으로 전달할 상태
+  const [boardInitialState, setBoardInitialState] = useState<{
+    category?: "all" | BoardCategory;
+    isCreating?: boolean;
+    title?: string;
+    content?: string;
+  } | null>(null);
+
+  function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string }) {
+    setBoardInitialState({
+      category: "recruit",
+      isCreating: true,
+      title: `[팀원 모집] ${notice.title}`,
+      content: `<p><strong>[공모전 정보]</strong></p><p>• 주최/소속: ${notice.schoolName}</p><p>• 공모전 원문 링크: <a href="${notice.link}" target="_blank" rel="noopener noreferrer">${notice.link}</a></p><p><br></p><p><strong>[팀원 모집 내용]</strong></p><p>해당 공모전에 함께 도전할 팀원을 모집합니다!</p><p>• 모집 분야: 기획 / 디자인 / 개발</p><p>• 지원 방법: 댓글이나 메시지로 편하게 연락주세요.</p>`,
+    });
+    setActiveTab("board");
+  }
+
   // 운영자 전용 메뉴: 대기 중인 관리자 신청 수를 배지로 보여준다(운영자가 아니면 조회하지 않는다).
   const { isOperator, listAdminApplications } = useProjectManagement();
   const [pendingApplications, setPendingApplications] = useState(0);
@@ -267,6 +288,24 @@ export default function Home() {
                   <span className="flex items-center gap-2.5">
                     <span>💬</span>
                     <span>게시판</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            } else if (tabId === "campus") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("campus")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "campus" ? "var(--primary)" : "transparent", color: activeTab === "campus" ? "#fff" : "var(--foreground)" }}
+                  title="캠퍼스 소식 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>🎓</span>
+                    <span>캠퍼스 소식</span>
                   </span>
                   <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
                     ⠿
@@ -433,8 +472,16 @@ export default function Home() {
               </div>
               <AdminReports onOpenCountChange={setOpenReports} />
             </div>
+          ) : activeTab === "campus" ? (
+            <CampusNoticesView onRecruitFromNotice={handleRecruitFromNotice} />
           ) : activeTab === "board" ? (
-            <BoardView />
+            <BoardView
+              initialCategory={boardInitialState?.category}
+              initialCreating={boardInitialState?.isCreating}
+              initialPostTitle={boardInitialState?.title}
+              initialPostContent={boardInitialState?.content}
+              onResetInitialState={() => setBoardInitialState(null)}
+            />
           ) : activeTab === "achievements" ? (
             <Achievements />
           ) : (

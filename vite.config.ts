@@ -57,6 +57,35 @@ export default defineConfig(({ mode }) => {
               res.end(JSON.stringify({ error: err instanceof Error ? err.message : 'fetch failed' }))
             }
           })
+
+          const noticeCache = new Map<string, { result: any; cachedAt: number }>()
+          const NOTICE_CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes cache in dev
+
+          server.middlewares.use('/api/campus-notices', async (req, res) => {
+            try {
+              const url = new URL(req.url ?? '', 'http://localhost')
+              const school = (url.searchParams.get('school') ?? '').trim()
+              const category = (url.searchParams.get('category') ?? 'all') as any
+              const cacheKey = `${school}:${category}`
+
+              const cached = noticeCache.get(cacheKey)
+              if (cached && Date.now() - cached.cachedAt < NOTICE_CACHE_TTL_MS) {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify(cached.result))
+                return
+              }
+
+              const { crawlNotices } = await import('./src/lib/crawler/crawlerService')
+              const result = await crawlNotices(school, category)
+              noticeCache.set(cacheKey, { result, cachedAt: Date.now() })
+
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(result))
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: err instanceof Error ? err.message : 'crawl failed' }))
+            }
+          })
         },
       },
     ],

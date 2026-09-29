@@ -22,6 +22,7 @@ import type {
   ChatGroup,
   ChatToolEvent,
 } from "../api/types";
+import type { NoticeItem, ScrappedNotice } from "../lib/crawler/types";
 import { isSupabaseConfigured, SUPABASE_SETUP_MESSAGE, supabase } from "../lib/supabase";
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
@@ -190,6 +191,9 @@ interface ProjectContextValue {
   viewedMemberId: string | null;
   openMemberProfile: (memberId: string) => void;
   closeMemberProfile: () => void;
+  fetchCampusNotices: (params: { school?: string; category?: string }) => Promise<NoticeItem[]>;
+  listScrappedNotices: () => Promise<ScrappedNotice[]>;
+  toggleScrapNotice: (notice: NoticeItem) => Promise<boolean>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -1425,6 +1429,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         viewedMemberId,
         openMemberProfile: setViewedMemberId,
         closeMemberProfile: () => setViewedMemberId(null),
+        fetchCampusNotices: (params) => dataRepository.fetchCampusNotices(params),
+        listScrappedNotices: () => dataRepository.listScrappedNotices(),
+        toggleScrapNotice: (notice) => dataRepository.toggleScrapNotice(notice),
       }}
     >
       {children}
