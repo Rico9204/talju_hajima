@@ -4278,7 +4278,7 @@ drop policy if exists push_subscriptions_select_own on public.push_subscriptions
 create policy push_subscriptions_select_own on public.push_subscriptions for select to authenticated using (user_id = auth.uid());
 
 -- 보낼 곳(Vercel 함수 주소)과 공유 비밀값. 한 줄만 있고, 사용자는 읽을 수 없다(아래 함수들만 사용).
--- 설정: insert into public.push_config(endpoint, secret) values ('https://<배포 주소>/api/push', '<PUSH_WEBHOOK_SECRET과 같은 값>')
+-- 설정(예: 따옴표 안에 값만, 꺾쇠·공백 없이): insert into public.push_config(endpoint, secret) values ('https://taljuhajima.vercel.app/api/push', 'Vercel의 PUSH_WEBHOOK_SECRET과 같은 64글자')
 --       on conflict (id) do update set endpoint = excluded.endpoint, secret = excluded.secret;
 create table if not exists public.push_config (
   id boolean primary key default true check (id),
