@@ -60,8 +60,11 @@ try {
   }
   if (!stopping) {
     if (!ready) throw new Error('백엔드 시작 시간 초과. 위의 서버 로그를 확인하세요.');
-    console.log(`프론트: ${config.frontend}\nVercel 환경변수: VITE_API_URL=/api, VITE_BACKEND_URL=${config.publicUrl}`);
-    console.log('이 값을 Vercel에 최초 한 번 설정하고 Redeploy하세요. Ctrl+C로 서버와 ngrok을 함께 종료합니다.');
+    console.log(`프론트: ${config.frontend}`);
+    console.log('Vercel 환경변수(각각 따로 등록):');
+    console.log('  VITE_API_URL     = /api');
+    console.log(`  VITE_BACKEND_URL = ${config.publicUrl}`);
+    console.log('최초 한 번 등록하고 Redeploy하세요. Ctrl+C로 서버와 ngrok을 함께 종료합니다.');
     const target = await readFile(new URL('../../vercel.json', import.meta.url), 'utf8').then((text) => vercelApiTarget(JSON.parse(text))).catch(() => null);
     if (target !== config.publicUrl) console.warn(`경고: vercel.json의 /api 전달 주소(${target ?? '없음'})가 NGROK_URL과 다릅니다. 고친 뒤 커밋·재배포해야 로그인이 됩니다.`);
     start(executable, ['http', `http://127.0.0.1:${config.port}`, `--url=${config.publicUrl}`], config.env);
