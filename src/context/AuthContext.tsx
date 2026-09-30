@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
+import { disablePush } from "../lib/webPush";
 
 interface AuthContextValue {
   user: User | null;
@@ -76,6 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    // 이 브라우저의 웹 푸시 구독을 먼저 지운다 — 로그아웃한 뒤에도 이 기기로 내 알림이 오지 않게.
+    await disablePush().catch(() => {});
     await supabase.auth.signOut();
   }
 

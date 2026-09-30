@@ -88,6 +88,9 @@ export interface DataRepository {
   getMemberParticipationStats(userId: string): Promise<{ projectCount: number; collaboratorCount: number }>;
   // 대상 없이: 내 전체 평균의 위치. 대상 지정: 그 프로젝트에서 공개된 그 팀원 점수의 위치.
   getEvaluationPercentiles(target?: { projectId: string; memberId: string }): Promise<import("./types").EvaluationPercentiles>;
+  // 웹 푸시(브라우저를 닫아도 알림) 구독: 이 브라우저의 구독을 내 계정에 저장·삭제
+  savePushSubscription(subscription: { endpoint: string; p256dh: string; auth: string }): Promise<void>;
+  deletePushSubscription(endpoint: string): Promise<void>;
   updateMyProfile(patch: Partial<{
     name: string; major: string; student: string; school: string; avatarUrl: string | null;
     contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null;

@@ -1,6 +1,8 @@
 // OS-level notifications (Notification API) so a new task/일정/파일/채팅이
 // still surfaces while the user is on a different browser tab or app — the
 // in-app bell in Sidebar.tsx only helps while this tab is the visible one.
+import { isPushActive } from "./webPush";
+
 const STORAGE_KEY = "collabpeer.browser-notifications-enabled";
 
 export function isNotificationSupported(): boolean {
@@ -44,6 +46,7 @@ export function setBrowserNotificationsEnabled(enabled: boolean) {
 // system popup on top would just be a redundant interruption.
 export function notifyIfAway(title: string, body: string, onClick?: () => void) {
   if (!isBrowserNotificationsEnabled()) return;
+  if (isPushActive()) return; // 웹 푸시(서비스 워커)가 같은 알림을 띄운다
   if (document.visibilityState === "visible" && document.hasFocus()) return;
   try {
     const n = new Notification(title, { body, tag: "collabpeer-unread" });

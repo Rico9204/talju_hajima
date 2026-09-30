@@ -8,6 +8,8 @@ import {
   requestNotificationPermission,
   setBrowserNotificationsEnabled,
 } from "../lib/browserNotifications";
+import { disablePush, enablePush, isPushSupported } from "../lib/webPush";
+import { useAuth } from "../context/AuthContext";
 import {
   useMenuOrder,
   moveMenuItem,
@@ -176,23 +178,27 @@ function NotificationSettings() {
   const supported = isNotificationSupported();
   const [permission, setPermission] = useState(getNotificationPermission);
   const [enabled, setEnabled] = useState(isBrowserNotificationsEnabled);
+  const { user } = useAuth();
 
   async function turnOn() {
     const result = await requestNotificationPermission();
     setPermission(result);
     setEnabled(result === "granted");
+    // 브라우저를 닫아도 받도록 웹 푸시도 구독한다(서버 설정이 없거나 지원하지 않는 브라우저면 탭 알림만).
+    if (result === "granted" && user) void enablePush(user.id).catch(() => {});
   }
 
   function turnOff() {
     setBrowserNotificationsEnabled(false);
     setEnabled(false);
+    void disablePush({ forget: true });
   }
 
   const active = supported && permission === "granted" && enabled;
 
   return (
     <>
-      <SectionHeader title="브라우저 알림" hint="다른 탭이나 창을 보고 있을 때도 새 알림을 놓치지 않도록 알려줍니다" />
+      <SectionHeader title="브라우저 알림" hint={isPushSupported() ? "사이트를 닫아 두어도 새 알림을 놓치지 않도록 알려줍니다" : "다른 탭이나 창을 보고 있을 때도 새 알림을 놓치지 않도록 알려줍니다"} />
       <div className="p-3.5" style={{ borderRadius: "12px", border: active ? "2px solid var(--primary)" : "1px solid var(--border)", background: active ? "color-mix(in srgb, var(--primary) 8%, var(--card-glass))" : "var(--card)" }}>
         <div className="flex gap-3 items-start">
           <span className="w-9 h-9 shrink-0 flex items-center justify-center text-base" style={{ borderRadius: "9px", background: active ? "var(--primary)" : "var(--muted)" }}>
@@ -208,9 +214,13 @@ function NotificationSettings() {
                 ? "이 브라우저는 알림 기능을 지원하지 않습니다."
                 : permission === "denied"
                   ? "브라우저에서 알림이 차단되어 있습니다. 주소창의 사이트 설정에서 알림을 허용해 주세요."
-                  : active
-                    ? "다른 탭을 보는 동안 새 항목이 오면 시스템 알림으로 보여줍니다."
-                    : "켜면 다른 탭에 있을 때도 새 항목이 왔을 때 시스템 알림으로 알려드립니다."}
+                  : isPushSupported()
+                    ? active
+                      ? "사이트 탭을 닫아 두어도 새 항목이 오면 시스템 알림으로 보여줍니다. PC에서 브라우저 프로그램을 완전히 종료했다면 다시 켤 때 받습니다(24시간 안의 알림). 아이폰은 홈 화면에 추가한 뒤에 받을 수 있습니다."
+                      : "켜면 사이트를 닫아 두어도 새 항목이 왔을 때 시스템 알림으로 알려드립니다."
+                    : active
+                      ? "다른 탭을 보는 동안 새 항목이 오면 시스템 알림으로 보여줍니다."
+                      : "켜면 다른 탭에 있을 때도 새 항목이 왔을 때 시스템 알림으로 알려드립니다."}
             </span>
           </span>
           {supported && permission !== "denied" && (

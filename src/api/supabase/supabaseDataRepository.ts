@@ -682,6 +682,16 @@ export const supabaseDataRepository: DataRepository = {
     return { projectCount: data?.projectCount ?? 0, collaboratorCount: data?.collaboratorCount ?? 0 };
   },
 
+  async savePushSubscription({ endpoint, p256dh, auth }) {
+    const { error } = await supabase.rpc("save_push_subscription", { p_endpoint: endpoint, p_p256dh: p256dh, p_auth: auth });
+    if (error) throw error;
+  },
+
+  async deletePushSubscription(endpoint) {
+    const { error } = await supabase.rpc("delete_push_subscription", { p_endpoint: endpoint });
+    if (error) throw error;
+  },
+
   async getEvaluationPercentiles(target) {
     const { data, error } = await supabase.rpc("evaluation_percentiles", { p_project_id: target?.projectId ?? null, p_member_id: target?.memberId ?? null });
     if (error) throw error;

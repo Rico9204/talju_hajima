@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProject } from "../context/ProjectContext";
-import { notifyIfAway } from "../lib/browserNotifications";
+import { useAuth } from "../context/AuthContext";
+import { isBrowserNotificationsEnabled, notifyIfAway } from "../lib/browserNotifications";
+import { syncPush } from "../lib/webPush";
 
 // Joins up to `max` names, folding the rest into a "+N건 더" tail so one
 // huge batch (e.g. a bulk import) doesn't produce an unreadably long line.
@@ -24,6 +26,13 @@ export default function UnreadNotifier() {
     chatLoaded: boolean;
     mentionIds: Set<number>;
   } | null>(null);
+
+  // 이 브라우저에서 알림을 켠 사람이 나면 로그인할 때마다 웹 푸시 구독을 맞춘다(로그아웃 때 지워지므로).
+  // 켠 사람이 다른 계정이면(공용 컴퓨터) 켜지 않는다 — syncPush가 확인한다.
+  const { user } = useAuth();
+  useEffect(() => {
+    if (user && isBrowserNotificationsEnabled()) void syncPush(user.id).catch(() => {});
+  }, [user?.id]);
 
   useEffect(() => {
     const taskIds = new Set(newTasks.map((t) => t.id));

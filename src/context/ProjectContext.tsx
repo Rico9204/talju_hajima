@@ -469,7 +469,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         // would see every other account's projects in their own switcher.
         const mine = list.filter((p) => myProjectIds.includes(p.id));
         setProjects(mine);
-        setProjectId(mine[0]?.id ?? null);
+        // 알림을 눌러 들어오면 주소의 ?project=로 그 프로젝트를 연다(내 프로젝트일 때만).
+        const requested = new URLSearchParams(window.location.search).get("project");
+        setProjectId(mine.find((p) => p.id === requested)?.id ?? mine[0]?.id ?? null);
         setProjectsLoaded(true);
       })
       .catch((err) => {
