@@ -60,3 +60,25 @@ test('알려진 푸시 서비스로만 보내고, 끊긴 구독은 비밀값과 
   assert.equal(pruned[0].url, 'https://db.test/rest/v1/rpc/prune_push_subscriptions');
   assert.deepEqual(pruned[0].body, { p_secret: 's'.repeat(40), p_endpoints: ['https://web.push.apple.com/gone'] });
 });
+
+test('대시보드에 붙여 넣으며 섞인 앞뒤 공백·줄바꿈은 무시한다', async () => {
+  const saved = { ...process.env };
+  process.env.PUSH_WEBHOOK_SECRET = ` ${'s'.repeat(40)}\n`;
+  process.env.VITE_VAPID_PUBLIC_KEY = `${vapid.publicKey}\n`;
+  process.env.VAPID_PRIVATE_KEY = ` ${vapid.privateKey} `;
+  process.env.VAPID_SUBJECT = 'https://app.test\r\n';
+  try {
+    const res = await call({ body: { subscriptions: [], notification } });
+    assert.equal(res.status, 200);
+  } finally { Object.assign(process.env, saved); }
+});
+
+test('VAPID 키 형식이 틀려도 함수가 죽지 않고 원인을 알린다', async () => {
+  const saved = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PRIVATE_KEY = '"잘못된 키"';
+  try {
+    const res = await call({ body: { subscriptions: [], notification } });
+    assert.equal(res.status, 500);
+    assert.deepEqual(res.body, { error: 'invalid VAPID config' });
+  } finally { process.env.VAPID_PRIVATE_KEY = saved; }
+});

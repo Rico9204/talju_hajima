@@ -2,7 +2,7 @@ import { dataRepository } from "../api";
 
 // 웹 푸시: 브라우저(사이트 탭)를 닫아도 새 과제·일정·파일·채팅 알림을 받는다.
 // 서비스 워커(public/sw.js)가 푸시를 받아 알림을 띄우고, 구독은 내 계정에 저장해 서버(DB 트리거 → /api/push)가 보낸다.
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim(); // 붙여 넣으며 섞인 공백·줄바꿈 제거
 let active = false;
 
 export function isPushSupported(): boolean {

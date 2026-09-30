@@ -50,10 +50,13 @@ function parse(input: unknown): { subscriptions: Subscription[]; notification: N
   };
 }
 
+// 대시보드에 붙여 넣을 때 섞인 앞뒤 공백·줄바꿈 때문에 키가 달라지는 일이 흔해서 잘라 낸다.
+const env = (name: string) => process.env[name]?.trim() || undefined;
+
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  const secret = process.env.PUSH_WEBHOOK_SECRET;
-  const publicKey = process.env.VITE_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const secret = env("PUSH_WEBHOOK_SECRET");
+  const publicKey = env("VITE_VAPID_PUBLIC_KEY");
+  const privateKey = env("VAPID_PRIVATE_KEY");
   if (!secret || !publicKey || !privateKey) return reply(res, 500, { error: "push not configured" });
   if (req.method !== "POST") return reply(res, 405, { error: "method not allowed" });
   if (!sameSecret(req.headers["x-push-secret"], secret)) return reply(res, 401, { error: "unauthorized" });
@@ -62,7 +65,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try { payload = parse(await readJson(req)); } catch { payload = null; }
   if (!payload) return reply(res, 400, { error: "bad request" });
 
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:admin@example.com", publicKey, privateKey);
+  try {
+    webpush.setVapidDetails(env("VAPID_SUBJECT") || "mailto:admin@example.com", publicKey, privateKey);
+  } catch (error) {
+    // 키·연락처 형식이 틀리면 여기서 멈춘다. 함수가 죽지 않고 원인을 남긴다(값은 기록하지 않음).
+    console.error("웹 푸시 VAPID 설정 오류:", error instanceof Error ? error.message : error);
+    return reply(res, 500, { error: "invalid VAPID config" });
+  }
   const message = JSON.stringify(payload.notification);
   const gone: string[] = [];
   let sent = 0;
@@ -77,8 +86,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }));
 
   // 끊긴 구독 정리(실패해도 다음 발송 때 다시 시도된다).
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = env("VITE_SUPABASE_URL");
+  const anonKey = env("VITE_SUPABASE_ANON_KEY");
   if (gone.length && supabaseUrl && anonKey) {
     await fetch(`${supabaseUrl}/rest/v1/rpc/prune_push_subscriptions`, {
       method: "POST",

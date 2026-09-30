@@ -216,7 +216,7 @@ function NotificationSettings() {
                   ? "브라우저에서 알림이 차단되어 있습니다. 주소창의 사이트 설정에서 알림을 허용해 주세요."
                   : isPushSupported()
                     ? active
-                      ? "사이트 탭을 닫아 두어도 새 항목이 오면 시스템 알림으로 보여줍니다. PC에서 브라우저 프로그램을 완전히 종료했다면 다시 켤 때 받습니다(24시간 안의 알림). 아이폰은 홈 화면에 추가한 뒤에 받을 수 있습니다."
+                      ? "사이트 탭을 닫아 두어도 새 항목이 오면 시스템 알림으로 보여줍니다. PC에서 브라우저 창을 모두 닫아도 받으려면 아래 '백그라운드 실행'을 켜 주세요."
                       : "켜면 사이트를 닫아 두어도 새 항목이 왔을 때 시스템 알림으로 알려드립니다."
                     : active
                       ? "다른 탭을 보는 동안 새 항목이 오면 시스템 알림으로 보여줍니다."
@@ -228,7 +228,44 @@ function NotificationSettings() {
           )}
         </div>
       </div>
+      {supported && permission !== "denied" && isPushSupported() && <BackgroundRunGuide />}
     </>
+  );
+}
+
+// 웹 푸시는 브라우저 프로그램이 뒤에서 실행 중이어야 받을 수 있다(웹사이트가 바꿀 수 없는 브라우저 설정).
+// 지금 쓰는 브라우저의 안내를 먼저 보여 준다.
+function BackgroundRunGuide() {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isEdge = ua.includes("Edg/");
+  const isMobile = /Android|iPhone|iPad/i.test(ua);
+  const steps = [
+    { browser: "Chrome", path: "설정 → 시스템 → 'Chrome이 종료된 후에도 백그라운드 앱 계속 실행' 켜기" },
+    { browser: "Edge", path: "설정 → 시스템 및 성능 → 'Microsoft Edge가 닫힐 때 백그라운드 확장 및 앱 계속 실행' 켜기" },
+  ];
+  if (isEdge) steps.reverse();
+  return (
+    <div className="mt-2.5 p-3.5 text-xs" style={{ borderRadius: "12px", border: "1px dashed var(--border)", background: "var(--card)", lineHeight: 1.7 }}>
+      <div className="font-700 text-sm mb-1">브라우저 창을 모두 닫아도 받으려면</div>
+      {isMobile ? (
+        <p style={{ color: "var(--muted-foreground)" }}>
+          안드로이드는 브라우저 앱을 닫아도 알림이 옵니다. 아이폰은 Safari에서 이 사이트를 <strong>홈 화면에 추가</strong>한 뒤, 추가된 앱에서 알림을 켜야 받을 수 있습니다.
+        </p>
+      ) : (
+        <>
+          <p style={{ color: "var(--muted-foreground)" }}>
+            알림은 브라우저 프로그램이 뒤에서 실행 중일 때 받을 수 있습니다. 아래 설정을 켜 두면 창을 모두 닫아도 알림이 옵니다.
+            꺼져 있으면 브라우저를 다시 켤 때 그동안의 알림(24시간 이내)을 받습니다.
+          </p>
+          <ul className="mt-1.5 pl-4 list-disc">
+            {steps.map((s) => <li key={s.browser}><strong>{s.browser}</strong>: {s.path}</li>)}
+          </ul>
+          <p className="mt-1.5" style={{ color: "var(--muted-foreground)" }}>
+            알림이 보이지 않으면 Windows 설정 → 시스템 → 알림에서 브라우저 알림이 켜져 있는지, 방해 금지(집중 모드)가 꺼져 있는지 확인해 주세요.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
