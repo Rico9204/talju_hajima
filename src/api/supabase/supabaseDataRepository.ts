@@ -682,6 +682,12 @@ export const supabaseDataRepository: DataRepository = {
     return { projectCount: data?.projectCount ?? 0, collaboratorCount: data?.collaboratorCount ?? 0 };
   },
 
+  async getEvaluationPercentiles(target) {
+    const { data, error } = await supabase.rpc("evaluation_percentiles", { p_project_id: target?.projectId ?? null, p_member_id: target?.memberId ?? null });
+    if (error) throw error;
+    return data;
+  },
+
   async updateMyProfile(patch) {
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData.user?.id;
