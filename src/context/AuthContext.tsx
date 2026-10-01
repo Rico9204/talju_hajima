@@ -11,6 +11,7 @@ interface AuthContextValue {
   signUp: (email: string, password: string, displayName: string, signupType?: "admin") => Promise<{ error: string | null; signedIn: boolean }>;
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
+  changePasswordWithCurrent: (currentPassword: string, newPassword: string) => Promise<{ error: string | null }>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -87,8 +88,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   }
 
+  async function changePasswordWithCurrent(currentPassword: string, newPassword: string) {
+    const trimmedCurrent = currentPassword.trim();
+    const trimmedNext = newPassword.trim();
+
+    if (!trimmedCurrent) {
+      return { error: "현재 비밀번호를 입력해 주세요." };
+    }
+    if (!trimmedNext) {
+      return { error: "새 비밀번호를 입력해 주세요." };
+    }
+    if (trimmedCurrent === trimmedNext) {
+      return { error: "새 비밀번호는 기존 비밀번호와 다르게 설정해야 합니다." };
+    }
+    if (trimmedNext.length < 6) {
+      return { error: "새 비밀번호는 6자 이상이어야 합니다." };
+    }
+
+    const email = session?.user?.email;
+    if (!email) {
+      return { error: "로그인된 계정의 이메일 정보를 확인할 수 없습니다." };
+    }
+
+    // 기존 비밀번호 재인증
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email,
+      password: trimmedCurrent,
+    });
+    if (verifyError) {
+      return { error: "현재 비밀번호가 일치하지 않습니다." };
+    }
+
+    // 새 비밀번호로 업데이트
+    const { error: updateError } = await supabase.auth.updateUser({ password: trimmedNext });
+    if (updateError) {
+      return { error: updateError.message };
+    }
+    return { error: null };
+  }
+
   return (
-    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>
+    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword, changePasswordWithCurrent }}>
       {children}
     </AuthContext.Provider>
   );
