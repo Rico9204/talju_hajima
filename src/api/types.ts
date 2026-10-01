@@ -236,6 +236,7 @@ export interface ScheduleEvent {
   type: ScheduleEventType;
   scope: ScheduleEventScope;
   ownerMemberId: string | null; // scope === "personal"일 때만 존재
+  createdByMemberId?: string | null; // 만든 팀원(서버가 정함). 작성자 기록 전의 팀 일정은 null
   visibility: ScheduleEventVisibility | null; // scope === "personal"일 때만 존재
   hideTitle: boolean;
 }

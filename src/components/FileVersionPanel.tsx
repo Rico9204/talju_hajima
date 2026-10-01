@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
 import FileUploadDialog from "./FileUploadDialog";
 import VersionPageView from "./VersionPageView";
+import VersionCalendar from "./VersionCalendar";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
@@ -47,16 +48,16 @@ function highlightOfficeHtml(html: string, query: string): string {
   return document.body.innerHTML;
 }
 
-export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange, onQuickEdit, editorNames = [] }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void; onQuickEdit?: (mode: "main" | "pin", version?: FileVersion) => void; editorNames?: string[] }) {
-  const { project, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
+export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange, onQuickEdit, onSelectFile, editorNames = [] }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void; onQuickEdit?: (mode: "main" | "pin", version?: FileVersion) => void; onSelectFile?: (fileId: number) => void; editorNames?: string[] }) {
+  const { project, files, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [onlyPinned, setOnlyPinned] = useState(false);
-  // 비전공자 기본값은 "페이지"(저장 순서로 넘기며 바뀐 줄 표시), 분기를 보려면 "버전 트리".
-  const [viewMode, setViewMode] = useState<"page" | "tree">("page");
+  // 비전공자 기본값은 "페이지"(저장 순서로 넘기며 바뀐 줄 표시), 분기를 보려면 "버전 트리", 날짜별로 보려면 "달력".
+  const [viewMode, setViewMode] = useState<"page" | "tree" | "calendar">("page");
   const textCache = useRef(new Map<number, string | null>());
   const [preview, setPreview] = useState<{ url?: string; text?: string; html?: string; entries?: ZipEntry[]; kind: string; name: string } | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
@@ -196,8 +197,9 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       </button>
     )}
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
-      {([["page", "페이지"], ["tree", "버전 트리"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
+      {([["page", "페이지"], ["tree", "버전 트리"], ["calendar", "달력"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
     </div>
+    {viewMode === "calendar" && <VersionCalendar file={file} files={files} onSelectFile={onSelectFile} />}
     {viewMode === "page" && <VersionPageView file={file} locked={locked} busy={busy} loadText={loadVersionText} onViewingVersionChange={onViewingVersionChange}
       onPinEdit={!locked && onQuickEdit ? (v) => onQuickEdit("pin", v) : undefined}
       onOpen={(v, download) => void run(() => openVersion(v, download))}

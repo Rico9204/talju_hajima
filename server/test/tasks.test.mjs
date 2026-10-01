@@ -67,9 +67,11 @@ test('일정: 팀 일정과 개인 일정, 개인 일정의 주인은 서버가 
   const team = await call(s.leader, 'POST', `/projects/${s.p}/schedule`, { title: '중간 발표', date: '2026-10-20', type: 'presentation', scope: 'team' });
   assert.equal(team.status, 201);
   assert.equal(team.body.ownerMemberId, null);
+  assert.equal(team.body.createdByMemberId, s.leader.memberId); // 작성자는 서버(트리거)가 정한다
   const mine = await call(s.member, 'POST', `/projects/${s.p}/schedule`, { title: '개인 공부', date: '2026-10-01', endDate: '2026-10-03', type: 'other', scope: 'personal' });
   assert.equal(mine.status, 201);
   assert.equal(mine.body.ownerMemberId, s.member.memberId);
+  assert.equal(mine.body.createdByMemberId, s.member.memberId);
   assert.equal(mine.body.visibility, 'private');
   assert.equal(mine.body.endDate, '2026-10-03');
   assert.deepEqual((await call(s.member, 'GET', `/projects/${s.p}/schedule`)).body.map((e) => e.title), ['개인 공부', '중간 발표']);
@@ -78,6 +80,9 @@ test('일정: 팀 일정과 개인 일정, 개인 일정의 주인은 서버가 
 
   assert.equal((await call(s.member, 'PATCH', `/schedule/${mine.body.id}`, { title: '개인 공부(수정)', visibility: 'shared' })).status, 204);
   assert.ok((await call(s.leader, 'GET', `/projects/${s.p}/schedule`)).body.some((e) => e.title === '개인 공부(수정)'));
+  // 작성자는 수정으로 바꿀 수 없다(관리자 계정의 직접 SQL로도 트리거가 그대로 둔다).
+  await pg.query('update public.schedule_events set created_by_member_id = $2 where id = $1', [team.body.id, s.member.memberId]);
+  assert.equal((await call(s.leader, 'GET', `/projects/${s.p}/schedule`)).body.find((e) => e.id === team.body.id).createdByMemberId, s.leader.memberId);
 
   // 과제에 연결한 일정은 과제를 지우면 함께 지워진다.
   assert.equal((await call(s.leader, 'PUT', `/tasks/${task.id}/schedule-link`, { field: 'team', eventId: team.body.id })).status, 204);

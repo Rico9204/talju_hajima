@@ -119,7 +119,7 @@ export function mapTask(row: Row) {
 export function mapScheduleEvent(row: Row) {
   return {
     id: row.id, title: row.title, date: row.date, endDate: row.end_date ?? null, type: row.type, scope: row.scope,
-    ownerMemberId: row.owner_member_id, visibility: row.visibility, hideTitle: row.hide_title,
+    ownerMemberId: row.owner_member_id, visibility: row.visibility, hideTitle: row.hide_title, createdByMemberId: row.created_by_member_id ?? null,
     createdAt: row.created_at ?? null, updatedAt: row.updated_at ?? null,
   };
 }

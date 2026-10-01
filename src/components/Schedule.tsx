@@ -173,6 +173,8 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   const [showPersonal, setShowPersonal] = useState(true);
   const [selectedMembers, setSelectedMembers] = useState<string[]>(team.members.map((m) => m.id));
   const [memberSearch, setMemberSearch] = useState("");
+  // 작성자별 필터: 고른 팀원이 만든 일정만(팀·개인 모두). null = 전체.
+  const [authorFilter, setAuthorFilter] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -206,6 +208,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setShowTeam(true);
     setShowPersonal(true);
     setSelectedMembers(team.members.map((m) => m.id));
+    setAuthorFilter(null);
     setTitle("");
     setDate("");
     setEndDate("");
@@ -232,6 +235,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     setSelectedDay(focusedEvent.date);
     setShowTeam(true);
     setShowPersonal(true);
+    setAuthorFilter(null);
     if (focusedEvent.ownerMemberId) {
       const owner = focusedEvent.ownerMemberId;
       setSelectedMembers(previous => previous.includes(owner) ? previous : [...previous, owner]);
@@ -299,11 +303,16 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     .filter((m) => membersWithPersonalEvents.has(m.id))
     .filter((m) => !memberSearchTrimmed || m.name.toLowerCase().includes(memberSearchTrimmed));
 
+  // 작성자 필터에 보일 팀원: 나에게 보이는 일정을 실제로 만든 사람만(작성자 기록 전의 팀 일정은 빠진다).
+  const authorIds = new Set(visibleToMe.map((e) => e.createdByMemberId).filter((id): id is string => !!id));
+  const authors = team.members.filter((m) => authorIds.has(m.id));
+
   const events = visibleToMe
     .filter((e) => {
       if (e.scope === "team") return showTeam;
       return showPersonal && selectedMembers.includes(e.ownerMemberId ?? "");
     })
+    .filter((e) => !authorFilter || e.createdByMemberId === authorFilter)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // 모든 일정을 "기간"으로 통일해서 다룬다 — 종료일이 없으면 시작일=종료일인
@@ -602,6 +611,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
               </div>
               <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
                 {viewingEvent.scope === "team" ? "팀 일정" : `${ownerName(viewingEvent)}님 개인 일정`}
+                {viewingEvent.scope === "team" && viewingEvent.createdByMemberId && ` · ${team.members.find((m) => m.id === viewingEvent.createdByMemberId)?.name ?? "알 수 없음"} 작성`}
               </div>
               <div className="text-xs mt-3 py-2 text-center" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>
                 다른 팀원의 일정은 수정할 수 없어요
@@ -761,7 +771,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
           <div className="p-5 flex-1" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-700">{selectedDay ? `${selectedDay} 일정` : "전체 일정"}</h2>
+              <h2 className="text-sm font-700">{selectedDay ? `${selectedDay} 일정` : "전체 일정"}{authorFilter && ` · ${team.members.find((m) => m.id === authorFilter)?.name ?? ""} 작성`}</h2>
               <div className="flex gap-1.5">
                 <button
                   onClick={() => setShowTeam((v) => !v)}
@@ -799,6 +809,39 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 </button>
               </div>
             </div>
+
+            {authors.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>작성자</div>
+                <div className="flex gap-1.5 flex-wrap max-h-24 overflow-y-auto pr-1" role="group" aria-label="작성자별 일정 필터">
+                  <button
+                    onClick={() => setAuthorFilter(null)}
+                    aria-pressed={authorFilter === null}
+                    className="text-xs font-600 px-3 py-1 shrink-0"
+                    style={{ borderRadius: "20px", background: authorFilter === null ? "var(--primary)" : "var(--muted)", color: authorFilter === null ? "#fff" : "var(--muted-foreground)" }}
+                  >
+                    전체
+                  </button>
+                  {authors.map((m) => {
+                    const active = authorFilter === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setAuthorFilter(active ? null : m.id)}
+                        aria-pressed={active}
+                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0"
+                        style={{ borderRadius: "20px", background: active ? "var(--primary)" : "var(--muted)", color: active ? "#fff" : "var(--foreground)" }}
+                      >
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden" style={{ background: active ? "rgba(255,255,255,0.25)" : `${m.color}18`, color: active ? "#fff" : m.color }}>
+                          {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                        </span>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {showSearch && (
               <input
