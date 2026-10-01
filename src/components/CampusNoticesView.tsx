@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import type { NoticeItem, NoticeCategory, ScrappedNotice } from "../lib/crawler/types";
 import { SCHOOL_REGISTRY } from "../lib/crawler/schoolsRegistry";
+import { NoticeSortOption, NOTICE_SORT_OPTIONS, sortNotices } from "../lib/crawler/noticeSort";
 import { useProject } from "../context/ProjectContext";
 import SchoolSearchCombobox from "./SchoolSearchCombobox";
 
@@ -27,6 +28,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
   const [selectedSchool, setSelectedSchool] = useState<string>(defaultSchool);
   const [activeTab, setActiveTab] = useState<NoticeCategory | "scrapped">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<NoticeSortOption>("latest");
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
 
   const [notices, setNotices] = useState<NoticeItem[]>([]);
@@ -123,15 +125,18 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
       list = notices;
     }
 
-    if (!searchQuery.trim()) return list;
-    const q = searchQuery.toLowerCase().trim();
-    return list.filter(
-      (n) =>
-        n.title.toLowerCase().includes(q) ||
-        n.author.toLowerCase().includes(q) ||
-        n.schoolName.toLowerCase().includes(q)
-    );
-  }, [notices, scrappedList, activeTab, searchQuery]);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (n) =>
+          n.title.toLowerCase().includes(q) ||
+          n.author.toLowerCase().includes(q) ||
+          n.schoolName.toLowerCase().includes(q)
+      );
+    }
+
+    return sortNotices(list, sortBy);
+  }, [notices, scrappedList, activeTab, searchQuery, sortBy]);
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
@@ -158,25 +163,77 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
             </p>
           </div>
 
-          {/* School & Platform Selector Combobox */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-start md:self-auto shrink-0 w-full sm:w-auto">
-            <span className="text-xs font-700 shrink-0" style={{ color: "var(--muted-foreground)" }}>
-              소식 출처:
-            </span>
-            <SchoolSearchCombobox
-              selectedSchool={selectedSchool}
-              onSelectSchool={(school) => {
-                setSelectedSchool(school);
-                setSearchQuery("");
-              }}
-              mySchool={currentMember?.school}
-            />
+          {/* Header Right Controls: Sort & View above School Selector */}
+          <div className="flex flex-col items-start md:items-end gap-2.5 shrink-0 w-full sm:w-auto">
+            {/* Sort Dropdown & View Mode Toggle */}
+            <div className="flex items-center gap-2 self-start md:self-end">
+              {/* Sort Dropdown */}
+              <div className="flex items-center shrink-0">
+                <select
+                  id="campus-notices-sort"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as NoticeSortOption)}
+                  aria-label="소식 정렬 순서"
+                  className="text-xs px-2.5 py-1.5 border rounded-full outline-none cursor-pointer transition-all font-600"
+                  style={{
+                    background: "var(--muted)",
+                    borderColor: "var(--border)",
+                    color: "var(--foreground)",
+                  }}
+                >
+                  {NOTICE_SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value} style={{ background: "var(--card)", color: "var(--foreground)" }}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* View Mode Toggle */}
+              <div className="flex items-center bg-black/5 dark:bg-white/5 p-0.5 rounded-lg border shrink-0" style={{ borderColor: "var(--border)" }}>
+                <button
+                  onClick={() => setViewMode("card")}
+                  title="카드 보기"
+                  className="p-1.5 text-xs rounded transition-all cursor-pointer"
+                  style={{
+                    background: viewMode === "card" ? "var(--card)" : "transparent",
+                    color: "var(--foreground)",
+                  }}
+                >
+                  ▦
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  title="목록 보기"
+                  className="p-1.5 text-xs rounded transition-all cursor-pointer"
+                  style={{
+                    background: viewMode === "list" ? "var(--card)" : "transparent",
+                    color: "var(--foreground)",
+                  }}
+                >
+                  ≡
+                </button>
+              </div>
+            </div>
+
+            {/* School & Platform Selector Combobox */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-start md:self-auto shrink-0 w-full sm:w-auto">
+              <span className="text-xs font-700 shrink-0" style={{ color: "var(--muted-foreground)" }}>
+                소식 출처:
+              </span>
+              <SchoolSearchCombobox
+                selectedSchool={selectedSchool}
+                onSelectSchool={(school) => {
+                  setSelectedSchool(school);
+                  setSearchQuery("");
+                }}
+                mySchool={currentMember?.school}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Category Tabs & Controls */}
-
-        {/* Category Tabs & Controls */}
+        {/* Category Tabs & Search Bar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             {CATEGORY_TABS.map((tab) => {
@@ -213,49 +270,21 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
             })}
           </div>
 
-          {/* Search bar & View mode toggle */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 sm:w-56">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="제목, 작성부서 검색…"
-                className="w-full pl-8 pr-3 py-1.5 text-xs outline-none"
-                style={{
-                  background: "var(--muted)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "20px",
-                  color: "var(--foreground)",
-                }}
-              />
-              <span className="absolute left-2.5 top-2 text-xs opacity-50">🔍</span>
-            </div>
-
-            <div className="flex items-center bg-black/5 dark:bg-white/5 p-0.5 rounded-lg border" style={{ borderColor: "var(--border)" }}>
-              <button
-                onClick={() => setViewMode("card")}
-                title="카드 보기"
-                className="p-1.5 text-xs rounded transition-all cursor-pointer"
-                style={{
-                  background: viewMode === "card" ? "var(--card)" : "transparent",
-                  color: "var(--foreground)",
-                }}
-              >
-                ▦
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                title="목록 보기"
-                className="p-1.5 text-xs rounded transition-all cursor-pointer"
-                style={{
-                  background: viewMode === "list" ? "var(--card)" : "transparent",
-                  color: "var(--foreground)",
-                }}
-              >
-                ≡
-              </button>
-            </div>
+          <div className="relative flex-1 min-w-[140px] sm:w-56 sm:flex-initial">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="제목, 작성부서 검색…"
+              className="w-full pl-8 pr-3 py-1.5 text-xs outline-none"
+              style={{
+                background: "var(--muted)",
+                border: "1px solid var(--border)",
+                borderRadius: "20px",
+                color: "var(--foreground)",
+              }}
+            />
+            <span className="absolute left-2.5 top-2 text-xs opacity-50">🔍</span>
           </div>
         </div>
       </div>
