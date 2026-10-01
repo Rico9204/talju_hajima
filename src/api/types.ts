@@ -11,6 +11,8 @@ export interface Project {
   approvalStatus: ProjectApprovalStatus;
   completedAt?: string;
   requestedAdminId?: string;
+  joinCode?: string;
+  joinCodeExpiresAt?: string;
 }
 
 export interface NewProjectInput {

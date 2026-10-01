@@ -102,7 +102,9 @@ interface ProjectContextValue {
   setProjectId: (id: string) => void;
   addProject: (input: NewProjectInput) => Promise<string>;
   deleteProject: (projectId: string) => Promise<void>;
-  lookupProject: (projectId: string) => Promise<Project | null>;
+  lookupProject: (code: string) => Promise<Project | null>;
+  rotateJoinCode: (projectId?: string) => Promise<{ joinCode: string; joinCodeExpiresAt: string }>;
+  getOrRotateJoinCode: (projectId?: string) => Promise<{ joinCode: string; joinCodeExpiresAt: string }>;
   joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
   markProjectDone: () => Promise<void>;
   kickMember: (memberId: string) => Promise<void>;
@@ -520,6 +522,17 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     };
   }, [projectId]);
 
+  // 프로젝트 참여 코드 만료 감지 및 자동 회전
+  useEffect(() => {
+    if (!projectId || !projectsLoaded) return;
+    const curProj = projects.find((p) => p.id === projectId);
+    if (!curProj) return;
+    const isExpired = !curProj.joinCodeExpiresAt || new Date(curProj.joinCodeExpiresAt).getTime() <= Date.now();
+    if (isExpired) {
+      getOrRotateJoinCode(projectId).catch(() => {});
+    }
+  }, [projectId, projectsLoaded, projects]);
+
   // Refresh activity after returning to the app and while it remains open.
   // Project existence is checked before exposing files from that project.
   useEffect(() => {
@@ -909,8 +922,36 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function lookupProject(targetId: string) {
-    return dataRepository.getProjectById(targetId);
+  async function lookupProject(targetCode: string) {
+    return dataRepository.lookupProject(targetCode);
+  }
+
+  async function rotateJoinCode(targetProjectId?: string) {
+    const pid = targetProjectId || projectId;
+    if (!pid) throw new Error("선택된 프로젝트가 없습니다.");
+    const res = await dataRepository.rotateJoinCode(pid);
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === pid
+          ? { ...p, joinCode: res.joinCode, joinCodeExpiresAt: res.joinCodeExpiresAt }
+          : p
+      )
+    );
+    return res;
+  }
+
+  async function getOrRotateJoinCode(targetProjectId?: string) {
+    const pid = targetProjectId || projectId;
+    if (!pid) throw new Error("선택된 프로젝트가 없습니다.");
+    const res = await dataRepository.getOrRotateJoinCode(pid);
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === pid
+          ? { ...p, joinCode: res.joinCode, joinCodeExpiresAt: res.joinCodeExpiresAt }
+          : p
+      )
+    );
+    return res;
   }
 
   async function joinProject(targetId: string, input: { school: string; major: string; student: string }) {
@@ -1351,6 +1392,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         addProject,
         deleteProject,
         lookupProject,
+        rotateJoinCode,
+        getOrRotateJoinCode,
         joinProject,
         markProjectDone,
         kickMember,

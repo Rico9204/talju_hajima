@@ -58,6 +58,9 @@ export interface DataRepository {
   listProjects(): Promise<Project[]>;
   listMyProjectIds(): Promise<string[]>;
   getProjectById(projectId: string): Promise<Project | null>;
+  lookupProject(code: string): Promise<Project | null>;
+  rotateJoinCode(projectId: string): Promise<{ joinCode: string; joinCodeExpiresAt: string }>;
+  getOrRotateJoinCode(projectId: string): Promise<{ joinCode: string; joinCodeExpiresAt: string }>;
   createProject(input: NewProjectInput, actorName: string, actorAvatar: string): Promise<Project>;
   deleteProject(projectId: string): Promise<void>;
   joinProject(

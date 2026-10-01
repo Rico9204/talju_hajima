@@ -33,13 +33,30 @@ import type { NoticeItem, ScrappedNotice } from "../../lib/crawler/types";
 
 const FOLDER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
 
+function generateSecureSuffix(length = 6): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let result = "";
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const bytes = new Uint8Array(length);
+    crypto.getRandomValues(bytes);
+    for (let i = 0; i < length; i++) {
+      result += chars[bytes[i] % chars.length];
+    }
+  } else {
+    for (let i = 0; i < length; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+  }
+  return result;
+}
+
 function slugify(name: string): string {
   const base = name
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/(^-|-$)/g, "");
-  return (base || "project") + "-" + Date.now().toString(36);
+  return (base || "project") + "-" + Date.now().toString(36) + "-" + generateSecureSuffix(6);
 }
 
 // 사용자 기기 시간대 기준 오늘(YYYY-MM-DD). toISOString()은 UTC라 한국 시간 새벽 0~9시에 전날이 된다.
@@ -59,6 +76,8 @@ function mapProject(row: any): Project {
     approvalStatus: row.approval_status ?? "approved",
     completedAt: row.completed_at ?? undefined,
     requestedAdminId: row.requested_admin_id ?? undefined,
+    joinCode: row.join_code ?? undefined,
+    joinCodeExpiresAt: row.join_code_expires_at ?? undefined,
   };
 }
 
@@ -500,6 +519,37 @@ export const supabaseDataRepository: DataRepository = {
     const { data, error } = await supabase.from("projects").select("*").eq("id", projectId).maybeSingle();
     if (error) throw error;
     return data ? mapProject(data) : null;
+  },
+
+  async lookupProject(code) {
+    const trimmed = code.trim();
+    if (!trimmed) return null;
+    const { data, error } = await supabase.rpc("lookup_project_by_join_code", { p_code: trimmed });
+    if (error) {
+      if (error.code === "P0002" || error.message?.includes("만료")) {
+        throw new Error(error.message);
+      }
+      throw error;
+    }
+    return data ? mapProject(data) : null;
+  },
+
+  async rotateJoinCode(projectId) {
+    const { data, error } = await supabase.rpc("rotate_project_join_code", { p_project_id: projectId });
+    if (error) throw error;
+    return {
+      joinCode: data.join_code,
+      joinCodeExpiresAt: data.join_code_expires_at,
+    };
+  },
+
+  async getOrRotateJoinCode(projectId) {
+    const { data, error } = await supabase.rpc("get_or_rotate_join_code", { p_project_id: projectId });
+    if (error) throw error;
+    return {
+      joinCode: data.join_code,
+      joinCodeExpiresAt: data.join_code_expires_at,
+    };
   },
 
   async createProject(input, actorName, actorAvatar) {

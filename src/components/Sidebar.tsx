@@ -50,7 +50,7 @@ const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", l
 export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
   const routerNavigate = useNavigate();
   const {
-    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, unreadMentions, currentMember,
+    projects, project, setProjectId, addProject, deleteProject, lookupProject, rotateJoinCode, joinProject, chatUnreadTotal, unreadMentions, currentMember,
     openMemberProfile, tasksUnread, scheduleUnread, workspaceUnread,
     newTasks, newScheduleEvents, newFiles,
   } = useProject();
@@ -188,6 +188,23 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [rotatingCode, setRotatingCode] = useState(false);
+  const [rotateMsg, setRotateMsg] = useState<string | null>(null);
+
+  const isLeader = currentMember?.role === "팀장" || (currentMember as any)?.is_leader || (currentMember as any)?.isLeader;
+  const isViceLeader = currentMember?.role === "부팀장" || (currentMember as any)?.is_vice_leader || (currentMember as any)?.isViceLeader;
+  const canManageCode = isLeader || isViceLeader;
+
+  function formatRemaining(expiresAt?: string) {
+    if (!expiresAt) return "6시간";
+    const diff = new Date(expiresAt).getTime() - Date.now();
+    if (diff <= 0) return "만료됨 (새로고침)";
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) return `${hours}시간 ${mins}분 남음`;
+    return `${mins}분 남음`;
+  }
+
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Below the md breakpoint the sidebar is hidden behind a hamburger button
@@ -466,21 +483,60 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
           </div>
         </button>
 
-        <div className="mt-1.5 px-3 flex items-center justify-between gap-2">
-          <span className="text-xs truncate" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-            참여 코드: {project.id}
-          </span>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(project.id);
-              setCodeCopied(true);
-              setTimeout(() => setCodeCopied(false), 1500);
-            }}
-            className="text-xs font-600 px-2 py-0.5 shrink-0"
-            style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
-          >
-            {codeCopied ? "복사됨!" : "복사"}
-          </button>
+        <div className="mt-1.5 px-3">
+          <div className="flex items-center justify-between gap-1.5">
+            <span
+              className="text-xs truncate flex-1 select-all"
+              style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}
+              title={`참여 코드: ${project.joinCode || project.id}`}
+            >
+              참여 코드: {project.joinCode || project.id}
+            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              {canManageCode && (
+                <button
+                  onClick={async () => {
+                    if (rotatingCode) return;
+                    setRotatingCode(true);
+                    try {
+                      await rotateJoinCode(project.id);
+                      setRotateMsg("재발급됨!");
+                      setTimeout(() => setRotateMsg(null), 2000);
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : "참여 코드 갱신에 실패했습니다.");
+                    } finally {
+                      setRotatingCode(false);
+                    }
+                  }}
+                  disabled={rotatingCode}
+                  title="참여 코드 지금 재발급 (6시간 연장)"
+                  className="text-xs px-1.5 py-0.5 transition-opacity hover:opacity-80"
+                  style={{
+                    background: "var(--muted)",
+                    color: "var(--muted-foreground)",
+                    borderRadius: "6px",
+                  }}
+                >
+                  {rotatingCode ? "…" : "↻"}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(project.joinCode || project.id);
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 1500);
+                }}
+                className="text-xs font-600 px-2 py-0.5 shrink-0"
+                style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
+              >
+                {codeCopied ? "복사됨!" : "복사"}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-[10px] mt-0.5 px-0.5" style={{ color: "var(--muted-foreground)" }}>
+            <span>6시간마다 자동 변경</span>
+            <span>{rotateMsg || formatRemaining(project.joinCodeExpiresAt)}</span>
+          </div>
         </div>
 
         {switcherOpen && (
