@@ -137,6 +137,8 @@ export interface DataRepository {
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null): Promise<void>;
 
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
+  // 메인 화면: 내 모든 프로젝트의 오늘 이후 일정
+  listUpcomingEvents(): Promise<import("./types").UpcomingEvent[]>;
   addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
   updateScheduleEvent(
     eventId: number,

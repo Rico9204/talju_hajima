@@ -25,7 +25,15 @@ import {
   reorderHomeMenuItem,
   type HomeNavTab,
 } from "../lib/menuPreferences";
-import type { BoardCategory } from "../api/types";
+import type { BoardCategory, ScheduleEventType, UpcomingEvent } from "../api/types";
+import { dDayLabel } from "../lib/dday";
+
+const EVENT_TYPE: Record<ScheduleEventType, { label: string; color: string }> = {
+  deadline: { label: "마감", color: "#ef4444" },
+  meeting: { label: "회의", color: "#2563eb" },
+  presentation: { label: "발표", color: "#f59e0b" },
+  other: { label: "기타", color: "#8b5cf6" },
+};
 
 // Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
 // mirrors the same treatment in Sidebar.tsx's bottom user card.
@@ -57,6 +65,16 @@ export default function Home() {
     window.addEventListener("focus", load);
     const timer = window.setInterval(load, 60_000);
     return () => { active = false; window.removeEventListener("focus", load); window.clearInterval(timer); };
+  }, [projects.length]);
+  // 프로젝트 카드의 다가오는 일정(Temporary_Merge "내 프로젝트" 화면 이식): 가장 가까운 일정 + D-day, 카드에 올리면 전체 목록.
+  const [upcoming, setUpcoming] = useState<UpcomingEvent[]>([]);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    const load = () => { dataRepository.listUpcomingEvents().then((list) => { if (active) setUpcoming(list); }).catch(() => {}); };
+    load();
+    window.addEventListener("focus", load);
+    return () => { active = false; window.removeEventListener("focus", load); };
   }, [projects.length]);
   const liveUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
   const hasAlert = (id: string) => (id === project.id ? liveUnread > 0 : alertProjectIds.has(id));
@@ -522,11 +540,20 @@ export default function Home() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {projects.map((p) => {
                     const st = statusStyle[p.status];
+                    const events = upcoming.filter((e) => e.projectId === p.id);
+                    const nearest = events[0];
                     return (
-                      <button
+                      <div
                         key={p.id}
+                        className="relative"
+                        onMouseEnter={() => setHoveredProjectId(p.id)}
+                        onMouseLeave={() => setHoveredProjectId((id) => (id === p.id ? null : id))}
+                        onFocus={() => setHoveredProjectId(p.id)}
+                        onBlur={() => setHoveredProjectId((id) => (id === p.id ? null : id))}
+                      >
+                      <button
                         onClick={() => enterProject(p.id)}
-                        className="relative text-left p-5 transition-all"
+                        className="relative w-full h-full text-left p-5 transition-all"
                         style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
                         aria-label={hasAlert(p.id) ? `${p.name} (확인하지 않은 알림 있음)` : undefined}
                       >
@@ -556,7 +583,38 @@ export default function Home() {
                         <div className="text-base font-700 truncate mb-1">{p.name}</div>
                         <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
                         <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
+                        <div className="flex items-center gap-2 mt-3 pt-2.5 min-w-0" style={{ borderTop: "1px solid var(--border)" }}>
+                          {nearest ? (
+                            <>
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EVENT_TYPE[nearest.type].color }} />
+                              <span className="text-xs truncate flex-1" style={{ color: "var(--muted-foreground)" }}>{nearest.title}</span>
+                              <span className="text-[11px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: `${EVENT_TYPE[nearest.type].color}18`, color: EVENT_TYPE[nearest.type].color, borderRadius: "6px" }}>{dDayLabel(nearest.date, nearest.endDate)}</span>
+                            </>
+                          ) : (
+                            <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>예정된 일정 없음</span>
+                          )}
+                        </div>
                       </button>
+                      {hoveredProjectId === p.id && events.length > 1 && (
+                        <div className="absolute left-0 right-0 top-full mt-1.5 p-3 z-20" role="tooltip" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}>
+                          <div className="text-xs font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>다가오는 일정 {events.length}개</div>
+                          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto">
+                            {events.map((e) => (
+                              <div key={e.id} className="flex items-center justify-between gap-2 p-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EVENT_TYPE[e.type].color }} />
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-600 truncate">{e.title}</div>
+                                    <div className="text-[11px] truncate" style={{ color: "var(--muted-foreground)" }}>{e.date}{e.endDate ? ` ~ ${e.endDate}` : ""} · {EVENT_TYPE[e.type].label}{e.scope === "personal" ? " · 개인" : ""}</div>
+                                  </div>
+                                </div>
+                                <span className="text-[11px] font-700 shrink-0" style={{ color: EVENT_TYPE[e.type].color }}>{dDayLabel(e.date, e.endDate)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      </div>
                     );
                   })}
                 </div>
@@ -569,8 +627,8 @@ export default function Home() {
       {createOpen && (
         <CreateProjectModal
           onCancel={() => setCreateOpen(false)}
-          onCreate={async (input) => {
-            const id = await addProject(input);
+          onCreate={async (input, recruit) => {
+            const id = await addProject(input, recruit);
             setCreateOpen(false);
             navigate("/dashboard");
             return id;

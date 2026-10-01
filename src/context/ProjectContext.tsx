@@ -99,7 +99,7 @@ interface ProjectContextValue {
   projects: Project[];
   project: Project;
   setProjectId: (id: string) => void;
-  addProject: (input: NewProjectInput) => Promise<string>;
+  addProject: (input: NewProjectInput, recruitMessage?: string) => Promise<string>;
   deleteProject: (projectId: string) => Promise<void>;
   lookupProject: (code: string) => Promise<Project | null>;
   joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
@@ -236,7 +236,7 @@ function EmptyProjectsScreen({
 }: {
   isAdmin: boolean;
   signOut: () => void;
-  addProject: (input: NewProjectInput) => Promise<string>;
+  addProject: (input: NewProjectInput, recruitMessage?: string) => Promise<string>;
   lookupProject: (code: string) => Promise<Project | null>;
   joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
@@ -275,7 +275,7 @@ function EmptyProjectsScreen({
           </div>
         )}
         <AdminPanel />
-        {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input) => addProject(input)} />}
+        {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input, recruit) => addProject(input, recruit)} />}
       </div>
     );
   }
@@ -308,7 +308,7 @@ function EmptyProjectsScreen({
           </button>
         </div>
       </div>
-      {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input) => addProject(input)} />}
+      {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input, recruit) => addProject(input, recruit)} />}
       {joinOpen && (
         <JoinProjectModal
           lookupProject={lookupProject}
@@ -889,11 +889,22 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     return { name, avatar: name.slice(0, 1) || "U" };
   }
 
-  async function addProject(input: NewProjectInput): Promise<string> {
+  async function addProject(input: NewProjectInput, recruitMessage?: string): Promise<string> {
     const { name, avatar } = await accountIdentity();
     const created = await dataRepository.createProject(input, name, avatar);
     setProjects((prev) => [...prev, created]);
     setProjectId(created.id);
+    // 만들면서 게시판 팀원 모집 글도 올리기(선택). 글 올리기에 실패해도 프로젝트는 그대로 둔다.
+    if (recruitMessage) {
+      const escape = (text: string) => text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c));
+      const body = recruitMessage.split(/\r?\n/).map((line) => `<p>${escape(line) || "<br>"}</p>`).join("");
+      await dataRepository.createBoardPost({
+        category: "recruit",
+        title: `[팀원 모집] ${created.name}`.slice(0, 200),
+        content: `${body}<p>${escape(`${created.org} · ${created.period}`)}</p>`,
+        attachments: [],
+      }).catch((error) => console.warn("팀원 모집 글을 올리지 못했습니다.", error));
+    }
     return created.id;
   }
 

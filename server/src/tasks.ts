@@ -222,6 +222,28 @@ export class TasksController {
       (await selectJson(query, "select * from public.schedule_events where project_id = $1 order by date, id", [projectId])).map(mapScheduleEvent));
   }
 
+  // 메인 화면 프로젝트 카드용: 내가 참여한 모든 프로젝트의 오늘(한국 시간) 이후 일정. 볼 수 있는 일정은 권한 규칙이 정하고,
+  // 남의 "제목 숨김" 개인 일정은 제목을 "바쁨"으로 바꿔 보낸다(프로젝트 일정 화면과 같은 표시).
+  @Get("me/upcoming-events")
+  upcomingEvents(@UserId() userId: string) {
+    return this.db.asUser(userId, async (query) =>
+      (await selectJson(query, `
+        select e.*, p.name as project_name,
+          (e.scope = 'personal' and e.hide_title and not exists (
+            select 1 from public.members m where m.id = e.owner_member_id and m.user_id = auth.uid())) as masked
+        from public.schedule_events e
+        join public.projects p on p.id = e.project_id
+        where e.project_id in (select project_id from public.members where user_id = auth.uid())
+          and coalesce(e.end_date, e.date) >= ${TODAY_SQL}
+        order by e.date, e.id
+        limit 300`)).map((row) => ({
+        ...mapScheduleEvent(row),
+        title: row.masked ? "바쁨" : row.title,
+        projectId: row.project_id,
+        projectName: row.project_name,
+      })));
+  }
+
   // 개인 일정의 주인은 로그인한 사용자의 팀원 행(화면이 보낸 값이 아님). 공개 범위 기본값은 나만 보기.
   @Post("projects/:projectId/schedule")
   addEvent(@UserId() userId: string, @Param("projectId") projectId: string, @Body() body: CreateEventDto) {

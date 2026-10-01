@@ -7,7 +7,8 @@ export default function CreateProjectModal({
   onCancel, onCreate, initialName = "", initialOrg = "",
 }: {
   onCancel: () => void;
-  onCreate: (input: NewProjectInput) => void | Promise<unknown>;
+  // recruitMessage: "게시판에 팀원 모집 글 올리기"를 켰을 때의 본문(끄면 undefined)
+  onCreate: (input: NewProjectInput, recruitMessage?: string) => void | Promise<unknown>;
   initialName?: string;
   initialOrg?: string;
 }) {
@@ -23,6 +24,8 @@ export default function CreateProjectModal({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [searchingAdmins, setSearchingAdmins] = useState(false);
+  const [recruit, setRecruit] = useState(false);
+  const [recruitMessage, setRecruitMessage] = useState("");
 
   const datesValid = !!startDate && !!endDate && new Date(endDate) >= new Date(startDate);
   const canSubmit = name.trim().length > 0 && datesValid && (isAdmin || !!selectedAdmin);
@@ -70,7 +73,7 @@ export default function CreateProjectModal({
       startDate,
       endDate,
       requestedAdminId: selectedAdmin?.id,
-    }); onCancel();
+    }, recruit ? recruitMessage.trim() || "함께할 팀원을 모집합니다." : undefined); onCancel();
     } catch (err) { setError(err && typeof err === "object" && "message" in err ? String(err.message) : "프로젝트 생성에 실패했습니다."); }
     finally { setSubmitting(false); }
   }
@@ -217,6 +220,24 @@ export default function CreateProjectModal({
             </p>
           </div>
         )}
+
+        <div className="mb-2">
+          <label className="flex items-center gap-2 text-xs font-600 cursor-pointer">
+            <input type="checkbox" checked={recruit} onChange={(e) => setRecruit(e.target.checked)} />
+            게시판 "팀원 모집"에 모집 글도 올리기
+          </label>
+          {recruit && (
+            <textarea
+              value={recruitMessage}
+              onChange={(e) => setRecruitMessage(e.target.value)}
+              maxLength={2000}
+              rows={3}
+              placeholder="어떤 팀원을 찾는지 적어 주세요(비우면 기본 문구). 참여 코드는 글에 넣지 않아요 — 연락 온 사람에게 따로 알려 주세요."
+              className="w-full mt-2 text-sm px-3 py-2.5 outline-none resize-y"
+              style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)" }}
+            />
+          )}
+        </div>
 
         {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
         <div className="flex gap-2 mt-5">

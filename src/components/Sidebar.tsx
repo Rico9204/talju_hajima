@@ -793,8 +793,8 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     {createOpen && (
       <CreateProjectModal
         onCancel={() => setCreateOpen(false)}
-        onCreate={async (input) => {
-          await addProject(input);
+        onCreate={async (input, recruit) => {
+          await addProject(input, recruit);
           setCreateOpen(false);
           onNavigate("dashboard");
         }}

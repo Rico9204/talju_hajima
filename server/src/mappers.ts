@@ -164,9 +164,34 @@ export function mapAdminAccount(row: Row) {
   };
 }
 
+// 게시판 글의 tags 칸에는 사용자 태그와 함께 내부 표시(미리보기 방지)가 들어 있다. 화면에는 사용자 태그만 준다.
+export const BOARD_FLAG_TAGS = ["hide_image_preview", "no_preview"];
+
+// 사용자 태그 정리: 앞의 #·공백 제거, 내부 표시 이름 제외, 대소문자 무시 중복 제거, 최대 10개·각 30자.
+export function normalizeBoardTags(input: unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const tag = raw.replace(/^#+/, "").replace(/\s+/g, " ").trim().slice(0, 30);
+    const key = tag.toLowerCase();
+    if (!tag || BOARD_FLAG_TAGS.includes(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+    if (out.length === 10) break;
+  }
+  return out;
+}
+
+// DB에 저장할 tags 칸: 사용자 태그 + (켰으면) 미리보기 방지 표시.
+export function storedBoardTags(userTags: string[], hideImagePreview: boolean): string[] {
+  return hideImagePreview ? [...userTags, "hide_image_preview"] : userTags;
+}
+
 export function mapBoardPost(row: Row, profile: Row, likedByMe: boolean, poll?: Row | null) {
-  const tags: string[] = Array.isArray(row.tags) ? row.tags : [];
-  const hideImagePreview = Boolean(row.hide_image_preview || tags.includes("hide_image_preview") || tags.includes("no_preview"));
+  const stored: string[] = Array.isArray(row.tags) ? row.tags : [];
+  const hideImagePreview = Boolean(row.hide_image_preview || stored.includes("hide_image_preview") || stored.includes("no_preview"));
+  const tags = stored.filter((t) => !BOARD_FLAG_TAGS.includes(t));
   return {
     id: row.id, category: row.category, title: row.title, content: row.content, authorUserId: row.author_user_id,
     author: profile?.display_name || "탈퇴한 사용자", authorAvatarUrl: profile?.avatar_url ?? null, createdAt: row.created_at,

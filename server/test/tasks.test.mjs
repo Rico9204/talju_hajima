@@ -92,3 +92,23 @@ test('일정: 팀 일정과 개인 일정, 개인 일정의 주인은 서버가 
   assert.equal((await call(s.member, 'DELETE', `/schedule/${mine.body.id}`)).status, 204);
   assert.deepEqual((await call(s.member, 'GET', `/projects/${s.p}/schedule`)).body, []);
 });
+
+test('다가오는 일정(메인 화면): 내 프로젝트의 오늘 이후 일정만, 남의 나만 보기는 빠지고 제목 숨김은 "바쁨"', async () => {
+  const post = (user, body) => call(user, 'POST', `/projects/${s.p}/schedule`, body);
+  const future = (await post(s.leader, { title: '최종 발표', date: '2099-01-10', type: 'presentation', scope: 'team' })).body;
+  const past = (await post(s.leader, { title: '지난 회의', date: '2000-01-01', type: 'meeting', scope: 'team' })).body;
+  const ongoing = (await post(s.leader, { title: '긴 작업', date: '2000-01-01', endDate: '2099-12-31', type: 'other', scope: 'team' })).body;
+  const secret = (await post(s.member, { title: '병원', date: '2099-01-11', type: 'other', scope: 'personal' })).body;
+  const busy = (await post(s.member, { title: '아르바이트', date: '2099-01-12', type: 'other', scope: 'personal', visibility: 'shared', hideTitle: true })).body;
+
+  const leaderView = (await call(s.leader, 'GET', '/me/upcoming-events')).body;
+  assert.deepEqual(leaderView.map((e) => e.title), ['긴 작업', '최종 발표', '바쁨']); // 지난 일정·남의 나만 보기 제외
+  assert.equal(leaderView[1].projectId, s.projectId);
+  assert.equal(leaderView[1].projectName, '팀 프로젝트');
+  const memberView = (await call(s.member, 'GET', '/me/upcoming-events')).body;
+  assert.ok(memberView.some((e) => e.title === '병원') && memberView.some((e) => e.title === '아르바이트')); // 내 일정은 원래 제목
+  assert.deepEqual((await call(s.outsider, 'GET', '/me/upcoming-events')).body, []);
+
+  for (const e of [future, past, ongoing]) await call(s.leader, 'DELETE', `/schedule/${e.id}`);
+  for (const e of [secret, busy]) await call(s.member, 'DELETE', `/schedule/${e.id}`);
+});

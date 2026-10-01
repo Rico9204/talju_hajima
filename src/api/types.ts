@@ -241,6 +241,12 @@ export interface ScheduleEvent {
   hideTitle: boolean;
 }
 
+// 메인 화면 프로젝트 카드용: 내 모든 프로젝트의 오늘 이후 일정(남의 제목 숨김 일정은 "바쁨").
+export interface UpcomingEvent extends ScheduleEvent {
+  projectId: string;
+  projectName: string;
+}
+
 export interface NewScheduleEventInput {
   title: string;
   date: string;

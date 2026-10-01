@@ -4,6 +4,7 @@ import { useProjectManagement } from "../context/ProjectContext";
 import { dataRepository } from "../api";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import { validateNewPollInput } from "../lib/boardPoll";
+import { MAX_BOARD_TAGS, normalizeBoardTags, sameTag, splitTagInput } from "../lib/boardTags";
 import type { BoardAttachment, BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
 export default function CreatePostView({
@@ -52,6 +53,13 @@ export default function CreatePostView({
     initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toLocaleString("sv-SE").slice(0, 16).replace(" ", "T") : ""
   );
   const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
+  // 태그: 쉼표·Enter로 추가, × 또는 빈 칸에서 Backspace로 삭제. 저장할 때 입력 중인 글자도 태그로 넣는다.
+  const [tags, setTags] = useState<string[]>(initialPost?.tags ?? []);
+  const [tagDraft, setTagDraft] = useState("");
+  function addTags(text: string) {
+    setTags((prev) => normalizeBoardTags([...prev, ...splitTagInput(text)]));
+    setTagDraft("");
+  }
 
   useEffect(() => {
     const contentToLoad = initialPost?.content ?? initialContent;
@@ -238,6 +246,7 @@ export default function CreatePostView({
       };
     }
 
+    const finalTags = normalizeBoardTags([...tags, ...splitTagInput(tagDraft)]);
     if (initialPost && onUpdate) {
       onUpdate(initialPost.id, {
         category,
@@ -245,6 +254,7 @@ export default function CreatePostView({
         content: cleanHtml,
         attachments,
         poll: pollInput,
+        tags: finalTags,
         hideImagePreview,
       });
     } else {
@@ -254,6 +264,7 @@ export default function CreatePostView({
         content: cleanHtml,
         attachments,
         poll: pollInput,
+        tags: finalTags,
         hideImagePreview,
       });
     }
@@ -320,6 +331,37 @@ export default function CreatePostView({
               className="w-full px-4 py-3 text-sm md:text-base outline-none transition-all"
               style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }}
             />
+          </div>
+
+          <div>
+            <label htmlFor="post-tags" className="block text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
+              태그 <span className="font-500">(선택, 최대 {MAX_BOARD_TAGS}개 · 쉼표나 Enter로 추가)</span>
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5 px-3 py-2" style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px" }}>
+              {tags.map((tag) => (
+                <span key={tag} className="flex items-center gap-1 text-xs font-600 pl-2 pr-1 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                  #{tag}
+                  <button type="button" aria-label={`${tag} 태그 삭제`} onClick={() => setTags((prev) => prev.filter((t) => !sameTag(t, tag)))} className="w-4 h-4 flex items-center justify-center">×</button>
+                </span>
+              ))}
+              {tags.length < MAX_BOARD_TAGS && (
+                <input
+                  id="post-tags"
+                  type="text"
+                  value={tagDraft}
+                  maxLength={300}
+                  onChange={(e) => (/[,，]/.test(e.target.value) ? addTags(e.target.value) : setTagDraft(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); if (tagDraft.trim()) addTags(tagDraft); }
+                    if (e.key === "Backspace" && !tagDraft) setTags((prev) => prev.slice(0, -1));
+                  }}
+                  onBlur={() => { if (tagDraft.trim()) addTags(tagDraft); }}
+                  placeholder={tags.length ? "" : "예: 공모전, 팀원모집"}
+                  className="flex-1 min-w-[8rem] bg-transparent text-sm outline-none py-1"
+                  style={{ color: "var(--foreground)" }}
+                />
+              )}
+            </div>
           </div>
 
           <div>

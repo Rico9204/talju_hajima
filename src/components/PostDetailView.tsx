@@ -22,7 +22,9 @@ export default function PostDetailView({
   onVotePoll,
   onClosePoll,
   onReported,
+  onTagClick,
 }: {
+  onTagClick?: (tag: string) => void;
   post: BoardPost;
   currentUserId: string | null;
   isAdmin: boolean;
@@ -169,6 +171,23 @@ export default function PostDetailView({
           </div>
 
           <h1 className="text-2xl md:text-3xl font-800 leading-snug break-words">{post.title}</h1>
+          {post.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {post.tags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => onTagClick?.(tag)}
+                  disabled={!onTagClick}
+                  className="text-xs font-600 px-2 py-0.5 hover:opacity-80"
+                  style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                  title={`#${tag} 글만 보기`}
+                >
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="flex items-center gap-3 text-xs pt-1" style={{ color: "var(--muted-foreground)" }}>
             <span className="font-700" style={{ color: "var(--foreground)" }}>{post.author}</span>

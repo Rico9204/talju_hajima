@@ -9,7 +9,7 @@ import { useAccountBackground } from "../lib/useAccountBackground";
 import type { BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
 const POSTS_PER_PAGE = 10;
-type SearchTarget = "title_content" | "title" | "content" | "author";
+type SearchTarget = "title_content" | "title" | "content" | "author" | "tag";
 
 interface HoveredImagePreview {
   postId: number;
@@ -91,6 +91,8 @@ export default function BoardView({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchTarget, setSearchTarget] = useState<SearchTarget>("title_content");
   const [currentPage, setCurrentPage] = useState(1);
+  // 태그를 누르면 그 태그가 달린 글만(대소문자 무시). null = 전체.
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   const [isCreatingPost, setIsCreatingPost] = useState(initialCreating);
   const [editingPost, setEditingPost] = useState<BoardPost | null>(null);
@@ -117,7 +119,7 @@ export default function BoardView({
   useEffect(() => {
     setCurrentPage(1);
     setHoveredPreview(null);
-  }, [selectedCategory, searchQuery, searchTarget]);
+  }, [selectedCategory, searchQuery, searchTarget, activeTag]);
 
   useEffect(() => {
     const handleScroll = () => setHoveredPreview(null);
@@ -267,7 +269,13 @@ export default function BoardView({
     }
   }
 
-  const categoryPosts = selectedCategory === "all" ? posts : posts.filter((p) => p.category === selectedCategory);
+  const categoryPosts = (selectedCategory === "all" ? posts : posts.filter((p) => p.category === selectedCategory))
+    .filter((p) => !activeTag || p.tags.some((t) => t.toLowerCase() === activeTag.toLowerCase()));
+
+  function showTag(tag: string) {
+    setActiveTag(tag);
+    setSelectedPost(null);
+  }
 
   const filteredPosts = categoryPosts.filter((p) => {
     if (!searchQuery.trim()) return true;
@@ -279,6 +287,8 @@ export default function BoardView({
         return p.content.toLowerCase().includes(q);
       case "author":
         return p.author.toLowerCase().includes(q);
+      case "tag":
+        return p.tags.some((t) => t.toLowerCase().includes(q.replace(/^#/, "")));
       default:
         return p.title.toLowerCase().includes(q) || p.content.toLowerCase().includes(q);
     }
@@ -329,6 +339,7 @@ export default function BoardView({
         busy={busy}
         error={error}
         onBack={() => setSelectedPost(null)}
+        onTagClick={showTag}
         onEditPost={(post) => setEditingPost(post)}
         onAddComment={handleAddComment}
         onAddReply={handleAddReply}
@@ -425,6 +436,7 @@ export default function BoardView({
             <option value="title">제목</option>
             <option value="content">내용</option>
             <option value="author">글쓴이</option>
+            <option value="tag">태그</option>
           </select>
           <div className="flex-1 flex items-center gap-2 px-3 py-2 border min-w-0" style={{ background: "var(--background)", borderColor: "var(--border)", borderRadius: "8px" }}>
             <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>🔍</span>
@@ -443,6 +455,14 @@ export default function BoardView({
             )}
           </div>
         </div>
+        {activeTag && (
+          <div className="flex items-center gap-2 mt-3 text-xs">
+            <span style={{ color: "var(--muted-foreground)" }}>태그</span>
+            <span className="font-700 px-2 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}>#{activeTag}</span>
+            <span style={{ color: "var(--muted-foreground)" }}>글만 보는 중</span>
+            <button onClick={() => setActiveTag(null)} className="ml-auto px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>전체 보기 ✕</button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -523,6 +543,21 @@ export default function BoardView({
                     </span>
                   )}
                   <span className="text-sm font-700 truncate hover:text-blue-500 transition-colors">{post.title}</span>
+                  {post.tags.slice(0, 3).map((tag) => (
+                    <span
+                      key={tag}
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); showTag(tag); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); showTag(tag); } }}
+                      className="text-[10px] font-600 px-1.5 py-0.5 shrink-0 hover:opacity-80"
+                      style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                      title={`#${tag} 글만 보기`}
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                  {post.tags.length > 3 && <span className="text-[10px] shrink-0" style={{ color: "var(--muted-foreground)" }}>+{post.tags.length - 3}</span>}
                   {post.poll && (
                     <span
                       className="text-[10px] font-bold px-1.5 py-0.5 shrink-0 rounded flex items-center gap-1"

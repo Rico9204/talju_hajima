@@ -115,6 +115,7 @@ export class RestDataRepository implements DataRepository {
   setTaskCommentReaction(commentId: number, _memberId: string, emoji: string, active: boolean) { return this.api.request<void>(`/task-comments/${commentId}/reaction`, { method: "PUT", body: JSON.stringify({ emoji, active }) }); }
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null) { return this.api.request<void>(`/tasks/${taskId}/schedule-link`, { method: "PUT", body: JSON.stringify({ field, eventId }) }); }
   listScheduleEvents(projectId: string) { return this.api.request<ScheduleEvent[]>(`/projects/${encodeURIComponent(projectId)}/schedule`); }
+  listUpcomingEvents() { return this.api.request<import("../types").UpcomingEvent[]>("/me/upcoming-events"); }
   addScheduleEvent(projectId: string, _actorMemberId: string, input: NewScheduleEventInput) { return this.api.request<ScheduleEvent>(`/projects/${encodeURIComponent(projectId)}/schedule`, { method: "POST", body: JSON.stringify(input) }); }
   updateScheduleEvent(eventId: number, patch: Partial<{ title: string; date: string; endDate: string | null; type: ScheduleEventType; visibility: ScheduleEventVisibility; hideTitle: boolean }>) { return this.api.request<void>(`/schedule/${eventId}`, { method: "PATCH", body: JSON.stringify(patch) }); }
   removeScheduleEvent(eventId: number) { return this.api.request<void>(`/schedule/${eventId}`, { method: "DELETE" }); }

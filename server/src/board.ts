@@ -5,7 +5,7 @@ import {
 } from "class-validator";
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
-import { mapBoardPost } from "./mappers.js";
+import { BOARD_FLAG_TAGS, mapBoardPost, normalizeBoardTags, storedBoardTags } from "./mappers.js";
 
 const CATEGORIES = ["notice", "free", "recruit"];
 const REASONS = ["spam", "abuse", "sexual", "privacy", "other"];
@@ -145,8 +145,7 @@ export class BoardController {
   // 글 + (있으면) 투표를 한 트랜잭션으로. 투표를 만들지 못하면 글도 남지 않는다(예전에는 글만 남았다).
   @Post("posts")
   createPost(@UserId() userId: string, @Body() body: CreatePostDto) {
-    const tags = [...(body.tags ?? [])];
-    if (body.hideImagePreview && !tags.includes("hide_image_preview")) tags.push("hide_image_preview");
+    const tags = storedBoardTags(normalizeBoardTags(body.tags ?? []), !!body.hideImagePreview);
     return this.db.asUser(userId, async (query) => {
       const [row] = await query<{ id: number }>(
         "insert into public.board_posts(category, title, content, author_user_id, attachments, tags) values ($1, $2, $3, auth.uid(), $4::jsonb, $5::text[]) returning id",
@@ -173,11 +172,11 @@ export class BoardController {
       if (patch.content !== undefined) updates.content = patch.content;
       if (patch.attachments !== undefined) updates.attachments = JSON.stringify(patch.attachments);
       if (patch.hideImagePreview !== undefined || patch.tags !== undefined) {
-        let tags = patch.tags ? [...patch.tags] : [];
-        if (!patch.tags) tags = (await selectOneJson(query, "select tags from public.board_posts where id = $1", [postId]))?.tags ?? [];
-        if (patch.hideImagePreview === true && !tags.includes("hide_image_preview")) tags.push("hide_image_preview");
-        if (patch.hideImagePreview === false) tags = tags.filter((t) => t !== "hide_image_preview" && t !== "no_preview");
-        updates.tags = tags;
+        // 보내지 않은 쪽(사용자 태그 또는 미리보기 방지)은 지금 값을 그대로 둔다.
+        const current: string[] = (await selectOneJson(query, "select tags from public.board_posts where id = $1", [postId]))?.tags ?? [];
+        const userTags = patch.tags !== undefined ? normalizeBoardTags(patch.tags) : current.filter((t) => !BOARD_FLAG_TAGS.includes(t));
+        const hide = patch.hideImagePreview ?? current.some((t) => BOARD_FLAG_TAGS.includes(t));
+        updates.tags = storedBoardTags(userTags, hide);
       }
       const columns = Object.keys(updates);
       if (!columns.length) return;

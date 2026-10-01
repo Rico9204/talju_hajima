@@ -93,6 +93,27 @@ test('수정: 글쓴이만(다른 사람의 수정은 아무것도 바꾸지 않
   assert.equal((await call(reader, 'GET', `/board/posts/${post.id}/content`)).body.content, '<p>골라 주세요</p>');
 });
 
+test('태그: #·공백·중복을 정리하고, 미리보기 방지 표시는 태그로 보이지 않으며 서로 덮어쓰지 않는다', async () => {
+  const created = await call(author, 'POST', '/board/posts', {
+    category: 'free', title: '태그 글', content: '<p>내용</p>', attachments: [], hideImagePreview: true,
+    tags: ['#공모전', '  공모전 ', 'AI', 'ai', '', 'hide_image_preview', '팀원  모집'],
+  });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.tags, ['공모전', 'AI', '팀원 모집']);
+  assert.equal(created.body.hideImagePreview, true);
+  const find = async () => (await call(reader, 'GET', '/board/posts')).body.find((p) => p.id === created.body.id);
+  // 태그만 바꿔도 미리보기 방지는 그대로
+  assert.equal((await call(author, 'PATCH', `/board/posts/${created.body.id}`, { tags: ['해커톤'] })).status, 204);
+  assert.deepEqual((await find()).tags, ['해커톤']);
+  assert.equal((await find()).hideImagePreview, true);
+  // 미리보기 방지만 꺼도 태그는 그대로
+  assert.equal((await call(author, 'PATCH', `/board/posts/${created.body.id}`, { hideImagePreview: false })).status, 204);
+  assert.deepEqual((await find()).tags, ['해커톤']);
+  assert.equal((await find()).hideImagePreview, false);
+  assert.equal((await call(author, 'POST', '/board/posts', { category: 'free', title: 'x', content: 'y', attachments: [], tags: ['가'.repeat(31)] })).status, 400);
+  await call(author, 'DELETE', `/board/posts/${created.body.id}`);
+});
+
 test('신고: 누구나 신고, 신고자는 자기 신고만, 전체 목록·처리는 운영자만', async () => {
   assert.equal((await call(reader, 'POST', `/board/posts/${post.id}/reports`, { reason: 'spam', detail: '광고' })).status, 204);
   assert.equal((await call(reader, 'POST', `/board/posts/${post.id}/reports`, { reason: 'bad', detail: '' })).status, 400);
