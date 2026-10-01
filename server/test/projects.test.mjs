@@ -1,7 +1,7 @@
 // 프로젝트·팀·프로필·평가·관리자 API. 가입 API로 받은 실제 토큰으로 호출한다.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTestDb, signupUsers, startApp } from './helpers.mjs';
+import { createTestDb, joinCode, signupUsers, startApp } from './helpers.mjs';
 
 let pg, app, api;
 let admin, leader, alice, bob; // alice·bob: 팀원
@@ -48,18 +48,48 @@ test('관리자 승인: 요청받은 관리자만 승인할 수 있다', async (
   assert.equal((await call(leader, 'GET', `/projects/${p}`)).body.approvalStatus, 'approved');
 });
 
+test('참여 코드: 팀원만 보고, 코드로만 프로젝트를 찾으며, 팀장이 바꾸면 이전 코드는 무효', async () => {
+  const p = encodeURIComponent(projectId);
+  const code = await joinCode(api, leader, p);
+  assert.match(code, /^캡스톤-디자인-[2-9A-HJ-NP-Z]{6}$/);
+  assert.equal((await call(alice, 'GET', `/projects/${p}/join-code`)).status, 403); // 아직 팀원이 아님
+  assert.equal((await call(alice, 'GET', `/join-codes/${encodeURIComponent(code.toLowerCase())}`)).body.id, projectId); // 대소문자 무관
+  assert.equal((await call(alice, 'GET', `/join-codes/${p}`)).body, null); // 프로젝트 id로는 찾지 못함
+  assert.ok(!JSON.stringify((await call(alice, 'GET', '/projects')).body).includes(code)); // 목록에 코드가 없음
+  // 프로젝트 id만 알아서는 참여 불가
+  const noCode = await call(alice, 'POST', `/projects/${p}/join`, { code: projectId, school: 'a', major: 'b', student: 'c' });
+  assert.equal(noCode.status, 400);
+  assert.match(noCode.body.message, /찾을 수 없/);
+  // 팀장이 새로 발급하면 이전 코드는 바로 무효
+  const rotated = await call(leader, 'POST', `/projects/${p}/join-code/rotate`);
+  assert.equal(rotated.status, 200);
+  assert.notEqual(rotated.body.joinCode, code);
+  assert.ok(new Date(rotated.body.joinCodeExpiresAt) > new Date(Date.now() + 5.9 * 3600_000));
+  assert.equal((await call(alice, 'GET', `/join-codes/${encodeURIComponent(code)}`)).body, null);
+  // 만료된 코드: 안내 문구로 거절, 팀원이 다시 보면 새 코드가 생긴다
+  await pg.query("update project_join_codes set expires_at = now() - interval '1 minute' where project_id = $1", [projectId]);
+  const expired = await call(alice, 'GET', `/join-codes/${encodeURIComponent(rotated.body.joinCode)}`);
+  assert.equal(expired.status, 400);
+  assert.match(expired.body.message, /만료/);
+  assert.notEqual(await joinCode(api, leader, p), rotated.body.joinCode);
+});
+
 test('참여: 팀원이 되고 학교·전공·학번이 계정 프로필에 반영되며, 두 번 참여는 막힌다', async () => {
   const p = encodeURIComponent(projectId);
-  const joined = await call(alice, 'POST', `/projects/${p}/join`, { school: '한국대학교', major: '컴퓨터공학과', student: '20261234' });
+  const code = await joinCode(api, leader, p);
+  // 다른 프로젝트 주소로 이 코드를 쓰면 거절(참여도 취소)
+  assert.equal((await call(alice, 'POST', '/projects/other-project/join', { code, school: 'a', major: 'b', student: 'c' })).status, 400);
+  const joined = await call(alice, 'POST', `/projects/${p}/join`, { code, school: '한국대학교', major: '컴퓨터공학과', student: '20261234' });
   assert.equal(joined.status, 201);
   assert.equal(joined.body.userId, alice.id);
   assert.equal(joined.body.name, 'user2');
   assert.equal(joined.body.school, '한국대학교');
   assert.equal(joined.body.isLeader, false);
-  const again = await call(alice, 'POST', `/projects/${p}/join`, { school: 'a', major: 'b', student: 'c' });
+  const again = await call(alice, 'POST', `/projects/${p}/join`, { code, school: 'a', major: 'b', student: 'c' });
   assert.equal(again.status, 400);
   assert.match(again.body.message, /이미 참여/);
-  await call(bob, 'POST', `/projects/${p}/join`, { school: '한국대학교', major: '경영학과', student: '20265678' });
+  assert.equal((await call(alice, 'GET', `/projects/${p}/join-code`)).body.joinCode, code); // 팀원은 코드를 본다
+  await call(bob, 'POST', `/projects/${p}/join`, { code, school: '한국대학교', major: '경영학과', student: '20265678' });
   const team = await call(alice, 'GET', `/projects/${p}/team`);
   assert.equal(team.body.members.length, 3);
   assert.equal(team.body.members[0].isLeader, true); // 팀장이 맨 앞

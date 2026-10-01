@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import WsClient from 'ws';
 import { RealtimeHub } from '../dist/realtime.js';
-import { createTestDb, setupProject, signupUsers, startApp } from './helpers.mjs';
+import { createTestDb, joinCode, setupProject, signupUsers, startApp } from './helpers.mjs';
 
 let pg, app, api, origin, s, third;
 const clients = [];
@@ -57,7 +57,7 @@ before(async () => {
   ({ app, api, origin } = await startApp(db));
   s = await setupProject(api, pg);
   [third] = await signupUsers(api, 1, 'third');
-  await call(third, 'POST', `/projects/${s.p}/join`, { school: 's', major: 'm', student: '3' });
+  await call(third, 'POST', `/projects/${s.p}/join`, { code: await joinCode(api, s.leader, s.p), school: 's', major: 'm', student: '3' });
   third.memberId = (await call(s.leader, 'GET', `/projects/${s.p}/team`)).body.members.find((m) => m.userId === third.id).id;
 });
 after(async () => { for (const c of clients) c.ws.close(); await app?.close(); await pg?.close(); });

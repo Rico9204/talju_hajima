@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 const require = createRequire(resolve(process.argv[2] || '.', 'package.json'));
 const { PGlite } = require('@electric-sql/pglite');
 const db = new PGlite();
+// 준비용 팀원 행: 참여는 이제 참여 코드로만(join_project_with_code) 되므로, 이름·역할을 정해 둔 행은 권한 규칙 밖에서 넣는다(user_id는 트리거가 로그인한 사용자로 채운다).
+async function asFixture(sql, params) { await db.exec('reset role'); try { return await db.query(sql, params); } finally { await db.exec('set role authenticated'); } }
 await db.exec(`
 create role anon; create role authenticated;
 create schema auth; create schema storage;
@@ -48,8 +50,8 @@ for (const pid of ['p', 'q']) {
   await login(1);
   await db.query("insert into projects(id,name,org,period,status,start_date,end_date,requested_admin_id,approval_status) values($1,'프로젝트','학교','기간','active','2026-09-01','2026-10-01',$2,'approved')", [pid, ids[0]]);
 }
-for (const i of [1, 2]) { await login(i); await db.query("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values('p',$1,'팀원','','','팀','#123456',$2)", [`사용자${i}`, i === 1]); }
-await login(1); await db.query("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values('q','사용자1','팀원','','','팀','#123456',true)");
+for (const i of [1, 2]) { await login(i); await asFixture("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values('p',$1,'팀원','','','팀','#123456',$2)", [`사용자${i}`, i === 1]); }
+await login(1); await asFixture("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values('q','사용자1','팀원','','','팀','#123456',true)");
 await login(0); await db.query("select review_project('p','approved')"); await db.query("select review_project('q','approved')");
 const folder = async (who, pid, parent) => { await login(who); return (await db.query("insert into folders(project_id,name,color,created_by,parent_id) values($1,'폴더','#123456','사용자',$2) returning id", [pid, parent])).rows[0].id; };
 const del = async (who, id) => { await login(who); await db.query('select delete_workspace_folder($1)', [id]); };

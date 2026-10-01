@@ -13,6 +13,12 @@ export interface Project {
   requestedAdminId?: string;
 }
 
+// 프로젝트 참여 코드. 발급 후 6시간 유효하고, 팀원만 볼 수 있다.
+export interface JoinCode {
+  joinCode: string;
+  joinCodeExpiresAt: string;
+}
+
 export interface NewProjectInput {
   name: string;
   org: string;

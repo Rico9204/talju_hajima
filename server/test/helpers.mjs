@@ -69,11 +69,19 @@ export async function setupProject(api, pg) {
   const projectId = created.body.id;
   const p = encodeURIComponent(projectId);
   await api(admin.token, 'POST', `/projects/${p}/approve`);
-  await api(member.token, 'POST', `/projects/${p}/join`, { school: '한국대학교', major: '컴퓨터공학과', student: '1' });
+  const code = await joinCode(api, leader, p);
+  await api(member.token, 'POST', `/projects/${p}/join`, { code, school: '한국대학교', major: '컴퓨터공학과', student: '1' });
   const team = (await api(leader.token, 'GET', `/projects/${p}/team`)).body.members;
   leader.memberId = team.find((m) => m.userId === leader.id).id;
   member.memberId = team.find((m) => m.userId === member.id).id;
   return { admin, leader, member, outsider, projectId, p };
+}
+
+// 팀원이 보는 지금의 참여 코드(p는 인코딩된 프로젝트 id).
+export async function joinCode(api, teammate, p) {
+  const res = await api(teammate.token, 'GET', `/projects/${p}/join-code`);
+  if (res.status !== 200) throw new Error(`참여 코드 조회 실패: ${JSON.stringify(res.body)}`);
+  return res.body.joinCode;
 }
 
 export const PUBLIC_BASE_URL = 'https://files.test';

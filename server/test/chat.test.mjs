@@ -1,7 +1,7 @@
 // 채팅 API: 보내기(보낸 사람은 서버가 정함)·1:1 채널 접근·읽음·반응·채팅 도구·접속 기록.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTestDb, setupProject, signupUsers, startApp } from './helpers.mjs';
+import { createTestDb, joinCode, setupProject, signupUsers, startApp } from './helpers.mjs';
 
 let pg, app, api, s;
 const call = (user, method, path, body) => api(user?.token ?? null, method, path, body);
@@ -35,7 +35,7 @@ test('1:1 채널: 당사자만 쓰고 읽는다', async () => {
   assert.equal((await call(s.leader, 'POST', `/projects/${s.p}/chat/${channel(dm)}/messages`, { text: '비밀 얘기' })).status, 201);
   assert.equal((await call(s.member, 'GET', `/projects/${s.p}/chat/${channel(dm)}/messages`)).body.length, 1);
   const [third] = await signupUsers(api, 1, 'third');
-  await call(third, 'POST', `/projects/${s.p}/join`, { school: 's', major: 'm', student: '3' });
+  await call(third, 'POST', `/projects/${s.p}/join`, { code: await joinCode(api, s.leader, s.p), school: 's', major: 'm', student: '3' });
   assert.deepEqual((await call(third, 'GET', `/projects/${s.p}/chat/${channel(dm)}/messages`)).body, []);
   assert.equal((await call(third, 'POST', `/projects/${s.p}/chat/${channel(dm)}/messages`, { text: '끼어들기' })).status, 403);
 });

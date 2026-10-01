@@ -19,8 +19,11 @@ before(async () => {
     await as(1, "insert into projects(id,name,org,period,status,start_date,end_date,requested_admin_id,approval_status) values($1,'프로젝트','학교','기간','active','2026-09-01','2026-10-01',$2,'approved')", [pid, user[0].id]);
     await as(1, "insert into members(project_id,name,role,major,student,avatar,color,is_leader) values($1,'사용자1','팀원','','','팀','#123456',true)", [pid]);
   }
+  // 팀원은 참여 코드로만 들어온다(첫 팀원=만든 사람만 직접 추가 가능).
+  const { joinCode: code } = (await as(1, "select public.get_or_rotate_join_code('p') as j"))[0].j;
   for (const i of [2, 3, 4]) {
-    member[i] = (await as(i, "insert into members(project_id,name,role,major,student,avatar,color,is_leader) values('p',$1,'팀원','','','팀','#123456',false) returning id", [`사용자${i}`]))[0].id;
+    await as(i, "select public.join_project_with_code($1, '', '')", [code]);
+    member[i] = (await pg.query("select id from members where project_id='p' and user_id=$1", [user[i].id])).rows[0].id;
   }
   member[1] = (await pg.query("select id from members where project_id='p' and user_id=$1", [user[1].id])).rows[0].id;
   await as(0, "select review_project('p','approved')");

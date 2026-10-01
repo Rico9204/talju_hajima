@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 const require = createRequire(resolve(process.argv[2] || '.', 'package.json'));
 const { PGlite } = require('@electric-sql/pglite');
 const db = new PGlite();
+// 준비용 팀원 행: 참여는 이제 참여 코드로만(join_project_with_code) 되므로, 이름·역할을 정해 둔 행은 권한 규칙 밖에서 넣는다(user_id는 트리거가 로그인한 사용자로 채운다).
+async function asFixture(sql, params) { await db.exec('reset role'); try { return await db.query(sql, params); } finally { await db.exec('set role authenticated'); } }
 await db.exec(`
 create role anon; create role authenticated;
 create schema auth; create schema storage;
@@ -47,7 +49,7 @@ let current = null;
 async function login(index){current=index;await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[ids[index]]);await db.exec('set role authenticated');}
 async function system(){current=null;await db.exec("reset role; select set_config('request.jwt.claim.sub','',false)");}
 async function project(id,admin,creator){await login(creator);return db.query("insert into projects(id,name,org,period,status,start_date,end_date,requested_admin_id,approval_status) values($1,'프로젝트','학교','기간','active','2026-09-01','2026-10-01',$2,'approved')",[id,ids[admin]]);}
-async function join(pid,index,leader=false,role='팀원'){ await login(index); return (await db.query("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values($1,$2,$3,'','','팀','#123456',$4) returning id",[pid,`사용자${index}`,role,leader])).rows[0].id; }
+async function join(pid,index,leader=false,role='팀원'){ await login(index); return (await asFixture("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values($1,$2,$3,'','','팀','#123456',$4) returning id",[pid,`사용자${index}`,role,leader])).rows[0].id; }
 async function approve(pid,admin=0){ await login(admin); await db.query("select review_project($1,'approved')",[pid]); }
 // Reads as the system role but leaves the caller logged in as before.
 async function member(id){ const previous=current; await system(); const row=(await db.query('select is_leader,is_vice_leader,role from members where id=$1',[id])).rows[0]; if(previous!==null) await login(previous); return row; }
@@ -61,11 +63,10 @@ const plain2=await join('p',5);
 const otherLeader=await join('q',6,true,'팀장');
 await approve('p'); await approve('q',1);
 
-await check('new column is readable and defaults to false; members cannot self-assign through insert',async()=>{
+await check('new column is readable and defaults to false; members cannot insert themselves into an existing project',async()=>{
  await login(3); assert.equal((await db.query('select is_vice_leader from members where id=$1',[vice])).rows[0].is_vice_leader,false);
- const sneaky=(await db.query("insert into members(project_id,name,role,major,student,avatar,color,is_vice_leader) values('q','침입자','팀원','','','팀','#123456',true) returning id, is_vice_leader")).rows[0];
- assert.equal(sneaky.is_vice_leader,false);
- await system(); await db.query('delete from members where id=$1',[sneaky.id]);
+ // 팀원이 있는 프로젝트에는 직접 행을 넣을 수 없다(참여는 join_project_with_code로만).
+ await assert.rejects(db.query("insert into members(project_id,name,role,major,student,avatar,color,is_vice_leader) values('q','침입자','팀원','','','팀','#123456',true) returning id, is_vice_leader"),/row-level security/);
 });
 await check('only the project leader or an administrator can appoint; plain members, vice leaders and other leaders cannot',async()=>{
  await login(4); await rejects(db.query('select set_vice_leader($1,true)',[vice]),/팀장 또는 관리자/);

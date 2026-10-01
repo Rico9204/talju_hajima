@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 const require = createRequire(resolve(process.argv[2] || '.', 'package.json'));
 const { PGlite } = require('@electric-sql/pglite');
 const db = new PGlite();
+// 준비용 팀원 행: 참여는 이제 참여 코드로만(join_project_with_code) 되므로, 이름·역할을 정해 둔 행은 권한 규칙 밖에서 넣는다(user_id는 트리거가 로그인한 사용자로 채운다).
+async function asFixture(sql, params) { await db.exec('reset role'); try { return await db.query(sql, params); } finally { await db.exec('set role authenticated'); } }
 await db.exec(`
 create role anon; create role authenticated;
 create schema auth; create schema storage;
@@ -45,7 +47,7 @@ async function check(name,fn){ await fn(); console.log('PASS '+name); count++; }
 async function login(index){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[ids[index]]);await db.exec('set role authenticated');}
 async function system(){await db.exec("reset role; select set_config('request.jwt.claim.sub','',false)");}
 async function project(id){return db.query("insert into projects(id,name,org,period,status,start_date,end_date,requested_admin_id,approval_status) values($1,'프로젝트','학교','기간','active','2026-09-01','2026-10-01',$2,'approved')",[id,ids[0]]);}
-async function join(pid,index,leader=false){ await login(index); return (await db.query("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values($1,'팀원','팀원','','','팀','#123456',$2) returning id",[pid,leader])).rows[0].id; }
+async function join(pid,index,leader=false){ await login(index); return (await asFixture("insert into members(project_id,name,role,major,student,avatar,color,is_leader) values($1,'팀원','팀원','','','팀','#123456',$2) returning id",[pid,leader])).rows[0].id; }
 await check('signup metadata cannot grant administrator privileges',async()=>{
  await login(2); assert.equal((await db.query('select is_admin() value')).rows[0].value,false);
  await assert.rejects(db.query('update profiles set is_admin=true where id=$1',[ids[2]]),/운영자/);

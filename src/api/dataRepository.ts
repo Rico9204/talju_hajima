@@ -1,6 +1,7 @@
 import type { EvaluationPhase, EvaluationEntry, EvaluationData } from "./types";
 import type {
   Project,
+  JoinCode,
   NewProjectInput,
   TeamData,
   Folder,
@@ -57,12 +58,12 @@ export interface DataRepository {
   getProjectById(projectId: string): Promise<Project | null>;
   createProject(input: NewProjectInput, actorName: string, actorAvatar: string): Promise<Project>;
   deleteProject(projectId: string): Promise<void>;
-  joinProject(
-    projectId: string,
-    actorName: string,
-    actorAvatar: string,
-    input: { school: string; major: string; student: string }
-  ): Promise<Member>;
+  // 참여 코드(6시간 유효)로 참여. projectId는 코드로 찾은 프로젝트(다르면 거절).
+  joinProject(projectId: string, code: string, input: { school: string; major: string; student: string }): Promise<Member>;
+  lookupProjectByJoinCode(code: string): Promise<Project | null>;
+  // 팀원이 보는 지금의 참여 코드(만료됐으면 새로 발급) / 팀장·부팀장이 즉시 재발급
+  getJoinCode(projectId: string): Promise<JoinCode>;
+  rotateJoinCode(projectId: string): Promise<JoinCode>;
   approveProject(projectId: string): Promise<void>;
   rejectProject(projectId: string): Promise<void>;
   kickMember(memberId: string): Promise<void>;

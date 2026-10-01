@@ -50,7 +50,7 @@ const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", l
 export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
   const routerNavigate = useNavigate();
   const {
-    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, unreadMentions, currentMember,
+    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, getJoinCode, rotateJoinCode, isLeader, isViceLeader, chatUnreadTotal, unreadMentions, currentMember,
     openMemberProfile, tasksUnread, scheduleUnread, workspaceUnread,
     newTasks, newScheduleEvents, newFiles,
   } = useProject();
@@ -188,6 +188,45 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  // 참여 코드: 6시간마다 바뀐다. 만료 시각이 지나면 다시 받아 오고(서버가 새로 발급), 남은 시간은 1분마다 갱신.
+  const [joinCode, setJoinCode] = useState<{ projectId: string; joinCode: string; joinCodeExpiresAt: string } | null>(null);
+  const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
+  const [rotatingCode, setRotatingCode] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const projectIdForCode = project?.id;
+  const codeExpiresAt = joinCode?.projectId === projectIdForCode ? joinCode?.joinCodeExpiresAt : undefined;
+  useEffect(() => {
+    if (!projectIdForCode) return;
+    let cancelled = false;
+    const load = () => getJoinCode(projectIdForCode)
+      .then((code) => { if (!cancelled) { setJoinCode({ projectId: projectIdForCode, ...code }); setJoinCodeError(null); } })
+      .catch((error) => { if (!cancelled) setJoinCodeError(error instanceof Error ? error.message : "참여 코드를 불러오지 못했습니다."); });
+    const wait = codeExpiresAt ? new Date(codeExpiresAt).getTime() - Date.now() : 0;
+    const timer = setTimeout(load, Math.max(0, wait) + (codeExpiresAt ? 1000 : 0));
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [projectIdForCode, codeExpiresAt]); // getJoinCode는 렌더마다 새 함수라 넣지 않는다(넣으면 매번 다시 요청)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const shownCode = joinCode?.projectId === projectIdForCode ? joinCode.joinCode : null;
+  const remaining = (() => {
+    if (!codeExpiresAt) return "";
+    const minutes = Math.max(0, Math.floor((new Date(codeExpiresAt).getTime() - now) / 60_000));
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
+  })();
+  async function reissueJoinCode() {
+    if (!projectIdForCode || rotatingCode) return;
+    setRotatingCode(true);
+    try {
+      setJoinCode({ projectId: projectIdForCode, ...(await rotateJoinCode(projectIdForCode)) });
+      setNow(Date.now());
+    } catch (error) {
+      setJoinCodeError(error instanceof Error ? error.message : "참여 코드를 재발급하지 못했습니다.");
+    } finally {
+      setRotatingCode(false);
+    }
+  }
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Below the md breakpoint the sidebar is hidden behind a hamburger button
@@ -466,21 +505,42 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
           </div>
         </button>
 
-        <div className="mt-1.5 px-3 flex items-center justify-between gap-2">
-          <span className="text-xs truncate" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-            참여 코드: {project.id}
-          </span>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(project.id);
-              setCodeCopied(true);
-              setTimeout(() => setCodeCopied(false), 1500);
-            }}
-            className="text-xs font-600 px-2 py-0.5 shrink-0"
-            style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
-          >
-            {codeCopied ? "복사됨!" : "복사"}
-          </button>
+        <div className="mt-1.5 px-3">
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="text-xs truncate flex-1 select-all" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }} title={shownCode ?? undefined}>
+              참여 코드: {shownCode ?? (joinCodeError ? "불러오지 못함" : "…")}
+            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              {(isLeader || isViceLeader) && (
+                <button
+                  onClick={reissueJoinCode}
+                  disabled={rotatingCode}
+                  title="지금 새 코드로 재발급(이전 코드는 바로 무효, 6시간 유효)"
+                  className="text-xs px-1.5 py-0.5 hover:opacity-80"
+                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "6px" }}
+                >
+                  {rotatingCode ? "…" : "↻"}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (!shownCode) return;
+                  navigator.clipboard.writeText(shownCode);
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 1500);
+                }}
+                disabled={!shownCode}
+                className="text-xs font-600 px-2 py-0.5 shrink-0"
+                style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
+              >
+                {codeCopied ? "복사됨!" : "복사"}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-[10px] mt-0.5 px-0.5" style={{ color: "var(--muted-foreground)" }}>
+            <span>6시간마다 자동 변경</span>
+            <span>{joinCodeError && !shownCode ? joinCodeError : remaining}</span>
+          </div>
         </div>
 
         {switcherOpen && (

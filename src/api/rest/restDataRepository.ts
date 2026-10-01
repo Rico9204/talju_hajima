@@ -45,7 +45,10 @@ export class RestDataRepository implements DataRepository {
   deleteProject(projectId: string) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" }); }
   approveProject(projectId: string) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}/approve`, { method: "POST" }); }
   rejectProject(projectId: string) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}/reject`, { method: "POST" }); }
-  joinProject(projectId: string, _actorName: string, _actorAvatar: string, input: { school: string; major: string; student: string }) { return this.api.request<Member>(`/projects/${encodeURIComponent(projectId)}/join`, { method: "POST", body: JSON.stringify(input) }); }
+  joinProject(projectId: string, code: string, input: { school: string; major: string; student: string }) { return this.api.request<Member>(`/projects/${encodeURIComponent(projectId)}/join`, { method: "POST", body: JSON.stringify({ code, ...input }) }); }
+  lookupProjectByJoinCode(code: string) { return this.api.request<Project | null>(`/join-codes/${encodeURIComponent(code.trim())}`); }
+  getJoinCode(projectId: string) { return this.api.request<import("../types").JoinCode>(`/projects/${encodeURIComponent(projectId)}/join-code`); }
+  rotateJoinCode(projectId: string) { return this.api.request<import("../types").JoinCode>(`/projects/${encodeURIComponent(projectId)}/join-code/rotate`, { method: "POST" }); }
   getTeam(projectId: string, adminView = false) { return this.api.request<TeamData>(`/projects/${encodeURIComponent(projectId)}/team${adminView ? "?admin=true" : ""}`); }
   getMemberParticipationStats(userId: string) { return this.api.request<{ projectCount: number; collaboratorCount: number }>(`/users/${encodeURIComponent(userId)}/participation-stats`); }
   transferLeadership(projectId: string, targetName: string) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}/transfer-leadership`, { method: "POST", body: JSON.stringify({ targetName }) }); }

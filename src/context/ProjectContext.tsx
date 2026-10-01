@@ -1,4 +1,4 @@
-import type { EvaluationPhase, EvaluationEntry, EvaluationData, AdminApplicationInput } from "../api/types";
+import type { EvaluationPhase, EvaluationEntry, EvaluationData, AdminApplicationInput, JoinCode } from "../api/types";
 import { createContext, useContext, useEffect, useState, useRef, useMemo, type ReactNode } from "react";
 import { dataRepository } from "../api";
 import type {
@@ -101,8 +101,10 @@ interface ProjectContextValue {
   setProjectId: (id: string) => void;
   addProject: (input: NewProjectInput) => Promise<string>;
   deleteProject: (projectId: string) => Promise<void>;
-  lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
+  lookupProject: (code: string) => Promise<Project | null>;
+  joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
+  getJoinCode: (projectId: string) => Promise<JoinCode>;
+  rotateJoinCode: (projectId: string) => Promise<JoinCode>;
   markProjectDone: () => Promise<void>;
   kickMember: (memberId: string) => Promise<void>;
   setViceLeader: (memberId: string, enabled: boolean) => Promise<void>;
@@ -235,8 +237,8 @@ function EmptyProjectsScreen({
   isAdmin: boolean;
   signOut: () => void;
   addProject: (input: NewProjectInput) => Promise<string>;
-  lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { school: string; major: string; student: string }) => Promise<void>;
+  lookupProject: (code: string) => Promise<Project | null>;
+  joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -908,13 +910,13 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function lookupProject(targetId: string) {
-    return dataRepository.getProjectById(targetId);
+  // 참여 코드로만 찾는다(프로젝트 id로는 찾지 않음).
+  async function lookupProject(code: string) {
+    return dataRepository.lookupProjectByJoinCode(code);
   }
 
-  async function joinProject(targetId: string, input: { school: string; major: string; student: string }) {
-    const { name, avatar } = await accountIdentity();
-    await dataRepository.joinProject(targetId, name, avatar, input);
+  async function joinProject(targetId: string, code: string, input: { school: string; major: string; student: string }) {
+    await dataRepository.joinProject(targetId, code, input);
     // `projects` is filtered to "my projects" (see the load effect above),
     // so the newly-joined project has to be added here explicitly.
     const joined = await dataRepository.getProjectById(targetId);
@@ -1351,6 +1353,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         deleteProject,
         lookupProject,
         joinProject,
+        getJoinCode: (id) => dataRepository.getJoinCode(id),
+        rotateJoinCode: (id) => dataRepository.rotateJoinCode(id),
         markProjectDone,
         kickMember,
         setViceLeader,

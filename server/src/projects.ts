@@ -3,6 +3,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize, IsArray, IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested,
 } from "class-validator";
+import { randomBytes } from "node:crypto";
 import { myProfile } from "./actor.js";
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, scalarJson, selectJson, selectOneJson, type Query } from "./db.js";
@@ -17,15 +18,14 @@ export class HealthController {
   }
 }
 
-const MEMBER_COLORS = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PHASES = ["midterm", "final"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// 프로젝트 id: 이름을 읽을 수 있는 조각 + 시각(같은 이름이어도 겹치지 않게). 화면 쪽 slugify와 같은 규칙.
+// 프로젝트 id: 이름을 읽을 수 있는 조각 + 시각 + 임의 4자(같은 이름을 같은 순간에 만들어도 겹치지 않게).
 function projectIdFor(name: string): string {
   const base = name.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/(^-|-$)/g, "");
-  return `${base || "project"}-${Date.now().toString(36)}`;
+  return `${base || "project"}-${Date.now().toString(36)}-${randomBytes(3).toString("hex").slice(0, 4)}`;
 }
 
 class CreateProjectDto {
@@ -38,6 +38,7 @@ class CreateProjectDto {
 }
 
 class JoinProjectDto {
+  @IsString() @MaxLength(100) code!: string; // 팀장에게 받은 참여 코드(6시간 유효)
   @IsString() @MaxLength(100) school!: string;
   @IsString() @MaxLength(100) major!: string;
   @IsString() @MaxLength(50) student!: string;
@@ -228,6 +229,7 @@ export class ProjectsController {
            online, responsibilities, color, criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, criteria_quality, is_leader)
          values ($1, $2, '팀장', '역사문화학과 3학년', '2021123456', $3, 0, 0, 0, 0, 0, true, '{}', '#2563eb', 0, 0, 0, 0, 0, true)`,
         [id, actor.name, actor.avatar]);
+      await query("select public.get_or_rotate_join_code($1)", [id]); // 첫 참여 코드
       return mapProject(project);
     });
   }
@@ -262,20 +264,12 @@ export class ProjectsController {
 
   // 참여: 팀원 행을 만들고 학교·전공·학번을 계정 프로필에도 반영한 뒤, 만들어진 내 팀원 정보를 돌려준다.
   // (INSERT에 RETURNING을 붙이지 않는다 — 팀원 읽기 규칙이 "이미 팀원인가"를 보므로 같은 문장 안에서는 자기 행이 안 보인다.)
+  // 참여 코드로 참여(코드 검사·팀원 행 추가는 DB 함수 join_project_with_code). 주소의 프로젝트와 코드의 프로젝트가 같아야 한다.
   @Post("projects/:projectId/join")
   joinProject(@UserId() userId: string, @Param("projectId") projectId: string, @Body() body: JoinProjectDto) {
     return this.db.asUser(userId, async (query) => {
-      const actor = await myProfile(query);
-      const [{ count }] = await selectJson(query, "select count(*)::int as count from public.members where project_id = $1", [projectId]);
-      await query(
-        `insert into public.members(project_id, name, role, major, student, avatar, tasks_done, tasks_total, activities, score, eval_count,
-           online, responsibilities, color, criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, criteria_quality, is_leader)
-         values ($1, $2, '팀원', $3, $4, $5, 0, 0, 0, 0, 0, true, '{}', $6, 0, 0, 0, 0, 0, false)`,
-        [projectId, actor.name, body.major.trim() || "전공 미지정", body.student.trim() || "-", actor.avatar, MEMBER_COLORS[count % MEMBER_COLORS.length]],
-      ).catch((error) => {
-        if (error?.code === "23505") throw new BadRequestException("이미 참여한 프로젝트입니다.");
-        throw error;
-      });
+      const joinedId = await scalarJson<string>(query, "public.join_project_with_code($1, $2, $3)", [body.code, body.major, body.student]);
+      if (joinedId !== projectId) throw new BadRequestException("이 프로젝트의 참여 코드가 아닙니다."); // 트랜잭션이 취소되어 참여도 취소된다
       await query("update public.profiles set school = $1, major = $2, student = $3 where id = auth.uid()",
         [body.school.trim() || null, body.major.trim() || null, body.student.trim() || null]);
       const member = await selectOneJson(query, "select * from public.visible_evaluation_members(p_project_id => $1) where user_id = auth.uid()", [projectId]);
@@ -283,6 +277,30 @@ export class ProjectsController {
       return mapMember(member, profile);
     });
   }
+
+  // 참여 전 확인: 유효한 코드의 프로젝트(없으면 null). 프로젝트 id로는 찾지 않는다.
+  @Get("join-codes/:code")
+  lookupJoinCode(@UserId() userId: string, @Param("code") code: string) {
+    return this.db.asUser(userId, async (query) => {
+      const row = await scalarJson<Record<string, unknown> | null>(query, "public.lookup_project_by_join_code($1)", [code]);
+      return row ? mapProject(row) : null;
+    });
+  }
+
+  // 지금 쓸 수 있는 참여 코드(팀원만). 6시간이 지났으면 새로 만든다.
+  @Get("projects/:projectId/join-code")
+  joinCode(@UserId() userId: string, @Param("projectId") projectId: string) {
+    return this.db.asUser(userId, (query) => scalarJson(query, "public.get_or_rotate_join_code($1)", [projectId]));
+  }
+
+  // 팀장·부팀장이 지금 바로 새 코드로(이전 코드는 즉시 무효).
+  @Post("projects/:projectId/join-code/rotate")
+  @HttpCode(200)
+  rotateJoinCode(@UserId() userId: string, @Param("projectId") projectId: string) {
+    return this.db.asUser(userId, (query) => scalarJson(query, "public.rotate_project_join_code($1)", [projectId]));
+  }
+
+
 
   @Get("projects/:projectId/team")
   getTeam(@UserId() userId: string, @Param("projectId") projectId: string, @QueryParam("admin") admin?: string) {
