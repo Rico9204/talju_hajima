@@ -57,8 +57,8 @@ pnpm run dev                                          # http://localhost:3000/ap
 |---|---|
 | 로그인 | `POST auth/signup` · `POST auth/login` · `POST auth/refresh` · `POST auth/logout` · `GET auth/me` |
 | 내 계정 | `GET me/is-admin` · `GET me/is-operator` · `GET me/project-ids` · `GET me/project-alerts` · `GET me/evaluation-summary` · `PATCH me/profile` · `GET me/admin-application` · `GET me/workspace-cleanup-projects` |
-| 프로젝트 | `GET/POST projects` · `GET/DELETE projects/:id` · `POST projects/:id/{approve,reject,complete,transfer-leadership}` · `POST projects/:id/join`(본문에 참여 코드 필수) |
-| 참여 코드 | `GET projects/:id/join-code`(팀원만, 6시간 지나면 새로 발급) · `POST projects/:id/join-code/rotate`(팀장·부팀장) · `GET join-codes/:code`(참여 전 확인, 프로젝트 id로는 찾지 않음) · `GET projects/:id/team?admin=true` · `POST projects/:id/sections/:section/viewed` |
+| 프로젝트 | `GET/POST projects` · `GET/DELETE projects/:id` · `POST projects/:id/{approve,reject,complete,transfer-leadership}` · `POST projects/:id/join`(본문에 참여 코드 필수) · `GET projects/:id/team?admin=true` · `POST projects/:id/sections/:section/viewed` |
+| 참여 코드 | `GET projects/:id/join-code`(팀원만, 6시간 지나면 새로 발급) · `POST projects/:id/join-code/rotate`(팀장·부팀장) · `GET join-codes/:code`(참여 전 확인, 프로젝트 id로는 찾지 않음) |
 | 팀원 | `PUT members/:id/vice-leader` · `DELETE members/:id`(제외) · `POST members/:id/presence` · `GET users/:userId/participation-stats` |
 | 평가 | `GET/PUT evaluation-mode` · `GET/POST projects/:id/evaluations/:phase` |
 | 관리자·운영자 | `GET admins/search?q=` · `GET admin/applications` · `POST admin/applications/:id/review` · `GET admin/accounts` · `DELETE admin/accounts/:userId` |
