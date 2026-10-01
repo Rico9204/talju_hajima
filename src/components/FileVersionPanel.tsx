@@ -10,6 +10,7 @@ import { useProject } from "../context/ProjectContext";
 import { EDITABLE_TEXT_EXTENSIONS, formatUploadTime, isEditableTextFile, versionTree } from "../lib/workspaceFiles";
 import { isRichDocName } from "../lib/richDoc";
 import { isSlidesName } from "../lib/slidesDoc";
+import { formatZipSize, listZipEntries, zipEntriesText, type ZipEntry } from "../lib/zipEntries";
 
 function highlightOfficeHtml(html: string, query: string): string {
   const term = query.trim();
@@ -57,7 +58,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
   // 비전공자 기본값은 "페이지"(저장 순서로 넘기며 바뀐 줄 표시), 분기를 보려면 "버전 트리".
   const [viewMode, setViewMode] = useState<"page" | "tree">("page");
   const textCache = useRef(new Map<number, string | null>());
-  const [preview, setPreview] = useState<{ url?: string; text?: string; html?: string; kind: string; name: string } | null>(null);
+  const [preview, setPreview] = useState<{ url?: string; text?: string; html?: string; entries?: ZipEntry[]; kind: string; name: string } | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
   const input = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
@@ -140,6 +141,13 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       if (mounted.current) {
         setPreview({ html, text: text || "이 Office 파일에서 미리 볼 수 있는 텍스트를 찾지 못했습니다.", kind: html ? "office" : "text", name });
       }
+    } else if (ext === "zip") {
+      try {
+        const entries = await listZipEntries(blob);
+        if (mounted.current) setPreview({ entries, text: zipEntriesText(entries), kind: "zip", name }); // text: 새 창으로 열기용
+      } catch (e) {
+        setMessage(e instanceof Error ? e.message : "ZIP 목록을 읽지 못했습니다.");
+      }
     } else setMessage("이 형식은 다운로드하여 해당 프로그램에서 열 수 있습니다.");
   }
 
@@ -148,6 +156,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
     const ext = (v.originalName ?? file.name).split(".").pop()?.toLowerCase() ?? "";
     let text: string | null = null;
     if (EDITABLE_TEXT_EXTENSIONS.includes(ext) && v.storagePath) text = await (await downloadFileVersion(v.id)).text();
+    else if (ext === "zip" && v.storagePath) text = zipEntriesText(await listZipEntries(await downloadFileVersion(v.id)).catch(() => [])) || null; // 들어 있는 파일 목록끼리 비교
     else if (v.searchText) text = v.searchText; // docx/pptx/pdf 등은 검색용 추출 텍스트로 비교
     textCache.current.set(v.id, text);
     return text;
@@ -234,6 +243,12 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
         <div className="min-h-0 flex-1 overflow-auto p-5">
           {preview.kind === "image" && <img src={preview.url} alt={preview.name} className="mx-auto max-w-full object-contain" style={{ maxHeight: "72vh", transform: `scale(${previewZoom})`, transformOrigin: "center top" }} />}
           {preview.kind === "pdf" && <Suspense fallback={<p className="text-xs">PDF를 불러오는 중…</p>}><PdfSearchPreview source={preview.url!} query={searchQuery} zoom={previewZoom} /></Suspense>}
+          {preview.kind === "zip" && <div className="max-h-[72vh] overflow-auto" style={{ transform: `scale(${previewZoom})`, transformOrigin: "top left" }}>
+            <p className="text-xs mb-2" style={{ color: "var(--muted-foreground)" }}>파일 {preview.entries?.length ?? 0}개{(preview.entries?.length ?? 0) >= 5000 ? " (앞 5000개만 표시)" : ""} · 압축을 풀지 않고 목록만 보여 줍니다.</p>
+            {preview.entries?.length ? <ul className="text-xs divide-y" style={{ borderColor: "var(--border)" }}>
+              {preview.entries.map((entry) => <li key={entry.path} className="flex justify-between gap-3 py-1.5"><span className="break-all" style={{ fontFamily: "var(--font-jetbrains)" }}><SearchHighlight text={entry.path} query={searchQuery} /></span><span className="shrink-0" style={{ color: "var(--muted-foreground)" }}>{formatZipSize(entry.size)}</span></li>)}
+            </ul> : <p className="text-xs">빈 압축 파일입니다.</p>}
+          </div>}
           {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-[72vh] overflow-auto p-4" style={{ background: "var(--muted)", transform: `scale(${previewZoom})`, transformOrigin: "top left" }}><SearchHighlight text={preview.text ?? ""} query={searchQuery} /></pre>}
           {preview.kind === "office" && <iframe title={`${preview.name} 문서 미리보기`} sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;min-height:100%;background:#fff}body{zoom:${previewZoom};width:calc(100% / ${previewZoom});box-sizing:border-box;padding:24px;font:14px system-ui,sans-serif;color:#1f2937;line-height:1.6}table{border-collapse:collapse;max-width:none;overflow:auto}td,th{border:1px solid #d1d5db;padding:6px 10px;text-align:left}h1,h2,h3{margin-top:1.2em}img{max-width:100%;height:auto}mark{background:#facc15;color:#422006;border-radius:2px;padding:0 2px}</style></head><body>${highlightOfficeHtml(preview.html ?? "", searchQuery)}</body></html>`} className="w-full border" style={{ height: "100%", minHeight: "520px", borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "#fff" }} />}
         </div>
