@@ -188,7 +188,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
-  // 참여 코드: 6시간마다 바뀐다. 만료 시각이 지나면 다시 받아 오고(서버가 새로 발급), 남은 시간은 1분마다 갱신.
+  // 참여 코드: 생성 후 6시간 유효. 만료 시각이 지나면 다시 받아 오고(서버가 새로 발급), 남은 시간은 1분마다 갱신.
   const [joinCode, setJoinCode] = useState<{ projectId: string; joinCode: string; joinCodeExpiresAt: string } | null>(null);
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
   const [rotatingCode, setRotatingCode] = useState(false);
@@ -537,8 +537,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               </button>
             </div>
           </div>
-          <div className="flex items-center justify-between text-[10px] mt-0.5 px-0.5" style={{ color: "var(--muted-foreground)" }}>
-            <span>6시간마다 자동 변경</span>
+          <div className="flex items-center justify-end text-[10px] mt-0.5 px-0.5" style={{ color: "var(--muted-foreground)" }}>
             <span>{joinCodeError && !shownCode ? joinCodeError : remaining}</span>
           </div>
         </div>
