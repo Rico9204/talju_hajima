@@ -90,6 +90,11 @@ test('저장 콜백: 문서 서버 서명이 있어야 하고, 받은 주소의 
   assert.deepEqual(await callback(config, { token: await sign({ ...data, status: 2 }) }), { error: 0 });
   assert.equal((await versions()).find((v) => v.current).note, '오피스 편집 저장');
   assert.notEqual((await call(s.leader, 'GET', `/workspace/files/${fileId}/onlyoffice`)).body.document.key, config.document.key);
+  // 실제 문서 서버는 중계 경로(/onlyoffice)를 붙인 공개 주소를 준다 → 접두어를 떼고 문서 서버에 요청
+  const fresh = (await call(s.member, 'GET', `/workspace/files/${fileId}/onlyoffice`)).body;
+  const viaProxy = { key: fresh.document.key, status: 2, url: 'https://api.test/onlyoffice/cache/files/data/k/output.pptx/output.pptx?md5=2' };
+  assert.deepEqual(await callback(fresh, { token: await sign(viaProxy) }), { error: 0 });
+  assert.ok(seen.some((r) => r.url === '/cache/files/data/k/output.pptx/output.pptx?md5=2'));
   // Authorization 헤더 방식의 서명도 받는다
   assert.deepEqual(await callback(config, { ...data, status: 1 }, { authorization: `Bearer ${await sign({ payload: { ...data, status: 1 } })}` }), { error: 0 });
 });
