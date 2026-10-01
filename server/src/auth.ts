@@ -340,6 +340,8 @@ export class AuthController {
     if (!user || tooLongForBcrypt(body.currentPassword) || !(await bcrypt.compare(body.currentPassword, user.encrypted_password))) {
       throw new BadRequestException("현재 비밀번호가 올바르지 않습니다.");
     }
+    // 현재 비밀번호는 위에서 확인했으므로 문자열 비교로 충분하다.
+    if (body.newPassword === body.currentPassword) throw new BadRequestException("새 비밀번호는 기존 비밀번호와 다르게 설정해야 합니다.");
     const passwordHash = await bcrypt.hash(body.newPassword, BCRYPT_COST);
     return this.db.asSystem(async (query) => {
       await query("update auth.users set encrypted_password = $2 where id = $1", [userId, passwordHash]);

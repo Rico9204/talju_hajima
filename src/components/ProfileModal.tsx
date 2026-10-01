@@ -349,9 +349,20 @@ export default function ProfileModal() {
     }
   }
 
+  // 닫을 때 입력한 비밀번호도 지운다(다시 열었을 때 남아 있지 않게).
+  function closePasswordDialog() {
+    setPasswordOpen(false);
+    setPasswordNotice("");
+    setPasswordForm({ current: "", next: "", confirm: "" });
+  }
+
   async function submitPasswordChange() {
     if (!passwordForm.current) {
       setPasswordNotice("현재 비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (passwordForm.current === passwordForm.next) {
+      setPasswordNotice("새 비밀번호는 기존 비밀번호와 다르게 설정해야 합니다.");
       return;
     }
     if (passwordForm.next.length < 8) {
@@ -632,13 +643,13 @@ export default function ProfileModal() {
         </div>
       )}
       {passwordOpen && (
-        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setPasswordOpen(false)}>
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closePasswordDialog}>
           <div className="w-[380px] max-w-[92vw] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-700">비밀번호 변경</h3>
               <button
                 type="button"
-                onClick={() => { setPasswordOpen(false); setPasswordNotice(""); }}
+                onClick={closePasswordDialog}
                 className="w-8 h-8 flex items-center justify-center text-lg"
                 style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
               >
@@ -663,7 +674,7 @@ export default function ProfileModal() {
                   type="password"
                   value={passwordForm.next}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
-                  placeholder="8자 이상"
+                  placeholder="8자 이상 (기존과 다른 비밀번호)"
                   className="w-full px-3 py-2.5 text-sm outline-none"
                   style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
                 />
@@ -675,6 +686,7 @@ export default function ProfileModal() {
                   value={passwordForm.confirm}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && submitPasswordChange()}
+                  placeholder="새 비밀번호 다시 입력"
                   className="w-full px-3 py-2.5 text-sm outline-none"
                   style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
                 />
@@ -690,7 +702,7 @@ export default function ProfileModal() {
             <div className="flex gap-2 mt-5">
               <button
                 type="button"
-                onClick={() => { setPasswordOpen(false); setPasswordNotice(""); }}
+                onClick={closePasswordDialog}
                 className="flex-1 py-2.5 text-sm font-600"
                 style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
               >

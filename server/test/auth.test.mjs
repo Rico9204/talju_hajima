@@ -166,10 +166,15 @@ test('비밀번호 변경: 현재 비밀번호가 맞아야 하고, 다른 기�
   const other = await login('kim@example.com', 'new-password-123');
   const me = await login('kim@example.com', 'new-password-123');
   assert.equal((await api(me.body.accessToken, 'PATCH', '/auth/password', { currentPassword: 'wrong-password', newPassword: 'changed-password-1' })).status, 400);
+  const same = await api(me.body.accessToken, 'PATCH', '/auth/password', { currentPassword: 'new-password-123', newPassword: 'new-password-123' });
+  assert.equal(same.status, 400);
+  assert.match(same.body.message, /기존 비밀번호와 다르게/);
+  const otherKept = await refresh(refreshCookie(other)); // 거절되면 다른 기기도 그대로(토큰은 1회용이라 새로 받은 것을 이어 쓴다)
+  assert.equal(otherKept.status, 200);
   const changed = await api(me.body.accessToken, 'PATCH', '/auth/password', { currentPassword: 'new-password-123', newPassword: 'changed-password-1' });
   assert.equal(changed.status, 200);
   assert.ok(changed.body.accessToken && refreshCookie(changed));
-  assert.equal((await refresh(refreshCookie(other))).status, 401);
+  assert.equal((await refresh(refreshCookie(otherKept))).status, 401);
   assert.equal((await login('kim@example.com', 'changed-password-1')).status, 200);
 });
 
