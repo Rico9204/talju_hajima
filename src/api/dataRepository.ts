@@ -139,6 +139,9 @@ export interface DataRepository {
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
   // 메인 화면: 내 모든 프로젝트의 오늘 이후 일정
   listUpcomingEvents(): Promise<import("./types").UpcomingEvent[]>;
+  // 오피스 편집(OnlyOffice): 서버에 켜져 있는지, 그 파일의 편집기 설정(서버가 서명)
+  getOfficeEditorStatus(): Promise<{ enabled: boolean }>;
+  getOfficeEditorConfig(fileId: number): Promise<Record<string, unknown>>;
   addScheduleEvent(projectId: string, actorMemberId: string, input: NewScheduleEventInput): Promise<ScheduleEvent>;
   updateScheduleEvent(
     eventId: number,

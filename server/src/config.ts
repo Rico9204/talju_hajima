@@ -22,6 +22,8 @@ export interface ServerConfig {
   cookieSecure: boolean;
   // 웹 푸시(브라우저를 닫아도 알림) 키. 없으면 그 알림만 꺼진다. 공개키는 프런트의 VITE_VAPID_PUBLIC_KEY와 같은 값.
   vapid?: { publicKey: string; privateKey: string; subject: string };
+  // 오피스 편집(OnlyOffice 문서 서버). ONLYOFFICE_URL과 ONLYOFFICE_JWT_SECRET이 있으면 켜진다.
+  onlyoffice?: { url: string; jwtSecret: string; callbackBaseUrl: string };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -44,6 +46,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const vapidPublic = env.VAPID_PUBLIC_KEY?.trim();
   const vapidPrivate = env.VAPID_PRIVATE_KEY?.trim();
   if (!!vapidPublic !== !!vapidPrivate) throw new Error("웹 푸시에는 VAPID_PUBLIC_KEY와 VAPID_PRIVATE_KEY가 함께 필요합니다.");
+  const onlyofficeUrl = env.ONLYOFFICE_URL?.trim().replace(/\/+$/, "");
+  const onlyofficeSecret = env.ONLYOFFICE_JWT_SECRET?.trim();
+  if (onlyofficeUrl && (!onlyofficeSecret || onlyofficeSecret.length < 32)) throw new Error("오피스 편집에는 32자 이상의 ONLYOFFICE_JWT_SECRET이 필요합니다(문서 서버의 JWT_SECRET과 같은 값).");
   const port = Number(env.PORT ?? 3000);
   return {
     port,
@@ -58,6 +63,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     mail: transport === "smtp" ? { transport, smtpUrl: env.SMTP_URL!, from: env.MAIL_FROM! } : { transport },
     appUrl: (env.APP_URL || "http://localhost:5173").replace(/\/+$/, ""),
     odcloudApiKey: env.ODCLOUD_API_KEY,
+    onlyoffice: onlyofficeUrl && onlyofficeSecret ? {
+      url: onlyofficeUrl, jwtSecret: onlyofficeSecret,
+      callbackBaseUrl: (env.ONLYOFFICE_CALLBACK_BASE_URL?.trim() || env.PUBLIC_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, ""),
+    } : undefined,
     vapid: vapidPublic && vapidPrivate ? { publicKey: vapidPublic, privateKey: vapidPrivate, subject: env.VAPID_SUBJECT?.trim() || "mailto:admin@example.com" } : undefined,
   };
 }

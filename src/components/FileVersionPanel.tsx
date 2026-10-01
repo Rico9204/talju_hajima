@@ -5,6 +5,7 @@ const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
 import FileUploadDialog from "./FileUploadDialog";
 import VersionPageView from "./VersionPageView";
 import VersionCalendar from "./VersionCalendar";
+import OfficeEditorModal, { isOfficeEditable, officeEditorEnabled } from "./OfficeEditorModal";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { useProject } from "../context/ProjectContext";
@@ -66,6 +67,10 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
   const mounted = useRef(true);
   const urls = useRef(new Set<string>());
   const locked = project.status === "done";
+  // 오피스 편집(서버에 문서 서버가 설정돼 있을 때만 버튼이 보인다)
+  const [officeEnabled, setOfficeEnabled] = useState(false);
+  const [officeOpen, setOfficeOpen] = useState(false);
+  useEffect(() => { let active = true; void officeEditorEnabled().then((on) => { if (active) setOfficeEnabled(on); }); return () => { active = false; }; }, []);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; for (const url of urls.current) URL.revokeObjectURL(url); urls.current.clear(); };
@@ -196,6 +201,12 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
         {isRichDocName(currentVersion.originalName ?? file.name) ? "📄 문서 열기 (여러 명이 함께)" : isSlidesName(currentVersion.originalName ?? file.name) ? "🖼️ 슬라이드 열기 (여러 명이 함께)" : "✏️ 바로 수정 (여러 명이 함께)"}{editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
       </button>
     )}
+    {officeEnabled && currentVersion?.storagePath && isOfficeEditable(currentVersion.originalName ?? file.name) && (
+      <button type="button" disabled={busy} onClick={() => setOfficeOpen(true)} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
+        {locked ? "📑 오피스에서 보기" : "📑 오피스에서 편집 (여러 명이 함께)"}
+      </button>
+    )}
+    {officeOpen && <OfficeEditorModal fileId={file.id} fileName={file.name} readOnly={locked} onClose={() => setOfficeOpen(false)} />}
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
       {([["page", "페이지"], ["tree", "버전 트리"], ["calendar", "달력"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
     </div>

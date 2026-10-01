@@ -11,7 +11,7 @@ const app = await createApp({
   store: new DiskFileStore(config.storageDir), publicBaseUrl: config.publicBaseUrl,
   mailer: config.mail.transport === "smtp" ? new SmtpMailer(config.mail.smtpUrl, config.mail.from) : new ConsoleMailer(),
   appUrl: config.appUrl, odcloudApiKey: config.odcloudApiKey,
-  cookieSameSite: config.cookieSameSite, cookieSecure: config.cookieSecure, vapid: config.vapid,
+  cookieSameSite: config.cookieSameSite, cookieSecure: config.cookieSecure, vapid: config.vapid, onlyoffice: config.onlyoffice,
 });
 app.enableShutdownHooks();
 await app.listen(config.port, process.env.HOST || "0.0.0.0");

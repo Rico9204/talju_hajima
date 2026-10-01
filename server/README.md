@@ -70,6 +70,7 @@ pnpm run dev                                          # http://localhost:3000/ap
 | 전공 조회 | `GET majors?school=` |
 | 평가 상위 % | `GET me/evaluation-percentiles?projectId=&memberId=` |
 | 캠퍼스 소식 스크랩 | `GET me/scrapped-notices` · `POST me/scrapped-notices/toggle` (소식 목록은 로그인 없이 쓰는 Vercel 함수 `api/campus-notices.js`, 개발 서버는 `vite.config.ts`) |
+| 오피스 편집 | `GET onlyoffice/status` · `GET workspace/files/:id/onlyoffice`(편집기 설정, 서버 서명) · `GET onlyoffice/raw?token=`·`POST onlyoffice/callback?token=`(문서 서버 전용) · `/onlyoffice/*`(문서 서버 중계, /api 밖) |
 | 웹 푸시 구독 | `POST me/push-subscriptions` · `POST me/push-subscriptions/delete` |
 | 기타 | `GET health` |
 
@@ -85,6 +86,20 @@ DB 트리거(`push_to_members`)는 Supabase에서 pg_net으로 Vercel 함수에 
 키가 없으면 서버가 `push_config`를 비워 트리거가 아무것도 하지 않는다(사이트를 열어 둔 동안의 알림은 그대로).
 
 **이미 쓰던 서버 DB**에는 `supabase/migrations/`의 새 파일(`2609262310_campus_notices.sql`, `2610011200_evaluation_percentiles.sql`, `2610011300_web_push.sql`)을 순서대로 적용한 뒤 `server/db/realtime.sql`을 다시 실행한다(여러 번 실행해도 안전).
+
+## 오피스 편집(OnlyOffice, 선택)
+워드·엑셀·PPT(docx·xlsx·pptx)를 앱 안에서 여러 명이 함께 편집한다. 공동편집은 OnlyOffice 문서 서버가 하고, 이 서버(`src/onlyoffice.ts`)는
+편집기 설정 서명, 원본 제공(링크 토큰), 저장 콜백(문서 서버 서명 확인 → 워크스페이스 새 버전, 검색용 글자도 추출)만 한다.
+문서 서버는 이 서버의 `/onlyoffice/` 아래로 중계해 ngrok 주소 하나로 쓴다(`X-Forwarded-Host: <공개 주소>/onlyoffice`).
+
+1. `server/.env`에 `ONLYOFFICE_URL=http://127.0.0.1:8080`, `ONLYOFFICE_JWT_SECRET=<32자 이상>`
+2. `docker compose -f server/docker-compose.yml --profile office up -d` (문서 서버, 메모리 2~4GB)
+3. 서버 재시작. 화면은 버전 패널에 "오피스에서 편집" 버튼이 생긴다(설정이 없으면 안 보임).
+
+문서 서버는 원본·저장을 `PUBLIC_BASE_URL`(ngrok)로 이 서버에 요청한다(다르게 하려면 `ONLYOFFICE_CALLBACK_BASE_URL`).
+무료 ngrok은 브라우저에 경고 페이지를 먼저 보여 줘서, 편집 화면(iframe)에 경고가 보이면 사용자가 **Visit Site**를 한 번 눌러야 한다
+(편집기 스크립트는 서비스 워커가 우회). Safari처럼 다른 사이트 쿠키를 막는 브라우저에서는 열리지 않을 수 있다 — 고정 도메인을 쓰면 사라지는 제약.
+자동 저장 중에 새로 연 사람이 같은 세션에 합류하도록 세션 키를 서버 메모리에 둔다(서버를 다시 켜면 새 세션으로 열림, 저장 내용은 모두 버전으로 남음).
 
 ## 이메일
 가입 확인과 비밀번호 재설정은 메일러를 통해 처리한다. 개발에서는 콘솔에 링크를 출력하고, 운영에서는 SMTP 설정이 필수다.

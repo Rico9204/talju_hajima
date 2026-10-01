@@ -10,6 +10,7 @@ import { CampusController } from "./campus.js";
 import { ChatController } from "./chat.js";
 import { Db } from "./db.js";
 import { ApiErrorFilter } from "./errors.js";
+import { OnlyofficeController, OnlyofficeService, registerOnlyofficeProxy, type OnlyofficeSettings } from "./onlyoffice.js";
 import { HealthController, ProjectsController } from "./projects.js";
 import { PushController, PushSender, type PushSend, type VapidKeys } from "./push.js";
 import { RealtimeHub } from "./realtime.js";
@@ -33,15 +34,17 @@ export interface AppDeps {
   cookieSecure?: boolean; // https에서만 보내기(운영)
   vapid?: VapidKeys; // 웹 푸시 키. 없으면 브라우저를 닫았을 때의 알림을 보내지 않는다
   pushSend?: PushSend; // 테스트에서 실제 푸시 서비스 대신
+  onlyoffice?: OnlyofficeSettings; // 오피스 편집(문서 서버). 없으면 기능이 꺼진다
+  onlyofficeFetch?: typeof fetch; // 테스트에서 문서 서버 대신
 }
 
 @Module({})
 class AppModule {
-  static register(deps: AppDeps, urls: StorageUrls, tokens: TokenService, hub: RealtimeHub, push: PushSender): DynamicModule {
+  static register(deps: AppDeps, urls: StorageUrls, tokens: TokenService, hub: RealtimeHub, push: PushSender, office: OnlyofficeService): DynamicModule {
     return {
       module: AppModule,
       controllers: [
-        HealthController, AuthController, ProjectsController, AdminController, ChatController, WorkspaceController, TasksController, BoardController, MajorsController, CampusController, PushController,
+        HealthController, AuthController, ProjectsController, AdminController, ChatController, WorkspaceController, TasksController, BoardController, MajorsController, CampusController, PushController, OnlyofficeController,
         StorageController,
       ],
       providers: [
@@ -49,6 +52,7 @@ class AppModule {
         { provide: TokenService, useValue: tokens },
         { provide: RealtimeHub, useValue: hub }, // app.close() 때 onModuleDestroy로 연결·알림 수신을 정리
         { provide: PushSender, useValue: push },
+        { provide: OnlyofficeService, useValue: office },
         { provide: AuthLimits, useValue: deps.authLimits ?? new AuthLimits() },
         { provide: FileStore, useValue: deps.store },
         { provide: Mailer, useValue: deps.mailer },
@@ -68,7 +72,8 @@ export async function createApp(deps: AppDeps): Promise<INestApplication> {
   const tokens = new TokenService(deps.jwtSecret);
   const hub = new RealtimeHub(deps.db, tokens, deps.corsOrigins);
   const push = new PushSender(deps.db, deps.vapid, deps.pushSend);
-  const app = await NestFactory.create(AppModule.register(deps, urls, tokens, hub, push), { logger: ["error", "warn", "log"] });
+  const office = new OnlyofficeService(deps.db, deps.store, deps.onlyoffice, deps.jwtSecret, deps.onlyofficeFetch);
+  const app = await NestFactory.create(AppModule.register(deps, urls, tokens, hub, push, office), { logger: ["error", "warn", "log"] });
   await hub.start(app.getHttpServer()); // WebSocket /realtime
   await push.start();
   const http = app.getHttpAdapter().getInstance();
@@ -76,6 +81,8 @@ export async function createApp(deps: AppDeps): Promise<INestApplication> {
   if (deps.trustProxy !== undefined) http.set("trust proxy", deps.trustProxy);
   // 공개 파일·서명 주소(/storage/v1/object/...)는 /api 밖, 로그인 없이(<img src>로 쓰이므로).
   registerFileRoutes(http, { db: deps.db, store: deps.store, urls });
+  // 오피스 문서 서버 중계(/onlyoffice/…, /api 밖). 설정이 없으면 아무것도 붙이지 않는다.
+  registerOnlyofficeProxy(http, app.getHttpServer(), deps.onlyoffice);
   app.setGlobalPrefix("api");
   // 공유 브랜치의 전역 검증을 옮기되, 정의하지 않은 필드는 조용히 버리지 않고 거부한다.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));

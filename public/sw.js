@@ -11,7 +11,10 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || request.mode === "navigate" || request.headers.has("ngrok-skip-browser-warning")) return;
   let url;
   try { url = new URL(request.url); } catch { return; }
-  if (!NGROK_HOST.test(url.hostname) || !url.pathname.startsWith("/storage/")) return;
+  // /storage/: 파일·이미지. /onlyoffice/: 화면에 직접 넣는 편집기 스크립트(api.js) — 편집 화면(iframe) 안 요청은 여기서 못 고친다.
+  const storage = url.pathname.startsWith("/storage/");
+  const officeScript = url.pathname.startsWith("/onlyoffice/") && request.destination === "script";
+  if (!NGROK_HOST.test(url.hostname) || !(storage || officeScript)) return;
   const headers = { "ngrok-skip-browser-warning": "1" };
   const range = request.headers.get("range"); // 동영상 이어 받기
   if (range) headers.range = range;

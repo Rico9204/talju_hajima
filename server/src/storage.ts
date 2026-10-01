@@ -10,7 +10,7 @@ import { dirname, resolve, sep } from "node:path";
 import type { Express, Request, Response } from "express";
 
 // multer가 넘겨주는 업로드 파일 중 여기서 쓰는 칸(메모리 저장).
-type UploadFile = { buffer: Buffer; originalname: string; mimetype: string; size: number };
+export type UploadFile = { buffer: Buffer; originalname: string; mimetype: string; size: number };
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, scalarJson, selectJson, selectOneJson, type Query } from "./db.js";
 
@@ -183,6 +183,46 @@ const originalName = (file: UploadFile) => Buffer.from(file.originalname, "latin
 
 const UPLOAD_LIMIT = { limits: { fileSize: 52_428_800, files: 1 } }; // 버킷별 한도는 storage.buckets로 다시 검사
 
+// 디스크에 먼저 쓰고, 같은 사용자 트랜잭션 안에서 목록(storage.objects)에 올린 뒤 after(등록 함수 등)를 부른다.
+// 어느 단계든 실패하면 트랜잭션은 되돌려지고 디스크 파일도 지운다.
+export async function storeObject<T>(db: Db, store: FileStore, userId: string, bucket: string, name: string, file: UploadFile, after: (query: Query) => Promise<T>): Promise<T> {
+  if (!file?.buffer?.length) throw new BadRequestException("빈 파일은 올릴 수 없습니다.");
+  const key = `${bucket}/${name}`;
+  await store.put(key, file.buffer);
+  try {
+    return await db.asUser(userId, async (query) => {
+      const rule = await selectOneJson(query, "select file_size_limit, allowed_mime_types from storage.buckets where id = $1", [bucket]);
+      if (!rule) throw new BadRequestException("알 수 없는 저장 공간입니다.");
+      if (rule.file_size_limit && file.size > rule.file_size_limit) throw new BadRequestException(`파일이 너무 큽니다(최대 ${formatFileSize(rule.file_size_limit)}).`);
+      if (rule.allowed_mime_types && !rule.allowed_mime_types.includes(file.mimetype)) throw new BadRequestException("허용되지 않는 파일 형식입니다.");
+      await query(
+        "insert into storage.objects(bucket_id, name, owner, metadata) values ($1, $2, auth.uid(), jsonb_build_object('size', $3::bigint, 'mimetype', $4::text))",
+        [bucket, name, file.size, file.mimetype || "application/octet-stream"]);
+      return after(query);
+    });
+  } catch (error) {
+    await store.remove(key).catch(() => {});
+    throw error;
+  }
+}
+
+
+// 워크스페이스 원본 저장 + 버전 등록(register_workspace_search_version)을 한 트랜잭션으로. 업로드와 오피스 편집 저장이 같이 쓴다.
+export interface WorkspaceVersionFields {
+  fileId: number | null; baseVersionId: number | null; folderId: number | null;
+  note: string; tags: string[] | null; searchText: string; searchStatus: string;
+}
+export function saveWorkspaceVersion(db: Db, store: FileStore, userId: string, projectId: string, file: UploadFile & { displayName: string }, fields: WorkspaceVersionFields) {
+  const name = workspaceStoragePath(projectId, userId, randomUUID());
+  return storeObject(db, store, userId, "workspace-files", name, file, async (query) => {
+    const result = await scalarJson<{ file_id: number; version_id: number; branched: boolean }>(query,
+      "public.register_workspace_search_version($1, $2::bigint, $3::bigint, $4::bigint, $5, $6, $7, $8, $9::text[], $10, $11)",
+      [projectId, fields.fileId, fields.baseVersionId, fields.folderId, file.displayName, workspaceFileType(file.displayName), name, fields.note, fields.tags,
+        fields.searchText.slice(0, 2_000_000), fields.searchStatus || "unsupported"]);
+    return { fileId: result.file_id, versionId: result.version_id, branched: result.branched };
+  });
+}
+
 class DocumentPathDto {
   @IsString() @MaxLength(300) path!: string;
 }
@@ -191,29 +231,6 @@ class DocumentPathDto {
 @UseGuards(AuthGuard)
 export class StorageController {
   constructor(private readonly db: Db, private readonly store: FileStore, private readonly urls: StorageUrls) {}
-
-  // 디스크에 먼저 쓰고, 같은 사용자 트랜잭션 안에서 목록(storage.objects)에 올린 뒤 after(등록 함수 등)를 부른다.
-  // 어느 단계든 실패하면 트랜잭션은 되돌려지고 디스크 파일도 지운다.
-  private async storeObject<T>(userId: string, bucket: string, name: string, file: UploadFile, after: (query: Query) => Promise<T>): Promise<T> {
-    if (!file?.buffer?.length) throw new BadRequestException("빈 파일은 올릴 수 없습니다.");
-    const key = `${bucket}/${name}`;
-    await this.store.put(key, file.buffer);
-    try {
-      return await this.db.asUser(userId, async (query) => {
-        const rule = await selectOneJson(query, "select file_size_limit, allowed_mime_types from storage.buckets where id = $1", [bucket]);
-        if (!rule) throw new BadRequestException("알 수 없는 저장 공간입니다.");
-        if (rule.file_size_limit && file.size > rule.file_size_limit) throw new BadRequestException(`파일이 너무 큽니다(최대 ${formatFileSize(rule.file_size_limit)}).`);
-        if (rule.allowed_mime_types && !rule.allowed_mime_types.includes(file.mimetype)) throw new BadRequestException("허용되지 않는 파일 형식입니다.");
-        await query(
-          "insert into storage.objects(bucket_id, name, owner, metadata) values ($1, $2, auth.uid(), jsonb_build_object('size', $3::bigint, 'mimetype', $4::text))",
-          [bucket, name, file.size, file.mimetype || "application/octet-stream"]);
-        return after(query);
-      });
-    } catch (error) {
-      await this.store.remove(key).catch(() => {});
-      throw error;
-    }
-  }
 
   // 프로필 사진·배너·배경. 주소를 돌려주면 화면이 PATCH me/profile 로 저장한다(예전과 같은 흐름).
   @Post("me/images/:kind")
@@ -225,7 +242,7 @@ export class StorageController {
     if (!ext) throw new BadRequestException("프로필 이미지는 JPG, PNG, WebP, AVIF, GIF 형식만 사용할 수 있습니다.");
     if (!hasImageSignature(file.buffer, file.mimetype)) throw new BadRequestException("이미지 파일 형식을 확인할 수 없습니다.");
     const name = `${userId}/${prefix}${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
-    await this.storeObject(userId, "avatars", name, file, async () => undefined);
+    await storeObject(this.db, this.store, userId, "avatars", name, file, async () => undefined);
     return { url: this.urls.publicUrl("avatars", name) };
   }
 
@@ -237,7 +254,7 @@ export class StorageController {
     const rawExt = displayName.includes(".") ? displayName.split(".").pop() ?? "" : "";
     const ext = /^[a-z0-9]{1,10}$/i.test(rawExt) ? rawExt.toLowerCase() : "bin";
     const name = `${userId}/${randomUUID()}.${ext}`;
-    await this.storeObject(userId, "board-attachments", name, file, async () => undefined);
+    await storeObject(this.db, this.store, userId, "board-attachments", name, file, async () => undefined);
     return {
       id: randomUUID(), name: displayName, size: formatFileSize(file.size), kind: file.mimetype.startsWith("image/") ? "image" : "file",
       url: this.urls.publicUrl("board-attachments", name), mimeType: file.mimetype,
@@ -271,13 +288,8 @@ export class StorageController {
       if ((type === "img" || file.mimetype.startsWith("image/")) && !list.length) throw new BadRequestException("이미지에는 태그를 하나 이상 입력해 주세요.");
       if (list.length > 10 || list.some((t) => t.length > 30)) throw new BadRequestException("태그는 최대 10개, 각각 30자까지 입력할 수 있습니다.");
     }
-    const name = workspaceStoragePath(projectId, userId, randomUUID());
-    return this.storeObject(userId, "workspace-files", name, file, async (query) => {
-      const result = await scalarJson<{ file_id: number; version_id: number; branched: boolean }>(query,
-        "public.register_workspace_search_version($1, $2::bigint, $3::bigint, $4::bigint, $5, $6, $7, $8, $9::text[], $10, $11)",
-        [projectId, fileId, baseVersionId, folderId, displayName, type, name, body.note ?? "", tags,
-          (body.searchText ?? "").slice(0, 2_000_000), body.searchStatus || "unsupported"]);
-      return { fileId: result.file_id, versionId: result.version_id, branched: result.branched };
+    return saveWorkspaceVersion(this.db, this.store, userId, projectId, { ...file, displayName }, {
+      fileId, baseVersionId, folderId, note: body.note ?? "", tags, searchText: body.searchText ?? "", searchStatus: body.searchStatus || "unsupported",
     });
   }
 
@@ -331,7 +343,7 @@ export class StorageController {
       throw new BadRequestException("PDF 파일만 제출할 수 있습니다.");
     }
     const name = `${userId}/${randomUUID()}.pdf`;
-    await this.storeObject(userId, "admin-verification", name, file, (query) =>
+    await storeObject(this.db, this.store, userId, "admin-verification", name, file, (query) =>
       query("select public.submit_admin_application($1, $2, $3, $4, $5, $6, $7)",
         [body.org ?? "", body.jobTitle ?? "", body.contact ?? "", body.docType ?? "", name, displayName, body.consent === "true"]));
   }
