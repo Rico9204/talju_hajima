@@ -4114,3 +4114,300 @@ do $$ begin
 exception when duplicate_object or duplicate_table then null;
 end $$;
 
+-- ===== 캠퍼스 소식(공모전·취업) 캐시 및 스크랩 테이블 =====
+-- 대학교 홈페이지 및 공모전 사이트에서 크롤링한 소식 캐시
+create table if not exists public.campus_notices_cache (
+  id uuid primary key default gen_random_uuid(),
+  school_code text not null,
+  school_name text not null,
+  category text not null, -- 'contest' | 'job' | 'general' | 'internship'
+  title text not null,
+  author text,
+  post_date text,
+  link text not null,
+  views integer default 0,
+  thumbnail text,
+  is_pinned boolean default false,
+  crawled_at timestamptz default now()
+);
+
+create unique index if not exists campus_notices_school_link_idx on public.campus_notices_cache (school_code, link);
+create index if not exists campus_notices_lookup_idx on public.campus_notices_cache (school_code, category, post_date desc);
+
+-- 사용자가 관심 있는 공모전/취업 공지를 스크랩(북마크) 보관하는 테이블
+create table if not exists public.campus_scrapped_notices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  school_code text not null,
+  school_name text not null,
+  category text not null,
+  title text not null,
+  author text,
+  post_date text,
+  link text not null,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists campus_scrapped_user_link_idx on public.campus_scrapped_notices (user_id, link);
+
+alter table public.campus_notices_cache enable row level security;
+alter table public.campus_scrapped_notices enable row level security;
+
+-- 캐시 조회: 누구나 조회 가능
+drop policy if exists "campus_notices_cache_read" on public.campus_notices_cache;
+create policy "campus_notices_cache_read" on public.campus_notices_cache
+  for select using (true);
+
+-- 캐시 갱신은 서버만(서비스 롤은 RLS를 거치지 않음). 사용자가 쓰면 모두에게 보이는 가짜 링크를 넣을 수 있으므로 쓰기 규칙은 두지 않는다.
+drop policy if exists "campus_notices_cache_write" on public.campus_notices_cache;
+
+-- 스크랩: 본인의 스크랩 목록만 조회 및 관리
+drop policy if exists "campus_scrapped_notices_select" on public.campus_scrapped_notices;
+create policy "campus_scrapped_notices_select" on public.campus_scrapped_notices
+  for select to authenticated using (auth.uid() = user_id);
+
+drop policy if exists "campus_scrapped_notices_insert" on public.campus_scrapped_notices;
+create policy "campus_scrapped_notices_insert" on public.campus_scrapped_notices
+  for insert to authenticated with check (auth.uid() = user_id);
+
+drop policy if exists "campus_scrapped_notices_delete" on public.campus_scrapped_notices;
+create policy "campus_scrapped_notices_delete" on public.campus_scrapped_notices
+  for delete to authenticated using (auth.uid() = user_id);
+
+
+-- ===== 평가 점수 상위 % (서비스 전체 사용자 기준) =====
+-- 비교 집단: 최종 평가가 공개된 모든 사용자. 사람마다 전체 프로젝트의 최종 평가 평균(평가 건수 가중,
+-- 화면의 "내 평가 요약"과 같은 방식). 공개 조건은 member_evaluation_average와 같다(동료 2명 이상이 모두 제출, 또는 테스트 모드).
+-- 사용자별 평균은 돌려주지 않는 내부 함수로만 계산하고, 밖으로는 순위 비율(상위 N%)만 낸다.
+create or replace function public.evaluation_user_averages()
+returns table(user_id uuid, score numeric, role numeric, deadline numeric, communication numeric, collaboration numeric, quality numeric)
+language sql stable security definer set search_path = public as $$
+  with published as (
+    select m.id, m.project_id, m.user_id
+    from members m
+    cross join lateral (
+      select count(*) as expected from members o where o.project_id = m.project_id and o.id <> m.id and o.user_id is not null
+    ) x
+    where m.user_id is not null
+      and (public.evaluation_prototype_enabled()
+        or (x.expected >= 2
+          and (select count(*) from peer_evaluations e where e.project_id = m.project_id and e.phase = 'final' and e.recipient_id = m.id) >= x.expected))
+  )
+  select p.user_id,
+    avg((e.role + e.deadline + e.communication + e.collaboration + e.quality)::numeric / 5),
+    avg(e.role), avg(e.deadline), avg(e.communication), avg(e.collaboration), avg(e.quality)
+  from published p
+  join peer_evaluations e on e.project_id = p.project_id and e.phase = 'final' and e.recipient_id = p.id
+  group by p.user_id
+$$;
+revoke all on function public.evaluation_user_averages() from public, anon, authenticated;
+
+-- 상위 N%: 나보다 점수가 높은 사람 수 + 1을 비교 인원으로 나눈 비율(올림, 1~100). 같은 점수는 같은 순위.
+-- 인자 없음: 내 전체 평균의 위치.
+-- (프로젝트, 팀원): 그 프로젝트에서 공개된 그 팀원 점수(프로필에 보이는 값)의 위치. 참여자만 조회할 수 있고,
+--   보는 사람이 함께하지 않은 프로젝트의 점수는 쓰지 않는다.
+-- 비교 인원이 10명 미만이면 순위가 사실상 점수를 드러내므로 available=false.
+-- ponytail: 호출마다 전체 사용자 평균을 다시 계산한다. 사용자가 많아지면 결산 시점에 캐시 표로 옮긴다.
+create or replace function public.evaluation_percentiles(p_project_id text default null, p_member_id uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb;
+  t_score numeric; t_role numeric; t_deadline numeric; t_communication numeric; t_collaboration numeric; t_quality numeric;
+  population integer;
+  c_score integer; c_role integer; c_deadline integer; c_communication integer; c_collaboration integer; c_quality integer;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if (p_project_id is null) <> (p_member_id is null) then raise exception '잘못된 요청입니다.'; end if;
+
+  if p_project_id is null then
+    select u.score, u.role, u.deadline, u.communication, u.collaboration, u.quality
+      into t_score, t_role, t_deadline, t_communication, t_collaboration, t_quality
+      from public.evaluation_user_averages() u where u.user_id = auth.uid();
+  else
+    a := public.member_evaluation_average(p_project_id, p_member_id, 'final'); -- 참여자 확인·공개 조건 포함
+    if (a->>'available')::boolean and a->>'score' is not null then
+      t_score := (a->>'score')::numeric;
+      t_role := (a->'criteria'->>'role')::numeric; t_deadline := (a->'criteria'->>'deadline')::numeric;
+      t_communication := (a->'criteria'->>'communication')::numeric; t_collaboration := (a->'criteria'->>'collaboration')::numeric;
+      t_quality := (a->'criteria'->>'quality')::numeric;
+    end if;
+  end if;
+
+  select count(*),
+    count(*) filter (where u.score > t_score), count(*) filter (where u.role > t_role),
+    count(*) filter (where u.deadline > t_deadline), count(*) filter (where u.communication > t_communication),
+    count(*) filter (where u.collaboration > t_collaboration), count(*) filter (where u.quality > t_quality)
+  into population, c_score, c_role, c_deadline, c_communication, c_collaboration, c_quality
+  from public.evaluation_user_averages() u;
+
+  if population < 10 or t_score is null then
+    return jsonb_build_object('available', false, 'population', population);
+  end if;
+  return jsonb_build_object(
+    'available', true,
+    'population', population,
+    'overall', least(100, greatest(1, ceil(100.0 * (c_score + 1) / population)))::int,
+    'criteria', jsonb_build_object(
+      'role', least(100, greatest(1, ceil(100.0 * (c_role + 1) / population)))::int,
+      'deadline', least(100, greatest(1, ceil(100.0 * (c_deadline + 1) / population)))::int,
+      'communication', least(100, greatest(1, ceil(100.0 * (c_communication + 1) / population)))::int,
+      'collaboration', least(100, greatest(1, ceil(100.0 * (c_collaboration + 1) / population)))::int,
+      'quality', least(100, greatest(1, ceil(100.0 * (c_quality + 1) / population)))::int));
+end $$;
+revoke all on function public.evaluation_percentiles(text, uuid) from public, anon;
+grant execute on function public.evaluation_percentiles(text, uuid) to authenticated;
+
+-- ===== 웹 푸시: 브라우저를 닫아도 새 과제·일정·파일·채팅 알림 =====
+-- 흐름: 새 행 insert → 트리거가 받을 사람(볼 권한이 있는 팀원, 작성자 제외)의 구독을 모아
+--       pg_net으로 Vercel 함수(/api/push)에 전달 → 함수가 브라우저 푸시 서비스로 암호화해 보낸다.
+-- 알림 실패는 원래 저장을 절대 막지 않는다(트리거 안에서 오류를 삼킨다).
+
+-- pg_net: Supabase에서 제공하는 비동기 HTTP 확장. 없는 환경(테스트 등)에서는 건너뛴다.
+do $$ begin
+  create extension if not exists pg_net;
+exception when others then
+  raise notice 'pg_net을 켤 수 없습니다(웹 푸시 전송 비활성): %', sqlerrm;
+end $$;
+
+-- 브라우저(기기)별 푸시 구독. 주소(endpoint)는 브라우저 푸시 서비스가 발급한 값.
+create table if not exists public.push_subscriptions (
+  endpoint text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions(user_id);
+alter table public.push_subscriptions enable row level security;
+revoke all on public.push_subscriptions from public, anon, authenticated;
+-- 본인 구독만 읽기(설정 화면 확인용). 쓰기는 아래 함수로만.
+grant select on public.push_subscriptions to authenticated;
+drop policy if exists push_subscriptions_select_own on public.push_subscriptions;
+create policy push_subscriptions_select_own on public.push_subscriptions for select to authenticated using (user_id = auth.uid());
+
+-- 보낼 곳(Vercel 함수 주소)과 공유 비밀값. 한 줄만 있고, 사용자는 읽을 수 없다(아래 함수들만 사용).
+-- 설정(예: 따옴표 안에 값만, 꺾쇠·공백 없이): insert into public.push_config(endpoint, secret) values ('https://taljuhajima.vercel.app/api/push', 'Vercel의 PUSH_WEBHOOK_SECRET과 같은 64글자')
+--       on conflict (id) do update set endpoint = excluded.endpoint, secret = excluded.secret;
+create table if not exists public.push_config (
+  id boolean primary key default true check (id),
+  endpoint text not null check (endpoint ~ '^https://'),
+  secret text not null check (char_length(secret) >= 32)
+);
+alter table public.push_config enable row level security;
+revoke all on public.push_config from public, anon, authenticated;
+
+-- 구독 저장. 같은 브라우저에서 다른 계정으로 로그인했으면 그 계정으로 옮긴다.
+-- 주소는 알려진 브라우저 푸시 서비스만 받는다(보내는 함수가 아무 주소로나 요청하지 않도록).
+create or replace function public.save_push_subscription(p_endpoint text, p_p256dh text, p_auth text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if p_endpoint is null or char_length(p_endpoint) > 1000
+     or p_endpoint !~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|[a-z0-9.-]+\.push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)/' then
+    raise exception '지원하지 않는 푸시 주소입니다.';
+  end if;
+  if p_p256dh is null or p_p256dh !~ '^[A-Za-z0-9_-]{40,200}={0,2}$' or p_auth is null or p_auth !~ '^[A-Za-z0-9_-]{10,100}={0,2}$' then
+    raise exception '푸시 키 형식이 올바르지 않습니다.';
+  end if;
+  insert into public.push_subscriptions(endpoint, user_id, p256dh, auth) values (p_endpoint, auth.uid(), p_p256dh, p_auth)
+  on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, created_at = now();
+end $$;
+revoke all on function public.save_push_subscription(text, text, text) from public, anon;
+grant execute on function public.save_push_subscription(text, text, text) to authenticated;
+
+create or replace function public.delete_push_subscription(p_endpoint text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  delete from public.push_subscriptions where endpoint = p_endpoint and user_id = auth.uid();
+end $$;
+revoke all on function public.delete_push_subscription(text) from public, anon;
+grant execute on function public.delete_push_subscription(text) to authenticated;
+
+-- 푸시 서비스가 "더 이상 없는 구독"이라고 답한 주소 정리. 보내는 함수만 부른다(공유 비밀값 확인).
+create or replace function public.prune_push_subscriptions(p_secret text, p_endpoints text[])
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.push_config where secret = p_secret) then raise exception '권한이 없습니다.'; end if;
+  delete from public.push_subscriptions where endpoint = any(p_endpoints);
+end $$;
+revoke all on function public.prune_push_subscriptions(text, text[]) from public;
+grant execute on function public.prune_push_subscriptions(text, text[]) to anon, authenticated;
+
+-- 받을 사람의 구독을 모아 전송 요청. p_members가 null이면 프로젝트 전원, 아니면 그 팀원들만. 보낸 사람(p_exclude_user)은 제외.
+create or replace function public.push_to_members(p_project_id text, p_members uuid[], p_exclude_user uuid, p_title text, p_body text, p_url text, p_tag text)
+returns void language plpgsql security definer set search_path = public as $$
+declare cfg public.push_config; subs jsonb; project_name text;
+begin
+  select * into cfg from public.push_config where id;
+  if cfg.endpoint is null then return; end if;
+  select jsonb_agg(jsonb_build_object('endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth)) into subs
+  from public.push_subscriptions s
+  where s.user_id in (
+    select m.user_id from public.members m
+    where m.project_id = p_project_id and m.user_id is not null and m.user_id is distinct from p_exclude_user
+      and (p_members is null or m.id = any(p_members)));
+  if subs is null then return; end if;
+  select name into project_name from public.projects where id = p_project_id;
+  perform net.http_post(
+    url := cfg.endpoint,
+    body := jsonb_build_object('subscriptions', subs, 'notification', jsonb_build_object(
+      'title', '[' || coalesce(project_name, '프로젝트') || '] ' || p_title,
+      'body', left(coalesce(p_body, ''), 200),
+      'url', p_url,
+      'tag', p_tag)),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-push-secret', cfg.secret));
+exception when others then
+  raise warning '웹 푸시 전송 요청 실패: %', sqlerrm; -- 알림 실패로 원래 저장이 막히면 안 된다
+end $$;
+revoke all on function public.push_to_members(text, uuid[], uuid, text, text, text, text) from public, anon, authenticated;
+
+create or replace function public.push_on_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare recipients uuid[]; sender_name text; link text;
+begin
+  link := '?project=' || new.project_id;
+  if tg_table_name = 'tasks' then
+    perform public.push_to_members(new.project_id, null, auth.uid(), '새 과제', new.title, '/tasks/' || new.id || link, 'tasks:' || new.project_id);
+  elsif tg_table_name = 'schedule_events' then
+    -- 나만 보기 개인 일정은 알리지 않는다. 제목 숨김이면 "바쁨"으로.
+    if new.scope = 'personal' and new.visibility = 'private' then return new; end if;
+    perform public.push_to_members(new.project_id, null, auth.uid(), '새 일정',
+      case when new.hide_title then '바쁨 (' || to_char(new.date, 'MM/DD') || ')' else new.title || ' (' || to_char(new.date, 'MM/DD') || ')' end,
+      '/schedule/' || new.id || link, 'schedule:' || new.project_id);
+  elsif tg_table_name = 'files' then
+    perform public.push_to_members(new.project_id, null, auth.uid(), '새 파일', new.name, '/workspace' || link, 'files:' || new.project_id);
+  elsif tg_table_name = 'chat_messages' then
+    -- 채널을 볼 수 있는 사람만: 전체방=전원, 1:1=두 사람, 단체방=방 참여자.
+    if new.channel_id = 'all' then
+      recipients := null;
+    elsif new.channel_id ~ '^dm:[0-9a-f-]{36}:[0-9a-f-]{36}$' then
+      recipients := array[split_part(new.channel_id, ':', 2)::uuid, split_part(new.channel_id, ':', 3)::uuid];
+    elsif new.channel_id ~ '^grp:[0-9a-f-]{36}$' then
+      select coalesce(array_agg(gm.member_id), '{}') into recipients from public.chat_group_members gm
+      where gm.group_id = substring(new.channel_id from 5)::uuid and gm.project_id = new.project_id;
+    else
+      return new;
+    end if;
+    select m.name into sender_name from public.members m where m.id = new.sender_id;
+    perform public.push_to_members(new.project_id, recipients,
+      (select m.user_id from public.members m where m.id = new.sender_id),
+      coalesce(sender_name, '팀원'),
+      case when btrim(new.text) = '' and new.file_id is not null then '파일을 보냈습니다.' else new.text end,
+      '/chat/' || new.channel_id || link || '&messageId=' || new.id, 'chat:' || new.project_id || ':' || new.channel_id);
+  end if;
+  return new;
+exception when others then
+  raise warning '웹 푸시 트리거 실패: %', sqlerrm;
+  return new;
+end $$;
+revoke all on function public.push_on_insert() from public, anon, authenticated;
+
+drop trigger if exists push_on_insert_tasks on public.tasks;
+create trigger push_on_insert_tasks after insert on public.tasks for each row execute function public.push_on_insert();
+drop trigger if exists push_on_insert_schedule_events on public.schedule_events;
+create trigger push_on_insert_schedule_events after insert on public.schedule_events for each row execute function public.push_on_insert();
+drop trigger if exists push_on_insert_files on public.files;
+create trigger push_on_insert_files after insert on public.files for each row execute function public.push_on_insert();
+drop trigger if exists push_on_insert_chat_messages on public.chat_messages;
+create trigger push_on_insert_chat_messages after insert on public.chat_messages for each row execute function public.push_on_insert();

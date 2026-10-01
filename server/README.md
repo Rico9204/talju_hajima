@@ -67,6 +67,9 @@ pnpm run dev                                          # http://localhost:3000/ap
 | 채팅 | `GET/POST projects/:id/chat/:channel/messages` · `POST projects/:id/chat/read` · `PUT projects/:id/chat/messages/:mid/reaction` · `GET/POST projects/:id/chat-groups` · `POST chat-groups/:gid/members` · `POST projects/:id/chat/:channel/tools` · `POST chat/messages/:mid/tool-actions` · `GET projects/:id/chat-tool-events` |
 | 게시판 | `GET/POST board/posts` · `PATCH/DELETE board/posts/:id` · `POST board/posts/:id/views` · `PUT board/posts/:id/like` · `GET board/posts/:id/content` · `GET/POST board/posts/:id/comments` · `DELETE board/comments/:id` · `POST board/polls/:id/{votes,close}` · `GET/POST board/posts/:id/reports` · `GET board/reports` · `POST board/reports/:id/review` |
 | 전공 조회 | `GET majors?school=` |
+| 평가 상위 % | `GET me/evaluation-percentiles?projectId=&memberId=` |
+| 캠퍼스 소식 스크랩 | `GET me/scrapped-notices` · `POST me/scrapped-notices/toggle` (소식 목록은 로그인 없이 쓰는 Vercel 함수 `api/campus-notices.js`, 개발 서버는 `vite.config.ts`) |
+| 웹 푸시 구독 | `POST me/push-subscriptions` · `POST me/push-subscriptions/delete` |
 | 기타 | `GET health` |
 
 파일은 서버 디스크(`STORAGE_DIR`)에 저장한다. 서버를 여러 대로 늘릴 때만 공유 파일 저장소로 바꾸면 된다. 실시간은 `/realtime` WebSocket으로 제공하며, 채팅·읽음·반응·과제·일정·파일·접속 상태·동시 편집을 전달한다.
@@ -74,6 +77,13 @@ pnpm run dev                                          # http://localhost:3000/ap
 **기존 동작 그대로 둔 알려진 문제**(서버가 같은 DB 함수·권한 규칙을 쓰므로 동일, 테스트에 명시):
 - 팀장 위임은 팀원 행에 저장된 참여 당시 이름(`members.name`)으로 찾아서, 참여 뒤 프로필 이름을 바꾼 팀원에게는 새 이름으로 위임되지 않는다.
 - 프로필은 본인·같은 프로젝트 팀원·관리자만 읽을 수 있어, 게시판에서 프로젝트를 함께하지 않는 사람의 글·댓글·신고 작성자가 "탈퇴한 사용자"/"알 수 없음"으로 보인다.
+
+## 웹 푸시(브라우저를 닫아도 알림)
+DB 트리거(`push_to_members`)는 Supabase에서 pg_net으로 Vercel 함수에 보내던 것을, 이 서버에서는 `db/realtime.sql`의 같은 이름 함수 `net.http_post`가 `net.push_outbox`에 쌓고 `pg_notify('talju_push')`로 알린다.
+서버(`src/push.ts`)가 받아 브라우저 푸시 서비스로 보내고, 끊긴 구독은 지운다. `server/.env`에 `VAPID_PUBLIC_KEY`·`VAPID_PRIVATE_KEY`·`VAPID_SUBJECT`를, 프런트에 같은 공개키를 `VITE_VAPID_PUBLIC_KEY`로 넣는다.
+키가 없으면 서버가 `push_config`를 비워 트리거가 아무것도 하지 않는다(사이트를 열어 둔 동안의 알림은 그대로).
+
+**이미 쓰던 서버 DB**에는 `supabase/migrations/`의 새 파일(`2609262310_campus_notices.sql`, `2610011200_evaluation_percentiles.sql`, `2610011300_web_push.sql`)을 순서대로 적용한 뒤 `server/db/realtime.sql`을 다시 실행한다(여러 번 실행해도 안전).
 
 ## 이메일
 가입 확인과 비밀번호 재설정은 메일러를 통해 처리한다. 개발에서는 콘솔에 링크를 출력하고, 운영에서는 SMTP 설정이 필수다.

@@ -22,6 +22,7 @@ import type {
   ChatGroup,
   ChatToolEvent,
 } from "../api/types";
+import type { NoticeItem, ScrappedNotice } from "../lib/crawler/types";
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
 import CreateProjectModal from "../components/CreateProjectModal";
@@ -189,6 +190,9 @@ interface ProjectContextValue {
   viewedMemberId: string | null;
   openMemberProfile: (memberId: string) => void;
   closeMemberProfile: () => void;
+  fetchCampusNotices: (params: { school?: string; category?: string }) => Promise<NoticeItem[]>;
+  listScrappedNotices: () => Promise<ScrappedNotice[]>;
+  toggleScrapNotice: (notice: NoticeItem) => Promise<boolean>;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -474,7 +478,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         // would see every other account's projects in their own switcher.
         const mine = list.filter((p) => myProjectIds.includes(p.id));
         setProjects(mine);
-        setProjectId(mine[0]?.id ?? null);
+        // 알림을 눌러 들어오면 주소의 ?project=로 그 프로젝트를 연다(내 프로젝트일 때만).
+        const requested = new URLSearchParams(window.location.search).get("project");
+        setProjectId(mine.find((p) => p.id === requested)?.id ?? mine[0]?.id ?? null);
         setProjectsLoaded(true);
       })
       .catch((err) => {
@@ -1424,6 +1430,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         viewedMemberId,
         openMemberProfile: setViewedMemberId,
         closeMemberProfile: () => setViewedMemberId(null),
+        fetchCampusNotices: (params) => dataRepository.fetchCampusNotices(params),
+        listScrappedNotices: () => dataRepository.listScrappedNotices(),
+        toggleScrapNotice: (notice) => dataRepository.toggleScrapNotice(notice),
       }}
     >
       {children}

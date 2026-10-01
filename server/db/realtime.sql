@@ -51,3 +51,30 @@ create trigger realtime_notify after insert or update or delete on public.files
 drop trigger if exists realtime_notify on public.task_comment_reactions;
 create trigger realtime_notify after insert or delete on public.task_comment_reactions
   for each row execute function public.realtime_notify('comment_id', 'member_id', 'emoji');
+
+-- ── 웹 푸시(pg_net 대체) ──
+-- supabase/schema.sql의 push_to_members는 pg_net의 net.http_post로 Vercel 함수(/api/push)에 보낸다.
+-- 일반 PostgreSQL에는 pg_net이 없으므로 같은 이름·인자의 함수가 요청을 net.push_outbox에 쌓고 pg_notify('talju_push', id)로 알린다.
+-- 서버(server/src/push.ts)가 받아 브라우저 푸시 서비스로 보낸다. 저장이 취소(롤백)되면 쌓인 요청도 함께 사라진다.
+-- 진짜 pg_net이 설치된 DB에서는 건드리지 않는다.
+do $outer$ begin
+  if exists (select 1 from pg_extension where extname = 'pg_net') then return; end if;
+  create schema if not exists net;
+  revoke all on schema net from public;
+  create table if not exists net.push_outbox (
+    id bigint generated always as identity primary key,
+    body jsonb not null,
+    created_at timestamptz not null default now()
+  );
+  execute $fn$
+    create or replace function net.http_post(url text, body jsonb default '{}', params jsonb default '{}', headers jsonb default '{}', timeout_milliseconds integer default 5000)
+    returns bigint language plpgsql security definer set search_path = pg_catalog, net as $body$
+    declare new_id bigint;
+    begin
+      insert into net.push_outbox(body) values (http_post.body) returning id into new_id;
+      perform pg_notify('talju_push', new_id::text);
+      return new_id;
+    end $body$
+  $fn$;
+  revoke all on function net.http_post(text, jsonb, jsonb, jsonb, integer) from public;
+end $outer$;

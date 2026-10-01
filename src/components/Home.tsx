@@ -15,10 +15,17 @@ import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
 import AdminReports from "./AdminReports";
+import CampusNoticesView from "./CampusNoticesView";
 import { dataRepository } from "../api";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import type { Tier } from "../lib/achievements";
+import {
+  useHomeMenuOrder,
+  reorderHomeMenuItem,
+  type HomeNavTab,
+} from "../lib/menuPreferences";
+import type { BoardCategory } from "../api/types";
 
 // Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
 // mirrors the same treatment in Sidebar.tsx's bottom user card.
@@ -35,7 +42,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "board" | "achievements" | "settings" | "operator" | "reports";
+type HomeTab = "projects" | "campus" | "board" | "achievements" | "settings" | "operator" | "reports";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
@@ -63,6 +70,91 @@ export default function Home() {
   const [joinOpen, setJoinOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<HomeTab>("projects");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [homeMenuOrder, saveHomeMenuOrder] = useHomeMenuOrder();
+  const [draggedTab, setDraggedTab] = useState<HomeNavTab | null>(null);
+  const [dragOverTab, setDragOverTab] = useState<HomeNavTab | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>, tab: HomeNavTab) {
+    e.dataTransfer.setData("text/plain", tab);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedTab(tab);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>, tab: HomeNavTab) {
+    if (!draggedTab || draggedTab === tab) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const pos = e.clientY < midpoint ? "before" : "after";
+
+    if (dragOverTab !== tab || dropPosition !== pos) {
+      setDragOverTab(tab);
+      setDropPosition(pos);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    const related = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(related)) {
+      setDragOverTab(null);
+      setDropPosition(null);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, targetTab: HomeNavTab) {
+    e.preventDefault();
+    if (!draggedTab || draggedTab === targetTab) {
+      setDraggedTab(null);
+      setDragOverTab(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const fromIdx = homeMenuOrder.indexOf(draggedTab);
+    const toIdx = homeMenuOrder.indexOf(targetTab);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      let insertIdx = toIdx;
+      if (dropPosition === "after" && fromIdx > toIdx) {
+        insertIdx = toIdx + 1;
+      } else if (dropPosition === "before" && fromIdx < toIdx) {
+        insertIdx = toIdx - 1;
+      }
+      saveHomeMenuOrder(reorderHomeMenuItem(homeMenuOrder, fromIdx, insertIdx));
+    }
+
+    setDraggedTab(null);
+    setDragOverTab(null);
+    setDropPosition(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedTab(null);
+    setDragOverTab(null);
+    setDropPosition(null);
+  }
+
+  // 공모전 공지에서 '팀원 모집' 클릭 시 게시판으로 전달할 상태
+  const [boardInitialState, setBoardInitialState] = useState<{
+    category?: "all" | BoardCategory;
+    isCreating?: boolean;
+    title?: string;
+    content?: string;
+  } | null>(null);
+
+  function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string }) {
+    setBoardInitialState({
+      category: "recruit",
+      isCreating: true,
+      title: `[팀원 모집] ${notice.title}`,
+      content: `<p><strong>[공모전 정보]</strong></p><p>• 주최/소속: ${notice.schoolName}</p><p>• 공모전 원문 링크: <a href="${notice.link}" target="_blank" rel="noopener noreferrer">${notice.link}</a></p><p><br></p><p><strong>[팀원 모집 내용]</strong></p><p>해당 공모전에 함께 도전할 팀원을 모집합니다!</p><p>• 모집 분야: 기획 / 디자인 / 개발</p><p>• 지원 방법: 댓글이나 메시지로 편하게 연락주세요.</p>`,
+    });
+    setActiveTab("board");
+  }
+
   // 운영자 전용 메뉴: 대기 중인 관리자 신청 수를 배지로 보여준다(운영자가 아니면 조회하지 않는다).
   const { isOperator, listAdminApplications } = useProjectManagement();
   const [pendingApplications, setPendingApplications] = useState(0);
@@ -90,6 +182,8 @@ export default function Home() {
   function selectTab(tab: HomeTab) {
     setActiveTab(tab);
     setMobileOpen(false);
+    // 공지에서 넘어온 "팀원 모집" 글쓰기는 게시판을 떠나면 버린다(다시 들어올 때 또 열리지 않게).
+    setBoardInitialState(null);
   }
 
   return (
@@ -131,55 +225,167 @@ export default function Home() {
 
         <div className="px-4 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center gap-3 min-w-0">
-            <div
-              className="w-9 h-9 flex items-center justify-center text-xs font-800 shrink-0"
-              style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px", boxShadow: "0 4px 12px rgba(37,99,235,0.35)" }}
-            >
-              CP
-            </div>
+            <img
+              src="/slackerspace_icon.png"
+              alt="Slackerspace"
+              className="w-9 h-9 shrink-0"
+              style={{ borderRadius: "20%" }}
+            />
             <div className="min-w-0">
-              <div className="text-sm font-700 leading-none">CollabPeer</div>
-              <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>v2.4.1</div>
+              <div className="text-sm font-700 leading-none">Slackerspace</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>v1.0.0</div>
             </div>
           </div>
         </div>
 
-        <div className="text-xs font-600 uppercase tracking-widest px-2 mb-2" style={{ color: "var(--muted-foreground)" }}>
-          메뉴
+        <div className="flex items-center justify-between px-2 mb-2">
+          <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>
+            메뉴
+          </span>
+          <span className="text-[10px] hidden md:inline-block select-none" style={{ color: "var(--muted-foreground)", opacity: 0.7 }} title="메뉴를 드래그하여 순서를 바꿀 수 있습니다">
+            끌어서 정렬
+          </span>
         </div>
         <nav className="flex-1 flex flex-col gap-1">
-          <button
-            onClick={() => selectTab("projects")}
-            className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all"
-            style={{ borderRadius: "10px", background: activeTab === "projects" ? "var(--primary)" : "transparent", color: activeTab === "projects" ? "#fff" : "var(--foreground)" }}
-          >
-            <span className="flex items-center gap-2.5">
-              <span>📁</span>
-              <span>내 프로젝트</span>
-            </span>
-            <span
-              className="text-xs px-1.5 py-0.5 font-700 shrink-0"
-              style={{ background: activeTab === "projects" ? "rgba(255,255,255,0.2)" : "var(--muted)", color: activeTab === "projects" ? "#fff" : "var(--muted-foreground)", borderRadius: "20px" }}
-            >
-              {projects.length}
-            </span>
-          </button>
-          <button
-            onClick={() => selectTab("board")}
-            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
-            style={{ borderRadius: "10px", background: activeTab === "board" ? "var(--primary)" : "transparent", color: activeTab === "board" ? "#fff" : "var(--foreground)" }}
-          >
-            <span>💬</span>
-            <span>게시판</span>
-          </button>
-          <button
-            onClick={() => selectTab("achievements")}
-            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
-            style={{ borderRadius: "10px", background: activeTab === "achievements" ? "var(--primary)" : "transparent", color: activeTab === "achievements" ? "#fff" : "var(--foreground)" }}
-          >
-            <span>◈</span>
-            <span>업적</span>
-          </button>
+          {homeMenuOrder.map((tabId) => {
+            const isDragging = draggedTab === tabId;
+            const isOver = dragOverTab === tabId;
+
+            let buttonContent: React.ReactNode = null;
+            if (tabId === "projects") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("projects")}
+                  className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "projects" ? "var(--primary)" : "transparent", color: activeTab === "projects" ? "#fff" : "var(--foreground)" }}
+                  title="내 프로젝트 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>📁</span>
+                    <span>내 프로젝트</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+                      style={{ background: activeTab === "projects" ? "rgba(255,255,255,0.2)" : "var(--muted)", color: activeTab === "projects" ? "#fff" : "var(--muted-foreground)", borderRadius: "20px" }}
+                    >
+                      {projects.length}
+                    </span>
+                    <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                      ⠿
+                    </span>
+                  </div>
+                </button>
+              );
+            } else if (tabId === "board") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("board")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "board" ? "var(--primary)" : "transparent", color: activeTab === "board" ? "#fff" : "var(--foreground)" }}
+                  title="게시판 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>💬</span>
+                    <span>게시판</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            } else if (tabId === "campus") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("campus")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "campus" ? "var(--primary)" : "transparent", color: activeTab === "campus" ? "#fff" : "var(--foreground)" }}
+                  title="캠퍼스 소식 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>🎓</span>
+                    <span>캠퍼스 소식</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            } else if (tabId === "achievements") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("achievements")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "achievements" ? "var(--primary)" : "transparent", color: activeTab === "achievements" ? "#fff" : "var(--foreground)" }}
+                  title="업적 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>◈</span>
+                    <span>업적</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            } else if (tabId === "settings") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("settings")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "settings" ? "var(--primary)" : "transparent", color: activeTab === "settings" ? "#fff" : "var(--foreground)" }}
+                  title="설정 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>⚙</span>
+                    <span>설정</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            }
+
+            return (
+              <div
+                key={tabId}
+                draggable
+                onDragStart={(e) => handleDragStart(e, tabId)}
+                onDragOver={(e) => handleDragOver(e, tabId)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, tabId)}
+                onDragEnd={handleDragEnd}
+                className="relative group transition-all"
+                style={{
+                  opacity: isDragging ? 0.35 : 1,
+                  transform: isDragging ? "scale(0.98)" : "none",
+                }}
+              >
+                {/* Visual drop indicator line */}
+                {isOver && dropPosition === "before" && (
+                  <div
+                    className="absolute -top-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
+                )}
+                {isOver && dropPosition === "after" && (
+                  <div
+                    className="absolute -bottom-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
+                )}
+
+                {buttonContent}
+              </div>
+            );
+          })}
+
           {isOperator && (
             <button
               onClick={() => selectTab("operator")}
@@ -222,14 +428,6 @@ export default function Home() {
               )}
             </button>
           )}
-          <button
-            onClick={() => selectTab("settings")}
-            className="flex items-center gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all"
-            style={{ borderRadius: "10px", background: activeTab === "settings" ? "var(--primary)" : "transparent", color: activeTab === "settings" ? "#fff" : "var(--foreground)" }}
-          >
-            <span>⚙</span>
-            <span>설정</span>
-          </button>
         </nav>
 
         {/* User card */}
@@ -276,8 +474,16 @@ export default function Home() {
               </div>
               <AdminReports onOpenCountChange={setOpenReports} />
             </div>
+          ) : activeTab === "campus" ? (
+            <CampusNoticesView onRecruitFromNotice={handleRecruitFromNotice} />
           ) : activeTab === "board" ? (
-            <BoardView />
+            <BoardView
+              initialCategory={boardInitialState?.category}
+              initialCreating={boardInitialState?.isCreating}
+              initialPostTitle={boardInitialState?.title}
+              initialPostContent={boardInitialState?.content}
+              onResetInitialState={() => setBoardInitialState(null)}
+            />
           ) : activeTab === "achievements" ? (
             <Achievements />
           ) : (

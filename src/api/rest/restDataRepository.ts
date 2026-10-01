@@ -16,6 +16,22 @@ export class RestDataRepository implements DataRepository {
 
   isCurrentUserAdmin() { return this.api.request<boolean>("/me/is-admin"); }
   listWorkspaceCleanupProjects() { return this.api.request<string[]>("/me/workspace-cleanup-projects"); }
+  getEvaluationPercentiles(target?: { projectId: string; memberId: string }) { return this.api.request<import("../types").EvaluationPercentiles>(`/me/evaluation-percentiles${target ? `?projectId=${encodeURIComponent(target.projectId)}&memberId=${encodeURIComponent(target.memberId)}` : ""}`); }
+  savePushSubscription(subscription: { endpoint: string; p256dh: string; auth: string }) { return this.api.request<void>("/me/push-subscriptions", { method: "POST", body: JSON.stringify(subscription) }); }
+  deletePushSubscription(endpoint: string) { return this.api.request<void>("/me/push-subscriptions/delete", { method: "POST", body: JSON.stringify({ endpoint }) }); }
+  // 소식 목록은 로그인 없이 쓰는 수집기(api/campus-notices.js, Vercel 함수 / 개발 서버는 vite.config.ts)가 화면과 같은 사이트에서 준다.
+  async fetchCampusNotices({ school = "전국", category = "all" }: { school?: string; category?: string }) {
+    try {
+      const res = await fetch(`/api/campus-notices?school=${encodeURIComponent(school)}&category=${encodeURIComponent(category)}`);
+      if (res.ok) return ((await res.json()) as { notices?: import("../../lib/crawler/types").NoticeItem[] }).notices || [];
+    } catch {
+      // 아래에서 브라우저가 직접 수집
+    }
+    const { crawlNotices } = await import("../../lib/crawler/crawlerService");
+    return (await crawlNotices(school, category as import("../../lib/crawler/types").NoticeCategory)).notices;
+  }
+  listScrappedNotices() { return this.api.request<import("../../lib/crawler/types").ScrappedNotice[]>("/me/scrapped-notices").catch(() => []); }
+  async toggleScrapNotice(notice: import("../../lib/crawler/types").NoticeItem) { return (await this.api.request<{ scrapped: boolean }>("/me/scrapped-notices/toggle", { method: "POST", body: JSON.stringify(notice) })).scrapped; }
   getMyEvaluationSummary() { return this.api.request<import("../../lib/evaluationSummary").MyEvaluationSummary>("/me/evaluation-summary"); }
   getEvaluationMode() { return this.api.request<boolean>("/evaluation-mode"); }
   setEvaluationMode(enabled: boolean) { return this.api.request<void>("/evaluation-mode", { method: "PUT", body: JSON.stringify({ enabled }) }); }

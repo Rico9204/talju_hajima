@@ -83,6 +83,11 @@ export interface DataRepository {
   // 참여 횟수/함께한 동료 수) — only callable for a user who shares a project
   // with the caller; see member_participation_stats in schema.sql.
   getMemberParticipationStats(userId: string): Promise<{ projectCount: number; collaboratorCount: number }>;
+  // 대상 없이: 내 전체 평균의 위치. 대상 지정: 그 프로젝트에서 공개된 그 팀원 점수의 위치.
+  getEvaluationPercentiles(target?: { projectId: string; memberId: string }): Promise<import("./types").EvaluationPercentiles>;
+  // 웹 푸시(브라우저를 닫아도 알림) 구독: 이 브라우저의 구독을 내 계정에 저장·삭제
+  savePushSubscription(subscription: { endpoint: string; p256dh: string; auth: string }): Promise<void>;
+  deletePushSubscription(endpoint: string): Promise<void>;
   updateMyProfile(patch: Partial<{
     name: string; major: string; student: string; school: string; avatarUrl: string | null;
     contact: string | null; org: string | null; bannerColor: string | null; bannerImageUrl: string | null;
@@ -197,4 +202,9 @@ export interface DataRepository {
   listAllBoardReports(): Promise<BoardPostReport[]>; // 관리자만, 최신순
   getBoardPostContent(postId: number): Promise<string | null>; // 삭제된 글이면 null
   reviewBoardReport(reportId: number, status: "resolved" | "dismissed"): Promise<void>;
+
+  // Campus notices & contests crawler
+  fetchCampusNotices(params: { school?: string; category?: string }): Promise<import("../lib/crawler/types").NoticeItem[]>;
+  listScrappedNotices(): Promise<import("../lib/crawler/types").ScrappedNotice[]>;
+  toggleScrapNotice(notice: import("../lib/crawler/types").NoticeItem): Promise<boolean>;
 }

@@ -6,10 +6,12 @@ import { AuthController, AuthGuard, AuthLimits, MailSettings, SessionCookie, Tok
 import { Mailer } from "./mail.js";
 import { MajorsController, MajorsService } from "./majors.js";
 import { BoardController } from "./board.js";
+import { CampusController } from "./campus.js";
 import { ChatController } from "./chat.js";
 import { Db } from "./db.js";
 import { ApiErrorFilter } from "./errors.js";
 import { HealthController, ProjectsController } from "./projects.js";
+import { PushController, PushSender, type PushSend, type VapidKeys } from "./push.js";
 import { RealtimeHub } from "./realtime.js";
 import { FileStore, StorageController, StorageUrls, registerFileRoutes } from "./storage.js";
 import { TasksController } from "./tasks.js";
@@ -29,21 +31,24 @@ export interface AppDeps {
   authLimits?: AuthLimits; // 테스트에서 작은 한도를 넣을 때만
   cookieSameSite?: "lax" | "strict" | "none"; // 리프레시 토큰 쿠키(기본 lax)
   cookieSecure?: boolean; // https에서만 보내기(운영)
+  vapid?: VapidKeys; // 웹 푸시 키. 없으면 브라우저를 닫았을 때의 알림을 보내지 않는다
+  pushSend?: PushSend; // 테스트에서 실제 푸시 서비스 대신
 }
 
 @Module({})
 class AppModule {
-  static register(deps: AppDeps, urls: StorageUrls, tokens: TokenService, hub: RealtimeHub): DynamicModule {
+  static register(deps: AppDeps, urls: StorageUrls, tokens: TokenService, hub: RealtimeHub, push: PushSender): DynamicModule {
     return {
       module: AppModule,
       controllers: [
-        HealthController, AuthController, ProjectsController, AdminController, ChatController, WorkspaceController, TasksController, BoardController, MajorsController,
+        HealthController, AuthController, ProjectsController, AdminController, ChatController, WorkspaceController, TasksController, BoardController, MajorsController, CampusController, PushController,
         StorageController,
       ],
       providers: [
         { provide: Db, useValue: deps.db },
         { provide: TokenService, useValue: tokens },
         { provide: RealtimeHub, useValue: hub }, // app.close() 때 onModuleDestroy로 연결·알림 수신을 정리
+        { provide: PushSender, useValue: push },
         { provide: AuthLimits, useValue: deps.authLimits ?? new AuthLimits() },
         { provide: FileStore, useValue: deps.store },
         { provide: Mailer, useValue: deps.mailer },
@@ -62,8 +67,10 @@ export async function createApp(deps: AppDeps): Promise<INestApplication> {
   const urls = new StorageUrls(deps.publicBaseUrl, deps.jwtSecret);
   const tokens = new TokenService(deps.jwtSecret);
   const hub = new RealtimeHub(deps.db, tokens, deps.corsOrigins);
-  const app = await NestFactory.create(AppModule.register(deps, urls, tokens, hub), { logger: ["error", "warn", "log"] });
+  const push = new PushSender(deps.db, deps.vapid, deps.pushSend);
+  const app = await NestFactory.create(AppModule.register(deps, urls, tokens, hub, push), { logger: ["error", "warn", "log"] });
   await hub.start(app.getHttpServer()); // WebSocket /realtime
+  await push.start();
   const http = app.getHttpAdapter().getInstance();
   http.disable("x-powered-by"); // 서버 종류를 응답 헤더로 알리지 않는다
   if (deps.trustProxy !== undefined) http.set("trust proxy", deps.trustProxy);

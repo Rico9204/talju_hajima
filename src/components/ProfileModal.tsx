@@ -8,6 +8,8 @@ import { detectLink } from "../lib/links";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 import MyEvaluationSummary from "./MyEvaluationSummary";
+import type { EvaluationPercentiles } from "../api/types";
+import { criteriaChartData, percentileCaption } from "../lib/evaluationSummary";
 import PentagonChart from "./PentagonChart";
 import MedalIcon from "./MedalIcon";
 import AchievementBadge from "./AchievementBadge";
@@ -58,7 +60,7 @@ function HoverTip({ children, label, detail }: { children: ReactNode; label: str
 // avatar anywhere in the app (Sidebar, Home, chat, comments, team view…) can
 // open it, and it renders itself wherever it's mounted with zero props.
 export default function ProfileModal() {
-  const { currentMember, team, viewedMemberId, closeMemberProfile, updateMyProfile } = useProject();
+  const { currentMember, team, project, viewedMemberId, closeMemberProfile, updateMyProfile } = useProject();
   const { user, updatePassword } = useAuth();
   const { isAdmin } = useProjectManagement();
 
@@ -84,6 +86,18 @@ export default function ProfileModal() {
       .catch(() => { if (active) setOtherStats(null); });
     return () => { active = false; };
   }, [isSelfProfile, viewedMember?.userId]);
+
+  // 보이는 점수(이 프로젝트 기준)가 서비스 전체 사용자 중 상위 몇 %인지. 서버가 비율만 돌려준다.
+  const [otherPercentiles, setOtherPercentiles] = useState<EvaluationPercentiles | null>(null);
+  useEffect(() => {
+    setOtherPercentiles(null);
+    if (isSelfProfile || !viewedMember || viewedMember.evalCount === 0 || !project.id) return;
+    let active = true;
+    dataRepository.getEvaluationPercentiles({ projectId: project.id, memberId: viewedMember.id })
+      .then((value) => { if (active) setOtherPercentiles(value); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isSelfProfile, project.id, viewedMember?.id, viewedMember?.evalCount, viewedMember?.score]);
 
   const {
     myTier, myScore, myBadge, earnedIds, previewAll, themeViewer,
@@ -594,18 +608,14 @@ export default function ProfileModal() {
                         <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
                         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10 · {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
                       </div>
-                      <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
+                      <p className="text-xs mb-1" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
+                      {otherPercentiles && (
+                        <p className="text-xs font-700 mb-3" style={{ color: otherPercentiles.available ? "var(--primary)" : "var(--muted-foreground)" }}>
+                          {percentileCaption(otherPercentiles)}
+                        </p>
+                      )}
                       <div className="flex justify-center">
-                        <PentagonChart
-                          size={290}
-                          data={[
-                            { label: "역할 이행", value: viewedMember.criteriaScores.role },
-                            { label: "약속·마감 준수", value: viewedMember.criteriaScores.deadline },
-                            { label: "의사소통", value: viewedMember.criteriaScores.communication },
-                            { label: "협업 태도", value: viewedMember.criteriaScores.collaboration },
-                            { label: "결과물 품질", value: viewedMember.criteriaScores.quality },
-                          ]}
-                        />
+                        <PentagonChart size={290} data={criteriaChartData(viewedMember.criteriaScores, otherPercentiles)} />
                       </div>
                     </>
                   ) : (

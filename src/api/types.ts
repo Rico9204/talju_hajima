@@ -38,6 +38,11 @@ export interface ProfileLink {
   label: string;
 }
 
+// 평가 점수의 "상위 N%" — 서비스 전체 사용자(최종 평가 공개된 사람) 기준. 비교 인원이 10명 미만이면 available=false.
+export type EvaluationPercentiles =
+  | { available: false; population: number }
+  | { available: true; population: number; overall: number; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> };
+
 export interface Member {
   id: string;
   userId: string | null;

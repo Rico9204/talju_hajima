@@ -20,6 +20,8 @@ export interface ServerConfig {
   // 리프레시 토큰 쿠키. 화면과 서버가 다른 사이트면 none(자동으로 secure).
   cookieSameSite: "lax" | "strict" | "none";
   cookieSecure: boolean;
+  // 웹 푸시(브라우저를 닫아도 알림) 키. 없으면 그 알림만 꺼진다. 공개키는 프런트의 VITE_VAPID_PUBLIC_KEY와 같은 값.
+  vapid?: { publicKey: string; privateKey: string; subject: string };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -38,6 +40,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   if (production && !env.APP_URL) throw new Error("운영 환경에서는 APP_URL(메일 링크가 가리킬 화면 주소)이 필요합니다.");
   const cookieSameSite = env.COOKIE_SAMESITE || "lax";
   if (cookieSameSite !== "lax" && cookieSameSite !== "strict" && cookieSameSite !== "none") throw new Error("COOKIE_SAMESITE는 lax, strict, none 중 하나입니다.");
+  // 대시보드·.env에 붙여 넣으며 섞인 앞뒤 공백·줄바꿈 때문에 키가 달라지는 일이 흔해서 잘라 낸다.
+  const vapidPublic = env.VAPID_PUBLIC_KEY?.trim();
+  const vapidPrivate = env.VAPID_PRIVATE_KEY?.trim();
+  if (!!vapidPublic !== !!vapidPrivate) throw new Error("웹 푸시에는 VAPID_PUBLIC_KEY와 VAPID_PRIVATE_KEY가 함께 필요합니다.");
   const port = Number(env.PORT ?? 3000);
   return {
     port,
@@ -52,6 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     mail: transport === "smtp" ? { transport, smtpUrl: env.SMTP_URL!, from: env.MAIL_FROM! } : { transport },
     appUrl: (env.APP_URL || "http://localhost:5173").replace(/\/+$/, ""),
     odcloudApiKey: env.ODCLOUD_API_KEY,
+    vapid: vapidPublic && vapidPrivate ? { publicKey: vapidPublic, privateKey: vapidPrivate, subject: env.VAPID_SUBJECT?.trim() || "mailto:admin@example.com" } : undefined,
   };
 }
 

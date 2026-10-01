@@ -20,6 +20,7 @@ export class HealthController {
 const MEMBER_COLORS = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PHASES = ["midterm", "final"];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // 프로젝트 id: 이름을 읽을 수 있는 조각 + 시각(같은 이름이어도 겹치지 않게). 화면 쪽 slugify와 같은 규칙.
 function projectIdFor(name: string): string {
@@ -177,6 +178,15 @@ export class ProjectsController {
   }
 
   // 다른 팀원의 프로필 카드: 전체 프로젝트 참여 횟수·함께한 동료 수(같은 프로젝트를 한 적 있는 사람만 — DB 함수가 검사).
+  // 평가 점수 상위 %(서비스 전체 사용자 기준). 대상 없이: 내 전체 평균. projectId+memberId: 그 프로젝트의 그 팀원 점수.
+  @Get("me/evaluation-percentiles")
+  evaluationPercentiles(@UserId() userId: string, @QueryParam("projectId") projectId?: string, @QueryParam("memberId") memberId?: string) {
+    if (!!projectId !== !!memberId) throw new BadRequestException("projectId와 memberId를 함께 보내야 합니다.");
+    if (memberId && !UUID.test(memberId)) throw new BadRequestException("memberId 형식이 올바르지 않습니다.");
+    return this.db.asUser(userId, (query) =>
+      scalarJson(query, "public.evaluation_percentiles($1::text, $2::uuid)", [projectId ?? null, memberId ?? null]));
+  }
+
   @Get("users/:userId/participation-stats")
   participationStats(@UserId() userId: string, @Param("userId", ParseUUIDPipe) targetUserId: string) {
     return this.db.asUser(userId, async (query) => {
