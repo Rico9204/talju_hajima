@@ -103,6 +103,9 @@ function sendFile(res: Response, bytes: Buffer, mime: string, filename: string, 
   res.setHeader("Content-Type", inline ? mime : "application/octet-stream");
   res.setHeader("Content-Disposition", `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(filename)}`);
   res.setHeader("X-Content-Type-Options", "nosniff");
+  // 화면의 서비스 워커(public/sw.js)가 ngrok 경고 페이지를 건너뛰는 헤더를 붙여 다른 출처에서 다시 받아 간다.
+  // 공개 파일이거나 주소 자체가 권한(서명 토큰)이고 쿠키를 쓰지 않으므로 모든 출처에 읽기를 허용해도 된다.
+  res.setHeader("Access-Control-Allow-Origin", "*");
   if (mime !== "application/pdf") res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
   res.setHeader("Cache-Control", cacheSeconds > 0 ? `private, max-age=${cacheSeconds}` : "no-store");
   res.send(bytes);
