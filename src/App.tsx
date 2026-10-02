@@ -9,6 +9,7 @@ import Landing from "./components/Landing";
 import { ProjectProvider, useProject, useProjectManagement } from "./context/ProjectContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useAccountBackground } from "./lib/useAccountBackground";
+import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 
 // Keep sign-in and the selected route responsive while infrequently visited
 // workspace, evaluation and profile-related pages download in the background.
@@ -82,7 +83,9 @@ function Layout() {
         <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />
         {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>
@@ -173,15 +176,19 @@ function AppRoutes() {
 }
 
 export default function App() {
+  // 가장 바깥 안전망: 로그인·프로젝트 불러오기 단계를 포함해 어디서 오류가 나도 흰 화면 대신 안내.
+  // 페이지 영역 오류는 Layout 안의 RouteErrorBoundary가 먼저 받아 사이드바는 그대로 둔다.
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <ProjectProvider>
-          <Suspense fallback={<PageLoading />}>
-            <AppRoutes />
-          </Suspense>
-        </ProjectProvider>
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary variant="full">
+      <AuthProvider>
+        <BrowserRouter>
+          <ProjectProvider>
+            <Suspense fallback={<PageLoading />}>
+              <AppRoutes />
+            </Suspense>
+          </ProjectProvider>
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
