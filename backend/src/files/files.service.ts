@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ProjectFile } from './project-file.entity.js';
@@ -293,6 +293,19 @@ export class FilesService {
     const file = await this.filesRepository.findOne({ where: { id: fileId, projectId } });
     if (!file) throw new NotFoundException('파일을 찾을 수 없습니다.');
     file.tag = tag.trim() || null;
+    return this.filesRepository.save(file);
+  }
+
+  // 워크스페이스 화면에서 파일을 폴더 안으로 드래그 앤 드롭할 때 호출 — id는 그대로 두고 path만
+  // 바꾸므로 버전/댓글/핀 이력이 전부 그대로 유지된다(새로 만들고 지우는 방식이 아님).
+  async moveFile(projectId: string, fileId: string, newPath: string, userId: string): Promise<ProjectFile> {
+    await this.projectsService.assertMembership(projectId, userId);
+    const file = await this.filesRepository.findOne({ where: { id: fileId, projectId } });
+    if (!file) throw new NotFoundException('파일을 찾을 수 없습니다.');
+    if (file.path === newPath) return file;
+    const collision = await this.filesRepository.findOne({ where: { projectId, path: newPath } });
+    if (collision) throw new ConflictException('이동할 위치에 같은 이름의 파일이 이미 있어요.');
+    file.path = newPath;
     return this.filesRepository.save(file);
   }
 

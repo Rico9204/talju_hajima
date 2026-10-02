@@ -5,6 +5,7 @@ import type { JwtPayload } from '../auth/jwt.strategy.js';
 import { FilesService } from './files.service.js';
 import { SyncFilesDto } from './dto/sync-files.dto.js';
 import { SetTagDto } from './dto/set-tag.dto.js';
+import { MoveFileDto } from './dto/move-file.dto.js';
 import { CreateCommentDto } from './dto/create-comment.dto.js';
 import { CreatePinDto } from './dto/create-pin.dto.js';
 
@@ -82,6 +83,16 @@ export class FilesController {
     @Body() dto: SetTagDto,
   ) {
     return this.filesService.setTag(projectId, fileId, dto.tag, user.sub);
+  }
+
+  @Patch(':fileId/move')
+  move(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Body() dto: MoveFileDto,
+  ) {
+    return this.filesService.moveFile(projectId, fileId, dto.path, user.sub);
   }
 
   @Get(':fileId/comments')

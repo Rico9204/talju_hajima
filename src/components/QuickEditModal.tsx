@@ -1,8 +1,60 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
+import Prism from "prismjs";
+import "prismjs/components/prism-typescript";
+import "prismjs/components/prism-jsx";
+import "prismjs/components/prism-tsx";
+import "prismjs/components/prism-python";
+import "prismjs/components/prism-json";
+import "prismjs/components/prism-bash";
+import "prismjs/components/prism-yaml";
+import "prismjs/components/prism-sql";
+import "prismjs/components/prism-java";
+import "prismjs/components/prism-c";
+import "prismjs/components/prism-cpp";
+import "prismjs/components/prism-go";
+import "prismjs/components/prism-rust";
+import "prismjs/components/prism-ruby";
+import "prismjs/components/prism-php";
+import "prismjs/components/prism-csharp";
+import "prismjs/components/prism-kotlin";
+import "prismjs/components/prism-swift";
+import "prismjs/themes/prism.css";
 import { buildCollabWsOrigin, collabAuthToken, applyTextareaDelta, colorForUserId, getCaretCoordinates } from "../lib/quickEdit";
 import { flushCollabRoom } from "../api/backend/files";
+
+// 확장자 -> Prism 언어 키. 여기 없는(또는 못 알아보는) 확장자는 강조 없이 일반 텍스트로 보여준다.
+const EXT_TO_LANG: Record<string, string> = {
+  js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript",
+  ts: "typescript", tsx: "tsx",
+  py: "python",
+  json: "json",
+  css: "css", scss: "css", less: "css",
+  html: "markup", htm: "markup", xml: "markup", svg: "markup", vue: "markup",
+  sh: "bash", bash: "bash", zsh: "bash",
+  yml: "yaml", yaml: "yaml",
+  sql: "sql",
+  java: "java",
+  c: "c", h: "c",
+  cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp",
+  go: "go",
+  rs: "rust",
+  rb: "ruby",
+  php: "php",
+  cs: "csharp",
+  kt: "kotlin", kts: "kotlin",
+  swift: "swift",
+};
+
+function languageForPath(path: string): string | null {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return EXT_TO_LANG[ext] ?? null;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 interface Peer {
   userId: string;
@@ -156,6 +208,15 @@ export default function QuickEditModal({
     setScrollPos({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft });
   }
 
+  const language = languageForPath(filePath);
+  const highlightedHtml = useMemo(() => {
+    const grammar = language ? Prism.languages[language] : undefined;
+    const html = grammar ? Prism.highlight(value, grammar, language!) : escapeHtml(value);
+    // textarea는 끝에 줄바꿈이 있으면 빈 줄을 하나 더 그리는데 <pre>는 그렇지 않아서, 맨 끝이
+    // 줄바꿈이면 보이지 않는 공백을 하나 붙여 높이가 어긋나지 않게 한다.
+    return value.endsWith("\n") ? `${html}​` : html;
+  }, [value, language]);
+
   // 소켓을 끊기 전에 서버가 저장을 끝냈다고 확인해줄 때까지 기다린다 — 안 그러면 onClose 뒤
   // 파일 목록 새로고침이 저장 전 옛 내용을 읽어오는 경합이 생긴다.
   async function handleClose() {
@@ -179,6 +240,11 @@ export default function QuickEditModal({
               바로 수정 · {filePath}
               {pinLabel && <span style={{ color: "#8b5cf6" }}> · 📌 {pinLabel}</span>}
             </div>
+            {language && (
+              <span className="px-1.5 py-0.5 text-[10px] font-700 rounded-full shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>
+                {language}
+              </span>
+            )}
             {/* 지금 같이 수정 중인 사람 이름 — 제목 바로 옆에 표시 */}
             {peers.map((p) => (
               <span
@@ -206,6 +272,24 @@ export default function QuickEditModal({
           {status === "connected" ? "실시간 연결됨" : status === "connecting" ? "연결 중..." : "연결 끊김 — 재연결 시도 중"}
         </div>
         <div className="flex-1 relative min-h-0 m-4 mt-2">
+          {/* 문법 강조 — textarea 글자는 투명하게 만들고 그 자리에 Prism이 색칠한 같은 텍스트를
+              깔아서 보여준다(흔히 쓰는 "투명 textarea + 강조된 pre" 방식). 스크롤 위치도 똑같이 맞춘다. */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ borderRadius: "10px", background: "var(--muted)" }}>
+            <pre
+              className="p-4 text-xs m-0"
+              style={{
+                fontFamily: "var(--font-jetbrains)",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                position: "relative",
+                top: -scrollPos.top,
+                left: -scrollPos.left,
+                minHeight: "100%",
+              }}
+            >
+              <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+            </pre>
+          </div>
           {/* 다른 사람의 커서 — textarea 위에 겹쳐서 그린다(입력은 막지 않게 pointer-events: none) */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             {peers.map((p) => {
@@ -234,8 +318,8 @@ export default function QuickEditModal({
             onSelect={broadcastCursor}
             onScroll={handleScroll}
             spellCheck={false}
-            className="w-full h-full p-4 text-xs outline-none resize-none"
-            style={{ fontFamily: "var(--font-jetbrains)", color: "var(--foreground)", background: "var(--muted)", borderRadius: "10px" }}
+            className="w-full h-full p-4 text-xs outline-none resize-none relative"
+            style={{ fontFamily: "var(--font-jetbrains)", color: "transparent", caretColor: "var(--foreground)", background: "transparent", borderRadius: "10px" }}
           />
         </div>
         <div className="px-5 py-2.5 text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--muted-foreground)" }}>

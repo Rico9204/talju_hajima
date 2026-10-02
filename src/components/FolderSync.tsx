@@ -23,7 +23,7 @@ interface BaselineEntry {
 // 제품개발/frontend의 폴더 연동(ProjectWorkspacePage.runSync + FolderSyncTab)을 이 앱의 화면
 // 형식(var(--token) 인라인 스타일)에 맞춰 이식. 원래는 사이드바 메뉴의 별도 페이지였는데,
 // 워크스페이스 화면 안(파일 업로드 존 바로 위)에 섹션으로 옮겨졌다 — Workspace.tsx 참고.
-export default function FolderSync() {
+export default function FolderSync({ selectedPaths }: { selectedPaths?: Set<string> }) {
   const { project, folders } = useProject();
   const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -40,9 +40,79 @@ export default function FolderSync() {
   // 연속으로 몇 번 실패했는지 — 네트워크 순간 끊김처럼 스쳐 지나가는 오류 때문에 자동 동기화가
   // 바로 꺼지지 않도록, 연달아 여러 번 실패했을 때만 자동 동기화를 끈다.
   const syncFailuresRef = useRef(0);
+  // 선택한 동기화 범위(최상위 폴더/파일 이름 집합) — null이면 전체 동기화(기존 동작 그대로).
+  // 이 집합에 든 이름 바깥의 로컬 파일/서버 파일은 올리지도 받지도 않는다.
+  const [scopeSelection, setScopeSelection] = useState<Set<string> | null>(null);
+  const scopeSelectionRef = useRef<Set<string> | null>(null);
+  const [topLevelEntries, setTopLevelEntries] = useState<{ name: string; isFolder: boolean }[]>([]);
+  const [showScopePicker, setShowScopePicker] = useState(false);
+  // "선택 동기화" — 워크스페이스 파일 목록에서 체크박스로 선택한 항목만 로컬에 동기화한다. 켜져
+  // 있으면 위의 폴더/파일 범위 선택은 무시하고 이 선택만 기준으로 삼는다.
+  const [useSelectionAsScope, setUseSelectionAsScope] = useState(false);
+  const useSelectionRef = useRef(false);
+  const selectedPathsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    selectedPathsRef.current = selectedPaths ?? new Set();
+    // 선택 동기화를 켜둔 채로 체크를 다 풀면(선택 0개) 아무것도 안 올라가는 채로 멈춰있는
+    // 상태가 되니, 그럴 땐 선택 동기화를 자동으로 꺼서 "전체/범위 동기화"로 돌아가게 한다.
+    if (useSelectionRef.current && (selectedPaths?.size ?? 0) === 0) {
+      setUseSelectionAsScope(false);
+    }
+  }, [selectedPaths]);
+  useEffect(() => {
+    useSelectionRef.current = useSelectionAsScope;
+  }, [useSelectionAsScope]);
 
   // 이미 워크스페이스에 있는 최상위 폴더 이름들 (드롭다운 후보) — Workspace 화면의 폴더 목록을 그대로 재사용
   const folderOptions = useMemo(() => folders.map((f) => f.name).sort(), [folders]);
+
+  function computeTopLevelEntries(paths: string[]): { name: string; isFolder: boolean }[] {
+    const map = new Map<string, boolean>();
+    for (const p of paths) {
+      const idx = p.indexOf("/");
+      if (idx === -1) {
+        if (!map.has(p)) map.set(p, false);
+      } else {
+        map.set(p.slice(0, idx), true);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([name, isFolder]) => ({ name, isFolder }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function inScope(path: string): boolean {
+    if (useSelectionRef.current) {
+      const root = syncRootRef.current;
+      const projectPath = root ? `${root}/${path}` : path;
+      return selectedPathsRef.current.has(projectPath);
+    }
+    const scope = scopeSelectionRef.current;
+    if (!scope) return true;
+    const top = path.includes("/") ? path.slice(0, path.indexOf("/")) : path;
+    return scope.has(top);
+  }
+
+  function toggleScopeEntry(name: string) {
+    setScopeSelection((prev) => {
+      const base = prev ?? new Set(topLevelEntries.map((e) => e.name));
+      const next = new Set(base);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      scopeSelectionRef.current = next;
+      return next;
+    });
+  }
+
+  function resetScopeToAll() {
+    setScopeSelection(null);
+    scopeSelectionRef.current = null;
+  }
+
+  async function refreshTopLevelEntries(handle: FileSystemDirectoryHandle) {
+    const { files: existing } = await readFolder(handle);
+    setTopLevelEntries(computeTopLevelEntries(existing.map((f) => f.path)));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +133,7 @@ export default function FolderSync() {
   }, [project.id, syncRoot]);
 
   const runSync = useCallback(
-    async (handle: FileSystemDirectoryHandle, initial = false) => {
+    async (handle: FileSystemDirectoryHandle, initial = false, localFirst = false) => {
       if (syncingRef.current) return;
       syncingRef.current = true;
       try {
@@ -90,6 +160,10 @@ export default function FolderSync() {
         const nextBaseline = new Map(baseline);
 
         for (const path of allPaths) {
+          // 동기화 범위를 특정 폴더/파일로 좁혀놨으면 그 밖의 경로는 올리지도 받지도 않고
+          // 건드리지 않는다(baseline도 그대로 둬서, 범위를 다시 넓혔을 때 정상적으로 비교되게 함).
+          if (!inScope(path)) continue;
+
           const local = localMap.get(path);
           const server = serverMap.get(path);
           const base = baseline.get(path);
@@ -112,11 +186,13 @@ export default function FolderSync() {
           if (base === undefined) {
             if (server.content === local) {
               nextBaseline.set(path, server);
-            } else if (initial) {
-              // 처음 연동하는 순간엔 워크스페이스 내용을 기준으로 로컬을 맞춘다
+            } else if (initial && !localFirst) {
+              // 처음 연동하는 순간엔 기본적으로 워크스페이스 내용을 기준으로 로컬을 맞춘다
               toPull.push({ path, content: server.content });
               nextBaseline.set(path, server);
             } else {
+              // "로컬 폴더 기준으로 동기화"로 연동했거나(localFirst), 이미 연동 중 로컬에서
+              // 새로 생긴 변경이면 로컬 내용을 워크스페이스에 새 버전으로 올린다.
               toPush.push({ path, content: local, baseVersionId: server.versionId ?? undefined });
             }
             continue;
@@ -215,7 +291,11 @@ export default function FolderSync() {
     baselineRef.current = new Map();
   }
 
-  async function handlePickFolder() {
+  // localFirst=false(기본): 워크스페이스와 겹치는 파일은 워크스페이스 내용으로 로컬을 맞춘다.
+  // localFirst=true("로컬 폴더 기준으로 동기화"): 겹치는 파일은 반대로 로컬 내용을 워크스페이스에
+  // 새 버전으로 올린다 — 로컬 파일을 한 번에 업로드하는 용도. 어느 쪽이든 이후로는 똑같이
+  // 자동/수동 동기화(바뀐 파일만 주고받는 평소 동작)로 이어진다.
+  async function handlePickFolder(localFirst = false) {
     setError(null);
     setSyncing(true);
     try {
@@ -223,14 +303,18 @@ export default function FolderSync() {
       const { files: existing } = await readFolder(handle);
       if (existing.length > 0) {
         const ok = window.confirm(
-          `선택한 폴더에 이미 파일이 ${existing.length}개 있습니다. 계속하면 워크스페이스와 겹치는 파일은 워크스페이스 내용으로 덮어써집니다. 계속할까요?`,
+          localFirst
+            ? `선택한 폴더 안의 파일 ${existing.length}개를 워크스페이스로 올립니다. 이름이 겹치는 워크스페이스 파일은 새 버전으로 덮어써집니다. 계속할까요?`
+            : `선택한 폴더에 이미 파일이 ${existing.length}개 있습니다. 계속하면 워크스페이스와 겹치는 파일은 워크스페이스 내용으로 덮어써집니다. 계속할까요?`,
         );
         if (!ok) return;
       }
       baselineRef.current = new Map();
       syncRootRef.current = syncRoot;
+      resetScopeToAll();
+      setTopLevelEntries(computeTopLevelEntries(existing.map((f) => f.path)));
       setFolderHandle(handle);
-      await runSync(handle, true);
+      await runSync(handle, true, localFirst);
     } catch {
       setError("폴더 연동에 실패했습니다.");
     } finally {
@@ -313,17 +397,81 @@ export default function FolderSync() {
                   ))}
                 </div>
               )}
+
+              {/* 선택 동기화 — 워크스페이스 파일 목록에서 체크한 항목만 로컬에 능동적으로 동기화 */}
+              <label
+                className="flex items-center gap-2 text-xs mt-3"
+                style={{ color: (selectedPaths?.size ?? 0) === 0 ? "var(--muted-foreground)" : "var(--foreground)", opacity: (selectedPaths?.size ?? 0) === 0 ? 0.5 : 1 }}
+              >
+                <input
+                  type="checkbox"
+                  checked={useSelectionAsScope}
+                  disabled={(selectedPaths?.size ?? 0) === 0}
+                  onChange={(e) => setUseSelectionAsScope(e.target.checked)}
+                />
+                선택 동기화 — 아래 파일 목록에서 체크한 {selectedPaths?.size ?? 0}개 항목만 동기화
+              </label>
+
+              {folderHandle && topLevelEntries.length > 0 && !useSelectionAsScope && (
+                <div className="mt-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => setShowScopePicker((v) => !v)}
+                      className="text-xs font-600 underline"
+                      style={{ color: "var(--primary)" }}
+                    >
+                      {scopeSelection ? `선택한 ${scopeSelection.size}개 항목만 동기화 중 — 범위 수정` : "전체 동기화 중 — 특정 폴더/파일만 선택하기"}
+                    </button>
+                    <button
+                      onClick={() => refreshTopLevelEntries(folderHandle)}
+                      className="text-xs"
+                      style={{ color: "var(--muted-foreground)" }}
+                    >
+                      목록 새로고침
+                    </button>
+                  </div>
+                  {showScopePicker && (
+                    <div className="mt-2 p-3 flex flex-col gap-1.5 max-h-48 overflow-auto max-w-sm" style={{ background: "var(--muted)", borderRadius: "var(--radius-sm)" }}>
+                      <label className="flex items-center gap-2 text-xs font-700">
+                        <input type="checkbox" checked={scopeSelection === null} onChange={resetScopeToAll} />
+                        전체 동기화
+                      </label>
+                      {topLevelEntries.map((entry) => (
+                        <label key={entry.name} className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={scopeSelection ? scopeSelection.has(entry.name) : true}
+                            onChange={() => toggleScopeEntry(entry.name)}
+                          />
+                          {entry.isFolder ? "📁" : "📄"} {entry.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 flex-wrap">
               <button
-                onClick={handlePickFolder}
+                onClick={() => handlePickFolder(false)}
                 disabled={syncing}
                 className="text-sm font-700 px-5 py-2.5 transition-all"
                 style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", opacity: syncing ? 0.6 : 1 }}
               >
                 {syncing ? "동기화 중..." : folderHandle ? "다른 폴더 선택" : "폴더 선택 후 동기화"}
               </button>
+              {!folderHandle && (
+                <button
+                  onClick={() => handlePickFolder(true)}
+                  disabled={syncing}
+                  title="고른 로컬 폴더 안의 파일을 전부 워크스페이스로 올립니다(겹치는 이름은 새 버전). 그 다음부터는 평소 동기화와 똑같이 동작해요."
+                  className="text-sm font-600 px-5 py-2.5 transition-all"
+                  style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "40px", opacity: syncing ? 0.6 : 1 }}
+                >
+                  로컬 폴더 기준으로 동기화
+                </button>
+              )}
               {folderHandle && (
                 <button
                   onClick={() => setAutoSync((v) => !v)}

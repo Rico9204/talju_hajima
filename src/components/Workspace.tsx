@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useProject } from "../context/ProjectContext";
 import {
@@ -14,6 +14,7 @@ import {
   listFiles,
   listPinCounts,
   listVersionCalendar,
+  moveFile,
   promoteVersion as promoteVersionApi,
   setFileTag,
   syncFiles,
@@ -54,6 +55,152 @@ const PRESENCE_POLL_MS = 3000;
 const KEEP_FILE = ".keep";
 const TAG_PALETTE = ["#3d52d5", "#f0a500", "#22c55e", "#8b5cf6", "#6b7280", "#2563eb", "#ef4444", "#06b6d4"];
 
+// 파일/폴더 목록의 드래그 앤 드롭 순서 변경 — 서버에는 저장하지 않고 이 브라우저에 프로젝트+폴더별로만
+// 기억한다(다른 팀원 화면이나 다른 기기에는 영향 없음, 단순 개인 보기 설정).
+function customOrderKey(kind: "file" | "folder", projectId: string, dir: string | null): string {
+  return `workspace-${kind}-order:${projectId}:${dir ?? ""}`;
+}
+
+function loadCustomOrder(kind: "file" | "folder", projectId: string, dir: string | null): string[] | null {
+  try {
+    const raw = localStorage.getItem(customOrderKey(kind, projectId, dir));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCustomOrder(kind: "file" | "folder", projectId: string, dir: string | null, order: string[]) {
+  try {
+    localStorage.setItem(customOrderKey(kind, projectId, dir), JSON.stringify(order));
+  } catch {
+    // localStorage 접근이 막혀있어도(사생활 보호 모드 등) 기능이 죽을 필요는 없다 — 조용히 무시.
+  }
+}
+
+function applyCustomOrder<T extends { id: string; path: string }>(list: T[], order: string[] | null): T[] {
+  if (!order || order.length === 0) return list;
+  const index = new Map(order.map((id, i) => [id, i]));
+  return [...list].sort((a, b) => {
+    const ai = index.has(a.id) ? index.get(a.id)! : Number.MAX_SAFE_INTEGER;
+    const bi = index.has(b.id) ? index.get(b.id)! : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.path.localeCompare(b.path);
+  });
+}
+
+function applyOrderToNames(names: string[], order: string[] | null): string[] {
+  if (!order || order.length === 0) return names;
+  const index = new Map(order.map((n, i) => [n, i]));
+  return [...names].sort((a, b) => {
+    const ai = index.has(a) ? index.get(a)! : Number.MAX_SAFE_INTEGER;
+    const bi = index.has(b) ? index.get(b)! : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.localeCompare(b);
+  });
+}
+
+// 드래그 중인 내용을 dataTransfer에서 읽는다 — 파일(여러 개 가능)을 끄는 중인지, 폴더 하나를
+// 순서 변경하려고 끄는 중인지를 구분한다.
+type DragPayload = { type: "files"; ids: string[] } | { type: "folder"; name: string };
+
+function getDragPayload(e: DragEvent): DragPayload | null {
+  const raw = e.dataTransfer.getData("text/plain");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { type?: string; ids?: unknown; name?: unknown };
+    if (parsed?.type === "files" && Array.isArray(parsed.ids)) {
+      return { type: "files", ids: parsed.ids.filter((id): id is string => typeof id === "string") };
+    }
+    if (parsed?.type === "folder" && typeof parsed.name === "string") {
+      return { type: "folder", name: parsed.name };
+    }
+  } catch {
+    // JSON이 아니면(이전 버전 호환) 파일 id 문자열 하나로 취급
+    return { type: "files", ids: [raw] };
+  }
+  return null;
+}
+
+function getDraggedFileIds(e: DragEvent): string[] {
+  const payload = getDragPayload(e);
+  return payload?.type === "files" ? payload.ids : [];
+}
+
+// 파일/폴더 카드 각각의 드래그 박스 히트 영역을 "보이는 칸 크기의 정확히 1.5배"로 넓히는 공용
+// 훅 — 칸 자체의 실제 렌더 크기를 ResizeObserver로 재서 그 25%를 사방에 패딩으로 더한다
+// (바깥 = 안쪽 + 2*25% = 안쪽의 1.5배). key(파일 id/폴더 이름)별로 독립적으로 추적한다.
+function useHitZonePad() {
+  const [pad, setPad] = useState<Map<string, { x: number; y: number }>>(new Map());
+  const observersRef = useRef<Map<string, ResizeObserver>>(new Map());
+  // key별로 ref 콜백 함수 자체를 캐싱한다 — 매 렌더마다 새 인라인 함수를 ref로 넘기면 React가
+  // "ref가 바뀌었다"고 보고 매번 null→엘리먼트로 다시 호출해, 아래 setState가 매 렌더 재실행되며
+  // 무한 리렌더로 이어진다.
+  const measureRefsRef = useRef<Map<string, (el: HTMLDivElement | null) => void>>(new Map());
+
+  function getMeasureRef(key: string) {
+    let fn = measureRefsRef.current.get(key);
+    if (fn) return fn;
+    fn = (el: HTMLDivElement | null) => {
+      const existing = observersRef.current.get(key);
+      if (existing) {
+        existing.disconnect();
+        observersRef.current.delete(key);
+      }
+      if (!el) return;
+      const update = () => {
+        const rect = el.getBoundingClientRect();
+        const nextPad = { x: rect.width * 0.25, y: rect.height * 0.25 };
+        setPad((prev) => {
+          const cur = prev.get(key);
+          // 실측값이 사실상 그대로면(0.5px 미만 차이) state를 안 바꿔서 불필요한 리렌더를 막는다.
+          if (cur && Math.abs(cur.x - nextPad.x) < 0.5 && Math.abs(cur.y - nextPad.y) < 0.5) return prev;
+          const next = new Map(prev);
+          next.set(key, nextPad);
+          return next;
+        });
+      };
+      update();
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      observersRef.current.set(key, ro);
+    };
+    measureRefsRef.current.set(key, fn);
+    return fn;
+  }
+
+  useEffect(() => {
+    const observers = observersRef.current;
+    return () => {
+      observers.forEach((ro) => ro.disconnect());
+      observers.clear();
+    };
+  }, []);
+
+  return { pad, getMeasureRef };
+}
+
+// 워크스페이스 파일 목록에서 체크박스로 선택한 항목(파일 경로 또는 폴더 경로가 섞여 있음)을
+// "실제 파일 경로" 집합으로 풀어낸다 — 폴더가 선택돼 있으면 그 안의 모든 파일로 펼친다.
+// FolderSync의 "선택 동기화"가 이 결과를 그대로 동기화 범위로 쓴다.
+function expandSelectedPaths(selectedPaths: Set<string>, allFiles: { path: string }[]): Set<string> {
+  const result = new Set<string>();
+  const allPathSet = new Set(allFiles.map((f) => f.path));
+  for (const p of selectedPaths) {
+    if (allPathSet.has(p)) {
+      result.add(p);
+      continue;
+    }
+    const prefix = `${p}/`;
+    for (const f of allFiles) {
+      if (f.path.startsWith(prefix) && f.path.split("/").pop() !== KEEP_FILE) result.add(f.path);
+    }
+  }
+  return result;
+}
+
 interface TypeMeta {
   bg: string;
   color: string;
@@ -78,7 +225,30 @@ const TYPE_META: Record<string, TypeMeta> = {
   ts: { bg: "#2563eb18", color: "#2563eb", label: "TS" },
   tsx: { bg: "#2563eb18", color: "#2563eb", label: "TSX" },
   js: { bg: "#f59e0b18", color: "#f59e0b", label: "JS" },
+  jsx: { bg: "#f59e0b18", color: "#f59e0b", label: "JSX" },
   json: { bg: "#6b728018", color: "#6b7280", label: "JSON" },
+  py: { bg: "#22c55e18", color: "#22c55e", label: "PY" },
+  java: { bg: "#ef444418", color: "#ef4444", label: "JAVA" },
+  c: { bg: "#6b728018", color: "#6b7280", label: "C" },
+  h: { bg: "#6b728018", color: "#6b7280", label: "C" },
+  cpp: { bg: "#6b728018", color: "#6b7280", label: "C++" },
+  cc: { bg: "#6b728018", color: "#6b7280", label: "C++" },
+  hpp: { bg: "#6b728018", color: "#6b7280", label: "C++" },
+  go: { bg: "#06b6d418", color: "#06b6d4", label: "GO" },
+  rs: { bg: "#f0a50018", color: "#f0a500", label: "RS" },
+  rb: { bg: "#ef444418", color: "#ef4444", label: "RB" },
+  php: { bg: "#8b5cf618", color: "#8b5cf6", label: "PHP" },
+  cs: { bg: "#8b5cf618", color: "#8b5cf6", label: "C#" },
+  kt: { bg: "#f0a50018", color: "#f0a500", label: "KT" },
+  swift: { bg: "#f0a50018", color: "#f0a500", label: "SWIFT" },
+  css: { bg: "#2563eb18", color: "#2563eb", label: "CSS" },
+  scss: { bg: "#2563eb18", color: "#2563eb", label: "CSS" },
+  html: { bg: "#ef444418", color: "#ef4444", label: "HTML" },
+  xml: { bg: "#ef444418", color: "#ef4444", label: "XML" },
+  sh: { bg: "#22c55e18", color: "#22c55e", label: "SH" },
+  yml: { bg: "#6b728018", color: "#6b7280", label: "YML" },
+  yaml: { bg: "#6b728018", color: "#6b7280", label: "YML" },
+  sql: { bg: "#06b6d418", color: "#06b6d4", label: "SQL" },
   rtdoc: { bg: "#2563eb18", color: "#2563eb", label: "문서" },
   slides: { bg: "#f0a50018", color: "#f0a500", label: "슬라이드" },
 };
@@ -1239,6 +1409,37 @@ export default function Workspace() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  // 파일 목록에서 폴더 카드/상위 경로(breadcrumb)로 드래그 앤 드롭해서 옮기는 기능용 상태 —
+  // dragOver(OS 파일 탐색기에서 업로드용으로 끌어다 놓는 것)와는 별개다. 체크박스로 여러 파일을
+  // 선택한 상태에서 그중 하나를 드래그하면 선택된 전부를 함께 옮긴다.
+  const [draggingFileIds, setDraggingFileIds] = useState<string[]>([]);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  // 같은 폴더 안에서 파일을 드래그해서 다른 파일 위에 놓으면 그 앞으로 순서가 바뀐다 — 이 순서는
+  // 서버에 저장하지 않고 이 브라우저에만 폴더별로 기억된다(localStorage).
+  const [dragOverFileId, setDragOverFileId] = useState<string | null>(null);
+  const [customOrder, setCustomOrder] = useState<string[] | null>(null);
+  // 파일 목록 위에서 마우스로 네모 박스를 그려 여러 파일을 한번에 선택하는 기능(드래그 박스 선택).
+  // 파일 행 자체를 눌러서 시작하면(= HTML5 드래그 이동) 여기서 안 건드리고, 행과 행 사이 빈 공간을
+  // 눌러서 시작했을 때만 박스가 켜진다.
+  const [selectBoxRect, setSelectBoxRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const rowElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const folderElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const selectDragRef = useRef<{
+    startX: number;
+    startY: number;
+    additive: boolean;
+    moved: boolean;
+    baseSelection: Set<string>;
+    entries: { path: string; rect: DOMRect }[];
+  } | null>(null);
+  // 폴더를 드래그해서 다른 폴더 위에 놓으면 그 앞으로 순서가 바뀐다(파일과 마찬가지로 이 브라우저에만 기억).
+  const [draggingFolderName, setDraggingFolderName] = useState<string | null>(null);
+  const [folderOrder, setFolderOrder] = useState<string[] | null>(null);
+  // 폴더/파일 칸의 드래그 박스 히트 영역을 "보이는 칸 크기의 1.5배"로 정확히 맞추기 위해, 칸
+  // 자체의 실측 크기(ResizeObserver)를 추적해서 그 25%만큼을 사방으로 더 넓힌다
+  // (바깥쪽 = 안쪽 + 2*25% = 안쪽의 1.5배). 화면 폭/그리드 열 수가 바뀌어도 항상 정확히 비례한다.
+  const folderHitZone = useHitZonePad();
+  const fileHitZone = useHitZonePad();
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [editingTagFileId, setEditingTagFileId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
@@ -1287,6 +1488,12 @@ export default function Workspace() {
     refresh().catch(() => setError("워크스페이스 정보를 불러오지 못했습니다."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  // 폴더를 옮겨다닐 때마다 그 폴더에 저장해둔 드래그 순서(있으면)를 불러온다.
+  useEffect(() => {
+    setCustomOrder(loadCustomOrder("file", project.id, currentDir));
+    setFolderOrder(loadCustomOrder("folder", project.id, currentDir));
+  }, [project.id, currentDir]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1386,8 +1593,9 @@ export default function Workspace() {
     }
   }
   directFilesAll.sort((a, b) => a.path.localeCompare(b.path));
-  const directFiles = tagFilter ? directFilesAll.filter((f) => f.tag === tagFilter) : directFilesAll;
-  const folderNames = Array.from(subfolders).sort();
+  const directFilesFiltered = tagFilter ? directFilesAll.filter((f) => f.tag === tagFilter) : directFilesAll;
+  const directFiles = applyCustomOrder(directFilesFiltered, customOrder);
+  const folderNames = applyOrderToNames(Array.from(subfolders).sort(), folderOrder);
   const breadcrumbParts = currentDir ? currentDir.split("/") : [];
 
   function countRealFilesUnder(folderPath: string): number {
@@ -1405,6 +1613,118 @@ export default function Workspace() {
     setCurrentDir(index < 0 ? null : breadcrumbParts.slice(0, index + 1).join("/"));
     setSelectedFileId(null);
     setTagFilter(null);
+  }
+
+  // 파일(여러 개 가능)을 다른 폴더(또는 workspace 루트, targetDir=null)로 옮긴다 — 폴더 카드나
+  // breadcrumb 위로 드래그 앤 드롭했을 때 호출된다. id는 그대로 두고 path만 바꾸므로 버전/댓글/핀이
+  // 유지됨. 체크박스로 여러 파일을 선택해 함께 드래그했으면 fileIds에 전부 들어온다.
+  async function handleMoveFilesToFolder(fileIds: string[], targetDir: string | null) {
+    setUploadError(null);
+    let failCount = 0;
+    for (const fileId of fileIds) {
+      const file = files.find((f) => f.id === fileId);
+      if (!file) continue;
+      const baseName = file.path.split("/").pop();
+      if (!baseName) continue;
+      const newPath = targetDir ? `${targetDir}/${baseName}` : baseName;
+      if (newPath === file.path) continue;
+      try {
+        await moveFile(project.id, fileId, newPath);
+      } catch {
+        failCount += 1;
+      }
+    }
+    await refresh();
+    if (failCount > 0) {
+      setUploadError(
+        fileIds.length > 1
+          ? `${failCount}개 파일을 옮기지 못했어요 — 그 위치에 같은 이름의 파일이 이미 있을 수 있어요.`
+          : "파일을 옮기지 못했어요 — 그 위치에 같은 이름의 파일이 이미 있을 수 있어요.",
+      );
+    }
+  }
+
+  // 같은 폴더 안에서 파일을 드래그해 다른 파일(targetFileId) 위에 놓으면 그 파일 바로 앞으로
+  // 끌어온 파일(들)을 옮긴다. 서버에는 저장하지 않고 이 브라우저에 폴더별로만 기억한다.
+  function handleReorderFiles(draggedIds: string[], targetFileId: string) {
+    if (draggedIds.includes(targetFileId)) return;
+    const currentOrderIds = directFiles.map((f) => f.id);
+    const withoutDragged = currentOrderIds.filter((id) => !draggedIds.includes(id));
+    const targetIndex = withoutDragged.indexOf(targetFileId);
+    if (targetIndex === -1) return;
+    const next = [...withoutDragged.slice(0, targetIndex), ...draggedIds, ...withoutDragged.slice(targetIndex)];
+    setCustomOrder(next);
+    saveCustomOrder("file", project.id, currentDir, next);
+  }
+
+  // 폴더를 드래그해서 다른 폴더(targetName) 위에 놓으면 그 폴더 바로 앞으로 옮긴다.
+  function handleReorderFolders(draggedName: string, targetName: string) {
+    if (draggedName === targetName) return;
+    const withoutDragged = folderNames.filter((n) => n !== draggedName);
+    const targetIndex = withoutDragged.indexOf(targetName);
+    if (targetIndex === -1) return;
+    const next = [...withoutDragged.slice(0, targetIndex), draggedName, ...withoutDragged.slice(targetIndex)];
+    setFolderOrder(next);
+    saveCustomOrder("folder", project.id, currentDir, next);
+  }
+
+  // 파일 목록 거의 어디서나(파일 칸 위를 포함해서) 마우스를 누른 채 드래그하면 네모 박스가 그려지고,
+  // 그 박스에 걸친 파일/폴더가 체크박스로 선택된다. 옮기기 손잡이(⠿)는 자체 onMouseDown에서
+  // stopPropagation 하므로 여기로 안 올라온다. 움직임이 거의 없으면(=그냥 클릭) 선택을 건드리지
+  // 않아서, 파일 이름이나 폴더를 클릭해서 여는 동작과 부딪히지 않는다.
+  function handleFileListMouseDown(e: ReactMouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const entries: { path: string; rect: DOMRect }[] = [];
+    for (const f of directFiles) {
+      const el = rowElsRef.current.get(f.id);
+      if (el) entries.push({ path: f.path, rect: el.getBoundingClientRect() });
+    }
+    for (const name of folderNames) {
+      const folderPath = currentDir ? `${currentDir}/${name}` : name;
+      const el = folderElsRef.current.get(name);
+      if (el) entries.push({ path: folderPath, rect: el.getBoundingClientRect() });
+    }
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    selectDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      additive,
+      moved: false,
+      baseSelection: additive ? new Set(selectedPaths) : new Set(),
+      entries,
+    };
+
+    function onMove(ev: MouseEvent) {
+      const drag = selectDragRef.current;
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.hypot(ev.clientX - drag.startX, ev.clientY - drag.startY) < 4) return;
+        drag.moved = true;
+      }
+      const left = Math.min(drag.startX, ev.clientX);
+      const top = Math.min(drag.startY, ev.clientY);
+      const width = Math.abs(ev.clientX - drag.startX);
+      const height = Math.abs(ev.clientY - drag.startY);
+      setSelectBoxRect({ left, top, width, height });
+      const right = left + width;
+      const bottom = top + height;
+      const next = new Set(drag.baseSelection);
+      for (const entry of drag.entries) {
+        const r = entry.rect;
+        const intersects = r.left < right && r.right > left && r.top < bottom && r.bottom > top;
+        if (intersects) next.add(entry.path);
+      }
+      setSelectedPaths(next);
+    }
+    function onUp() {
+      selectDragRef.current = null;
+      setSelectBoxRect(null);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   async function handleCreateFolder() {
@@ -1638,6 +1958,10 @@ export default function Workspace() {
 
   const selectedFile = selectedFileId ? (files.find((f) => f.id === selectedFileId) ?? null) : null;
   const openBranchIds = selectedFileId ? (branchIdsByFile.get(selectedFileId) ?? new Set<string>()) : new Set<string>();
+  // 지금 보고 있는 폴더의 파일 목록(directFiles) 안에서 "이전/다음 파일"로 넘어가기 위한 인덱스 계산.
+  const selectedFileIndex = selectedFile ? directFiles.findIndex((f) => f.id === selectedFile.id) : -1;
+  const prevFile = selectedFileIndex > 0 ? directFiles[selectedFileIndex - 1] : null;
+  const nextFile = selectedFileIndex >= 0 && selectedFileIndex < directFiles.length - 1 ? directFiles[selectedFileIndex + 1] : null;
 
   const versionChildrenByParent = new Map<string | null, FileVersion[]>();
   for (const v of versions) {
@@ -1682,7 +2006,10 @@ export default function Workspace() {
     for (const child of versionChildrenByParent.get(effectiveFocusId) ?? []) highlightIds.add(child.id);
   }
 
-  const allVisibleSelected = directFiles.length > 0 && directFiles.every((f) => selectedPaths.has(f.path));
+  // "전체 선택"/다운로드 대상에는 지금 보고 있는 폴더의 파일뿐 아니라 하위 폴더(카드)도 포함한다 —
+  // 폴더를 선택해서 다운로드하면 그 안의 모든 파일을 받아온다.
+  const visibleEntryPaths = [...directFiles.map((f) => f.path), ...folderNames.map((name) => (currentDir ? `${currentDir}/${name}` : name))];
+  const allVisibleSelected = visibleEntryPaths.length > 0 && visibleEntryPaths.every((p) => selectedPaths.has(p));
 
   function toggleFile(path: string) {
     setSelectedPaths((prev) => {
@@ -1696,17 +2023,28 @@ export default function Workspace() {
   function toggleAllVisible() {
     setSelectedPaths((prev) => {
       const next = new Set(prev);
-      for (const f of directFiles) {
-        if (allVisibleSelected) next.delete(f.path);
-        else next.add(f.path);
+      for (const p of visibleEntryPaths) {
+        if (allVisibleSelected) next.delete(p);
+        else next.add(p);
       }
       return next;
     });
   }
 
   function handleDownloadSelected() {
-    for (const f of files) {
-      if (selectedPaths.has(f.path)) downloadFile(f.path, f.content);
+    for (const path of selectedPaths) {
+      const file = files.find((f) => f.path === path);
+      if (file) {
+        downloadFile(file.path, file.content);
+        continue;
+      }
+      // files 중에 그 경로가 없으면 폴더로 보고, 그 안의 모든 실제 파일을 내려받는다.
+      const folderPrefix = `${path}/`;
+      for (const f of files) {
+        if (f.path.startsWith(folderPrefix) && f.path.split("/").pop() !== KEEP_FILE) {
+          downloadFile(f.path, f.content);
+        }
+      }
     }
   }
 
@@ -1728,22 +2066,73 @@ export default function Workspace() {
         </div>
       )}
 
-      {/* Breadcrumb */}
+      {/* Breadcrumb — 파일을 여기로 드래그 앤 드롭하면 그 상위 폴더(또는 루트)로 옮겨진다. */}
       <div className="flex items-center gap-2 mb-5 text-sm flex-wrap">
-        <button onClick={() => goToBreadcrumb(-1)} className="font-700" style={{ color: currentDir ? "var(--primary)" : "var(--foreground)" }}>
+        <button
+          onClick={() => goToBreadcrumb(-1)}
+          onDragOver={(e) => {
+            if (draggingFileIds.length === 0) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }}
+          onDragEnter={() => draggingFileIds.length > 0 && setDragOverTarget("root")}
+          onDragLeave={() => setDragOverTarget((cur) => (cur === "root" ? null : cur))}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOverTarget(null);
+            const fileIds = getDraggedFileIds(e);
+            setDraggingFileIds([]);
+            if (fileIds.length > 0) void handleMoveFilesToFolder(fileIds, null);
+          }}
+          className="font-700 px-1.5 py-0.5"
+          style={{
+            color: currentDir ? "var(--primary)" : "var(--foreground)",
+            borderRadius: "6px",
+            background: dragOverTarget === "root" ? "var(--primary)" : "transparent",
+            ...(dragOverTarget === "root" ? { color: "#fff" } : {}),
+          }}
+        >
           ⬡ 워크스페이스
         </button>
-        {breadcrumbParts.map((part, i) => (
-          <span key={i} className="flex items-center gap-2">
-            <span style={{ color: "var(--muted-foreground)" }}>/</span>
-            <button onClick={() => goToBreadcrumb(i)} className="font-700" style={{ color: i === breadcrumbParts.length - 1 ? "var(--foreground)" : "var(--primary)" }}>
-              {part}
-            </button>
-          </span>
-        ))}
+        {breadcrumbParts.map((part, i) => {
+          const dirPath = breadcrumbParts.slice(0, i + 1).join("/");
+          const isLast = i === breadcrumbParts.length - 1;
+          return (
+            <span key={i} className="flex items-center gap-2">
+              <span style={{ color: "var(--muted-foreground)" }}>/</span>
+              <button
+                onClick={() => goToBreadcrumb(i)}
+                onDragOver={(e) => {
+                  if (draggingFileIds.length === 0 || isLast) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDragEnter={() => draggingFileIds.length > 0 && !isLast && setDragOverTarget(dirPath)}
+                onDragLeave={() => setDragOverTarget((cur) => (cur === dirPath ? null : cur))}
+                onDrop={(e) => {
+                  if (isLast) return;
+                  e.preventDefault();
+                  setDragOverTarget(null);
+                  const fileIds = getDraggedFileIds(e);
+                  setDraggingFileIds([]);
+                  if (fileIds.length > 0) void handleMoveFilesToFolder(fileIds, dirPath);
+                }}
+                className="font-700 px-1.5 py-0.5"
+                style={{
+                  color: isLast ? "var(--foreground)" : "var(--primary)",
+                  borderRadius: "6px",
+                  background: dragOverTarget === dirPath ? "var(--primary)" : "transparent",
+                  ...(dragOverTarget === dirPath ? { color: "#fff" } : {}),
+                }}
+              >
+                {part}
+              </button>
+            </span>
+          );
+        })}
       </div>
 
-      <FolderSync />
+      <FolderSync selectedPaths={expandSelectedPaths(selectedPaths, files)} />
 
       {/* 업로드 존 */}
       <div
@@ -1787,8 +2176,9 @@ export default function Workspace() {
       />
       {uploadError && <p className="text-xs mb-4" style={{ color: "#ef4444" }}>{uploadError}</p>}
 
-      {/* 하위 폴더 그리드 */}
-      <div className="mb-6">
+      {/* 하위 폴더 그리드 — 폴더 카드가 없는 빈 곳도 드래그 박스 시작점으로 쓸 수 있게 여기도
+          handleFileListMouseDown을 붙인다(파일 목록 쪽과 동일한 핸들러, 대상은 folderElsRef로 따로 추적). */}
+      <div className="mb-6 pb-2" onMouseDown={handleFileListMouseDown}>
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <h2 className="text-sm font-700">폴더</h2>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1889,24 +2279,149 @@ export default function Workspace() {
           </div>
         )}
 
-        {folderNames.length > 0 && (
+        {(folderNames.length > 0 || currentDir) && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {folderNames.map((name) => (
-              <button
-                key={name}
-                onClick={() => openFolder(name)}
-                className="flex items-center gap-3 p-4 text-left transition-all"
-                style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
-              >
-                <div className="w-10 h-10 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--secondary)", borderRadius: "10px" }}>📁</div>
-                <div className="min-w-0">
-                  <div className="text-sm font-700 truncate">{name}</div>
-                  <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                    파일 {countRealFilesUnder(currentDir ? `${currentDir}/${name}` : name)}개
+            {currentDir && (() => {
+              const parentDir = breadcrumbParts.slice(0, -1).join("/") || null;
+              const isDragOver = dragOverTarget === "..";
+              return (
+                <button
+                  onClick={() => goToBreadcrumb(breadcrumbParts.length - 2)}
+                  onDragOver={(e) => {
+                    if (draggingFileIds.length === 0) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDragEnter={() => draggingFileIds.length > 0 && setDragOverTarget("..")}
+                  onDragLeave={() => setDragOverTarget((cur) => (cur === ".." ? null : cur))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverTarget(null);
+                    const fileIds = getDraggedFileIds(e);
+                    setDraggingFileIds([]);
+                    if (fileIds.length > 0) void handleMoveFilesToFolder(fileIds, parentDir);
+                  }}
+                  className="flex items-center gap-3 p-4 text-left transition-all"
+                  style={{
+                    background: isDragOver ? "var(--primary)" : "var(--card)",
+                    borderRadius: "var(--radius)",
+                    boxShadow: "var(--shadow-card)",
+                    outline: isDragOver ? "2px dashed #fff" : "none",
+                    outlineOffset: "-4px",
+                  }}
+                >
+                  <div className="w-10 h-10 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--secondary)", borderRadius: "10px" }}>⬆</div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-700 truncate" style={{ color: isDragOver ? "#fff" : undefined }}>상위 폴더로</div>
+                    <div className="text-xs" style={{ color: isDragOver ? "rgba(255,255,255,0.8)" : "var(--muted-foreground)" }}>
+                      {isDragOver ? "여기로 놓으면 밖으로 빠져요" : "파일을 여기로 끌어오면 꺼내져요"}
+                    </div>
+                  </div>
+                </button>
+              );
+            })()}
+            {folderNames.map((name) => {
+              const folderPath = currentDir ? `${currentDir}/${name}` : name;
+              const isDragOver = dragOverTarget === folderPath;
+              const isDraggingThis = draggingFolderName === name;
+              const isChecked = selectedPaths.has(folderPath);
+              // 측정 전(첫 렌더)에는 적당한 기본값을 쓰고, ResizeObserver가 한 번 돌고 나면
+              // 실제 카드 크기의 정확히 25%(= 전체 1.5배)로 맞춰진다.
+              const pad = folderHitZone.pad.get(name) ?? { x: 20, y: 20 };
+              return (
+                // 바깥쪽(히트 영역)은 음수 margin으로 실제 폴더 칸보다 정확히 1.5배 넓혀서, 카드
+                // 사이 여백까지 드래그 박스 선택/드롭 대상이 되게 한다. 안쪽 padding으로 다시
+                // 상쇄해서 보이는 폴더 카드 자체의 크기/위치는 그대로다.
+                <div
+                  key={name}
+                  style={{
+                    marginLeft: -pad.x,
+                    marginRight: -pad.x,
+                    marginTop: -pad.y,
+                    marginBottom: -pad.y,
+                    position: "relative",
+                    zIndex: 1,
+                  }}
+                >
+                  <div
+                    ref={(el) => {
+                      if (el) folderElsRef.current.set(name, el);
+                      else folderElsRef.current.delete(name);
+                    }}
+                    onDragOver={(e) => {
+                      if (draggingFileIds.length === 0 && !(draggingFolderName && draggingFolderName !== name)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDragEnter={() => {
+                      if (draggingFileIds.length > 0 || (draggingFolderName && draggingFolderName !== name)) setDragOverTarget(folderPath);
+                    }}
+                    onDragLeave={() => setDragOverTarget((cur) => (cur === folderPath ? null : cur))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverTarget(null);
+                      const payload = getDragPayload(e);
+                      setDraggingFileIds([]);
+                      setDraggingFolderName(null);
+                      if (payload?.type === "files" && payload.ids.length > 0) {
+                        void handleMoveFilesToFolder(payload.ids, folderPath);
+                      } else if (payload?.type === "folder" && payload.name !== name) {
+                        handleReorderFolders(payload.name, name);
+                      }
+                    }}
+                    style={{ paddingLeft: pad.x, paddingRight: pad.x, paddingTop: pad.y, paddingBottom: pad.y }}
+                  >
+                    <div
+                      ref={folderHitZone.getMeasureRef(name)}
+                      className="flex items-center gap-2 transition-all p-4"
+                      style={{
+                        background: isDragOver ? "var(--primary)" : "var(--card)",
+                        borderRadius: "var(--radius)",
+                        boxShadow: "var(--shadow-card)",
+                        outline: isDragOver ? "2px dashed #fff" : isChecked ? "2px solid var(--primary)" : "none",
+                        outlineOffset: isDragOver ? "-4px" : "-2px",
+                        opacity: isDraggingThis ? 0.5 : 1,
+                      }}
+                    >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleFile(folderPath)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="shrink-0"
+                  />
+                  <span
+                    draggable
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDragStart={(e) => {
+                      setDraggingFolderName(name);
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", JSON.stringify({ type: "folder", name }));
+                    }}
+                    onDragEnd={() => {
+                      setDraggingFolderName(null);
+                      setDragOverTarget(null);
+                    }}
+                    title="끌어서 순서 바꾸기"
+                    className="shrink-0 flex items-center justify-center"
+                    style={{ width: "14px", cursor: "grab", color: isDragOver ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)", fontSize: "13px", letterSpacing: "-2px" }}
+                  >
+                    ⠿
+                  </span>
+                      <button onClick={() => openFolder(name)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                        <div className="w-10 h-10 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--secondary)", borderRadius: "10px" }}>📁</div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-700 truncate" style={{ color: isDragOver ? "#fff" : undefined }}>{name}</div>
+                          <div className="text-xs" style={{ color: isDragOver ? "rgba(255,255,255,0.8)" : "var(--muted-foreground)" }}>
+                            파일 {countRealFilesUnder(folderPath)}개
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1935,12 +2450,12 @@ export default function Workspace() {
       )}
 
       {/* 파일 목록 툴바 */}
-      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+      <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
         <h2 className="text-sm font-700">파일{currentDir ? ` — ${currentDir}` : ""}</h2>
         {!selectedFile && (
           <div className="flex items-center gap-2.5">
             <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--muted-foreground)" }}>
-              <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} disabled={directFiles.length === 0} />
+              <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} disabled={visibleEntryPaths.length === 0} />
               전체 선택
             </label>
             <button
@@ -1954,24 +2469,103 @@ export default function Workspace() {
           </div>
         )}
       </div>
+      {!selectedFile && (
+        <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
+          💡 파일/폴더 칸 위를 그대로 드래그하면 네모 박스로 여러 개를 한번에 선택할 수 있어요 (이름을 눌러 열거나 ⠿ 손잡이로 옮기는 동작과는 구분돼요).
+        </p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        {/* 파일 목록 */}
-        <div className={`${selectedFile ? "lg:col-span-2" : "lg:col-span-3"} flex flex-col gap-2`}>
+        {/* 파일 목록 — 행과 행 사이나 목록 아래 빈 공간을 드래그하면 네모 박스로 여러 파일을 한번에 선택할 수 있다. */}
+        <div
+          className={`${selectedFile ? "lg:col-span-2" : "lg:col-span-3"} flex flex-col gap-2 pb-10`}
+          onMouseDown={handleFileListMouseDown}
+        >
           {directFiles.map((f) => {
             const meta = getTypeMeta(f.path);
             const isSelected = selectedFileId === f.id;
+            const isChecked = selectedPaths.has(f.path);
             const fileBranchCount = branchIdsByFile.get(f.id)?.size ?? 0;
             const name = f.path.slice(prefix.length);
             const uploaderName = memberNameById.get(f.lastEditorId ?? "") ?? "알 수 없음";
             const compact = !!selectedFile;
+            const isDragging = draggingFileIds.includes(f.id);
+            const isReorderTarget = dragOverFileId === f.id;
+            // 측정 전(첫 렌더)에는 적당한 기본값을 쓰고, ResizeObserver가 한 번 돌고 나면 실제
+            // 행 크기의 정확히 25%(= 전체 1.5배)로 맞춰진다 — 폴더 카드와 동일한 방식.
+            const rowPad = fileHitZone.pad.get(f.id) ?? { x: 20, y: 20 };
             return (
+              // 바깥쪽(히트 영역)은 음수 margin으로 실제 파일 행보다 정확히 1.5배 넓혀서, 행
+              // 사이 여백까지 드래그 박스 선택/드롭 대상이 되게 한다(폴더 카드와 동일한 기법).
+              // 안쪽 padding으로 다시 상쇄해서 보이는 파일 행 자체의 크기/위치는 그대로다.
               <div
                 key={f.id}
-                className={`flex items-center gap-3 transition-all ${compact ? "p-2.5" : "p-4"}`}
-                style={{ background: isSelected ? "var(--primary)" : "var(--card)", color: isSelected ? "#fff" : "var(--foreground)", boxShadow: "var(--shadow-card)", borderRadius: "var(--radius)" }}
+                style={{ marginLeft: -rowPad.x, marginRight: -rowPad.x, marginTop: -rowPad.y, marginBottom: -rowPad.y, position: "relative", zIndex: 1 }}
               >
+                <div
+                  ref={(el) => {
+                    if (el) rowElsRef.current.set(f.id, el);
+                    else rowElsRef.current.delete(f.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (draggingFileIds.length === 0 || isDragging) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDragEnter={() => {
+                    if (draggingFileIds.length > 0 && !isDragging) setDragOverFileId(f.id);
+                  }}
+                  onDragLeave={() => setDragOverFileId((cur) => (cur === f.id ? null : cur))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDragOverFileId(null);
+                    const ids = getDraggedFileIds(e);
+                    setDraggingFileIds([]);
+                    setDragOverTarget(null);
+                    if (ids.length > 0) handleReorderFiles(ids, f.id);
+                  }}
+                  style={{ paddingLeft: rowPad.x, paddingRight: rowPad.x, paddingTop: rowPad.y, paddingBottom: rowPad.y }}
+                >
+                  <div
+                    ref={fileHitZone.getMeasureRef(f.id)}
+                    className={`flex items-center gap-3 transition-all ${compact ? "p-2.5" : "p-4"}`}
+                    style={{
+                      background: isSelected ? "var(--primary)" : "var(--card)",
+                      color: isSelected ? "#fff" : "var(--foreground)",
+                      boxShadow: isReorderTarget ? "inset 0 2px 0 var(--primary)" : "var(--shadow-card)",
+                      borderRadius: "var(--radius)",
+                      opacity: isDragging ? 0.5 : 1,
+                      outline: isChecked ? "2px solid var(--primary)" : "none",
+                      outlineOffset: "-2px",
+                    }}
+                  >
                 {!compact && <input type="checkbox" checked={selectedPaths.has(f.path)} onChange={() => toggleFile(f.path)} className="shrink-0" />}
+                {/* 옮기기/순서 변경 전용 손잡이 — 이 아이콘만 눌러서 끌면 파일 이동/정렬이 되고,
+                    그 외 행 배경을 누르면 여러 파일 선택용 드래그 박스가 시작된다. */}
+                <span
+                  draggable
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onDragStart={(e) => {
+                    // 체크박스로 여러 파일을 선택해둔 채로 그중 하나를 끌면 선택된 전부를 함께 옮긴다.
+                    const ids = selectedPaths.has(f.path) && selectedPaths.size > 1
+                      ? directFilesAll.filter((file) => selectedPaths.has(file.path)).map((file) => file.id)
+                      : [f.id];
+                    setDraggingFileIds(ids);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", JSON.stringify({ type: "files", ids }));
+                  }}
+                  onDragEnd={() => {
+                    setDraggingFileIds([]);
+                    setDragOverTarget(null);
+                    setDragOverFileId(null);
+                  }}
+                  title="끌어서 폴더로 옮기거나 순서 바꾸기"
+                  className="shrink-0 flex items-center justify-center"
+                  style={{ width: "16px", height: "100%", minHeight: "24px", cursor: "grab", color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)", fontSize: "13px", letterSpacing: "-2px" }}
+                >
+                  ⠿
+                </span>
                 <button onClick={() => setSelectedFileId(isSelected ? null : f.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                   <div
                     className={`flex items-center justify-center font-700 shrink-0 ${compact ? "w-7 h-7 text-[10px]" : "w-9 h-9 text-xs"}`}
@@ -2085,6 +2679,8 @@ export default function Workspace() {
                     {f.tag ?? "+ 태그"}
                   </button>
                 )}
+                  </div>
+                </div>
               </div>
             );
           })}
@@ -2098,13 +2694,52 @@ export default function Workspace() {
               이 태그의 파일이 없습니다.
             </div>
           )}
+          {selectBoxRect &&
+            createPortal(
+              <div
+                className="fixed pointer-events-none"
+                style={{
+                  left: selectBoxRect.left,
+                  top: selectBoxRect.top,
+                  width: selectBoxRect.width,
+                  height: selectBoxRect.height,
+                  background: "rgba(61, 82, 213, 0.15)",
+                  border: "1.5px solid var(--primary)",
+                  borderRadius: "4px",
+                  zIndex: 9999,
+                }}
+              />,
+              document.body,
+            )}
         </div>
 
         {/* 버전 이력 / 댓글 패널 */}
         <div className={selectedFile ? "lg:col-span-3" : "lg:col-span-2"}>
           {selectedFile ? (
             <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-              <h3 className="text-sm font-700 mb-0.5 leading-snug break-all">{selectedFile.path}</h3>
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <h3 className="text-sm font-700 leading-snug break-all">{selectedFile.path}</h3>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => prevFile && setSelectedFileId(prevFile.id)}
+                    disabled={!prevFile}
+                    title={prevFile ? `이전 파일: ${prevFile.path.split("/").pop()}` : "이전 파일 없음"}
+                    className="text-xs font-600 px-2 py-1"
+                    style={{ borderRadius: "8px", background: "var(--muted)", color: "var(--muted-foreground)", opacity: prevFile ? 1 : 0.4 }}
+                  >
+                    ◀ 이전
+                  </button>
+                  <button
+                    onClick={() => nextFile && setSelectedFileId(nextFile.id)}
+                    disabled={!nextFile}
+                    title={nextFile ? `다음 파일: ${nextFile.path.split("/").pop()}` : "다음 파일 없음"}
+                    className="text-xs font-600 px-2 py-1"
+                    style={{ borderRadius: "8px", background: "var(--muted)", color: "var(--muted-foreground)", opacity: nextFile ? 1 : 0.4 }}
+                  >
+                    다음 ▶
+                  </button>
+                </div>
+              </div>
               <p className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>
                 {loadingVersions ? "불러오는 중..." : `${versions.length}개 버전 · ${formatSize(fileSize(selectedFile.content))} · 최근 수정 ${formatDate(selectedFile.updatedAt)}`}
               </p>

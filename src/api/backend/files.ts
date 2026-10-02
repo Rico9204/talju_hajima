@@ -126,6 +126,12 @@ export function setFileTag(projectId: string, fileId: string, tag: string) {
   return apiClient.patch<ProjectFile>(`/projects/${projectId}/files/${fileId}/tag`, { tag });
 }
 
+// 파일을 다른 폴더로 옮긴다 — id는 그대로라 버전/댓글/핀 이력이 유지된다. 같은 자리에 같은
+// 이름의 파일이 이미 있으면 백엔드가 409로 거부한다.
+export function moveFile(projectId: string, fileId: string, path: string) {
+  return apiClient.patch<ProjectFile>(`/projects/${projectId}/files/${fileId}/move`, { path });
+}
+
 export function listFileComments(projectId: string, fileId: string) {
   return apiClient.get<FileComment[]>(`/projects/${projectId}/files/${fileId}/comments`);
 }
