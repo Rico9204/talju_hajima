@@ -8,6 +8,7 @@ with required_functions(label, signature) as (
     ('my evaluation average', 'public.my_evaluation_average(text,text)'),
     ('visible evaluation members', 'public.visible_evaluation_members(text)'),
     ('vice leader assignment', 'public.set_vice_leader(uuid,boolean)'),
+    ('leadership transfer by member', 'public.transfer_leadership_to_member(text,uuid)'),
     ('project manager check', 'public.is_project_manager(text)'),
     ('operator check', 'public.is_operator()'),
     ('admin application submission', 'public.submit_admin_application(text,text,text,text,text,text,boolean)'),

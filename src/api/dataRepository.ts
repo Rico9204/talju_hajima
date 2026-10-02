@@ -98,7 +98,7 @@ export interface DataRepository {
   uploadAvatar(file: File): Promise<string>;
   uploadBannerImage(file: File): Promise<string>;
   uploadBackgroundImage(file: File): Promise<string>;
-  transferLeadership(projectId: string, targetName: string): Promise<void>;
+  transferLeadership(projectId: string, targetMemberId: string): Promise<void>;
 
   listFolders(projectId: string): Promise<Folder[]>;
   createFolder(projectId: string, name: string, actorName: string, parentId: number | null): Promise<Folder>;

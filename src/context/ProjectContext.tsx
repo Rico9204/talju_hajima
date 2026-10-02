@@ -109,7 +109,7 @@ interface ProjectContextValue {
   kickMember: (memberId: string) => Promise<void>;
   setViceLeader: (memberId: string, enabled: boolean) => Promise<void>;
   team: TeamData;
-  transferLeadership: (targetName: string) => Promise<void>;
+  transferLeadership: (targetMemberId: string) => Promise<void>;
   updateMyProfile: (patch: {
     name?: string; major?: string; student?: string; school?: string; avatarFile?: File;
     contact?: string | null; org?: string | null; bannerColor?: string | null; bannerImageUrl?: string | null; bannerImageFile?: File;
@@ -935,9 +935,9 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     setProjectId(targetId);
   }
 
-  async function transferLeadership(targetName: string) {
+  async function transferLeadership(targetMemberId: string) {
     if (!projectId) return;
-    await dataRepository.transferLeadership(projectId, targetName);
+    await dataRepository.transferLeadership(projectId, targetMemberId);
     setTeam(await dataRepository.getTeam(projectId));
   }
 

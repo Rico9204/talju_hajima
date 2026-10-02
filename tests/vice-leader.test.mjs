@@ -38,6 +38,7 @@ const schema = readFileSync(new URL('../supabase/schema.sql',import.meta.url),'u
 await db.exec(schema);
 // The standalone migration must also be safe to apply on top of a schema that already contains it.
 await db.exec(readFileSync(new URL('../supabase/migrations/2609211700_add_vice_leader_role.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2610031100_transfer_leadership_by_member.sql',import.meta.url),'utf8'));
 
 // 0 admin(reviewer), 1 other admin, 2 leader, 3 vice candidate, 4 plain member, 5 plain member 2, 6 leader of another project
 const ids = [0,1,2,3,4,5,6].map(n=>`00000000-0000-0000-0000-${String(n+1).padStart(12,'0')}`);
@@ -175,6 +176,16 @@ await check('transferring leadership to a vice leader clears the vice flag and d
  await login(3); await db.query('select set_vice_leader($1,true)',[leader]);
  assert.deepEqual(await member(leader),{is_leader:false,is_vice_leader:true,role:'부팀장'});
  await db.query("select transfer_leadership('p','사용자2')");
+ assert.deepEqual(await member(leader),{is_leader:true,is_vice_leader:false,role:'팀장'});
+});
+await check('transferring by member id follows the same rules without relying on names',async()=>{
+ await login(3); await rejects(db.query('select transfer_leadership_to_member($1,$2)',['p',plain]),/팀장만/);
+ await login(2); await rejects(db.query("select transfer_leadership_to_member('p','00000000-0000-0000-0000-000000000000')"),/대상 멤버를 찾을 수 없거나/);
+ await rejects(db.query('select transfer_leadership_to_member($1,$2)',['p',leader]),/이미 팀장/);
+ await db.query('select transfer_leadership_to_member($1,$2)',['p',vice]);
+ assert.deepEqual(await member(vice),{is_leader:true,is_vice_leader:false,role:'디자이너'});
+ assert.deepEqual(await member(leader),{is_leader:false,is_vice_leader:false,role:'팀원'});
+ await login(3); await db.query('select transfer_leadership_to_member($1,$2)',['p',leader]);
  assert.deepEqual(await member(leader),{is_leader:true,is_vice_leader:false,role:'팀장'});
 });
 await check('appointments are refused once the project is completed',async()=>{

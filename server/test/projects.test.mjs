@@ -128,13 +128,18 @@ test('프로필 수정: 보낸 칸만 바뀌고, 이름을 null로·모르는 �
   assert.equal((await call(alice, 'PATCH', '/me/profile', { isAdmin: true })).status, 400);
 });
 
-// 주의(기존 동작 그대로): transfer_leadership 은 팀원 행에 저장된 이름(members.name, 참여할 때의 이름)으로 찾는다.
-// 참여 뒤 프로필 이름을 바꾼 팀원에게는 새 이름으로 위임되지 않는다 — Supabase 버전과 같다(별도 수정 과제).
-test('팀장 위임은 팀장만', async () => {
+// 팀장 위임 대상은 팀원 id로 찾는다 — 참여 뒤 프로필 이름을 바꾼 팀원(앨리스)에게도 위임된다.
+// 예전 방식(targetName, 참여 당시 이름으로 찾음)도 예전 화면을 위해 남아 있다.
+test('팀장 위임은 팀장만, 대상은 팀원 id로(이름을 바꿔도 됨)', async () => {
   const p = encodeURIComponent(projectId);
-  assert.equal((await call(alice, 'POST', `/projects/${p}/transfer-leadership`, { targetName: 'user2' })).status, 400);
-  assert.equal((await call(leader, 'POST', `/projects/${p}/transfer-leadership`, { targetName: '앨리스' })).status, 400); // 바뀐 이름으로는 못 찾음
-  assert.equal((await call(leader, 'POST', `/projects/${p}/transfer-leadership`, { targetName: 'user2' })).status, 204);
+  const aliceMember = (await call(leader, 'GET', `/projects/${p}/team`)).body.members.find((m) => m.userId === alice.id);
+  assert.equal((await call(alice, 'POST', `/projects/${p}/transfer-leadership`, { targetMemberId: aliceMember.id })).status, 400); // 팀장만
+  assert.equal((await call(leader, 'POST', `/projects/${p}/transfer-leadership`, { targetMemberId: 'not-a-uuid' })).status, 400);
+  const missing = await call(leader, 'POST', `/projects/${p}/transfer-leadership`, { targetMemberId: '00000000-0000-0000-0000-000000000000' });
+  assert.equal(missing.status, 400);
+  assert.deepEqual(missing.body, { message: '대상 멤버를 찾을 수 없거나 이미 팀장입니다' });
+  assert.equal((await call(leader, 'POST', `/projects/${p}/transfer-leadership`, { targetName: '앨리스' })).status, 400); // 예전 방식: 바뀐 이름으로는 못 찾음
+  assert.equal((await call(leader, 'POST', `/projects/${p}/transfer-leadership`, { targetMemberId: aliceMember.id })).status, 204);
   const members = (await call(leader, 'GET', `/projects/${p}/team`)).body.members;
   assert.equal(members[0].userId, alice.id);
   assert.equal(members[0].isLeader, true);

@@ -74,8 +74,10 @@ class EnabledDto {
   @IsBoolean() enabled!: boolean;
 }
 
+// 대상은 팀원 id(targetMemberId)로 정한다. targetName(참여 당시 이름)은 예전 화면을 위해 남겨 둔 방식.
 class TransferLeadershipDto {
-  @IsString() @MaxLength(100) targetName!: string;
+  @IsOptional() @IsUUID() targetMemberId?: string;
+  @ValidateIf((dto: TransferLeadershipDto) => !dto.targetMemberId) @IsString() @MaxLength(100) targetName?: string;
 }
 
 class EvaluationEntryDto {
@@ -314,7 +316,9 @@ export class ProjectsController {
   @Post("projects/:projectId/transfer-leadership")
   @HttpCode(204)
   async transferLeadership(@UserId() userId: string, @Param("projectId") projectId: string, @Body() body: TransferLeadershipDto) {
-    await this.db.asUser(userId, (query) => query("select public.transfer_leadership($1, $2)", [projectId, body.targetName]));
+    await this.db.asUser(userId, (query) => body.targetMemberId
+      ? query("select public.transfer_leadership_to_member($1, $2::uuid)", [projectId, body.targetMemberId])
+      : query("select public.transfer_leadership($1, $2)", [projectId, body.targetName]));
   }
 
   @Put("members/:memberId/vice-leader")
