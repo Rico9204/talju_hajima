@@ -106,6 +106,38 @@ DB 트리거(`push_to_members`)는 Supabase에서 pg_net으로 Vercel 함수에 
 
 프런트에는 `VITE_API_URL=https://서버주소/api`를 설정한다. 공개 주소가 ngrok라면 `PUBLIC_BASE_URL`에도 같은 ngrok 주소를 넣고 `CORS_ORIGIN`에는 프런트 주소를 넣는다.
 
+## 백업과 복구
+
+운영 데이터는 이 PC의 Docker 볼륨(DB)과 `STORAGE_DIR`(업로드 파일)에만 있다. 정기적으로 백업한다.
+
+```bash
+cd server
+pnpm run backup        # 또는: node --env-file-if-exists=.env scripts/backup.mjs
+```
+- DB: `db` 컨테이너 안에서 `pg_dump`(PC에 PostgreSQL 설치 불필요) → `backups/talju_<시각>.dump`. 받은 파일을 `pg_restore --list`로 다시 읽어 확인한다.
+- 업로드 파일: `backups/storage_<시각>.tar.gz`.
+- 최근 `BACKUP_KEEP`(기본 14)번만 남기고, 결과는 `backups/backup.log`에 남는다. 실패하면 종료 코드 1.
+- 기본 위치 `server/backups`는 OneDrive 폴더 안이라 클라우드에도 사본이 생긴다(PC가 고장 나도 남음). 다른 곳에 두려면 `BACKUP_DIR`.
+- Docker Desktop과 DB 컨테이너가 켜져 있어야 한다.
+
+**매일 자동 실행(Windows 작업 스케줄러)**: 예) 매일 새벽 4시
+```powershell
+schtasks /Create /TN "Slackerspace DB 백업" /SC DAILY /ST 04:00 /TR "cmd /c cd /d \"<server 폴더>\" && node --env-file-if-exists=.env scripts\backup.mjs"
+```
+PC가 켜져 있고 로그인한 상태에서만 실행된다(꺼져 있던 날은 건너뜀). 결과는 `backup.log`로 확인한다.
+
+**복구**(새 DB에 먼저 풀어 보고 확인한 뒤 바꾸는 것을 권장):
+```bash
+# 1) 서버를 끈다(Ctrl+C)
+# 2) DB: 기존 talju DB를 지우고 백업으로 다시 만든다
+docker compose -f server/docker-compose.yml exec -T db dropdb -U postgres talju
+docker compose -f server/docker-compose.yml exec -T db createdb -U postgres talju
+docker compose -f server/docker-compose.yml exec -T db pg_restore -U postgres -d talju --no-owner < server/backups/talju_<시각>.dump
+# 3) 업로드 파일: STORAGE_DIR 내용을 백업으로 바꾼다
+tar -xzf server/backups/storage_<시각>.tar.gz -C server/storage-data
+# 4) 서버를 다시 켠다
+```
+
 ## 다음 단계
 1. 새 PostgreSQL에 `pnpm run db:setup`을 한 번 실행한다.
 2. 기존 데이터를 옮길 경우 `auth.users`와 public 스키마를 덤프·복원한다.

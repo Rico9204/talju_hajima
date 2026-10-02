@@ -10,7 +10,8 @@
     "dev": "tsc -p tsconfig.json && node --env-file-if-exists=.env dist/main.js",
     "dev:ngrok": "tsc -p tsconfig.json && node --env-file-if-exists=.env scripts/dev-ngrok.mjs",
     "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\"",
-    "db:setup": "node --env-file-if-exists=.env scripts/db-setup.mjs"
+    "db:setup": "node --env-file-if-exists=.env scripts/db-setup.mjs",
+    "backup": "node --env-file-if-exists=.env scripts/backup.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^12.1.0",
