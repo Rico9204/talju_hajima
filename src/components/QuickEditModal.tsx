@@ -16,6 +16,9 @@ import "prismjs/components/prism-cpp";
 import "prismjs/components/prism-go";
 import "prismjs/components/prism-rust";
 import "prismjs/components/prism-ruby";
+// prism-php는 markup-templating(템플릿 플레이스홀더 처리)에 의존한다 — 먼저 로드 안 하면
+// Prism.highlight 호출 시 "Cannot read properties of undefined (reading 'tokenizePlaceholders')"로 죽는다.
+import "prismjs/components/prism-markup-templating";
 import "prismjs/components/prism-php";
 import "prismjs/components/prism-csharp";
 import "prismjs/components/prism-kotlin";
@@ -54,6 +57,15 @@ function languageForPath(path: string): string | null {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// VSCode 등 실제 코드 에디터처럼 동작하게 하는 키 입력 처리에 쓰는 테이블들.
+const BRACKET_PAIRS: Record<string, string> = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
+const CLOSING_CHARS = new Set(Object.values(BRACKET_PAIRS));
+
+function indentUnitForLanguage(language: string | null): string {
+  // 파이썬은 관례상 4칸, 나머지는 이 프로젝트 소스 전반에서 쓰는 2칸을 기본으로 맞춘다.
+  return language === "python" ? "    " : "  ";
 }
 
 interface Peer {
@@ -101,6 +113,9 @@ export default function QuickEditModal({
   // 위치가 바뀔 때만 다시 계산하고, 스크롤은 렌더링에서 그때그때 빼서 반영한다(재계산 비용 절약).
   const [caretCoords, setCaretCoords] = useState<Map<string, { top: number; left: number; height: number }>>(new Map());
   const [scrollPos, setScrollPos] = useState({ top: 0, left: 0 });
+  // Tab/Enter/괄호 자동완성처럼 직접 커서 위치를 계산해서 옮겨야 하는 편집 뒤에, value가
+  // 리렌더되고 나서(= textarea DOM이 새 값으로 갱신된 뒤) 커서를 그 위치로 되돌리기 위한 큐.
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   useEffect(() => {
     const doc = new Y.Doc();
@@ -206,6 +221,138 @@ export default function QuickEditModal({
 
   function handleScroll(e: React.UIEvent<HTMLTextAreaElement>) {
     setScrollPos({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft });
+  }
+
+  // Tab/Enter/괄호 자동완성처럼 직접 값을 만들어 넣는 편집 전용 — 보통 타이핑(handleChange)과
+  // 달리 브라우저가 알아서 커서를 못 옮겨주므로, 다음 렌더 뒤에 커서를 되돌릴 위치를 같이 넘긴다.
+  function applyEdit(newValue: string, selStart: number, selEnd: number = selStart) {
+    const ytext = ytextRef.current;
+    if (!ytext) return;
+    applyTextareaDelta(ytext, value, newValue);
+    setValue(newValue);
+    pendingSelectionRef.current = { start: selStart, end: selEnd };
+  }
+
+  // value가 (우리 자신의 편집으로) 바뀌어 textarea DOM이 새 값으로 다시 그려진 뒤, 큐에 넣어둔
+  // 커서 위치로 되돌리고 다른 사람에게도 그 위치를 알린다. 상대방의 편집으로 value가 바뀐
+  // 경우엔 pendingSelectionRef가 비어있으므로 그냥 지나간다.
+  useEffect(() => {
+    const pending = pendingSelectionRef.current;
+    const textarea = textareaRef.current;
+    if (!pending || !textarea) return;
+    textarea.selectionStart = pending.start;
+    textarea.selectionEnd = pending.end;
+    pendingSelectionRef.current = null;
+    broadcastCursor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  // VSCode 등 실제 코드 에디터처럼: Tab으로 들여쓰기(선택 영역이 있으면 여러 줄을 한번에),
+  // Enter로 직전 줄 들여쓰기를 이어받기(':'/'{'/'('/'['로 끝나면 한 단계 더, 괄호 사이에서
+  // 누르면 안쪽은 한 단계 들여쓰고 닫는 괄호는 내려보냄), 괄호/따옴표 자동 완성과 그 닫는 글자를
+  // 또 치면 새로 안 넣고 건너뛰기, 자동으로 넣어준 빈 짝은 Backspace 한 번에 같이 지우기.
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const indentUnit = indentUnitForLanguage(language);
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (start !== end || e.shiftKey) {
+        indentLines(e.shiftKey ? "outdent" : "indent", start, end, indentUnit);
+      } else {
+        const newValue = value.slice(0, start) + indentUnit + value.slice(end);
+        applyEdit(newValue, start + indentUnit.length);
+      }
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const currentLine = value.slice(lineStart, start);
+      const leadingWs = currentLine.match(/^[ \t]*/)?.[0] ?? "";
+      const trimmed = currentLine.trim();
+      const charBefore = value[start - 1];
+      const charAfter = value[end];
+
+      // 여는/닫는 괄호 사이(예: "foo(|)")에서 Enter — 안쪽 줄은 한 단계 더 들여쓰고, 닫는
+      // 괄호는 지금 줄과 같은 들여쓰기로 내려보낸다.
+      if (charBefore && BRACKET_PAIRS[charBefore] === charAfter) {
+        const inner = "\n" + leadingWs + indentUnit;
+        const outer = "\n" + leadingWs;
+        const newValue = value.slice(0, start) + inner + outer + value.slice(end);
+        applyEdit(newValue, start + inner.length);
+        return;
+      }
+
+      const extra = /[:{([]$/.test(trimmed) ? indentUnit : "";
+      const insertion = "\n" + leadingWs + extra;
+      const newValue = value.slice(0, start) + insertion + value.slice(end);
+      applyEdit(newValue, start + insertion.length);
+      return;
+    }
+
+    // 자동으로 넣어둔 닫는 글자 바로 앞에서 같은 글자를 또 치면, 새로 넣지 않고 그냥 넘어간다.
+    if (start === end && CLOSING_CHARS.has(e.key) && value[start] === e.key) {
+      e.preventDefault();
+      applyEdit(value, start + 1);
+      return;
+    }
+
+    // 여는 괄호/따옴표 — 닫는 짝을 같이 넣고 커서는 그 사이에 둔다.
+    if (start === end && BRACKET_PAIRS[e.key]) {
+      // 따옴표는 글자/숫자 바로 뒤일 때(예: it's, don't) 자동완성하면 어색하므로 건너뛴다.
+      if ((e.key === '"' || e.key === "'") && /[A-Za-z0-9_]/.test(value[start - 1] ?? "")) return;
+      e.preventDefault();
+      const newValue = value.slice(0, start) + e.key + BRACKET_PAIRS[e.key] + value.slice(end);
+      applyEdit(newValue, start + 1);
+      return;
+    }
+
+    // Backspace — 자동으로 넣어준 빈 짝("()", "{}", "\"\"" 등)을 한 번에 같이 지운다.
+    if (e.key === "Backspace" && start === end && start > 0) {
+      const before = value[start - 1];
+      const after = value[start];
+      if (BRACKET_PAIRS[before] === after) {
+        e.preventDefault();
+        const newValue = value.slice(0, start - 1) + value.slice(start + 1);
+        applyEdit(newValue, start - 1);
+      }
+    }
+  }
+
+  // Tab/Shift+Tab으로 선택된 여러 줄을 한번에 들여쓰기/내어쓰기한다.
+  function indentLines(mode: "indent" | "outdent", start: number, end: number, indentUnit: string) {
+    const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    let lineEnd = value.indexOf("\n", Math.max(end - 1, lineStart));
+    if (lineEnd === -1) lineEnd = value.length;
+    const block = value.slice(lineStart, lineEnd);
+    const lines = block.split("\n");
+
+    let firstLineDelta = 0;
+    let totalDelta = 0;
+    const newLines = lines.map((line, i) => {
+      if (mode === "indent") {
+        totalDelta += indentUnit.length;
+        if (i === 0) firstLineDelta = indentUnit.length;
+        return indentUnit + line;
+      }
+      let removed = 0;
+      if (line.startsWith("\t")) removed = 1;
+      else while (removed < indentUnit.length && line[removed] === " ") removed++;
+      totalDelta -= removed;
+      if (i === 0) firstLineDelta = -removed;
+      return line.slice(removed);
+    });
+
+    const newBlock = newLines.join("\n");
+    const newValue = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+    const newStart = Math.max(lineStart, start + firstLineDelta);
+    const newEnd = Math.max(newStart, end + totalDelta);
+    applyEdit(newValue, newStart, newEnd);
   }
 
   const language = languageForPath(filePath);
@@ -315,6 +462,7 @@ export default function QuickEditModal({
             ref={textareaRef}
             value={value}
             onChange={handleChange}
+            onKeyDown={handleKeyDown}
             onSelect={broadcastCursor}
             onScroll={handleScroll}
             spellCheck={false}
