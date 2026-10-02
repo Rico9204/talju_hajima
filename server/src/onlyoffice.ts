@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { createHash } from "node:crypto";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import { createProxyMiddleware, responseInterceptor } from "http-proxy-middleware";
 import { SignJWT, jwtVerify } from "jose";
 import { myProfile } from "./actor.js";
 import { AuthGuard, UserId } from "./auth.js";
@@ -220,6 +220,12 @@ export class OnlyofficeController {
   }
 }
 
+// 편집기 화면: /onlyoffice/[9.4.0-<해시>/]web-apps/apps/<documenteditor|spreadsheeteditor|presentationeditor…>/main/index.html 등.
+// 문서 서버는 버전 없는 주소를 버전이 붙은 주소로 넘긴다(302) — 실제로 화면이 오는 건 버전 주소다.
+export const EDITOR_PAGE = /^\/onlyoffice\/(?:[\w.-]+\/)?web-apps\/apps\/[a-z]+\/main\/index[\w.-]*\.html$/;
+// 상단 로고(#header-logo)와 왼쪽 아래 정보 버튼(#left-btn-about, 외부 편집기 이름·버전이 나옴).
+export const EDITOR_PAGE_STYLE = "<style>#header-logo,#left-btn-about{display:none!important}</style>";
+
 // 문서 서버를 /onlyoffice/ 아래로 중계(HTTP + 공동편집 WebSocket). 문서 서버가 자기 주소를 "<공개 주소>/onlyoffice"로 알도록
 // X-Forwarded-Host에 경로를 붙인다(OnlyOffice 공식 가상 경로 방식). 편집기 스크립트(api.js)는 화면의 서비스 워커가
 // ngrok 경고 건너뛰기 헤더를 붙여 다른 출처에서 가져가므로 CORS를 허용한다.
@@ -229,6 +235,33 @@ export function registerOnlyofficeProxy(http: Express, server: Server, settings:
     `${String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "")}${PREFIX}`;
   const forwardedProto = (req: { headers: Record<string, string | string[] | undefined> }) =>
     String(req.headers["x-forwarded-proto"] ?? "http").split(",")[0].trim();
+  // 편집기 화면(HTML)은 따로 중계하며 외부 편집기 로고·정보 버튼을 숨기는 스타일을 끼운다. 무료판은 설정(customization.logo)을
+  // 라이선스가 막아 반영하지 않기 때문. 브라우저 캐시의 옛 화면(304)이 쓰이지 않게 조건부 요청 헤더를 빼고 저장도 막는다.
+  const pageProxy = createProxyMiddleware<Request, Response>({
+    target: settings.url,
+    changeOrigin: false,
+    selfHandleResponse: true,
+    pathRewrite: (path) => path.slice(PREFIX.length) || "/",
+    on: {
+      proxyReq: (proxyReq, req) => {
+        proxyReq.setHeader("X-Forwarded-Host", forwardedHost(req));
+        proxyReq.setHeader("X-Forwarded-Proto", forwardedProto(req));
+        proxyReq.removeHeader("if-none-match");
+        proxyReq.removeHeader("if-modified-since");
+      },
+      proxyRes: responseInterceptor(async (body, proxyRes, _req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        res.removeHeader("etag");
+        res.removeHeader("last-modified");
+        if (!String(proxyRes.headers["content-type"] ?? "").includes("text/html")) return body;
+        return body.toString("utf8").replace("</head>", `${EDITOR_PAGE_STYLE}</head>`);
+      }),
+      error: (_error, _req, res) => {
+        if ("writeHead" in res && !res.headersSent) { res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" }); res.end("오피스 문서 서버에 연결하지 못했습니다."); }
+        else if ("destroy" in res) res.destroy();
+      },
+    },
+  });
   const proxy = createProxyMiddleware<Request, Response>({
     target: settings.url,
     changeOrigin: false,
@@ -263,6 +296,7 @@ export function registerOnlyofficeProxy(http: Express, server: Server, settings:
       res.status(204).end();
       return;
     }
+    if (req.method === "GET" && EDITOR_PAGE.test(req.path)) return pageProxy(req, res, next);
     return proxy(req, res, next);
   });
   server.on("upgrade", (req, socket: Duplex, head) => {

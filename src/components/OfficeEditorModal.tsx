@@ -42,6 +42,7 @@ export function officeEditorEnabled(): Promise<boolean> {
 export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose }: { fileId: number; fileName: string; readOnly: boolean; onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false); // 편집기가 준비 신호를 보냄
   const editor = useRef<DocsEditor | null>(null);
   // 편집기는 자리 표시 요소를 iframe으로 바꿔 끼운다 — React가 관리하지 않는 요소를 만들어 넘긴다.
   const container = useRef<HTMLDivElement | null>(null);
@@ -56,13 +57,13 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
         const holder = document.createElement("div");
         holder.id = `office-editor-${fileId}-${Date.now()}`;
         container.current.appendChild(holder);
-        const ready = () => { if (!cancelled) setLoading(false); };
+        const reveal = () => { if (!cancelled) setLoading(false); };
         editor.current = new window.DocsAPI.DocEditor(holder.id, {
           ...config, width: "100%", height: "100%", type: "desktop",
-          events: { onAppReady: ready, onError: () => { if (!cancelled) { setError("편집기를 열지 못했습니다."); setLoading(false); } } },
+          events: { onAppReady: () => { if (!cancelled) { setReady(true); setLoading(false); } }, onError: () => { if (!cancelled) { setError("편집기를 열지 못했습니다."); setLoading(false); } } },
         });
         // 준비 신호가 안 오면(ngrok 안내 페이지가 편집기 자리에 뜬 경우 등) 가림막을 걷어 안의 화면을 보이게 한다.
-        revealTimer = window.setTimeout(ready, isNgrok ? 4000 : 20000);
+        revealTimer = window.setTimeout(reveal, isNgrok ? 4000 : 20000);
       } catch (e) {
         if (!cancelled) { setError(e instanceof Error ? e.message : "편집기를 열지 못했습니다."); setLoading(false); }
       }
@@ -77,24 +78,25 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
   }, [fileId]);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: "var(--background)" }} role="dialog" aria-label={`${fileName} 오피스 편집`}>
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 shrink-0" style={{ borderBottom: "1px solid var(--border)", background: "var(--card)" }}>
-        <div className="min-w-0">
-          <div className="text-sm font-700 truncate">{fileName}</div>
-          <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-            {readOnly ? "종료된 프로젝트라 보기만 할 수 있어요." : "변경 내용은 자동으로 새 버전으로 저장돼요. 다른 팀원과 동시에 편집할 수 있어요."}
-          </div>
+    // 화면 위에 창 하나를 띄우는 모양(Temporary_Merge의 편집 창과 같은 배치): 어두운 배경 + 둥근 카드 + 파일 이름·닫기 버튼.
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6" style={{ background: "rgba(15,23,42,0.5)" }} role="dialog" aria-modal="true" aria-label={`${fileName} 오피스 편집`}>
+      <div className="w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.28)" }}>
+      <div className="flex items-center justify-between gap-3 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+        <div className="min-w-0 flex items-center gap-2">
+          <span className="text-sm font-700 truncate">📎 {fileName}</span>
+          {readOnly && <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>보기 전용</span>}
         </div>
-        <button onClick={onClose} className="text-xs font-700 px-3 py-1.5 rounded-full shrink-0" style={{ background: "var(--muted)" }}>닫기</button>
+        <button onClick={onClose} aria-label="닫기" title="닫기" className="w-8 h-8 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>×</button>
       </div>
-      {isNgrok && !error && (
-        <p className="text-xs px-4 py-2 shrink-0" style={{ background: "var(--secondary)", color: "var(--foreground)" }}>
+      {/* ngrok 안내 페이지가 편집기 자리에 뜰 수 있는 동안만(편집기가 준비되면 사라짐). */}
+      {isNgrok && !ready && !error && (
+        <p className="text-xs px-5 py-2 shrink-0" style={{ background: "var(--secondary)", color: "var(--foreground)" }}>
           편집 화면에 ngrok 안내 페이지가 보이면 <b>Visit Site</b>를 한 번 눌러 주세요. Safari처럼 다른 사이트 쿠키를 막는 브라우저에서는 열리지 않을 수 있어요(Chrome·Edge 권장).
         </p>
       )}
       <div className="flex-1 min-h-0 relative">
         {/* 편집기 자체 로딩 화면(외부 편집기 이름이 나옴)을 덮는 가림막 — 편집기가 준비되면 걷힌다. */}
-        {loading && <p role="status" className="absolute inset-0 z-10 flex items-center justify-center text-sm" style={{ background: "var(--background)", color: "var(--muted-foreground)" }}>편집기를 불러오는 중…</p>}
+        {loading && <p role="status" className="absolute inset-0 z-10 flex items-center justify-center text-sm" style={{ background: "var(--card)", color: "var(--muted-foreground)" }}>편집기를 불러오는 중…</p>}
         {error && (
           <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center">
             <p className="text-sm font-700">{error}</p>
@@ -102,6 +104,7 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
           </div>
         )}
         <div ref={container} className="w-full h-full" />
+      </div>
       </div>
     </div>,
     document.body,

@@ -3,6 +3,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
 import { SignJWT, jwtVerify } from 'jose';
 import { createTestDb, setupProject, startApp } from './helpers.mjs';
 
@@ -20,6 +21,12 @@ before(async () => {
   docs = createServer((req, res) => {
     seen.push({ url: req.url, host: req.headers['x-forwarded-host'], proto: req.headers['x-forwarded-proto'] });
     if (req.url.startsWith('/cache/')) { res.end(EDITED); return; }
+    if (req.url.split('?')[0].endsWith('.html')) { // 편집기 화면: nginx처럼 gzip으로 압축하고 ETag를 붙여 준다
+      seen.at(-1).ifNoneMatch = req.headers['if-none-match'];
+      res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Encoding': 'gzip', ETag: '"v1"' });
+      res.end(gzipSync('<html><head><title>편집기</title></head><body><div id="header-logo"></div></body></html>'));
+      return;
+    }
     res.setHeader('Content-Type', 'application/javascript');
     res.end('window.DocsAPI = {};');
   });
@@ -122,6 +129,22 @@ test('문서 서버 중계: /onlyoffice 아래를 넘기고, 자기 주소를 "<
   const preflight = await fetch(`${origin}/onlyoffice/web-apps/x.js`, { method: 'OPTIONS', headers: { origin: 'https://app.test', 'access-control-request-method': 'GET', 'access-control-request-headers': 'ngrok-skip-browser-warning' } });
   assert.equal(preflight.status, 204);
   assert.match(preflight.headers.get('access-control-allow-headers'), /ngrok-skip-browser-warning/);
+});
+
+test('편집기 화면: 외부 편집기 로고·정보 버튼을 숨기는 스타일을 끼우고, 캐시된 옛 화면은 쓰지 않게 한다', async () => {
+  // 실제 문서 서버는 버전이 붙은 주소(/9.4.0-<해시>/web-apps/…)로 화면을 준다
+  const res = await fetch(`${origin}/onlyoffice/9.4.0-abc/web-apps/apps/documenteditor/main/index.html?_dc=1`, { headers: { 'if-none-match': '"v1"' } });
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /<style>#header-logo,#left-btn-about\{display:none!important\}<\/style><\/head>/);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal(res.headers.get('etag'), null);
+  const last = seen.at(-1);
+  assert.equal(last.url, '/9.4.0-abc/web-apps/apps/documenteditor/main/index.html?_dc=1');
+  assert.equal(last.host, `${new URL(origin).host}/onlyoffice`);
+  assert.equal(last.ifNoneMatch, undefined); // 304로 옛 화면이 쓰이지 않게 조건부 요청 헤더를 뺀다
+  // 그 밖의 파일은 그대로 넘긴다
+  assert.equal(await (await fetch(`${origin}/onlyoffice/web-apps/apps/api/documents/api.js`)).text(), 'window.DocsAPI = {};');
 });
 
 test('설정이 없으면 꺼져 있다', async () => {
