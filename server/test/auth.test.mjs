@@ -26,6 +26,8 @@ test('가입: "메일을 보냈다"만 답하고, 인증 전에는 로그인 불
   const mail = mailer.last('kim@example.com');
   assert.match(mail.subject, /이메일 인증/);
   assert.match(mail.text, /https:\/\/app\.test\/confirm-email\?token=/);
+  // HTML판도 같은 링크를 버튼으로(글자만 있는 메일보다 스팸으로 덜 분류된다)
+  assert.match(mail.html, /<a href="https:\/\/app\.test\/confirm-email\?token=[^"]+"[^>]*>이메일 인증하기<\/a>/);
   const early = await login('kim@example.com', 'correct-horse-1');
   assert.equal(early.status, 403);
   assert.match(early.body.message, /이메일 인증/);

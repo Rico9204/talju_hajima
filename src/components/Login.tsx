@@ -44,7 +44,7 @@ export default function Login() {
     setRecoverNotice(null);
     try {
       await send(email.trim());
-      setRecoverNotice("해당 이메일로 가입된 계정이 있으면 메일을 보냈습니다. 받은 편지함을 확인해주세요.");
+      setRecoverNotice("해당 이메일로 가입된 계정이 있으면 메일을 보냈습니다. 받은 편지함을 확인해주세요. 메일이 보이지 않으면 스팸함도 확인해 주세요.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "메일을 보내지 못했습니다.");
     } finally {
@@ -139,6 +139,7 @@ export default function Login() {
         ) : signedUp ? (
           <div className="text-sm p-3" style={{ background: "#22c55e12", color: "#22c55e", borderRadius: "10px" }}>
             인증 이메일을 보냈습니다. 받은 편지함을 확인해주세요.
+            <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>메일이 보이지 않으면 <strong>스팸함</strong>을 확인해 주세요. 스팸함에 있었다면 "스팸 아님"으로 표시하면 다음부터 받은 편지함으로 옵니다.</div>
             {mode === "admin" && (
               <div className="text-xs mt-2" style={{ color: "var(--foreground)" }}>
                 이메일 인증 후 로그인하면 <strong>관리자 신청서</strong> 화면이 열립니다. 증명서 PDF를 제출하고 운영자의 확인·승인을 받으면 관리자가 됩니다.
