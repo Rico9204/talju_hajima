@@ -60,7 +60,7 @@ try {
   }
   if (!stopping) {
     if (!ready) throw new Error('백엔드 시작 시간 초과. 위의 서버 로그를 확인하세요.');
-    console.log(`프론트: ${config.frontend}`);
+    console.log(`프론트(로그인 허용): ${config.frontends.join(', ')}`);
     console.log('Vercel 환경변수(각각 따로 등록):');
     console.log('  VITE_API_URL     = /api');
     console.log(`  VITE_BACKEND_URL = ${config.publicUrl}`);

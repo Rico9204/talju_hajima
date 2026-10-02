@@ -125,7 +125,8 @@ DB 트리거(`push_to_members`)는 Supabase에서 pg_net으로 Vercel 함수에 
 5. 생성된 Vercel 사이트 주소와 ngrok 주소를 `server/.env`에 입력한다:
 
 ```dotenv
-FRONTEND_URL=https://내사이트.vercel.app
+# 쉼표로 여러 주소(운영·미리보기). 메일 링크에는 첫 주소를 쓴다.
+FRONTEND_URL=https://내사이트.vercel.app,https://내사이트-git-브랜치-팀.vercel.app
 NGROK_URL=https://내고정도메인.ngrok-free.dev
 ```
 
