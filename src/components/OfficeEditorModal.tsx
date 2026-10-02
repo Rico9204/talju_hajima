@@ -31,6 +31,8 @@ function loadEditorScript(): Promise<void> {
 
 const isNgrok = (() => { try { return /\.(ngrok-free\.dev|ngrok-free\.app|ngrok\.app|ngrok\.io)$/.test(new URL(backendOrigin()).hostname); } catch { return false; } })();
 
+const FULL_KEY = "collabpeer.office-editor-full";
+
 export const OFFICE_EXTENSIONS = ["docx", "xlsx", "pptx"];
 export const isOfficeEditable = (name: string) => OFFICE_EXTENSIONS.includes(name.split(".").pop()?.toLowerCase() ?? "");
 
@@ -55,6 +57,29 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
   const editor = useRef<DocsEditor | null>(null);
   // 편집기는 자리 표시 요소를 iframe으로 바꿔 끼운다 — React가 관리하지 않는 요소를 만들어 넘긴다.
   const container = useRef<HTMLDivElement | null>(null);
+
+  // 전체 화면: 창이 화면을 꽉 채우고, 브라우저 전체 화면(탭·주소창 숨김)도 함께 켠다. Esc로 브라우저 전체 화면을 끄면 창 모드로 돌아온다.
+  // 마지막 선택은 이 브라우저에 기억한다(다시 열 때는 브라우저 전체 화면 없이 꽉 찬 창으로 — 사용자 동작 없이는 켤 수 없음).
+  const root = useRef<HTMLDivElement | null>(null);
+  const [full, setFull] = useState(() => { try { return localStorage.getItem(FULL_KEY) === "1"; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem(FULL_KEY, full ? "1" : "0"); } catch { /* 저장 못 해도 동작에는 지장 없음 */ } }, [full]);
+  useEffect(() => {
+    const onChange = () => { if (!document.fullscreenElement) setFull(false); };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, []);
+  const toggleFull = () => {
+    if (full) {
+      setFull(false);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    } else {
+      setFull(true);
+      void root.current?.requestFullscreen?.().catch(() => { /* 지원 안 하는 브라우저(iOS 등)는 꽉 찬 창만 */ });
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -88,14 +113,18 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
 
   return createPortal(
     // 화면 위에 창 하나를 띄우는 모양(Temporary_Merge의 편집 창과 같은 배치): 어두운 배경 + 둥근 카드 + 파일 이름·닫기 버튼.
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6" style={{ background: "rgba(15,23,42,0.5)" }} role="dialog" aria-modal="true" aria-label={`${fileName} 오피스 편집`}>
-      <div className="w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.28)" }}>
+    // 전체 화면이면 여백·모서리 없이 화면을 꽉 채운다.
+    <div ref={root} className={`fixed inset-0 z-50 flex items-center justify-center ${full ? "" : "p-3 sm:p-6"}`} style={{ background: full ? "var(--card)" : "rgba(15,23,42,0.5)" }} role="dialog" aria-modal="true" aria-label={`${fileName} 오피스 편집`}>
+      <div className={`w-full flex flex-col overflow-hidden ${full ? "h-full" : "max-w-6xl h-[90vh]"}`} style={{ background: "var(--card)", borderRadius: full ? 0 : "var(--radius)", boxShadow: full ? "none" : "0 24px 64px rgba(15,18,53,0.28)" }}>
       <div className="flex items-center justify-between gap-3 px-5 py-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
         <div className="min-w-0 flex items-center gap-2">
           <span className="text-sm font-700 truncate">📎 {fileName}</span>
           {readOnly && <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>보기 전용</span>}
         </div>
         {officeEditors.length > 0 && <span className="ml-auto shrink-0"><EditorAvatars editors={officeEditors} size={26} max={6} /></span>}
+        <button onClick={toggleFull} aria-pressed={full} title={full ? "창 모드로 (Esc)" : "전체 화면으로"} className="h-8 px-3 flex items-center gap-1.5 text-xs font-700 shrink-0" style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "10px" }}>
+          <span aria-hidden="true" className="text-sm">{full ? "⤡" : "⤢"}</span>{full ? "창 모드" : "전체 화면"}
+        </button>
         <button onClick={onClose} aria-label="닫기" title="닫기" className="w-8 h-8 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>×</button>
       </div>
       {/* ngrok 안내 페이지가 편집기 자리에 뜰 수 있는 동안만(편집기가 준비되면 사라짐). */}
