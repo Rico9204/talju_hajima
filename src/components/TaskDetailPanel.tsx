@@ -21,8 +21,8 @@ interface Props {
   onChangeStatus: (status: TaskStatus) => void;
   onDelete: () => void;
   onToggleChecklist: (itemId: number, done: boolean) => void;
-  onAddChecklistItem: (text: string) => void;
-  onAddComment: (text: string) => void;
+  onAddChecklistItem: (text: string) => Promise<boolean> | void; // false면 저장 실패(입력을 되돌림)
+  onAddComment: (text: string) => Promise<boolean> | void;
   onToggleCommentReaction: (commentId: number, emoji: string) => void;
   onToggleTeamSchedule: (checked: boolean) => void;
   onTogglePersonalSchedule: (checked: boolean) => void;
@@ -55,6 +55,19 @@ export default function TaskDetailPanel({
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
+  // 보낸 뒤 입력칸을 비우고, 저장에 실패하면(false) 그 사이 새로 입력하지 않았을 때만 되돌린다.
+  async function submitChecklist() {
+    const text = checklistDraft;
+    if (!text.trim()) return;
+    setChecklistDraft("");
+    if ((await onAddChecklistItem(text)) === false) setChecklistDraft((current) => current || text);
+  }
+  async function submitComment() {
+    const text = commentDraft;
+    if (!text.trim()) return;
+    setCommentDraft("");
+    if ((await onAddComment(text)) === false) setCommentDraft((current) => current || text);
+  }
   const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<number | null>(null);
 
@@ -340,13 +353,13 @@ export default function TaskDetailPanel({
                 <input
                   value={checklistDraft}
                   onChange={(e) => setChecklistDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (onAddChecklistItem(checklistDraft), setChecklistDraft(""))}
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void submitChecklist()}
                   placeholder="항목 추가..."
                   className="flex-1 text-xs px-3 py-1.5 outline-none"
                   style={{ background: "var(--muted)", borderRadius: "20px" }}
                 />
                 <button
-                  onClick={() => { onAddChecklistItem(checklistDraft); setChecklistDraft(""); }}
+                  onClick={() => void submitChecklist()}
                   className="px-3 text-xs font-700 shrink-0 transition-all"
                   style={{
                     background: checklistDraft.trim() ? "var(--primary)" : "var(--muted)",
@@ -464,13 +477,13 @@ export default function TaskDetailPanel({
                 <input
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && (onAddComment(commentDraft), setCommentDraft(""))}
+                  onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void submitComment()}
                   placeholder="댓글 남기기..."
                   className="flex-1 text-xs px-3 py-2 outline-none"
                   style={{ background: "var(--muted)", borderRadius: "20px" }}
                 />
                 <button
-                  onClick={() => { onAddComment(commentDraft); setCommentDraft(""); }}
+                  onClick={() => void submitComment()}
                   className="px-3 text-xs font-700 shrink-0 transition-all"
                   style={{
                     background: commentDraft.trim() ? "var(--primary)" : "var(--muted)",

@@ -111,11 +111,29 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     setNewAssignees((prev) => (prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id]));
   }
 
-  function submitQuickAdd(col: TaskStatus) {
+  // 저장 실패를 화면에 알린다(권한이 없거나 서버가 거부해도 예전에는 아무 반응이 없었다). 성공 여부를 돌려준다.
+  const [actionError, setActionError] = useState<string | null>(null);
+  async function run(action: () => Promise<unknown>, fallback = "저장하지 못했습니다. 다시 시도해 주세요."): Promise<boolean> {
+    setActionError(null);
+    try {
+      await action();
+      return true;
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? fallback);
+      return false;
+    }
+  }
+
+  async function submitQuickAdd(col: TaskStatus) {
     if (locked || !newTitle.trim() || newAssignees.length === 0) return;
-    addTask({ title: newTitle.trim(), assigneeIds: newAssignees, status: col });
+    const title = newTitle.trim();
     setAddingCol(null);
     setNewTitle("");
+    // 실패하면 입력한 제목을 되돌려 다시 시도할 수 있게 한다.
+    if (!(await run(() => addTask({ title, assigneeIds: newAssignees, status: col }), "과제를 추가하지 못했습니다."))) {
+      setNewTitle((current) => current || title);
+      setAddingCol(col);
+    }
   }
 
   const doneCount = tasks.filter((t) => t.status === "done").length;
@@ -317,7 +335,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                             .map((c) => (
                               <button
                                 key={c.id}
-                                onClick={() => moveTask(task.id, c.id)}
+                                onClick={() => void run(() => moveTask(task.id, c.id), "과제 상태를 바꾸지 못했습니다.")}
                                 className="text-xs px-2.5 py-1 font-600 transition-colors"
                                 style={{ background: c.bg, color: c.color, borderRadius: "20px" }}
                               >
@@ -422,16 +440,22 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           canChangeStatus={isManager}
           locked={locked}
           onClose={() => setSelectedTaskId(null)}
-          onUpdateDetails={(patch) => updateTaskDetails(selectedTask.id, patch)}
-          onChangeStatus={(s) => moveTask(selectedTask.id, s)}
+          onUpdateDetails={(patch) => void run(() => updateTaskDetails(selectedTask.id, patch))}
+          onChangeStatus={(s) => void run(() => moveTask(selectedTask.id, s), "과제 상태를 바꾸지 못했습니다.")}
           onDelete={() => setPendingDelete({ id: selectedTask.id, title: selectedTask.title })}
-          onToggleChecklist={(itemId, done) => toggleTaskChecklistItem(selectedTask.id, itemId, done)}
-          onAddChecklistItem={(text) => addTaskChecklistItem(selectedTask.id, text)}
-          onAddComment={(text) => addTaskComment(selectedTask.id, text)}
-          onToggleCommentReaction={(commentId, emoji) => toggleTaskCommentReaction(commentId, emoji)}
-          onToggleTeamSchedule={(checked) => toggleTaskTeamSchedule(selectedTask.id, checked)}
-          onTogglePersonalSchedule={(checked) => toggleTaskPersonalSchedule(selectedTask.id, checked)}
+          onToggleChecklist={(itemId, done) => void run(() => toggleTaskChecklistItem(selectedTask.id, itemId, done))}
+          onAddChecklistItem={(text) => run(() => addTaskChecklistItem(selectedTask.id, text), "체크리스트 항목을 추가하지 못했습니다.")}
+          onAddComment={(text) => run(() => addTaskComment(selectedTask.id, text), "댓글을 남기지 못했습니다.")}
+          onToggleCommentReaction={(commentId, emoji) => void run(() => toggleTaskCommentReaction(commentId, emoji))}
+          onToggleTeamSchedule={(checked) => void run(() => toggleTaskTeamSchedule(selectedTask.id, checked))}
+          onTogglePersonalSchedule={(checked) => void run(() => toggleTaskPersonalSchedule(selectedTask.id, checked))}
         />
+      )}
+      {actionError && (
+        <div role="alert" className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[65] flex items-center gap-3 px-4 py-3 text-sm max-w-[92vw]" style={{ background: "#7f1d1d", color: "#fff", borderRadius: "12px", boxShadow: "0 12px 32px rgba(15,18,53,0.3)" }}>
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} aria-label="닫기" className="shrink-0 font-700 opacity-80 hover:opacity-100">✕</button>
+        </div>
       )}
       {pendingDelete && (
         <ConfirmDialog

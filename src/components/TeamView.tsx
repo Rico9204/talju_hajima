@@ -517,15 +517,16 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
             <div className="flex gap-2">
               <button
-                onClick={() => setPendingTransfer(null)}
+                onClick={() => { setPendingTransfer(null); setActionError(null); }}
                 className="flex-1 py-2.5 text-sm font-600"
                 style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
               >
                 취소
               </button>
               <button
-                onClick={() => { transferLeadership(pendingTransfer.id); setPendingTransfer(null); }}
-                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                disabled={busy}
+                onClick={() => runAction(() => transferLeadership(pendingTransfer.id), () => setPendingTransfer(null))}
+                className="flex-1 py-2.5 text-sm font-700 transition-all disabled:opacity-60"
                 style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}
               >
                 위임하기
