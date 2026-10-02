@@ -26,10 +26,9 @@ import type { NoticeItem, ScrappedNotice } from "../lib/crawler/types";
 import { useAuth } from "./AuthContext";
 import { useLocation } from "react-router-dom";
 import CreateProjectModal from "../components/CreateProjectModal";
-import JoinProjectModal from "../components/JoinProjectModal";
 import AdminPanel from "../components/AdminPanel";
-import AdminApplicationNotice from "../components/AdminApplicationNotice";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
+import NoProjectHome from "../components/NoProjectHome";
 import UnreadNotifier from "../components/UnreadNotifier";
 import { isMentionForMember } from "../lib/chatMentions";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
@@ -241,7 +240,6 @@ function EmptyProjectsScreen({
   joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
-  const [joinOpen, setJoinOpen] = useState(false);
   const { isOperator } = useProjectManagement();
 
   if (isAdmin) {
@@ -280,45 +278,8 @@ function EmptyProjectsScreen({
     );
   }
 
-  return (
-    <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
-      <div
-        className="max-w-sm px-6 py-6 text-center"
-        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
-      >
-        <div className="text-left"><AdminApplicationNotice /></div>
-        <div className="text-sm font-700 mb-1">아직 참여한 프로젝트가 없어요</div>
-        <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
-          새 프로젝트를 만들거나, 팀장에게 받은 참여 코드로 참여해보세요.
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setJoinOpen(true)}
-            className="flex-1 py-2.5 text-sm font-700"
-            style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "40px" }}
-          >
-            참여하기
-          </button>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex-1 py-2.5 text-sm font-700"
-            style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px" }}
-          >
-            새 프로젝트
-          </button>
-        </div>
-      </div>
-      {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input, recruit) => addProject(input, recruit)} />}
-      {joinOpen && (
-        <JoinProjectModal
-          lookupProject={lookupProject}
-          joinProject={joinProject}
-          onCancel={() => setJoinOpen(false)}
-          onJoined={() => setJoinOpen(false)}
-        />
-      )}
-    </div>
-  );
+  // 일반 계정: 시작하기(만들기/참여) + 게시판·캠퍼스 소식·설정 + 로그아웃.
+  return <NoProjectHome signOut={signOut} addProject={addProject} lookupProject={lookupProject} joinProject={joinProject} />;
 }
 
 const ProjectManagementContext = createContext<{
@@ -343,6 +304,10 @@ const ProjectManagementContext = createContext<{
   revokeAdmin: typeof dataRepository.revokeAdmin;
   searchAdmins: typeof dataRepository.searchAdmins;
   getEvaluationMode: typeof dataRepository.getEvaluationMode;
+  // 캠퍼스 소식: 프로젝트와 무관해서 프로젝트가 없는 화면(NoProjectHome)에서도 쓴다.
+  fetchCampusNotices: typeof dataRepository.fetchCampusNotices;
+  listScrappedNotices: typeof dataRepository.listScrappedNotices;
+  toggleScrapNotice: typeof dataRepository.toggleScrapNotice;
   setEvaluationMode: typeof dataRepository.setEvaluationMode;
 } | null>(null);
 const managementActions = {
@@ -368,6 +333,9 @@ const managementActions = {
   searchAdmins: (query: string) => dataRepository.searchAdmins(query),
   getEvaluationMode: () => dataRepository.getEvaluationMode(),
   setEvaluationMode: (enabled: boolean) => dataRepository.setEvaluationMode(enabled),
+  fetchCampusNotices: (params: { school?: string; category?: string }) => dataRepository.fetchCampusNotices(params),
+  listScrappedNotices: () => dataRepository.listScrappedNotices(),
+  toggleScrapNotice: (notice: NoticeItem) => dataRepository.toggleScrapNotice(notice),
 };
 export function useProjectManagement() {
   const context = useContext(ProjectManagementContext);
@@ -1460,4 +1428,9 @@ export function useProject() {
   const ctx = useContext(ProjectContext);
   if (!ctx) throw new Error("useProject must be used within a ProjectProvider");
   return ctx;
+}
+
+// 프로젝트가 없을 수도 있는 화면(프로젝트 없는 첫 화면의 게시판·캠퍼스 소식 등)용: 프로젝트 데이터가 없으면 null.
+export function useOptionalProject() {
+  return useContext(ProjectContext);
 }

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { NoticeItem, NoticeCategory, ScrappedNotice } from "../lib/crawler/types";
 import { SCHOOL_REGISTRY } from "../lib/crawler/schoolsRegistry";
 import { NoticeSortOption, NOTICE_SORT_OPTIONS, sortNotices } from "../lib/crawler/noticeSort";
-import { useProject } from "../context/ProjectContext";
+import { useOptionalProject, useProjectManagement } from "../context/ProjectContext";
 import SchoolSearchCombobox from "./SchoolSearchCombobox";
 
 // 링크는 http(s)만 연다 — 스크랩은 DB에서 오고, 수집 결과도 외부 페이지에서 오므로 화면에서 한 번 더 막는다.
@@ -21,7 +21,9 @@ export interface CampusNoticesViewProps {
 }
 
 export default function CampusNoticesView({ onRecruitFromNotice }: CampusNoticesViewProps = {}) {
-  const { currentMember, fetchCampusNotices, listScrappedNotices, toggleScrapNotice } = useProject();
+  // 프로젝트가 없어도(첫 화면) 볼 수 있다: 소식 함수는 늘 있는 관리 컨텍스트에서, 내 학교는 팀원 정보가 있을 때만.
+  const { fetchCampusNotices, listScrappedNotices, toggleScrapNotice } = useProjectManagement();
+  const currentMember = useOptionalProject()?.currentMember ?? null;
 
   // Selected school (defaults to member's school if available, otherwise "전국")
   const defaultSchool = currentMember?.school || "전국 공모전·취업 Pick";

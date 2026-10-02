@@ -25,8 +25,9 @@ import {
   reorderHomeMenuItem,
   type HomeNavTab,
 } from "../lib/menuPreferences";
-import type { BoardCategory, ScheduleEventType, UpcomingEvent } from "../api/types";
+import type { ScheduleEventType, UpcomingEvent } from "../api/types";
 import { dDayLabel } from "../lib/dday";
+import { recruitPostFromNotice, type BoardInitialState } from "../lib/recruitFromNotice";
 
 const EVENT_TYPE: Record<ScheduleEventType, { label: string; color: string }> = {
   deadline: { label: "마감", color: "#ef4444" },
@@ -156,20 +157,10 @@ export default function Home() {
   }
 
   // 공모전 공지에서 '팀원 모집' 클릭 시 게시판으로 전달할 상태
-  const [boardInitialState, setBoardInitialState] = useState<{
-    category?: "all" | BoardCategory;
-    isCreating?: boolean;
-    title?: string;
-    content?: string;
-  } | null>(null);
+  const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
 
   function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string }) {
-    setBoardInitialState({
-      category: "recruit",
-      isCreating: true,
-      title: `[팀원 모집] ${notice.title}`,
-      content: `<p><strong>[공모전 정보]</strong></p><p>• 주최/소속: ${notice.schoolName}</p><p>• 공모전 원문 링크: <a href="${notice.link}" target="_blank" rel="noopener noreferrer">${notice.link}</a></p><p><br></p><p><strong>[팀원 모집 내용]</strong></p><p>해당 공모전에 함께 도전할 팀원을 모집합니다!</p><p>• 모집 분야: 기획 / 디자인 / 개발</p><p>• 지원 방법: 댓글이나 메시지로 편하게 연락주세요.</p>`,
-    });
+    setBoardInitialState(recruitPostFromNotice(notice));
     setActiveTab("board");
   }
 

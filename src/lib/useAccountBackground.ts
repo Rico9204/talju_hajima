@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useProject } from "../context/ProjectContext";
+import { useOptionalProject } from "../context/ProjectContext";
 import { usePerformanceMode } from "./performancePreferences";
 import { useThemeMode } from "./themePreferences";
 import { useStillUrl } from "./useStillUrl";
@@ -9,7 +9,8 @@ import { useStillUrl } from "./useStillUrl";
 // profile editor (ProfileModal.tsx) — applies everywhere, not just inside
 // the Sidebar-wrapped pages.
 export function useAccountBackground() {
-  const { currentMember } = useProject();
+  // 프로젝트가 없는 화면에서도 쓰므로(게시판 등) 팀원 정보가 없으면 기본 배경.
+  const currentMember = useOptionalProject()?.currentMember ?? null;
   const [performanceMode] = usePerformanceMode();
   const [, , isDark] = useThemeMode();
   const backgroundImage = useStillUrl(currentMember?.backgroundImageUrl); // GIF frozen unless 고급 mode
