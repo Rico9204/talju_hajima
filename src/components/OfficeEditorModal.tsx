@@ -9,7 +9,7 @@ import { backendOrigin } from "../api/rest/backendUrl";
 
 interface DocsEditor { destroyEditor(): void }
 declare global {
-  interface Window { DocsAPI?: { DocEditor: new (id: string, config: Record<string, unknown>) => DocsEditor } }
+  interface Window { DocsAPI?: { DocEditor: new (id: string, config: Record<string, unknown> & { events?: Record<string, (event?: unknown) => void> }) => DocsEditor } }
 }
 
 let scriptPromise: Promise<void> | null = null;
@@ -48,6 +48,7 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
 
   useEffect(() => {
     let cancelled = false;
+    let revealTimer: number | undefined;
     (async () => {
       try {
         const [config] = await Promise.all([dataRepository.getOfficeEditorConfig(fileId), loadEditorScript()]);
@@ -55,15 +56,20 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
         const holder = document.createElement("div");
         holder.id = `office-editor-${fileId}-${Date.now()}`;
         container.current.appendChild(holder);
-        editor.current = new window.DocsAPI.DocEditor(holder.id, { ...config, width: "100%", height: "100%", type: "desktop" });
+        const ready = () => { if (!cancelled) setLoading(false); };
+        editor.current = new window.DocsAPI.DocEditor(holder.id, {
+          ...config, width: "100%", height: "100%", type: "desktop",
+          events: { onAppReady: ready, onError: () => { if (!cancelled) { setError("편집기를 열지 못했습니다."); setLoading(false); } } },
+        });
+        // 준비 신호가 안 오면(ngrok 안내 페이지가 편집기 자리에 뜬 경우 등) 가림막을 걷어 안의 화면을 보이게 한다.
+        revealTimer = window.setTimeout(ready, isNgrok ? 4000 : 20000);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "편집기를 열지 못했습니다.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) { setError(e instanceof Error ? e.message : "편집기를 열지 못했습니다."); setLoading(false); }
       }
     })();
     return () => {
       cancelled = true;
+      window.clearTimeout(revealTimer);
       try { editor.current?.destroyEditor(); } catch { /* 이미 닫힘 */ }
       editor.current = null;
       if (container.current) container.current.innerHTML = "";
@@ -87,7 +93,8 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
         </p>
       )}
       <div className="flex-1 min-h-0 relative">
-        {loading && <p role="status" className="absolute inset-0 flex items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>편집기를 불러오는 중…</p>}
+        {/* 편집기 자체 로딩 화면(외부 편집기 이름이 나옴)을 덮는 가림막 — 편집기가 준비되면 걷힌다. */}
+        {loading && <p role="status" className="absolute inset-0 z-10 flex items-center justify-center text-sm" style={{ background: "var(--background)", color: "var(--muted-foreground)" }}>편집기를 불러오는 중…</p>}
         {error && (
           <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center">
             <p className="text-sm font-700">{error}</p>
