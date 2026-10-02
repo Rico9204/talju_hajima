@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { AdminController } from "./admin.js";
 import { AuthController, AuthGuard, AuthLimits, MailSettings, SessionCookie, TokenService } from "./auth.js";
 import { Mailer } from "./mail.js";
+import { validationException } from "./validation.js";
 import { MajorsController, MajorsService } from "./majors.js";
 import { BoardController } from "./board.js";
 import { CampusController } from "./campus.js";
@@ -85,7 +86,7 @@ export async function createApp(deps: AppDeps): Promise<INestApplication> {
   registerOnlyofficeProxy(http, app.getHttpServer(), deps.onlyoffice);
   app.setGlobalPrefix("api");
   // 공유 브랜치의 전역 검증을 옮기되, 정의하지 않은 필드는 조용히 버리지 않고 거부한다.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, exceptionFactory: validationException }));
   app.useGlobalFilters(new ApiErrorFilter());
   // credentials: 리프레시 토큰 쿠키를 허용된 화면 출처에만 주고받는다.
   app.enableCors({ origin: deps.corsOrigins, credentials: true });

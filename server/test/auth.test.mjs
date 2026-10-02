@@ -7,10 +7,10 @@ import { SignJWT } from 'jose';
 import { loadConfig } from '../dist/config.js';
 import { JWT_SECRET, createTestDb, refreshCookie, startApp, tokenInMail } from './helpers.mjs';
 
-let pg, db, app, api, mailer;
+let pg, db, app, api, mailer, origin;
 before(async () => {
   ({ pg, db } = await createTestDb());
-  ({ app, api, mailer } = await startApp(db));
+  ({ app, api, mailer, origin } = await startApp(db));
 });
 after(async () => { await app?.close(); await pg?.close(); });
 
@@ -82,6 +82,12 @@ test('확인 메일 다시 받기: 미인증이면 새 메일, 아니면 조용�
 test('짧은 비밀번호·정의하지 않은 필드·앱 역할의 계정 표 접근은 막힌다', async () => {
   assert.equal((await signup('short@example.com', 'short')).status, 400);
   assert.equal((await signup('six@example.com', 'abc123')).status, 202); // 최소 6자(가입 화면과 같은 기준)
+  // 입력 검사 안내는 한국어로(기본 영어 문구 대신)
+  assert.deepEqual((await signup('short2@example.com', 'abc12')).body, { message: '비밀번호는 6자 이상이어야 합니다.' });
+  assert.deepEqual((await signup('not-an-email', 'abc123')).body, { message: '이메일 형식이 올바르지 않습니다.' });
+  assert.deepEqual((await signup('long@example.com', 'abc123', '가'.repeat(31))).body, { message: '이름은 30자 이하여야 합니다.' });
+  assert.deepEqual((await api(null, 'POST', '/auth/signup', { password: 'abc123', displayName: '이' })).body, { message: '이메일을 입력해 주세요.' });
+  assert.deepEqual((await api(null, 'POST', '/auth/signup', { email: 'x2@example.com', password: 'abc123', displayName: '이', isAdmin: true })).body, { message: '허용되지 않은 항목(isAdmin)이 포함되어 있습니다.' });
   assert.equal((await api(null, 'POST', '/auth/signup', { email: 'x@example.com', password: 'correct-horse-1', displayName: '이', isAdmin: true })).status, 400);
   await pg.exec('set role authenticated');
   await assert.rejects(pg.query('select * from auth.users'), /permission denied/);
@@ -199,4 +205,19 @@ test('설정: 필수값·서명 키 길이·운영의 CORS·메일(SMTP)·화면
   const ok = loadConfig({ ...prod, SMTP_URL: 'smtps://u:p@smtp.test', MAIL_FROM: 'no-reply@a.app' });
   assert.deepEqual(ok.mail, { transport: 'smtp', smtpUrl: 'smtps://u:p@smtp.test', from: 'no-reply@a.app' });
   assert.equal(loadConfig(base).mail.transport, 'console'); // 개발 기본값
+});
+
+test('프레임워크 기본 오류(없는 주소·깨진 JSON·잘못된 번호)도 한국어로', async () => {
+  const notFound = await fetch(`${origin}/api/nope`);
+  assert.equal(notFound.status, 404);
+  assert.deepEqual(await notFound.json(), { message: '요청한 주소를 찾을 수 없습니다.' });
+  const broken = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{bad' });
+  assert.equal(broken.status, 400);
+  assert.deepEqual(await broken.json(), { message: '요청 형식이 올바르지 않습니다.' });
+  await signup('pipe@example.com');
+  await confirmLatest('pipe@example.com');
+  const token = (await login('pipe@example.com', 'correct-horse-1')).body.accessToken;
+  const badId = await api(token, 'DELETE', '/schedule/not-a-number');
+  assert.equal(badId.status, 400);
+  assert.deepEqual(badId.body, { message: '요청 형식이 올바르지 않습니다.' });
 });
