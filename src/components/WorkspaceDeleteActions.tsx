@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useProject } from "../context/ProjectContext";
+import { useConfirm } from "./ConfirmDialog";
 
 function errorMessage(error: unknown): string {
   return (error as { message?: string })?.message ?? "삭제하지 못했습니다. 다시 시도해 주세요.";
@@ -17,12 +18,13 @@ export default function WorkspaceDeleteActions({ item, kind, childCount = 0, onD
   const pending = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [ask, confirmDialog] = useConfirm();
   if (project.status === "done" || !currentMember || !(isManager || (item.ownerUserId && item.ownerUserId === currentMember.userId))) return null;
   const nonempty = kind === "folder" && childCount > 0;
   async function remove() {
     if (pending.current || nonempty) return;
     const detail = kind === "file" ? "모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다." : "폴더를 삭제하면 복구할 수 없습니다.";
-    if (!window.confirm(`“${item.name}” ${kind === "file" ? "파일" : "폴더"}을 삭제하시겠습니까?\n${detail}`)) return;
+    if (!(await ask({ title: `${kind === "file" ? "파일" : "폴더"}을 삭제할까요?`, message: <><strong>{item.name}</strong> — {detail}</> }))) return;
     pending.current = true; setBusy(true); setError("");
     try {
       if (kind === "file") await deleteWorkspaceFile(item.id);
@@ -37,6 +39,7 @@ export default function WorkspaceDeleteActions({ item, kind, childCount = 0, onD
     </button>
     {nonempty && <p className="mt-1" style={{ color: "var(--muted-foreground)" }}>폴더 안의 파일과 하위 폴더를 먼저 삭제해 주세요.</p>}
     {error && <p role="alert" className="mt-2 text-red-500">{error}</p>}
+    {confirmDialog}
   </div>;
 }
 

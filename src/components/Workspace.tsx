@@ -7,6 +7,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef } from "re
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
+import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
 import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/slidesDoc";
@@ -56,6 +57,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isManager, deleteWorkspaceFile, markSectionViewed, downloadFileVersion, moveWorkspaceFile } = useProject();
   const { lineSafeStyle } = useAccountBackground();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
+  const [ask, confirmDialog] = useConfirm();
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
@@ -296,7 +298,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   async function bulkDelete() {
     if (bulkDeleting || selectedIds.size === 0) return;
-    if (!window.confirm(`선택한 파일 ${selectedIds.size}개를 삭제하시겠습니까?\n모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다.`)) return;
+    if (!(await ask({ title: `파일 ${selectedIds.size}개를 삭제할까요?`, message: "모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다." }))) return;
     setBulkDeleting(true);
     setBulkDeleteError("");
     const ids = Array.from(selectedIds);
@@ -641,6 +643,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </div>
       </div>
       {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
+      {confirmDialog}
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}

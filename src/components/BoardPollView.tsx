@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { calculatePollPercentage, getLeadingOptionIds, isPollClosed } from "../lib/boardPoll";
 import type { BoardPoll } from "../api/types";
+import { useConfirm } from "./ConfirmDialog";
 
 export default function BoardPollView({
   poll,
@@ -18,6 +19,7 @@ export default function BoardPollView({
   onClosePoll: (pollId: number) => Promise<void>;
 }) {
   const [selectedIds, setSelectedIds] = useState<number[]>(poll.myOptionIds);
+  const [ask, confirmDialog] = useConfirm();
   const [isEditingVote, setIsEditingVote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function BoardPollView({
 
   async function handleCancelVote() {
     if (!currentUserId) return;
-    if (!confirm("투표를 취소하시겠습니까?")) return;
+    if (!(await ask({ title: "투표를 취소할까요?", message: "내 선택이 지워지고, 다시 투표할 수 있습니다.", confirmLabel: "투표 취소" }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -78,7 +80,7 @@ export default function BoardPollView({
   }
 
   async function handleClosePoll() {
-    if (!confirm("정말 이 투표를 마감하시겠습니까? 마감 후에는 다시 열 수 없습니다.")) return;
+    if (!(await ask({ title: "투표를 마감할까요?", message: "마감 후에는 다시 열 수 없습니다.", confirmLabel: "마감" }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -107,6 +109,7 @@ export default function BoardPollView({
         WebkitBackdropFilter: "var(--panel-blur)",
       }}
     >
+      {confirmDialog}
       {/* 상단 뱃지 및 메타 정보 */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3.5">
         <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">

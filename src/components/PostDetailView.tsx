@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import BoardPollView from "./BoardPollView";
+import { useConfirm } from "./ConfirmDialog";
 import { sanitizeBoardHtml } from "../lib/boardHtml";
 import { PostReportButton, PostReportList } from "./PostReport";
 import type { BoardPost } from "../api/types";
@@ -43,6 +44,7 @@ export default function PostDetailView({
   onReported?: (postId: number) => void;
 }) {
   const [commentText, setCommentText] = useState("");
+  const [ask, confirmDialog] = useConfirm();
   const [replyingTarget, setReplyingTarget] = useState<{ commentId: number; targetAuthor: string; replyId?: number } | null>(null);
   const [replyText, setReplyText] = useState("");
 
@@ -52,8 +54,8 @@ export default function PostDetailView({
   function canDeleteComment(authorUserId: string): boolean {
     return isAdmin || (!!currentUserId && authorUserId === currentUserId);
   }
-  function confirmDeleteComment(commentId: number) {
-    if (confirm("이 댓글을 삭제하시겠습니까?")) onDeleteComment(post.id, commentId);
+  async function confirmDeleteComment(commentId: number) {
+    if (await ask({ title: "댓글을 삭제할까요?", message: "삭제한 댓글은 되돌릴 수 없습니다." })) onDeleteComment(post.id, commentId);
   }
 
   const files = post.attachments.filter((a) => a.kind === "file");
@@ -94,6 +96,7 @@ export default function PostDetailView({
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       <div className="flex items-center justify-between gap-4">
         <button
           onClick={onBack}
@@ -117,7 +120,7 @@ export default function PostDetailView({
             )}
             <button
               disabled={busy}
-              onClick={() => { if (confirm("이 게시글을 삭제하시겠습니까?")) onDeletePost(post.id); }}
+              onClick={async () => { if (await ask({ title: "게시글을 삭제할까요?", message: "게시글과 댓글이 삭제되며 되돌릴 수 없습니다." })) onDeletePost(post.id); }}
               className="text-xs font-700 px-3.5 py-2 transition-all disabled:opacity-50"
               style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
             >

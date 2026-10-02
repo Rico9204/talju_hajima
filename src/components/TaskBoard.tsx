@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProject, type Member, type TaskStatus, type TaskPriority } from "../context/ProjectContext";
 import TaskDetailPanel from "./TaskDetailPanel";
+import ConfirmDialog from "./ConfirmDialog";
 import Avatar from "./Avatar";
 
 export function memberInfo(members: Member[], id: string): { name: string; avatar: string; avatarUrl: string | null; color: string } {
@@ -50,6 +51,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const [quickAddAssigneeSearch, setQuickAddAssigneeSearch] = useState("");
   const [boardSearch, setBoardSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null); // 삭제 확인 창
   const [addingCol, setAddingCol] = useState<TaskStatus | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newAssignees, setNewAssignees] = useState<string[]>(team.members[0] ? [team.members[0].id] : []);
@@ -422,13 +424,21 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           onClose={() => setSelectedTaskId(null)}
           onUpdateDetails={(patch) => updateTaskDetails(selectedTask.id, patch)}
           onChangeStatus={(s) => moveTask(selectedTask.id, s)}
-          onDelete={() => { deleteTask(selectedTask.id); setSelectedTaskId(null); }}
+          onDelete={() => setPendingDelete({ id: selectedTask.id, title: selectedTask.title })}
           onToggleChecklist={(itemId, done) => toggleTaskChecklistItem(selectedTask.id, itemId, done)}
           onAddChecklistItem={(text) => addTaskChecklistItem(selectedTask.id, text)}
           onAddComment={(text) => addTaskComment(selectedTask.id, text)}
           onToggleCommentReaction={(commentId, emoji) => toggleTaskCommentReaction(commentId, emoji)}
           onToggleTeamSchedule={(checked) => toggleTaskTeamSchedule(selectedTask.id, checked)}
           onTogglePersonalSchedule={(checked) => toggleTaskPersonalSchedule(selectedTask.id, checked)}
+        />
+      )}
+      {pendingDelete && (
+        <ConfirmDialog
+          title="과제를 삭제할까요?"
+          message={<><strong>{pendingDelete.title}</strong> 과제와 댓글·체크리스트가 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</>}
+          onConfirm={async () => { await deleteTask(pendingDelete.id); setSelectedTaskId(null); }}
+          onClose={() => setPendingDelete(null)}
         />
       )}
     </div>

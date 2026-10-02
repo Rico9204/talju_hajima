@@ -1,4 +1,5 @@
 import StillImg from "./StillImg";
+import ConfirmDialog from "./ConfirmDialog";
 import { useEffect, useRef, useState } from "react";
 import { useProject, type ScheduleEventType, type ScheduleEventScope, type ScheduleEventVisibility, type ScheduleEvent } from "../context/ProjectContext";
 
@@ -185,6 +186,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   const [hideTitle, setHideTitle] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false); // 삭제 확인 창
   async function runAction(action: () => Promise<void>) {
     if (busy) return; setBusy(true); setActionError(null);
     try { await action(); } catch (err) { setActionError(err && typeof err === "object" && "message" in err ? String(err.message) : "일정을 저장하지 못했습니다."); }
@@ -744,7 +746,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                     {editingId !== null && (
                       <button
                         disabled={busy}
-                        onClick={() => runAction(handleDelete)}
+                        onClick={() => setConfirmDelete(true)}
                         className="px-4 py-2.5 text-sm font-700 transition-all"
                         style={{ background: "#ef444418", color: "#ef4444", borderRadius: "40px" }}
                       >
@@ -969,6 +971,14 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
           typeMeta={typeMeta}
           displayTitle={displayTitle}
           ownerName={ownerName}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="일정을 삭제할까요?"
+          message={<><strong>{title.trim() || "이 일정"}</strong> 일정이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</>}
+          onConfirm={handleDelete}
+          onClose={() => setConfirmDelete(false)}
         />
       )}
     </div>
