@@ -1,8 +1,8 @@
 // node tests/admin-application-lib.test.mjs
 import assert from 'node:assert/strict';
 import {
-  ADMIN_DOC_TYPES, MAX_ADMIN_DOC_SIZE, SHOW_EMAIL_VERIFICATION_BADGE, adminDocTypeLabel, clearAdminApplicationDraft, formatFileSize, hasAdminApplicationDraft,
-  hasPdfSignature, reapplyAvailableAt, setAdminApplicationDraft, takeAdminApplicationDraft, validateAdminDocument,
+  ADMIN_DOC_TYPES, MAX_ADMIN_DOC_SIZE, SHOW_EMAIL_VERIFICATION_BADGE, adminDocTypeLabel, formatFileSize,
+  hasPdfSignature, reapplyAvailableAt, validateAdminDocument,
 } from '../src/lib/adminApplication.ts';
 
 let count = 0;
@@ -39,19 +39,6 @@ check('labels and sizes are readable', () => {
   assert.equal(formatFileSize(500), '500 B');
   assert.equal(formatFileSize(2048), '2 KB');
   assert.equal(formatFileSize(1.5 * 1024 * 1024), '1.5 MB');
-});
-check('the signup draft is handed over exactly once and can be discarded', () => {
-  const draft = { org: 'OO대학교', jobTitle: '교수', contact: '010-1234-5678', docType: 'employment', file: pdf(), consent: true };
-  assert.equal(hasAdminApplicationDraft(), false);
-  assert.equal(takeAdminApplicationDraft(), null);
-  setAdminApplicationDraft(draft);
-  assert.equal(hasAdminApplicationDraft(), true);
-  assert.equal(takeAdminApplicationDraft(), draft);
-  assert.equal(hasAdminApplicationDraft(), false);
-  assert.equal(takeAdminApplicationDraft(), null);
-  setAdminApplicationDraft(draft);
-  clearAdminApplicationDraft();
-  assert.equal(hasAdminApplicationDraft(), false);
 });
 check('the email verification badge stays hidden while email confirmation is off', () => {
   assert.equal(SHOW_EMAIL_VERIFICATION_BADGE, false);

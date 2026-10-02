@@ -1,4 +1,4 @@
-import type { AdminApplicationInput, AdminDocType } from "../api/types";
+import type { AdminDocType } from "../api/types";
 
 export const ADMIN_DOC_TYPES: { value: AdminDocType; label: string }[] = [
   { value: "employment", label: "재직증명서" },
@@ -53,23 +53,3 @@ export const adminApplicationSeenKey = (userId: string) => `adminApplicationSeen
 // 이메일 인증을 켜고 운영한다면 true로 바꿔 운영자 화면에 인증 여부를 보여준다.
 export const SHOW_EMAIL_VERIFICATION_BADGE = false;
 
-// 관리자 가입 폼에서 입력한 신청 내용을 잠시 메모리에 보관한다.
-// 가입이 끝나 로그인되는 순간 앱이 화면을 다시 그리기 때문에, 폼에서 바로 업로드를 이어 가지 않고
-// 신청서 화면이 열린 뒤 그곳에서 자동으로 제출한다. 새로고침하면 사라지고 어디에도 저장되지 않는다(파일 포함).
-let adminApplicationDraft: AdminApplicationInput | null = null;
-export function setAdminApplicationDraft(draft: AdminApplicationInput) {
-  adminApplicationDraft = draft;
-}
-export function clearAdminApplicationDraft() {
-  adminApplicationDraft = null;
-}
-// 꺼내면서 비운다(같은 신청을 두 번 제출하지 않도록).
-export function takeAdminApplicationDraft(): AdminApplicationInput | null {
-  const draft = adminApplicationDraft;
-  adminApplicationDraft = null;
-  return draft;
-}
-// 가입 폼에서 넘어온 신청 내용이 아직 제출되지 않고 남아 있는지(있으면 반드시 신청서 화면으로 보낸다).
-export function hasAdminApplicationDraft(): boolean {
-  return adminApplicationDraft !== null;
-}

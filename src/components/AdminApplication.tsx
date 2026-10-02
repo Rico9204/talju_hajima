@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useProjectManagement } from "../context/ProjectContext";
 import type { MyAdminApplication } from "../api/types";
-import { adminApplicationSeenKey, adminDocTypeLabel, formatDateTime, reapplyAvailableAt, takeAdminApplicationDraft } from "../lib/adminApplication";
+import { adminApplicationSeenKey, adminDocTypeLabel, formatDateTime, reapplyAvailableAt } from "../lib/adminApplication";
 import AdminApplicationFields, { useAdminApplicationForm } from "./AdminApplicationFields";
 
 function errorText(err: unknown, fallback: string): string {
@@ -35,10 +35,7 @@ export default function AdminApplication() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const form = useAdminApplicationForm();
   const [submitting, setSubmitting] = useState(false);
-  // 관리자 가입 폼에서 넘어온 신청서를 자동으로 제출하는 중인지.
-  const [autoSubmitting, setAutoSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const started = useRef(false);
 
   // 가입 직후 자동 안내는 한 번만.
   useEffect(() => {
@@ -59,27 +56,9 @@ export default function AdminApplication() {
     }
   }
 
+  // 신청서는 이 화면에서만 받는다(가입은 메일 인증을 거쳐 로그인 후에 이 화면이 열린다).
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    // 가입 폼에서 신청 내용을 함께 입력했다면 여기서 바로 제출한다. 실패하면 입력값을 채워 다시 제출할 수 있게 한다.
-    const draft = takeAdminApplicationDraft();
-    if (!draft) {
-      void load();
-      return;
-    }
-    setAutoSubmitting(true);
-    void (async () => {
-      try {
-        await submitAdminApplication(draft);
-      } catch (err) {
-        form.load(draft);
-        setError(errorText(err, "신청을 제출하지 못했습니다.") + " 아래에서 다시 제출해 주세요.");
-      } finally {
-        setAutoSubmitting(false);
-        await load();
-      }
-    })();
+    void load();
   }, []);
 
   const pending = application?.status === "pending";
@@ -131,10 +110,6 @@ export default function AdminApplication() {
               관리자 화면으로
             </button>
           </Card>
-        ) : autoSubmitting ? (
-          <div role="status" className="text-sm text-center py-10" style={{ color: "var(--muted-foreground)" }}>
-            가입한 정보로 관리자 신청서를 제출하는 중입니다…
-          </div>
         ) : loadError ? (
           <Card>
             <div role="alert" className="text-sm mb-3" style={{ color: "#ef4444" }}>{loadError}</div>

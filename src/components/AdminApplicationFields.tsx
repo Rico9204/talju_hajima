@@ -27,16 +27,6 @@ export function useAdminApplicationForm() {
       if (!ready || !file) return null;
       return { org: org.trim(), jobTitle: jobTitle.trim(), contact: contact.trim(), docType, file, consent };
     },
-    // 자동 제출이 실패했을 때 입력값을 채워 다시 시도할 수 있게 한다.
-    load(draft: AdminApplicationInput) {
-      setOrg(draft.org);
-      setJobTitle(draft.jobTitle);
-      setContact(draft.contact);
-      setDocType(draft.docType);
-      setFile(draft.file);
-      setFileError(validateAdminDocument(draft.file));
-      setConsent(draft.consent);
-    },
   };
 }
 export type AdminApplicationForm = ReturnType<typeof useAdminApplicationForm>;

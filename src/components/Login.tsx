@@ -2,8 +2,7 @@ import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { requestPasswordReset, resendConfirmation } from "../api/rest/authApi";
 import { useAuth } from "../context/AuthContext";
-import { adminApplicationSeenKey, clearAdminApplicationDraft, hasAdminApplicationDraft, setAdminApplicationDraft } from "../lib/adminApplication";
-import AdminApplicationFields, { useAdminApplicationForm } from "./AdminApplicationFields";
+import { adminApplicationSeenKey } from "../lib/adminApplication";
 
 type Mode = "signin" | "signup" | "admin";
 
@@ -30,12 +29,9 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [signedUp, setSignedUp] = useState(false);
-  // 관리자 가입과 동시에 로그인된 경우: 신청서 화면이 열리면 그곳에서 자동으로 제출한다.
-  const [redirecting, setRedirecting] = useState(false);
   // 로그인 화면 안의 "계정 찾기": 비밀번호 재설정 링크·가입 인증 메일 다시 받기.
   const [recovering, setRecovering] = useState(false);
   const [recoverNotice, setRecoverNotice] = useState<string | null>(null);
-  const adminForm = useAdminApplicationForm();
 
   async function recover(send: (email: string) => Promise<unknown>) {
     if (!email.trim() || submitting) return;
@@ -55,8 +51,7 @@ export default function Login() {
   const canSubmit =
     email.trim().length > 0 &&
     password.length >= 6 &&
-    (mode === "signin" || displayName.trim().length > 0) &&
-    (mode !== "admin" || adminForm.ready);
+    (mode === "signin" || displayName.trim().length > 0);
 
   async function submit() {
     if (!canSubmit || submitting) return;
@@ -68,22 +63,14 @@ export default function Login() {
       if (result.error) setError(result.error);
       return;
     }
-    // 가입이 끝나 로그인되는 순간 화면이 다시 그려지므로, 신청 내용은 먼저 메모리에 맡겨 둔다.
-    const draft = mode === "admin" ? adminForm.input() : null;
-    if (draft) setAdminApplicationDraft(draft);
+    // 가입은 항상 메일 인증을 거친다. 관리자 신청서(소속·직위·증명서 PDF)는 인증 후 처음 로그인할 때 열리는
+    // 신청서 화면에서 받는다(예전엔 가입 폼에서 받았지만, 가입 직후엔 로그인되지 않아 제출되지 못하고 버려졌다).
     const result = await signUp(email.trim(), password, displayName.trim(), mode === "admin" ? "admin" : undefined);
     setSubmitting(false);
     if (result.error) {
-      clearAdminApplicationDraft();
       setError(result.error);
       return;
     }
-    if (draft && result.signedIn) {
-      setRedirecting(true);
-      return;
-    }
-    // 이메일 인증이 필요한 설정이면 지금은 로그인할 수 없으므로 신청서는 로그인 뒤에 제출한다.
-    clearAdminApplicationDraft();
     setSignedUp(true);
   }
 
@@ -93,7 +80,7 @@ export default function Login() {
   // appeared to do nothing.
   // 가입 폼에서 넘어온 신청 내용이 있으면 "이미 봤음" 표시와 무관하게 신청서 화면에서 제출해야 한다.
   if (loading) return null; // 새로 고침 직후 로그인 상태를 되찾는 중
-  if (user) return <Navigate to={hasAdminApplicationDraft() || wantsAdminApplication(user) ? "/admin-application" : "/home"} replace />;
+  if (user) return <Navigate to={wantsAdminApplication(user) ? "/admin-application" : "/home"} replace />;
 
   return (
     <div className="flex h-full w-full justify-center overflow-y-auto py-6" style={{ background: "var(--background)" }}>
@@ -112,7 +99,6 @@ export default function Login() {
             <button
               key={m}
               type="button"
-              disabled={redirecting}
               onClick={() => {
                 setMode(m);
                 setError(null);
@@ -132,11 +118,7 @@ export default function Login() {
           ))}
         </div>
 
-        {redirecting ? (
-          <div role="status" className="text-sm p-3" style={{ background: "#22c55e12", color: "#22c55e", borderRadius: "10px" }}>
-            가입이 완료되었어요. 관리자 신청서를 제출하는 중입니다…
-          </div>
-        ) : signedUp ? (
+        {signedUp ? (
           <div className="text-sm p-3" style={{ background: "#22c55e12", color: "#22c55e", borderRadius: "10px" }}>
             인증 이메일을 보냈습니다. 받은 편지함을 확인해주세요.
             <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>메일이 보이지 않으면 <strong>스팸함</strong>을 확인해 주세요. 스팸함에 있었다면 "스팸 아님"으로 표시하면 다음부터 받은 편지함으로 옵니다.</div>
@@ -196,8 +178,8 @@ export default function Login() {
               <div className="text-xs mb-4 p-3" style={{ background: "#3b82f612", color: "var(--foreground)", borderRadius: "10px", lineHeight: 1.6 }}>
                 <div className="font-700 mb-1">관리자 가입 절차</div>
                 <ol className="list-decimal pl-4">
-                  <li>계정 정보와 소속·직위, <strong>교수·교원 증명서(PDF)</strong>를 한 번에 입력합니다.</li>
-                  <li>가입하면 신청서가 자동으로 제출됩니다.</li>
+                  <li>아래에서 계정을 만들고, 받은 메일의 링크로 이메일 인증을 합니다.</li>
+                  <li>인증 후 처음 로그인하면 <strong>관리자 신청서</strong> 화면이 열립니다. 소속·직위와 <strong>교수·교원 증명서(PDF)</strong>를 제출해 주세요.</li>
                   <li>운영자가 직접 확인해 승인하면 관리자가 됩니다.</li>
                 </ol>
                 <div className="mt-1.5" style={{ color: "var(--muted-foreground)" }}>승인 전에는 일반 사용자로 이용할 수 있습니다.</div>
@@ -239,13 +221,6 @@ export default function Login() {
             />
             {mode !== "signin" && (
               <div className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>비밀번호는 6자 이상이어야 합니다.</div>
-            )}
-
-            {mode === "admin" && (
-              <>
-                <div className="text-sm font-700 mb-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>교수·교원 인증</div>
-                <AdminApplicationFields form={adminForm} />
-              </>
             )}
 
             {error && (
