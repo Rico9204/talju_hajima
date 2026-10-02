@@ -47168,6 +47168,7 @@ async function crawlNotices(schoolQuery, category = "all") {
 // src/server/campus-notices.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
 var CACHE_MAX = 1e3;
+var CDN_CACHE = "public, s-maxage=600, stale-while-revalidate=3600";
 var NATIONAL = "\uC804\uAD6D \uACF5\uBAA8\uC804\xB7\uCDE8\uC5C5 Pick";
 var CATEGORIES = /* @__PURE__ */ new Set(["all", "contest", "job", "general", "internship"]);
 var cache = /* @__PURE__ */ new Map();
@@ -47184,14 +47185,14 @@ async function handler(req, res) {
     const cacheKey = `${school}:${category}`;
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": CDN_CACHE });
       res.end(JSON.stringify(cached.result));
       return;
     }
     const result = await crawlNotices(school, category);
     if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
     cache.set(cacheKey, { result, cachedAt: Date.now() });
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": CDN_CACHE });
     res.end(JSON.stringify(result));
   } catch (err) {
     console.error("campus-notices crawl failed", err);

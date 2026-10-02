@@ -221,3 +221,13 @@ test('프레임워크 기본 오류(없는 주소·깨진 JSON·잘못된 번호
   assert.equal(badId.status, 400);
   assert.deepEqual(badId.body, { message: '요청 형식이 올바르지 않습니다.' });
 });
+
+test('JSON 요청은 4MB까지 받고(게시글·검색 텍스트), 넘으면 413 한국어 안내', async () => {
+  const send = (bytes) => fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'big@example.com', password: 'x'.repeat(bytes) }) });
+  const medium = await send(600_000); // 예전 한도(100KB)를 넘지만 새 한도 안 → 본문은 읽히고 입력 검사에서 거부
+  assert.equal(medium.status, 400);
+  assert.deepEqual(await medium.json(), { message: '비밀번호는 72자 이하여야 합니다.' });
+  const tooBig = await send(5_000_000);
+  assert.equal(tooBig.status, 413);
+  assert.deepEqual(await tooBig.json(), { message: '보낸 내용이 너무 큽니다.' });
+});

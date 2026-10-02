@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { Module, ValidationPipe, type DynamicModule, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AdminController } from "./admin.js";
 import { AuthController, AuthGuard, AuthLimits, MailSettings, SessionCookie, TokenService } from "./auth.js";
 import { Mailer } from "./mail.js";
@@ -18,6 +19,8 @@ import { RealtimeHub } from "./realtime.js";
 import { FileStore, StorageController, StorageUrls, registerFileRoutes } from "./storage.js";
 import { TasksController } from "./tasks.js";
 import { WorkspaceController } from "./workspace.js";
+
+export const JSON_LIMIT = "4mb";
 
 export interface AppDeps {
   db: Db;
@@ -74,7 +77,10 @@ export async function createApp(deps: AppDeps): Promise<INestApplication> {
   const hub = new RealtimeHub(deps.db, tokens, deps.corsOrigins);
   const push = new PushSender(deps.db, deps.vapid, deps.pushSend);
   const office = new OnlyofficeService(deps.db, deps.store, deps.onlyoffice, deps.jwtSecret, deps.onlyofficeFetch);
-  const app = await NestFactory.create(AppModule.register(deps, urls, tokens, hub, push, office), { logger: ["error", "warn", "log"] });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.register(deps, urls, tokens, hub, push, office), { logger: ["error", "warn", "log"] });
+  // JSON 요청 한도: 기본 100KB는 게시글 본문(10만 자)·문서 검색 텍스트(20만 자, 한글이면 약 600KB)보다 작아 "서버 오류"가 났다.
+  // 파일은 JSON이 아니라 multipart(최대 50MB)로 받으므로 여기 한도와 무관하다.
+  app.useBodyParser("json", { limit: JSON_LIMIT });
   await hub.start(app.getHttpServer()); // WebSocket /realtime
   await push.start();
   const http = app.getHttpAdapter().getInstance();

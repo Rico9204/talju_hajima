@@ -29,6 +29,12 @@ export class ApiErrorFilter implements ExceptionFilter {
       response.status(status).json({ message: hasHangul(message) ? message : KOREAN_BY_STATUS[status] ?? "요청을 처리할 수 없습니다." });
       return;
     }
+    // 요청 본문 해석 단계(body-parser)의 오류: 너무 큰 요청(413) 등. HttpException이 아니라 status·expose만 달려 온다.
+    const clientStatus = (error as { status?: unknown; expose?: unknown })?.status;
+    if (typeof clientStatus === "number" && clientStatus >= 400 && clientStatus < 500 && (error as { expose?: unknown }).expose === true) {
+      response.status(clientStatus).json({ message: KOREAN_BY_STATUS[clientStatus] ?? "요청을 처리할 수 없습니다." });
+      return;
+    }
     const code = (error as { code?: string })?.code ?? "";
     if (code === "P0001") {
       response.status(400).json({ message: (error as Error).message });

@@ -6,6 +6,8 @@ import type { NoticeCategory } from "../lib/crawler/types";
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 mins cache
 const CACHE_MAX = 1000;
+// Vercel CDN에도 10분 저장하고, 그 뒤 1시간은 옛 응답을 먼저 주며 뒤에서 새로 모은다(함수가 새로 뜰 때마다 수집하느라 첫 로딩이 3~4초 걸리던 문제).
+const CDN_CACHE = "public, s-maxage=600, stale-while-revalidate=3600";
 const NATIONAL = "전국 공모전·취업 Pick";
 const CATEGORIES = new Set<NoticeCategory>(["all", "contest", "job", "general", "internship"]);
 const cache = new Map<string, { result: unknown; cachedAt: number }>();
@@ -27,7 +29,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const cacheKey = `${school}:${category}`;
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
-      res.writeHead(200, { "Content-Type": "application/json" });
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": CDN_CACHE });
       res.end(JSON.stringify(cached.result));
       return;
     }
@@ -37,7 +39,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!); // 가장 오래된 것부터
     cache.set(cacheKey, { result, cachedAt: Date.now() });
 
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": CDN_CACHE });
     res.end(JSON.stringify(result));
   } catch (err) {
     console.error("campus-notices crawl failed", err);
