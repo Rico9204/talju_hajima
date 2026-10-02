@@ -2220,6 +2220,7 @@ export default function TeamChat({
                 ref={inputRef}
                 rows={1}
                 value={input}
+                maxLength={5000}
                 onChange={handleInputChange}
                 onKeyDown={handleInputKeyDown}
                 placeholder={

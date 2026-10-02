@@ -374,6 +374,8 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
 
   async function handleSubmit() {
     if (!title.trim() || !date.trim() || locked) return;
+    // 시작일을 나중에 바꾸면 종료일이 더 빨라질 수 있다(날짜 선택기의 min만으로는 못 막음). YYYY-MM-DD라 문자열로 비교된다.
+    if (endDate.trim() && endDate.trim() < date.trim()) throw new Error("종료일은 시작일과 같거나 그 이후여야 합니다.");
     if (scope === "team" && !isManager) return;
     if (editingId !== null) {
       await updateScheduleEvent(editingId, {
@@ -662,6 +664,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 <>
                   <input
                     value={title}
+                    maxLength={200}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="일정 제목"
                     className="w-full text-sm px-3 py-2 border outline-none mb-2"

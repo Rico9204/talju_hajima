@@ -77,6 +77,10 @@ test('일정: 팀 일정과 개인 일정, 개인 일정의 주인은 서버가 
   assert.deepEqual((await call(s.member, 'GET', `/projects/${s.p}/schedule`)).body.map((e) => e.title), ['개인 공부', '중간 발표']);
   assert.deepEqual((await call(s.leader, 'GET', `/projects/${s.p}/schedule`)).body.map((e) => e.title), ['중간 발표']);
   assert.equal((await call(s.member, 'POST', `/projects/${s.p}/schedule`, { title: 'x', date: '10월 1일', type: 'other', scope: 'team' })).status, 400);
+  // 종료일이 시작일보다 빠르면 DB 제약에 걸리고, 이유를 알 수 있게 안내한다
+  const backwards = await call(s.member, 'POST', `/projects/${s.p}/schedule`, { title: '거꾸로', date: '2026-10-05', endDate: '2026-10-01', type: 'other', scope: 'personal' });
+  assert.equal(backwards.status, 400);
+  assert.deepEqual(backwards.body, { message: '종료일은 시작일과 같거나 그 이후여야 합니다.' });
 
   assert.equal((await call(s.member, 'PATCH', `/schedule/${mine.body.id}`, { title: '개인 공부(수정)', visibility: 'shared' })).status, 204);
   assert.ok((await call(s.leader, 'GET', `/projects/${s.p}/schedule`)).body.some((e) => e.title === '개인 공부(수정)'));

@@ -116,6 +116,7 @@ export default function TaskDetailPanel({
           {canEditFields ? (
             <input
               value={task.title}
+              maxLength={200}
               onChange={(e) => onUpdateDetails({ title: e.target.value })}
               className="w-full text-base font-700 px-0 py-1 mb-3 outline-none border-0 border-b bg-transparent"
               style={{ borderColor: "var(--border)" }}
@@ -270,6 +271,7 @@ export default function TaskDetailPanel({
               {canEditFields && (
                 <input
                   value={tagDraft}
+                  maxLength={30}
                   onChange={(e) => setTagDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addTag()}
                   placeholder="+ 태그"
@@ -352,6 +354,7 @@ export default function TaskDetailPanel({
               <div className="flex gap-2">
                 <input
                   value={checklistDraft}
+                  maxLength={2000}
                   onChange={(e) => setChecklistDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void submitChecklist()}
                   placeholder="항목 추가..."
@@ -476,6 +479,7 @@ export default function TaskDetailPanel({
                 )}
                 <input
                   value={commentDraft}
+                  maxLength={2000}
                   onChange={(e) => setCommentDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void submitComment()}
                   placeholder="댓글 남기기..."

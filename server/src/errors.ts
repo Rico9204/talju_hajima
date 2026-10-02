@@ -13,6 +13,14 @@ const KOREAN_BY_STATUS: Record<number, string> = {
 };
 const hasHangul = (text: string) => /[가-힣]/.test(text);
 
+// 이름 있는 DB 검사 제약(check)에 걸렸을 때의 안내. 나머지 제약 위반은 "요청을 처리할 수 없습니다."
+const CHECK_MESSAGES: Record<string, string> = {
+  schedule_events_end_date_after_start: "종료일은 시작일과 같거나 그 이후여야 합니다.",
+  board_posts_attachment_urls_ok: "첨부 파일 주소가 올바르지 않습니다.",
+  profiles_links_urls_ok: "링크 주소가 올바르지 않습니다.",
+  members_leader_not_vice: "팀장은 부팀장을 겸할 수 없습니다.",
+};
+
 // 응답은 항상 { message } 한 줄. DB 함수가 raise 한 한국어 안내(예: "팀장 또는 부팀장만…")는
 // 그대로 전달해 화면이 Supabase 때와 같은 문구를 보여 주게 하고, 그 밖의 DB 오류 내용은 숨긴다.
 @Catch()
@@ -43,7 +51,8 @@ export class ApiErrorFilter implements ExceptionFilter {
       response.status(403).json({ message: "권한이 없습니다." });
     } else if (code.startsWith("23") || code === "22P02") {
       // 제약 조건 위반·잘못된 형식(예: 없는 폴더 번호)
-      response.status(400).json({ message: "요청을 처리할 수 없습니다." });
+      const constraint = (error as { constraint?: string })?.constraint ?? "";
+      response.status(400).json({ message: (code === "23514" && CHECK_MESSAGES[constraint]) || "요청을 처리할 수 없습니다." });
     } else {
       this.logger.error(error instanceof Error ? error.stack ?? error.message : String(error));
       response.status(500).json({ message: "서버 오류가 발생했습니다." });

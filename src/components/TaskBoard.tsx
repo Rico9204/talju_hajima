@@ -362,6 +362,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                       <input
                         autoFocus
                         value={newTitle}
+                        maxLength={200}
                         onChange={(e) => setNewTitle(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submitQuickAdd(col.id)}
                         placeholder="과제 제목"
