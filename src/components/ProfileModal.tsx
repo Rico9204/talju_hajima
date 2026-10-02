@@ -365,8 +365,8 @@ export default function ProfileModal() {
       setPasswordNotice("새 비밀번호는 기존 비밀번호와 다르게 설정해야 합니다.");
       return;
     }
-    if (passwordForm.next.length < 8) {
-      setPasswordNotice("새 비밀번호는 8자 이상이어야 합니다.");
+    if (passwordForm.next.length < 6) {
+      setPasswordNotice("새 비밀번호는 6자 이상이어야 합니다.");
       return;
     }
     if (passwordForm.next !== passwordForm.confirm) {
@@ -674,7 +674,7 @@ export default function ProfileModal() {
                   type="password"
                   value={passwordForm.next}
                   onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
-                  placeholder="8자 이상 (기존과 다른 비밀번호)"
+                  placeholder="6자 이상 (기존과 다른 비밀번호)"
                   className="w-full px-3 py-2.5 text-sm outline-none"
                   style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
                 />

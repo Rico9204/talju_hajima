@@ -37,9 +37,9 @@ export class ConsoleMailer extends Mailer {
 // 메일 문구. 링크는 화면(프론트) 주소로 가고, 화면이 토큰을 서버 API로 넘긴다.
 export const mailTemplates = {
   confirm: (appUrl: string, token: string): Omit<MailMessage, "to"> => ({
-    subject: "[CollabPeer] 이메일 인증을 완료해 주세요",
+    subject: "[Slackerspace] 이메일 인증을 완료해 주세요",
     text: [
-      "CollabPeer 가입을 환영합니다.",
+      "Slackerspace 가입을 환영합니다.",
       "아래 링크를 눌러 이메일 인증을 완료하면 로그인할 수 있습니다(24시간 동안 유효).",
       "",
       `${appUrl}/confirm-email?token=${token}`,
@@ -49,7 +49,7 @@ export const mailTemplates = {
   }),
   // 이미 가입된 이메일로 다시 가입을 시도했을 때: 화면에는 똑같이 "메일을 보냈다"고만 하고, 여기서 재설정 방법을 알린다.
   alreadyRegistered: (appUrl: string, token: string): Omit<MailMessage, "to"> => ({
-    subject: "[CollabPeer] 이미 가입된 이메일입니다",
+    subject: "[Slackerspace] 이미 가입된 이메일입니다",
     text: [
       "이 이메일로 가입이 시도되었지만, 이미 가입된 계정이 있습니다.",
       "비밀번호를 잊었다면 아래 링크에서 새 비밀번호를 정할 수 있습니다(1시간 동안 유효).",
@@ -60,7 +60,7 @@ export const mailTemplates = {
     ].join("\n"),
   }),
   reset: (appUrl: string, token: string): Omit<MailMessage, "to"> => ({
-    subject: "[CollabPeer] 비밀번호 재설정",
+    subject: "[Slackerspace] 비밀번호 재설정",
     text: [
       "아래 링크에서 새 비밀번호를 정할 수 있습니다(1시간 동안 유효, 한 번만 사용 가능).",
       "",

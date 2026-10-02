@@ -79,6 +79,7 @@ test('확인 메일 다시 받기: 미인증이면 새 메일, 아니면 조용�
 
 test('짧은 비밀번호·정의하지 않은 필드·앱 역할의 계정 표 접근은 막힌다', async () => {
   assert.equal((await signup('short@example.com', 'short')).status, 400);
+  assert.equal((await signup('six@example.com', 'abc123')).status, 202); // 최소 6자(가입 화면과 같은 기준)
   assert.equal((await api(null, 'POST', '/auth/signup', { email: 'x@example.com', password: 'correct-horse-1', displayName: '이', isAdmin: true })).status, 400);
   await pg.exec('set role authenticated');
   await assert.rejects(pg.query('select * from auth.users'), /permission denied/);

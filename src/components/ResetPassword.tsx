@@ -11,7 +11,7 @@ export default function ResetPassword() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
-  const canSubmit = password.length >= 8 && password === confirm;
+  const canSubmit = password.length >= 6 && password === confirm;
 
   async function submit() {
     if (!canSubmit || submitting) return;
@@ -46,7 +46,7 @@ export default function ResetPassword() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="8자 이상"
+          placeholder="6자 이상"
           className="w-full text-sm px-3 py-2.5 outline-none mb-3"
           style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-outfit)" }}
         />

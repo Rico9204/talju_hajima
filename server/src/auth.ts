@@ -167,7 +167,7 @@ export const UserId = createParamDecorator((_data: unknown, context: ExecutionCo
 
 class SignupDto {
   @IsEmail() @MaxLength(254) email!: string;
-  @IsString() @Length(8, 72) password!: string; // bcrypt는 72바이트까지만 쓴다
+  @IsString() @Length(6, 72) password!: string; // 최소 6자(Supabase 시절과 같음), bcrypt는 72바이트까지만 쓴다
   @IsString() @Length(1, 30) displayName!: string;
   @IsOptional() @IsString() @MaxLength(100) org?: string;
   @IsOptional() @IsIn(["admin"]) signupType?: "admin";
@@ -188,12 +188,12 @@ class OneTimeTokenDto {
 
 class ResetPasswordDto {
   @IsString() @Length(20, 200) token!: string;
-  @IsString() @Length(8, 72) password!: string;
+  @IsString() @Length(6, 72) password!: string;
 }
 
 class ChangePasswordDto {
   @IsString() @Length(1, 72) currentPassword!: string;
-  @IsString() @Length(8, 72) newPassword!: string;
+  @IsString() @Length(6, 72) newPassword!: string;
 }
 
 @Controller("auth")
