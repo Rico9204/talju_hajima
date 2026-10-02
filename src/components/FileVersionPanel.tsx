@@ -8,6 +8,7 @@ import VersionCalendar from "./VersionCalendar";
 import OfficeEditorModal, { isOfficeEditable, officeEditorEnabled } from "./OfficeEditorModal";
 import { useEffect, useRef, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
+import type { CollabEditor, CollabPresence } from "../lib/collab";
 import { useProject } from "../context/ProjectContext";
 import { EDITABLE_TEXT_EXTENSIONS, formatUploadTime, isEditableTextFile, versionTree } from "../lib/workspaceFiles";
 import { isRichDocName } from "../lib/richDoc";
@@ -49,7 +50,7 @@ function highlightOfficeHtml(html: string, query: string): string {
   return document.body.innerHTML;
 }
 
-export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange, onQuickEdit, onSelectFile, editorNames = [] }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void; onQuickEdit?: (mode: "main" | "pin", version?: FileVersion) => void; onSelectFile?: (fileId: number) => void; editorNames?: string[] }) {
+export default function FileVersionPanel({ file, searchQuery = "", onViewingVersionChange, onQuickEdit, onSelectFile, editorNames = [], presence = null, editors = [] }: { file: WorkspaceFile; searchQuery?: string; onViewingVersionChange?: (versionId: number | null) => void; onQuickEdit?: (mode: "main" | "pin", version?: FileVersion) => void; onSelectFile?: (fileId: number) => void; editorNames?: string[]; presence?: CollabPresence | null; editors?: CollabEditor[] }) {
   const { project, files, uploadWorkspaceFile, promoteFileVersion, pinFileVersion, downloadFileVersion } = useProject();
   const [baseId, setBaseId] = useState<number | null>(file.versions.find((v) => v.current)?.id ?? null);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
@@ -206,7 +207,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
         {locked ? "📑 오피스에서 보기" : "📑 오피스에서 편집 (여러 명이 함께)"}
       </button>
     )}
-    {officeOpen && <OfficeEditorModal fileId={file.id} fileName={file.name} readOnly={locked} onClose={() => setOfficeOpen(false)} />}
+    {officeOpen && <OfficeEditorModal fileId={file.id} fileName={file.name} readOnly={locked} presence={presence} editors={editors} onClose={() => setOfficeOpen(false)} />}
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
       {([["page", "페이지"], ["tree", "버전 트리"], ["calendar", "달력"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
     </div>

@@ -797,7 +797,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
 
               {detailTab === "versions" ? (
-                <FileVersionPanel file={selFile} searchQuery={searchQuery} onViewingVersionChange={setViewingVersionId} onSelectFile={(fileId) => { setSelected(fileId); setDetailTab("versions"); }} onQuickEdit={(mode, v) => void startQuickEdit(selFile, mode, v)} editorNames={[...new Set(editors.filter((e) => e.fileId === selFile.id).map((e) => e.name))]} />
+                <FileVersionPanel file={selFile} searchQuery={searchQuery} onViewingVersionChange={setViewingVersionId} onSelectFile={(fileId) => { setSelected(fileId); setDetailTab("versions"); }} onQuickEdit={(mode, v) => void startQuickEdit(selFile, mode, v)} editorNames={[...new Set(editors.filter((e) => e.fileId === selFile.id).map((e) => e.name))]} presence={presenceRef.current} editors={editors} />
               ) : (
                 <WorkspaceComments file={selFile} focusedVersionId={selFile.versions.some((v) => v.id === viewingVersionId) ? viewingVersionId : selFile.versions.find((v) => v.current)?.id ?? null} />
               )}

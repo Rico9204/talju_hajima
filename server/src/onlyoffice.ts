@@ -223,8 +223,9 @@ export class OnlyofficeController {
 // 편집기 화면: /onlyoffice/[9.4.0-<해시>/]web-apps/apps/<documenteditor|spreadsheeteditor|presentationeditor…>/main/index.html 등.
 // 문서 서버는 버전 없는 주소를 버전이 붙은 주소로 넘긴다(302) — 실제로 화면이 오는 건 버전 주소다.
 export const EDITOR_PAGE = /^\/onlyoffice\/(?:[\w.-]+\/)?web-apps\/apps\/[a-z]+\/main\/index[\w.-]*\.html$/;
-// 상단 로고(#header-logo)와 왼쪽 아래 정보 버튼(#left-btn-about, 외부 편집기 이름·버전이 나옴).
-export const EDITOR_PAGE_STYLE = "<style>#header-logo,#left-btn-about{display:none!important}</style>";
+// 상단 로고(#header-logo), 왼쪽 아래 정보 버튼(#left-btn-about, 외부 편집기 이름·버전이 나옴),
+// 상단 오른쪽 편집 중인 사람 표시(#tlb-box-users·.btn-current-user·.slot-btn-user-name, 이니셜만 나옴 — 우리 창 상단에 프로필로 대신 보여 준다).
+export const EDITOR_PAGE_STYLE = "<style>#header-logo,#left-btn-about,#tlb-box-users,.btn-current-user,.slot-btn-user-name{display:none!important}</style>";
 
 // 문서 서버를 /onlyoffice/ 아래로 중계(HTTP + 공동편집 WebSocket). 문서 서버가 자기 주소를 "<공개 주소>/onlyoffice"로 알도록
 // X-Forwarded-Host에 경로를 붙인다(OnlyOffice 공식 가상 경로 방식). 편집기 스크립트(api.js)는 화면의 서비스 워커가

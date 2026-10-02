@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { dataRepository } from "../api";
 import { backendOrigin } from "../api/rest/backendUrl";
+import type { CollabEditor, CollabPresence } from "../lib/collab";
+import EditorAvatars from "./EditorAvatars";
 
 // 워드·엑셀·PPT를 앱 안에서 편집(OnlyOffice 문서 서버, Temporary_Merge에서 이식).
 // 편집기 스크립트는 API 서버의 /onlyoffice/ 아래(문서 서버 중계)에서 받고, 설정은 서버가 서명해 준다.
@@ -39,7 +41,14 @@ export function officeEditorEnabled(): Promise<boolean> {
   return statusPromise;
 }
 
-export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose }: { fileId: number; fileName: string; readOnly: boolean; onClose: () => void }) {
+export default function OfficeEditorModal({ fileId, fileName, readOnly, presence = null, editors = [], onClose }: { fileId: number; fileName: string; readOnly: boolean; presence?: CollabPresence | null; editors?: CollabEditor[]; onClose: () => void }) {
+  // 편집 중인 사람 표시는 문서 서버 것 대신(중계에서 숨김) 우리 프로필로: 워크스페이스 접속 상태에 "오피스로 여는 중"을 올린다.
+  const officeEditors = editors.filter((e) => e.fileId === fileId && e.mode === "office");
+  useEffect(() => {
+    if (!presence || readOnly) return;
+    presence.track({ fileId, room: 0, mode: "office" });
+    return () => presence.track(null);
+  }, [presence, fileId, readOnly]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false); // 편집기가 준비 신호를 보냄
@@ -86,6 +95,7 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, onClose 
           <span className="text-sm font-700 truncate">📎 {fileName}</span>
           {readOnly && <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>보기 전용</span>}
         </div>
+        {officeEditors.length > 0 && <span className="ml-auto shrink-0"><EditorAvatars editors={officeEditors} size={26} max={6} /></span>}
         <button onClick={onClose} aria-label="닫기" title="닫기" className="w-8 h-8 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>×</button>
       </div>
       {/* ngrok 안내 페이지가 편집기 자리에 뜰 수 있는 동안만(편집기가 준비되면 사라짐). */}

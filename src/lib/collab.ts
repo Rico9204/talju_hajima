@@ -6,8 +6,10 @@ import { applyTextEdit, fromB64, seedDoc, textHash, toB64, transformIndex, type 
 export { textHash, transformIndex };
 export type { Delta };
 export type CollabMode = "main" | "pin";
-export interface CollabEditor { key: string; memberId: string; name: string; fileId: number; room: number; mode: CollabMode; }
-export interface CollabPresence { key: string; track: (mine: { fileId: number; room: number; mode: CollabMode } | null) => void; leave: () => void; }
+// 접속 상태에만 쓰는 모드: "office" = 오피스 편집기로 여는 중(동시 편집은 문서 서버가 하므로 방·동기화 없음, room은 0).
+export type PresenceMode = CollabMode | "office";
+export interface CollabEditor { key: string; memberId: string; name: string; fileId: number; room: number; mode: PresenceMode; }
+export interface CollabPresence { key: string; track: (mine: { fileId: number; room: number; mode: PresenceMode } | null) => void; leave: () => void; }
 
 type Message = { type?: string; topic?: string; event?: string; payload?: Record<string, unknown>; state?: Record<string, Array<Record<string, unknown>>> };
 function connect(topic: string, onMessage: (message: Message, send: (type: string, extra?: Record<string, unknown>) => void) => void) {
@@ -21,12 +23,12 @@ function connect(topic: string, onMessage: (message: Message, send: (type: strin
 
 export function joinCollabPresence(projectId: string, me: { id: string; name: string }, onChange: (editors: CollabEditor[]) => void): CollabPresence {
   const key = `${me.id}:${Math.random().toString(36).slice(2, 8)}`;
-  let mine: { fileId: number; room: number; mode: CollabMode } | null = null;
+  let mine: { fileId: number; room: number; mode: PresenceMode } | null = null;
   let ready = false;
   const channel = connect(`collab_presence:${projectId}`, (message, send) => {
     if (message.type === "joined") { ready = true; if (mine) send("track", { topic: `collab_presence:${projectId}`, key, meta: { memberId: me.id, name: me.name, ...mine } }); }
     if (message.type === "presence") {
-      const editors = Object.entries(message.state ?? {}).flatMap(([entryKey, values]) => values.filter((v) => typeof v.fileId === "number").map((v) => ({ key: entryKey, memberId: String(v.memberId), name: String(v.name), fileId: Number(v.fileId), room: Number(v.room), mode: v.mode === "pin" ? "pin" : "main" as CollabMode })));
+      const editors = Object.entries(message.state ?? {}).flatMap(([entryKey, values]) => values.filter((v) => typeof v.fileId === "number").map((v) => ({ key: entryKey, memberId: String(v.memberId), name: String(v.name), fileId: Number(v.fileId), room: Number(v.room), mode: v.mode === "pin" || v.mode === "office" ? v.mode : "main" as PresenceMode })));
       onChange(editors);
     }
   });

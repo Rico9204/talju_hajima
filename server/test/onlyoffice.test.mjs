@@ -136,7 +136,7 @@ test('편집기 화면: 외부 편집기 로고·정보 버튼을 숨기는 스�
   const res = await fetch(`${origin}/onlyoffice/9.4.0-abc/web-apps/apps/documenteditor/main/index.html?_dc=1`, { headers: { 'if-none-match': '"v1"' } });
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.match(html, /<style>#header-logo,#left-btn-about\{display:none!important\}<\/style><\/head>/);
+  assert.match(html, /<style>#header-logo,#left-btn-about,#tlb-box-users,\.btn-current-user,\.slot-btn-user-name\{display:none!important\}<\/style><\/head>/);
   assert.equal(res.headers.get('cache-control'), 'no-store');
   assert.equal(res.headers.get('etag'), null);
   const last = seen.at(-1);
