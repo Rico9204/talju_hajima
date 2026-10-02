@@ -18,7 +18,7 @@ export default function Landing() {
         />
         <h1 className="text-3xl font-800 mb-3">Slackerspace</h1>
         <p className="text-sm leading-relaxed mb-8" style={{ color: "var(--muted-foreground)" }}>
-          팀 프로젝트를 위한 온라인 협업 플랫폼입니다. 팀 관리, 채팅, 과제 보드, 워킹스페이스, 동료 평가까지
+          팀 프로젝트를 위한 온라인 협업 플랫폼입니다. 팀 관리, 채팅, 과제 보드, 워크스페이스, 동료 평가까지
           — 프로젝트를 만들거나 참여 코드로 팀에 합류해서 바로 시작해보세요.
         </p>
         <div className="flex gap-2 justify-center">

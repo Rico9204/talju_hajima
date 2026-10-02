@@ -299,7 +299,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
       {/* Hero banner */}
       <div
-        className="relative mb-8 overflow-hidden"
+        className="relative mb-8 overflow-hidden px-6 py-8 md:px-12 md:py-11" // 휴대폰에서는 여백을 줄인다(예전엔 44px·48px 고정)
         style={{
           background: isRejected
             ? "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #991b1b 100%)"
@@ -309,7 +309,6 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                 ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
                 : "var(--hero-banner-bg)",
           borderRadius: "calc(var(--radius) + 8px)",
-          padding: "44px 48px",
           border: isRejected || isPending || isDone ? "none" : "var(--hero-banner-border)",
           boxShadow: isDone
             ? "0 8px 32px rgba(22,163,74,0.3)"
@@ -337,7 +336,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           >
             {project.period}
           </div>
-          <h1 className="text-3xl font-700 mb-2" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
+          <h1 className="text-2xl md:text-3xl font-700 mb-2" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
             안녕하세요, {currentMember?.name ?? "참여자"}님
           </h1>
           {bannerText && <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "15px" }}>{bannerText}</p>}

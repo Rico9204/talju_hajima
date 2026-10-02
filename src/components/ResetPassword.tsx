@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../api/rest/authApi";
+import { useAuth } from "../context/AuthContext";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
+  const { user, signOut } = useAuth();
   const token = searchParams.get("token");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -23,11 +25,26 @@ export default function ResetPassword() {
       setError(result.error);
       return;
     }
+    // 서버는 재설정하면 모든 기기를 로그아웃시킨다. 이 브라우저에 남은 로그인도 지워 새 비밀번호로 다시 로그인하게 한다.
+    if (user) await signOut();
     setDone(true);
   }
 
   if (!token) return <Navigate to="/login" replace />;
-  if (done) return <Navigate to="/home" replace />;
+  if (done) {
+    return (
+      <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
+        <div role="status" className="w-[24rem] max-w-[92vw] p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
+          <h3 className="font-700 mb-1">비밀번호가 변경되었습니다</h3>
+          <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>모든 기기에서 로그아웃되었어요. 새 비밀번호로 다시 로그인해 주세요.</p>
+          <Link to="/login" replace className="block w-full py-2.5 text-sm font-700 text-center" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}>
+            로그인하러 가기
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
