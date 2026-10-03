@@ -80,7 +80,7 @@ pnpm run dev                                          # http://localhost:3000/ap
 
 **기존 동작 그대로 둔 알려진 문제**(서버가 같은 DB 함수·권한 규칙을 쓰므로 동일, 테스트에 명시):
 - (해결) 팀장 위임은 이제 팀원 id(`targetMemberId`, DB 함수 `transfer_leadership_to_member`)로 찾는다. 예전 방식 `targetName`(참여 당시 이름 `members.name`으로 찾음)은 예전 화면을 위해 남겨 두었다.
-- 프로필은 본인·같은 프로젝트 팀원·관리자만 읽을 수 있어, 게시판에서 프로젝트를 함께하지 않는 사람의 글·댓글·신고 작성자가 "탈퇴한 사용자"/"알 수 없음"으로 보인다.
+- (해결) 게시판 작성자 이름·사진은 DB 함수 `board_profiles`로 읽는다. 게시판에 글·댓글·공개 투표를 남긴 사람은 프로젝트를 함께하지 않아도 이름·사진이 보이고, 나머지 프로필은 계속 본인·같은 프로젝트 팀원·관리자만 읽는다(마이그레이션 `2610032000_board_author_profiles.sql`).
 
 ## 웹 푸시(브라우저를 닫아도 알림)
 DB 트리거(`push_to_members`)는 Supabase에서 pg_net으로 Vercel 함수에 보내던 것을, 이 서버에서는 `db/realtime.sql`의 같은 이름 함수 `net.http_post`가 `net.push_outbox`에 쌓고 `pg_notify('talju_push')`로 알린다.

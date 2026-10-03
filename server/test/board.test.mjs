@@ -3,13 +3,12 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb, signupUsers, startApp } from './helpers.mjs';
 
-let pg, app, api;
+let pg, db, app, api;
 let author, reader, operator;
 const call = (user, method, path, body) => api(user?.token ?? null, method, path, body);
 let post, anonymousPost;
 
 before(async () => {
-  let db;
   ({ pg, db } = await createTestDb());
   ({ app, api } = await startApp(db));
   [author, reader, operator] = await signupUsers(api, 3, 'user');
@@ -53,13 +52,14 @@ test('좋아요·조회수·목록: 내 좋아요 표시와 개수', async () =>
   assert.equal((await call(reader, 'GET', '/board/posts')).body.find((p) => p.id === post.id).likes, 0);
 });
 
-// 주의(기존 동작 그대로): 프로필은 본인·같은 프로젝트 팀원·관리자만 읽을 수 있어(profiles_select_own),
-// 프로젝트를 함께하지 않는 사람의 글·댓글 작성자는 "탈퇴한 사용자"로 보인다 — Supabase 버전과 같다(별도 수정 과제).
+// 프로필은 본인·같은 프로젝트 팀원·관리자만 읽을 수 있지만(profiles_select_own), 게시판에 글·댓글을 쓴 사람의
+// 이름·사진은 DB 함수 board_profiles로 프로젝트를 함께하지 않는 사람에게도 보인다.
 test('댓글과 답글', async () => {
   assert.equal((await call(reader, 'POST', `/board/posts/${post.id}/comments`, { content: '김밥이요' })).status, 204);
   const [first] = (await call(reader, 'GET', `/board/posts/${post.id}/comments`)).body;
   assert.equal(first.author, 'user1'); // 본인 이름은 보임
-  assert.equal((await call(author, 'GET', `/board/posts/${post.id}/comments`)).body[0].author, '탈퇴한 사용자'); // 기존 동작
+  assert.equal((await call(author, 'GET', `/board/posts/${post.id}/comments`)).body[0].author, 'user1'); // 프로젝트를 함께하지 않아도 보임
+  assert.equal((await call(reader, 'GET', '/board/posts')).body.find((p) => p.id === post.id).author, 'user0');
   assert.equal((await call(author, 'POST', `/board/posts/${post.id}/comments`, { content: '좋아요', parentCommentId: first.id })).status, 204);
   const comments = (await call(reader, 'GET', `/board/posts/${post.id}/comments`)).body;
   assert.equal(comments.length, 1);
@@ -135,4 +135,12 @@ test('삭제: 글쓴이만, 지운 글의 원문은 null', async () => {
   assert.equal((await call(author, 'DELETE', `/board/posts/${post.id}`)).status, 204);
   assert.ok(!(await call(reader, 'GET', '/board/posts')).body.some((p) => p.id === post.id));
   assert.equal((await call(reader, 'GET', `/board/posts/${post.id}/content`)).body.content, null);
+});
+
+test('board_profiles: 게시판 활동이 없는 사람의 프로필은 프로젝트를 함께하지 않으면 주지 않는다', async () => {
+  const [quiet] = await signupUsers(api, 1, 'quiet');
+  const rows = await db.asUser(reader.id, (query) => query('select id, display_name from public.board_profiles($1::uuid[])', [[quiet.id, author.id]]));
+  assert.deepEqual(rows.map((r) => r.display_name), ['user0']);
+  const own = await db.asUser(quiet.id, (query) => query('select display_name from public.board_profiles($1::uuid[])', [[quiet.id]]));
+  assert.equal(own.length, 1); // 본인은 보인다
 });

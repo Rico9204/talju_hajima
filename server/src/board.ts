@@ -71,7 +71,8 @@ class ReviewReportDto {
 async function profilesById(query: Query, userIds: string[]): Promise<Map<string, any>> {
   const ids = [...new Set(userIds.filter(Boolean))];
   if (!ids.length) return new Map();
-  return new Map((await selectJson(query, "select id, display_name, avatar_url from public.profiles where id = any($1::uuid[])", [ids])).map((p) => [p.id, p]));
+  // 프로필 표는 같은 프로젝트 팀원만 읽을 수 있으므로, 게시판에 글·댓글·공개 투표를 남긴 사람의 이름·사진만 주는 DB 함수로 읽는다.
+  return new Map((await selectJson(query, "select * from public.board_profiles($1::uuid[])", [ids])).map((p) => [p.id, p]));
 }
 
 // 투표 + 항목 + 투표 기록(board_poll_votes_view) → 게시글 id별 투표. 익명 투표는 DB 함수가 다른 사람의 user_id를 주지 않는다.

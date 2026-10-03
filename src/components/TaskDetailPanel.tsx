@@ -1,5 +1,5 @@
 import StillImg from "./StillImg";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useProject, type Task, type TaskStatus, type TaskPriority, type Member } from "../context/ProjectContext";
 import { memberInfo } from "./TaskBoard";
 import Avatar from "./Avatar";
@@ -17,7 +17,7 @@ interface Props {
   canChangeStatus: boolean;
   locked: boolean;
   onClose: () => void;
-  onUpdateDetails: (patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>) => void;
+  onUpdateDetails: (patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>) => Promise<boolean> | void; // false면 저장 실패
   onChangeStatus: (status: TaskStatus) => void;
   onDelete: () => void;
   onToggleChecklist: (itemId: number, done: boolean) => void;
@@ -52,6 +52,48 @@ export default function TaskDetailPanel({
   const { openMemberProfile } = useProject();
   const [assigneeSearch, setAssigneeSearch] = useState("");
   useEffect(() => { setAssigneeSearch(""); }, [task.id]);
+  // 제목은 입력하는 동안 화면에만 두고, 칸을 벗어나거나 Enter, 0.5초 멈췄을 때 한 번 저장한다
+  // (예전엔 글자마다 저장 + 과제 목록 다시 읽기라 입력이 버벅이고, 응답 순서가 엇갈리면 중간 글자로 저장될 수 있었다).
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const titleInput = useRef<HTMLInputElement>(null);
+  // save는 입력할 때의 onUpdateDetails(그 과제에 저장하는 함수)라, 다른 과제로 넘어간 뒤에 저장해도 원래 과제에 들어간다.
+  type PendingTitle = { taskId: number; value: string; save: Props["onUpdateDetails"] };
+  const pendingTitle = useRef<PendingTitle | null>(null);
+  const saveTitleRef = useRef<(pending: PendingTitle) => void>(() => {});
+  saveTitleRef.current = ({ taskId, value, save }) => {
+    pendingTitle.current = null;
+    const title = value.trim();
+    if (taskId !== task.id) { if (title) void save({ title }); return; } // 다른 과제로 넘어가거나 창을 닫으며 남은 저장
+    if (!title) { if (document.activeElement !== titleInput.current) setTitleDraft(task.title); return; }
+    if (title === task.title) return;
+    void Promise.resolve(onUpdateDetails({ title })).then((ok) => {
+      if (ok === false && document.activeElement !== titleInput.current) setTitleDraft(task.title);
+    });
+  };
+  // 다른 과제를 열면 그 제목으로, 저장된 제목이 바뀌면(저장 완료·다른 사람의 수정) 입력 중이 아닐 때만 맞춘다.
+  const titleTaskId = useRef(task.id);
+  useEffect(() => {
+    const switched = titleTaskId.current !== task.id;
+    titleTaskId.current = task.id;
+    if (switched || document.activeElement !== titleInput.current) setTitleDraft(task.title);
+  }, [task.id, task.title]);
+  useEffect(() => {
+    if (pendingTitle.current === null) return;
+    const timer = setTimeout(() => { if (pendingTitle.current) saveTitleRef.current(pendingTitle.current); }, 500);
+    return () => clearTimeout(timer);
+  }, [titleDraft]);
+  // 0.5초가 되기 전에 다른 과제로 넘어가거나 창을 닫으면 남은 제목을 저장한다.
+  useEffect(() => () => {
+    if (pendingTitle.current) saveTitleRef.current(pendingTitle.current);
+  }, [task.id]);
+  function changeTitle(value: string) {
+    pendingTitle.current = { taskId: task.id, value, save: onUpdateDetails };
+    setTitleDraft(value);
+  }
+  function commitTitle() {
+    if (pendingTitle.current) saveTitleRef.current(pendingTitle.current);
+    else if (!titleDraft.trim()) setTitleDraft(task.title);
+  }
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
   const [commentDraft, setCommentDraft] = useState("");
@@ -115,9 +157,12 @@ export default function TaskDetailPanel({
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {canEditFields ? (
             <input
-              value={task.title}
+              ref={titleInput}
+              value={titleDraft}
               maxLength={200}
-              onChange={(e) => onUpdateDetails({ title: e.target.value })}
+              onChange={(e) => changeTitle(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); commitTitle(); } }}
               className="w-full text-base font-700 px-0 py-1 mb-3 outline-none border-0 border-b bg-transparent"
               style={{ borderColor: "var(--border)" }}
             />

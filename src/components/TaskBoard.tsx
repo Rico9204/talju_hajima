@@ -441,7 +441,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           canChangeStatus={isManager}
           locked={locked}
           onClose={() => setSelectedTaskId(null)}
-          onUpdateDetails={(patch) => void run(() => updateTaskDetails(selectedTask.id, patch))}
+          onUpdateDetails={(patch) => run(() => updateTaskDetails(selectedTask.id, patch))}
           onChangeStatus={(s) => void run(() => moveTask(selectedTask.id, s), "과제 상태를 바꾸지 못했습니다.")}
           onDelete={() => setPendingDelete({ id: selectedTask.id, title: selectedTask.title })}
           onToggleChecklist={(itemId, done) => void run(() => toggleTaskChecklistItem(selectedTask.id, itemId, done))}
