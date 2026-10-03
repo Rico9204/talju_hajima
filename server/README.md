@@ -122,11 +122,14 @@ pnpm run backup        # 또는: node --env-file-if-exists=.env scripts/backup.m
 - 기본 위치 `server/backups`는 OneDrive 폴더 안이라 클라우드에도 사본이 생긴다(PC가 고장 나도 남음). 다른 곳에 두려면 `BACKUP_DIR`.
 - Docker Desktop과 DB 컨테이너가 켜져 있어야 한다.
 
-**매일 자동 실행(Windows 작업 스케줄러)**: 예) 매일 새벽 4시
+**매일 자동 실행(Windows 작업 스케줄러)**: 매일 새벽 4시, PowerShell에서 한 번 등록(server 폴더에서 실행)
 ```powershell
-schtasks /Create /TN "Slackerspace DB 백업" /SC DAILY /ST 04:00 /TR "cmd /c cd /d \"<server 폴더>\" && node --env-file-if-exists=.env scripts\backup.mjs"
+$action = New-ScheduledTaskAction -Execute (Get-Command node).Source -Argument "--env-file-if-exists=.env scripts\backup.mjs" -WorkingDirectory (Get-Location).Path
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName "Slackerspace DB 백업" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 4:00) -Settings $settings
 ```
-PC가 켜져 있고 로그인한 상태에서만 실행된다(꺼져 있던 날은 건너뜀). 결과는 `backup.log`로 확인한다.
+로그인한 상태에서 실행되고(Docker Desktop이 켜져 있어야 함), 4시에 PC가 꺼져 있었으면 다음에 켰을 때 실행한다(`StartWhenAvailable`).
+결과는 `backups/backup.log`, 바로 한 번 돌려 보기: `Start-ScheduledTask -TaskName "Slackerspace DB 백업"`. 해제: `Unregister-ScheduledTask -TaskName "Slackerspace DB 백업"`.
 
 **복구**(새 DB에 먼저 풀어 보고 확인한 뒤 바꾸는 것을 권장):
 ```bash

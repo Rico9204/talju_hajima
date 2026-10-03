@@ -20,7 +20,7 @@ export default function JoinProjectModal({
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmitProfile = school.trim() !== "" && major !== "";
+  const canSubmitProfile = school.trim() !== "" && major.trim() !== "";
 
   async function checkCode() {
     const trimmed = projectId.trim();
@@ -47,7 +47,7 @@ export default function JoinProjectModal({
     setJoining(true);
     setError(null);
     try {
-      await joinProject(preview.id, projectId.trim(), { school: school.trim(), major: `${major} ${grade}학년`, student });
+      await joinProject(preview.id, projectId.trim(), { school: school.trim(), major: `${major.trim()} ${grade}학년`, student });
       onJoined();
     } catch (err) {
       setError(err instanceof Error ? err.message : "참여하지 못했습니다.");
