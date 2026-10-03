@@ -1,11 +1,12 @@
 import {
-  BadRequestException, Body, CanActivate, Controller, ExecutionContext, ForbiddenException, Get, HttpCode, HttpException, Injectable, Ip,
+  BadRequestException, Body, CanActivate, Controller, ExecutionContext, ForbiddenException, Get, HttpCode, HttpException, Injectable,
   Logger, Patch, Post, Req, Res, UnauthorizedException, UseGuards, createParamDecorator,
 } from "@nestjs/common";
 import { IsEmail, IsIn, IsOptional, IsString, Length, MaxLength } from "class-validator";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
 import { createHash, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import type { Request, Response } from "express";
 import { Db, selectOneJson, type Query } from "./db.js";
 import { Mailer, mailTemplates, type MailMessage } from "./mail.js";
@@ -81,9 +82,12 @@ export class RateLimiter {
 }
 
 // 로그인·가입 남용 제한. 계정 자체는 잠그지 않는다(남이 일부러 잠글 수 있으므로).
+// "IP"는 ClientAddress가 정한 사용자 IP(client)다.
 //  - loginPair: 같은 IP·같은 이메일 실패 → 그 조합만 막음(비밀번호 대입)
 //  - loginIp:   같은 IP의 실패 전체 → 이메일을 바꿔 가며 대입하거나 bcrypt 계산으로 CPU를 소모시키는 공격
 //  - signupIp:  같은 IP의 가입 시도 → 계정 대량 생성·bcrypt 소모
+// *Hop 한도는 서버에 실제로 연결한 주소(hop) 기준의 넉넉한 상한이다. Vercel을 거치면 모든 사용자가 Vercel 주소 몇 개를
+// 나눠 쓰므로 사람별 제한은 client로 하고, client 헤더를 위조해 Vercel 없이 직접 보내는 사람도 자기 실제 주소에서 이 상한에 걸린다.
 export class AuthLimits {
   constructor(
     readonly loginPair = new RateLimiter(5, 15 * 60_000),
@@ -91,7 +95,25 @@ export class AuthLimits {
     readonly signupIp = new RateLimiter(10, 60 * 60_000),
     // 확인 메일 다시 받기·비밀번호 재설정 요청(메일 폭탄 방지)
     readonly mailIp = new RateLimiter(10, 60 * 60_000),
+    readonly loginHop = new RateLimiter(300, 15 * 60_000),
+    readonly signupHop = new RateLimiter(100, 60 * 60_000),
+    readonly mailHop = new RateLimiter(100, 60 * 60_000),
   ) {}
+}
+
+// 요청의 사용자 IP(client)와 서버에 실제로 연결한 주소(hop, Express의 req.ip).
+// trustVercel이면 Vercel이 넣어 주는 X-Vercel-Forwarded-For를 사용자 IP로 쓴다(Vercel은 브라우저가 보낸 같은 이름의 헤더를 덮어쓴다).
+// Vercel을 거치지 않은 요청은 이 헤더를 위조할 수 있으므로 hop 기준 상한(AuthLimits의 *Hop)을 함께 건다.
+export class ClientAddress {
+  constructor(private readonly trustVercel = false) {}
+
+  of(req: Request): { client: string; hop: string } {
+    const hop = req.ip ?? req.socket.remoteAddress ?? "";
+    if (!this.trustVercel) return { client: hop, hop };
+    const header = req.headers["x-vercel-forwarded-for"];
+    const first = (Array.isArray(header) ? header[0] : header)?.split(",")[0]?.trim() ?? "";
+    return { client: isIP(first) ? first : hop, hop };
+  }
 }
 
 // 리프레시 토큰은 응답 본문이 아니라 httpOnly 쿠키로만 준다 → 화면의 스크립트(XSS)가 읽어 갈 수 없다.
@@ -203,7 +225,16 @@ export class AuthController {
   constructor(
     private readonly db: Db, private readonly tokens: TokenService, private readonly limits: AuthLimits,
     private readonly mailer: Mailer, private readonly mail: MailSettings, private readonly cookie: SessionCookie,
+    private readonly address: ClientAddress,
   ) {}
+
+  // 확인 메일 다시 받기·비밀번호 재설정 요청 한도
+  private limitMail(req: Request) {
+    const { client, hop } = this.address.of(req);
+    if (this.limits.mailIp.isBlocked(client) || this.limits.mailHop.isBlocked(hop)) throw new HttpException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
+    this.limits.mailIp.hit(client);
+    this.limits.mailHop.hit(hop);
+  }
 
   // 새 세션: 리프레시 토큰은 쿠키로, 본문에는 사용자와 액세스 토큰만.
   private startSession(res: Response, user: object, issued: { accessToken: string; refreshToken: string }) {
@@ -241,10 +272,12 @@ export class AuthController {
   //  - 미인증 기존 이메일: 이번 가입 정보로 덮어쓰고 확인 메일 다시(남이 먼저 만들어 둔 미인증 계정을 가로챌 수 없게)
   @Post("signup")
   @HttpCode(202)
-  async signup(@Body() body: SignupDto, @Ip() ip: string) {
+  async signup(@Body() body: SignupDto, @Req() req: Request) {
     if (tooLongForBcrypt(body.password)) throw new BadRequestException("비밀번호가 너무 깁니다(72바이트, 한글은 약 24자까지).");
-    if (this.limits.signupIp.isBlocked(ip)) throw new HttpException("가입 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
-    this.limits.signupIp.hit(ip);
+    const { client, hop } = this.address.of(req);
+    if (this.limits.signupIp.isBlocked(client) || this.limits.signupHop.isBlocked(hop)) throw new HttpException("가입 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
+    this.limits.signupIp.hit(client);
+    this.limits.signupHop.hit(hop);
     const email = body.email.trim().toLowerCase();
     const passwordHash = await bcrypt.hash(body.password, BCRYPT_COST);
     const meta = JSON.stringify({ display_name: body.displayName.trim(), org: body.org?.trim() ?? "", ...(body.signupType ? { signup_type: body.signupType } : {}) });
@@ -287,9 +320,8 @@ export class AuthController {
 
   @Post("resend-confirmation")
   @HttpCode(202)
-  async resendConfirmation(@Body() body: EmailDto, @Ip() ip: string) {
-    if (this.limits.mailIp.isBlocked(ip)) throw new HttpException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
-    this.limits.mailIp.hit(ip);
+  async resendConfirmation(@Body() body: EmailDto, @Req() req: Request) {
+    this.limitMail(req);
     const email = body.email.trim().toLowerCase();
     const message = await this.db.asSystem(async (query) => {
       const user = await selectOneJson(query, "select id, encrypted_password from auth.users where email = $1 and email_confirmed_at is null", [email]);
@@ -303,9 +335,8 @@ export class AuthController {
   // 비밀번호 재설정 요청: 항상 같은 응답. 계정이 있으면 1시간짜리 링크를 보낸다.
   @Post("password-reset/request")
   @HttpCode(202)
-  async requestPasswordReset(@Body() body: EmailDto, @Ip() ip: string) {
-    if (this.limits.mailIp.isBlocked(ip)) throw new HttpException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
-    this.limits.mailIp.hit(ip);
+  async requestPasswordReset(@Body() body: EmailDto, @Req() req: Request) {
+    this.limitMail(req);
     const email = body.email.trim().toLowerCase();
     const message = await this.db.asSystem(async (query) => {
       const user = await selectOneJson(query, "select id from auth.users where email = $1", [email]);
@@ -354,11 +385,12 @@ export class AuthController {
 
   @Post("login")
   @HttpCode(200)
-  async login(@Body() body: LoginDto, @Ip() ip: string, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async login(@Body() body: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     this.cookie.assertOrigin(req);
     const email = body.email.trim().toLowerCase();
-    const key = `${ip}|${email}`;
-    if (this.limits.loginIp.isBlocked(ip) || this.limits.loginPair.isBlocked(key)) {
+    const { client, hop } = this.address.of(req);
+    const key = `${client}|${email}`;
+    if (this.limits.loginIp.isBlocked(client) || this.limits.loginPair.isBlocked(key) || this.limits.loginHop.isBlocked(hop)) {
       throw new HttpException("로그인 시도가 너무 많습니다. 15분 뒤 다시 시도해 주세요.", 429);
     }
     const [user] = await this.db.asSystem((query) =>
@@ -368,7 +400,8 @@ export class AuthController {
     const matches = !tooLongForBcrypt(body.password) && await bcrypt.compare(body.password, user?.encrypted_password ?? DUMMY_HASH);
     if (!user || !matches) {
       this.limits.loginPair.hit(key);
-      this.limits.loginIp.hit(ip);
+      this.limits.loginIp.hit(client);
+      this.limits.loginHop.hit(hop);
       throw new UnauthorizedException("이메일 또는 비밀번호가 올바르지 않습니다.");
     }
     // 성공하면 이 이메일의 실패만 지운다. IP 단위 실패는 남긴다(공격자가 자기 계정으로 한 번 성공해 초기화하지 못하게).

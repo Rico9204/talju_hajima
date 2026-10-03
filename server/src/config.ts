@@ -17,6 +17,9 @@ export interface ServerConfig {
   // 리버스 프록시 뒤에서 실제 접속 IP를 쓰기 위한 Express "trust proxy" 값(예: 1, "loopback").
   // 안 쓰면 모든 요청이 프록시 IP로 보여 로그인 실패 제한이 모든 사용자에게 한꺼번에 걸린다.
   trustProxy?: number | boolean | string;
+  // Vercel 중계(vercel.json의 /api 전달) 뒤에서 X-Vercel-Forwarded-For를 사용자 IP로 쓴다. 안 쓰면 모든 사용자가 Vercel 주소
+  // 몇 개로 보여 가입·로그인 제한이 사용자 전체에 합산된다. 위조 대비로 실제 연결 주소별 상한도 함께 건다(auth.ts AuthLimits).
+  trustVercelIp: boolean;
   // 리프레시 토큰 쿠키. 화면과 서버가 다른 사이트면 none(자동으로 secure).
   cookieSameSite: "lax" | "strict" | "none";
   cookieSecure: boolean;
@@ -58,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     jwtSecret: env.JWT_SECRET!,
     corsOrigins: corsOrigins.length > 0 ? corsOrigins : ["http://localhost:5173"],
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    trustVercelIp: env.TRUST_VERCEL_IP === "1" || env.TRUST_VERCEL_IP === "true",
     cookieSameSite,
     cookieSecure: production,
     mail: transport === "smtp" ? { transport, smtpUrl: env.SMTP_URL!, from: env.MAIL_FROM! } : { transport },

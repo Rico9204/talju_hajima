@@ -68,6 +68,45 @@ test('3) TRUST_PROXY를 켜면 프록시가 알려 준 실제 IP별로 제한한
   assert.equal(loadConfig({ DATABASE_URL: 'postgres://x', JWT_SECRET }).trustProxy, undefined);
 });
 
+test('3) Vercel 중계 뒤(TRUST_VERCEL_IP): 사람별 제한은 Vercel이 알려 준 IP로, 위조 대비 상한은 실제 연결 주소로', async () => {
+  const R = (max) => new RateLimiter(max, HOUR);
+  // loginPair 5, loginIp 2, signupIp 1, mailIp 1, loginHop 5, signupHop 3, mailHop 2
+  const limits = () => new AuthLimits(R(5), R(2), R(1), R(1), R(5), R(3), R(2));
+  const api = await start({ trustProxy: 'loopback', trustVercelIp: true, authLimits: limits() });
+  const via = (ip) => ({ 'x-vercel-forwarded-for': ip });
+  const login = (ip) => api(null, 'POST', '/auth/login', { email: 'x@example.com', password: 'wrong-password' }, via(ip));
+  // 한 사람이 막혀도 같은 Vercel 주소를 쓰는 다른 사람은 막히지 않는다
+  assert.equal((await login('203.0.113.1')).status, 401);
+  assert.equal((await login('203.0.113.1')).status, 401);
+  assert.equal((await login('203.0.113.1')).status, 429);
+  assert.equal((await login('203.0.113.2')).status, 401);
+  // 헤더를 바꿔 가며 보내도 실제 연결 주소의 실패 합계(5)에서 막힌다
+  assert.equal((await login('203.0.113.3')).status, 401);
+  assert.equal((await login('203.0.113.4')).status, 401);
+  assert.equal((await login('203.0.113.5')).status, 429);
+  // 가입: 사람별 1회, 연결 주소 합계 3회
+  const signup = (ip, n) => api(null, 'POST', '/auth/signup', signupBody(`vercel${n}@example.com`), via(ip));
+  assert.equal((await signup('198.51.100.1', 1)).status, 202);
+  assert.equal((await signup('198.51.100.1', 2)).status, 429);
+  assert.equal((await signup('198.51.100.2', 3)).status, 202);
+  assert.equal((await signup('not-an-ip', 4)).status, 202); // IP가 아니면 연결 주소로 본다
+  assert.equal((await signup('198.51.100.3', 5)).status, 429);
+  // 메일 요청: 사람별 1회, 연결 주소 합계 2회
+  const mail = (ip) => api(null, 'POST', '/auth/password-reset/request', { email: 'x@example.com' }, via(ip));
+  assert.equal((await mail('192.0.2.1')).status, 202);
+  assert.equal((await mail('192.0.2.1')).status, 429);
+  assert.equal((await mail('192.0.2.2')).status, 202);
+  assert.equal((await mail('192.0.2.3')).status, 429);
+  // 설정하지 않으면 X-Vercel-Forwarded-For를 믿지 않는다
+  const direct = await start({ authLimits: limits() });
+  const directLogin = (ip) => direct(null, 'POST', '/auth/login', { email: 'x@example.com', password: 'wrong-password' }, via(ip));
+  await directLogin('203.0.113.1');
+  await directLogin('203.0.113.2');
+  assert.equal((await directLogin('203.0.113.3')).status, 429);
+  assert.equal(loadConfig({ DATABASE_URL: 'postgres://x', JWT_SECRET, TRUST_VERCEL_IP: '1' }).trustVercelIp, true);
+  assert.equal(loadConfig({ DATABASE_URL: 'postgres://x', JWT_SECRET }).trustVercelIp, false);
+});
+
 test('4) 비밀번호는 바이트로 검사: 72바이트를 넘는 한글 비밀번호는 가입 거부, 로그인도 실패로 처리', async () => {
   const api = await start();
   const longKorean = '가'.repeat(30); // 30자 = 90바이트

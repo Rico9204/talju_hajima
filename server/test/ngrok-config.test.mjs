@@ -10,6 +10,7 @@ test('Vercel과 고정 터널 주소를 서버 설정에 일관되게 반영한�
   assert.equal(result.env.PUBLIC_BASE_URL, 'https://team.ngrok-free.app');
   assert.equal(result.env.HOST, '127.0.0.1');
   assert.equal(result.env.TRUST_PROXY, 'loopback');
+  assert.equal(result.env.TRUST_VERCEL_IP, '1');
   assert.equal(result.env.JWT_SECRET, 'unchanged');
   assert.equal(input.CORS_ORIGIN, '*');
 });

@@ -3,7 +3,7 @@ import { Module, ValidationPipe, type DynamicModule, type INestApplication } fro
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AdminController } from "./admin.js";
-import { AuthController, AuthGuard, AuthLimits, MailSettings, SessionCookie, TokenService } from "./auth.js";
+import { AuthController, AuthGuard, AuthLimits, ClientAddress, MailSettings, SessionCookie, TokenService } from "./auth.js";
 import { Mailer } from "./mail.js";
 import { validationException } from "./validation.js";
 import { MajorsController, MajorsService } from "./majors.js";
@@ -33,6 +33,7 @@ export interface AppDeps {
   odcloudApiKey?: string;
   majorsFetch?: typeof fetch;
   trustProxy?: number | boolean | string;
+  trustVercelIp?: boolean; // Vercel이 넣는 X-Vercel-Forwarded-For를 사용자 IP로(로그인·가입 제한)
   authLimits?: AuthLimits; // 테스트에서 작은 한도를 넣을 때만
   cookieSameSite?: "lax" | "strict" | "none"; // 리프레시 토큰 쿠키(기본 lax)
   cookieSecure?: boolean; // https에서만 보내기(운영)
@@ -58,6 +59,7 @@ class AppModule {
         { provide: PushSender, useValue: push },
         { provide: OnlyofficeService, useValue: office },
         { provide: AuthLimits, useValue: deps.authLimits ?? new AuthLimits() },
+        { provide: ClientAddress, useValue: new ClientAddress(deps.trustVercelIp) },
         { provide: FileStore, useValue: deps.store },
         { provide: Mailer, useValue: deps.mailer },
         { provide: MailSettings, useValue: new MailSettings(deps.appUrl) },

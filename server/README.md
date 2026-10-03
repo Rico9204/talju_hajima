@@ -17,8 +17,10 @@
   쿠키를 쓰거나 심는 요청(login·refresh·logout)은 `CORS_ORIGIN`의 출처만 받는다(CSRF).
   화면과 서버가 다른 사이트면 `COOKIE_SAMESITE=none` — Safari처럼 제3자 쿠키를 막는 브라우저에서는 새로 고침마다 다시 로그인해야 하므로,
   운영에서는 같은 사이트(예: `app.example.com` ↔ `api.example.com`)로 두는 것을 권장.
-  남용 제한은 계정을 잠그지 않고: 같은 IP+이메일 실패 15분 5회, 같은 IP 실패 15분 30회, 같은 IP 가입 1시간 10회.
-  비밀번호는 bcrypt 한계인 72**바이트** 기준으로 검사(한글 약 24자). 프록시 뒤라면 `TRUST_PROXY` 설정.
+  남용 제한은 계정을 잠그지 않고: 같은 IP+이메일 실패 15분 5회, 같은 IP 실패 15분 30회, 같은 IP 가입 1시간 10회, 같은 IP 메일 요청 1시간 10회.
+  여기에 실제 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 각 1시간 100회)을 함께 건다.
+  비밀번호는 bcrypt 한계인 72**바이트** 기준으로 검사(한글 약 24자). 프록시 뒤라면 `TRUST_PROXY` 설정,
+  Vercel 중계 뒤라면 `TRUST_VERCEL_IP=1`(Vercel이 넣는 `X-Vercel-Forwarded-For`를 사용자 IP로; `dev:ngrok`이 자동 설정).
 - **응답 형식**: 행을 DB에서 JSON으로 만들어 돌려준다(지금 프론트가 받는 PostgREST 응답과 같은 모양).
 
 ## Temporary_Merge(zsx12 님 NestJS)에서 가져온 것 / 고친 것
@@ -174,7 +176,7 @@ npx.cmd --yes pnpm@10.34.3 run dev:ngrok
 ```
 
 이 명령은 빌드 후 DB의 `storage_host`를 고정 도메인으로 맞추고, `PUBLIC_BASE_URL`, `APP_URL`, `CORS_ORIGIN`, `TRUST_PROXY`, `COOKIE_SAMESITE=lax`를 해당 실행의 환경변수로 자동 설정하고, `vercel.json`의 전달 주소가 `NGROK_URL`과 다르면 경고한다.
-요청이 Vercel을 거쳐 오므로 로그인 실패 제한의 "같은 IP"는 Vercel 서버 주소 기준이다(직접 보낸 `X-Forwarded-For`로 제한을 피하지 못하게 더 믿지 않음). `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 ngrok을 실행한다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
+요청이 Vercel을 거쳐 오므로 연결 주소는 모두 Vercel 서버 주소다. 그래서 가입·로그인·메일 요청 제한의 "같은 IP"는 Vercel이 넣는 `X-Vercel-Forwarded-For`(실제 사용자 IP)로 정한다(`TRUST_VERCEL_IP=1`). ngrok 주소로 직접 보내면 이 헤더를 위조할 수 있으므로 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 1시간 100회)을 함께 건다. `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 ngrok을 실행한다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
 
 Vercel의 주소를 바꾸면 `FRONTEND_URL` 수정 후 명령을 재실행한다. API 도메인을 바꾸면 `vercel.json`과 Vercel의 `VITE_BACKEND_URL`도 수정하고 재배포해야 하며, 이전 도메인으로 저장된 파일 링크가 영향을 받을 수 있으므로 같은 고정 도메인을 유지한다. 이 명령이 Vercel 설정이나 배포를 자동 변경하지는 않는다.
 
