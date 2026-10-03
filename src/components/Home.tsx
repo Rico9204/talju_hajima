@@ -68,8 +68,19 @@ export default function Home() {
     return () => { active = false; window.removeEventListener("focus", load); window.clearInterval(timer); };
   }, [projects.length]);
   // 프로젝트 카드의 다가오는 일정(Temporary_Merge "내 프로젝트" 화면 이식): 가장 가까운 일정 + D-day, 카드에 올리면 전체 목록.
+  // 마우스가 없는 휴대폰·태블릿에서는 카드의 "+N" 버튼을 눌러 펼치고, 카드 밖을 누르면 닫는다.
   const [upcoming, setUpcoming] = useState<UpcomingEvent[]>([]);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  const [openEventsProjectId, setOpenEventsProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!openEventsProjectId) return;
+    const close = (e: PointerEvent) => {
+      const card = (e.target as Element | null)?.closest?.("[data-project-card]");
+      if (card?.getAttribute("data-project-card") !== openEventsProjectId) setOpenEventsProjectId(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [openEventsProjectId]);
   useEffect(() => {
     let active = true;
     const load = () => { dataRepository.listUpcomingEvents().then((list) => { if (active) setUpcoming(list); }).catch(() => {}); };
@@ -536,6 +547,7 @@ export default function Home() {
                     return (
                       <div
                         key={p.id}
+                        data-project-card={p.id}
                         className="relative"
                         onMouseEnter={() => setHoveredProjectId(p.id)}
                         onMouseLeave={() => setHoveredProjectId((id) => (id === p.id ? null : id))}
@@ -574,7 +586,7 @@ export default function Home() {
                         <div className="text-base font-700 truncate mb-1">{p.name}</div>
                         <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
                         <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
-                        <div className="flex items-center gap-2 mt-3 pt-2.5 min-w-0" style={{ borderTop: "1px solid var(--border)" }}>
+                        <div className={`flex items-center gap-2 mt-3 pt-2.5 min-w-0${events.length > 1 ? " pr-12" : ""}`} style={{ borderTop: "1px solid var(--border)" }}>
                           {nearest ? (
                             <>
                               <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EVENT_TYPE[nearest.type].color }} />
@@ -586,7 +598,19 @@ export default function Home() {
                           )}
                         </div>
                       </button>
-                      {hoveredProjectId === p.id && events.length > 1 && (
+                      {events.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setOpenEventsProjectId((id) => (id === p.id ? null : p.id))}
+                          aria-expanded={openEventsProjectId === p.id || hoveredProjectId === p.id}
+                          aria-label={`다가오는 일정 ${events.length}개 보기`}
+                          className="absolute right-4 bottom-4 text-[11px] font-700 px-2 py-0.5"
+                          style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                        >
+                          +{events.length - 1}
+                        </button>
+                      )}
+                      {(hoveredProjectId === p.id || openEventsProjectId === p.id) && events.length > 1 && (
                         <div className="absolute left-0 right-0 top-full mt-1.5 p-3 z-20" role="tooltip" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}>
                           <div className="text-xs font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>다가오는 일정 {events.length}개</div>
                           <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto">

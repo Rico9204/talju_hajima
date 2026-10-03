@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ngrokConfig, vercelApiTarget } from '../scripts/ngrok-config.mjs';
+import { ngrokConfig, ngrokLogLine, vercelApiTarget } from '../scripts/ngrok-config.mjs';
 
 test('Vercel과 고정 터널 주소를 서버 설정에 일관되게 반영한다', () => {
   const input = { FRONTEND_URL: 'https://team.vercel.app/', NGROK_URL: 'https://team.ngrok-free.app/', PORT: '3100', JWT_SECRET: 'unchanged', CORS_ORIGIN: '*' };
@@ -42,4 +42,16 @@ test('vercel.json의 /api 전달 주소를 읽는다', () => {
   assert.equal(vercelApiTarget({ rewrites }), 'https://team.ngrok-free.dev');
   assert.equal(vercelApiTarget({ rewrites: [{ source: '/(.*)', destination: '/' }] }), null);
   assert.equal(vercelApiTarget({}), null);
+});
+
+test('ngrok 로그: 터널 연결과 경고·오류만 한 줄로 보여 주고 나머지는 숨긴다', () => {
+  assert.equal(ngrokLogLine('{"lvl":"info","msg":"client session established"}'), null);
+  assert.equal(ngrokLogLine('{"lvl":"info","msg":"starting web service","addr":"127.0.0.1:4041"}'), null);
+  assert.equal(ngrokLogLine('{"lvl":"info","msg":"started tunnel","url":"https://team.ngrok-free.dev"}'),
+    '[ngrok] 터널 연결: https://team.ngrok-free.dev (요청 기록: http://127.0.0.1:4041)');
+  assert.equal(ngrokLogLine('{"lvl":"crit","msg":"command failed","err":"failed to start tunnel: already online. Either\\n1. stop"}'),
+    '[ngrok] 오류: command failed (failed to start tunnel: already online. Either)');
+  assert.equal(ngrokLogLine(`{"lvl":"warn","msg":"can't bind default web address"}`), "[ngrok] 경고: can't bind default web address");
+  assert.equal(ngrokLogLine('ERROR:  plain text'), '[ngrok] ERROR:  plain text');
+  assert.equal(ngrokLogLine('   '), null);
 });

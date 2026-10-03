@@ -32,3 +32,18 @@ export function vercelApiTarget(vercelJson) {
   if (!rule) return null;
   try { return new URL(rule.destination).origin; } catch { return null; }
 }
+
+// ngrok 로그(--log-format=json) 한 줄 → 터미널에 보여 줄 문구. 보여 줄 필요가 없으면 null.
+const NGROK_LEVELS = new Set(['warn', 'eror', 'error', 'crit']);
+let ngrokWebAddr = '127.0.0.1:4040'; // 요청 기록 화면. 4040이 사용 중이면 ngrok이 다른 포트를 고르고 로그로 알린다.
+export function ngrokLogLine(line) {
+  let entry;
+  try { entry = JSON.parse(line); } catch { return line.trim() ? `[ngrok] ${line.trim()}` : null; }
+  if (entry.msg === 'starting web service' && entry.addr) ngrokWebAddr = entry.addr;
+  if (entry.msg === 'started tunnel' && entry.url) return `[ngrok] 터널 연결: ${entry.url} (요청 기록: http://${ngrokWebAddr})`;
+  if (NGROK_LEVELS.has(entry.lvl)) {
+    const err = typeof entry.err === 'string' ? ` (${entry.err.split('\n')[0]})` : '';
+    return `[ngrok] ${entry.lvl === 'warn' ? '경고' : '오류'}: ${entry.msg}${err}`;
+  }
+  return null;
+}

@@ -1,10 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
 import { loadConfig } from '../dist/config.js';
-import { ngrokConfig, vercelApiTarget } from './ngrok-config.mjs';
+import { ngrokConfig, ngrokLogLine, vercelApiTarget } from './ngrok-config.mjs';
 import { startupError } from './startup-error.mjs';
 
 const children = new Set();
@@ -19,14 +20,26 @@ function stop(code) {
     for (const child of children) child.kill('SIGKILL');
   }, 3000).unref();
 }
-function start(command, args, env) {
-  const child = spawn(command, args, { env, stdio: 'inherit', windowsHide: true });
+function start(command, args, env, stdio = 'inherit') {
+  const child = spawn(command, args, { env, stdio, windowsHide: true });
   children.add(child);
   child.once('error', (error) => { console.error(error.message); stop(1); });
   child.once('exit', (code) => {
     children.delete(child);
     if (!stopping) { console.error(`${command} 종료 (${code ?? 'signal'})`); stop(code || 1); }
   });
+  return child;
+}
+// ngrok 화면(TUI)이 터미널을 차지하면 서버 로그(메일 발송 실패 등)가 가려진다.
+// ngrok 로그를 JSON 줄로 받아 터널 시작과 경고·오류만 한 줄씩 보여 준다(요청 목록은 http://127.0.0.1:4040).
+function startNgrok(executable, args, env) {
+  const child = start(executable, [...args, '--log=stdout', '--log-format=json'], env, ['ignore', 'pipe', 'pipe']);
+  for (const stream of [child.stdout, child.stderr]) {
+    createInterface({ input: stream }).on('line', (line) => {
+      const message = ngrokLogLine(line);
+      if (message) console.log(message);
+    });
+  }
   return child;
 }
 process.once('SIGINT', () => stop(0));
@@ -67,7 +80,7 @@ try {
     console.log('최초 한 번 등록하고 Redeploy하세요. Ctrl+C로 서버와 ngrok을 함께 종료합니다.');
     const target = await readFile(new URL('../../vercel.json', import.meta.url), 'utf8').then((text) => vercelApiTarget(JSON.parse(text))).catch(() => null);
     if (target !== config.publicUrl) console.warn(`경고: vercel.json의 /api 전달 주소(${target ?? '없음'})가 NGROK_URL과 다릅니다. 고친 뒤 커밋·재배포해야 로그인이 됩니다.`);
-    start(executable, ['http', `http://127.0.0.1:${config.port}`, `--url=${config.publicUrl}`], config.env);
+    startNgrok(executable, ['http', `http://127.0.0.1:${config.port}`, `--url=${config.publicUrl}`], config.env);
   }
 } catch (error) {
   console.error(startupError(error));

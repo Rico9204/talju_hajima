@@ -176,7 +176,7 @@ npx.cmd --yes pnpm@10.34.3 run dev:ngrok
 ```
 
 이 명령은 빌드 후 DB의 `storage_host`를 고정 도메인으로 맞추고, `PUBLIC_BASE_URL`, `APP_URL`, `CORS_ORIGIN`, `TRUST_PROXY`, `COOKIE_SAMESITE=lax`를 해당 실행의 환경변수로 자동 설정하고, `vercel.json`의 전달 주소가 `NGROK_URL`과 다르면 경고한다.
-요청이 Vercel을 거쳐 오므로 연결 주소는 모두 Vercel 서버 주소다. 그래서 가입·로그인·메일 요청 제한의 "같은 IP"는 Vercel이 넣는 `X-Vercel-Forwarded-For`(실제 사용자 IP)로 정한다(`TRUST_VERCEL_IP=1`). ngrok 주소로 직접 보내면 이 헤더를 위조할 수 있으므로 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 1시간 100회)을 함께 건다. `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 ngrok을 실행한다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
+요청이 Vercel을 거쳐 오므로 연결 주소는 모두 Vercel 서버 주소다. 그래서 가입·로그인·메일 요청 제한의 "같은 IP"는 Vercel이 넣는 `X-Vercel-Forwarded-For`(실제 사용자 IP)로 정한다(`TRUST_VERCEL_IP=1`). ngrok 주소로 직접 보내면 이 헤더를 위조할 수 있으므로 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 1시간 100회)을 함께 건다. `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 ngrok을 실행한다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. ngrok 화면(TUI)은 띄우지 않고 터널 연결과 ngrok 경고·오류만 `[ngrok]`으로 한 줄씩 보여 주므로 서버 로그가 가려지지 않는다(요청 기록은 http://127.0.0.1:4040). Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
 
 Vercel의 주소를 바꾸면 `FRONTEND_URL` 수정 후 명령을 재실행한다. API 도메인을 바꾸면 `vercel.json`과 Vercel의 `VITE_BACKEND_URL`도 수정하고 재배포해야 하며, 이전 도메인으로 저장된 파일 링크가 영향을 받을 수 있으므로 같은 고정 도메인을 유지한다. 이 명령이 Vercel 설정이나 배포를 자동 변경하지는 않는다.
 
