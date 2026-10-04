@@ -601,7 +601,11 @@ export default function Home() {
                       {events.length > 1 && (
                         <button
                           type="button"
-                          onClick={() => setOpenEventsProjectId((id) => (id === p.id ? null : p.id))}
+                          onClick={() => {
+                            // 휴대폰은 누를 때 "마우스 올림"도 함께 켜지므로, 닫을 때 그것도 꺼야 목록이 닫힌다.
+                            if (openEventsProjectId === p.id) { setOpenEventsProjectId(null); setHoveredProjectId(null); }
+                            else setOpenEventsProjectId(p.id);
+                          }}
                           aria-expanded={openEventsProjectId === p.id || hoveredProjectId === p.id}
                           aria-label={`다가오는 일정 ${events.length}개 보기`}
                           className="absolute right-4 bottom-4 text-[11px] font-700 px-2 py-0.5"

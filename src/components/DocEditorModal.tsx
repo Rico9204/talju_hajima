@@ -75,9 +75,10 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
     ],
     editorProps: {
       attributes: { class: "rich-doc-prose", "aria-label": "문서 내용" },
+      // Word·웹 페이지에서 글을 복사하면 글과 함께 그 부분의 그림도 클립보드에 들어온다 — 글이 있으면 글로 붙여 넣는다.
       handlePaste: (_view, event) => {
         const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
-        if (!files.length) return false;
+        if (!files.length || event.clipboardData?.getData("text/plain").trim()) return false;
         void insertImagesRef.current(files);
         return true;
       },

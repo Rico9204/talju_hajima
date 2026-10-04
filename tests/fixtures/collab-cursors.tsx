@@ -39,7 +39,7 @@ const images: CollabImageStore = {
   load: async (versionId) => {
     const dataUrl = localStorage.getItem(`fixture-image-${versionId}`);
     if (!dataUrl || params.get("imagefail")) throw new Error("not found");
-    return (await fetch(dataUrl)).blob();
+    return new Blob([await (await fetch(dataUrl)).blob()], { type: "application/octet-stream" }); // 실제 서버처럼 형식 없이
   },
 };
 

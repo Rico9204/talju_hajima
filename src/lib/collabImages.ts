@@ -17,6 +17,20 @@ export function collabImageError(file: File): string | null {
   return null;
 }
 
+// 원본 내려받기는 형식을 application/octet-stream으로 보내므로, 파일 앞부분으로 이미지 형식을 다시 붙인다
+// (형식 없는 blob을 이미지로 안 그리는 브라우저가 있다).
+async function asImageBlob(blob: Blob): Promise<Blob> {
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const text = (from: number, to: number) => String.fromCharCode(...head.subarray(from, to));
+  const type = head[0] === 0x89 && text(1, 4) === "PNG" ? "image/png"
+    : head[0] === 0xff && head[1] === 0xd8 ? "image/jpeg"
+    : text(0, 4) === "GIF8" ? "image/gif"
+    : text(0, 4) === "RIFF" && text(8, 12) === "WEBP" ? "image/webp"
+    : null;
+  if (!type) throw new Error("이미지 파일이 아닙니다.");
+  return blob.type === type ? blob : new Blob([blob], { type });
+}
+
 // 같은 이미지를 여러 번 그려도 한 번만 받는다. 편집기를 닫을 때 dispose로 blob 주소를 정리한다.
 export interface CollabImageLoader { url: (versionId: number) => Promise<string>; dispose: () => void; }
 export function createCollabImageLoader(load: (versionId: number) => Promise<Blob>): CollabImageLoader {
@@ -26,7 +40,7 @@ export function createCollabImageLoader(load: (versionId: number) => Promise<Blo
     url: (versionId) => {
       let found = cache.get(versionId);
       if (!found) {
-        found = load(versionId).then((blob) => { const url = URL.createObjectURL(blob); made.push(url); return url; });
+        found = load(versionId).then(asImageBlob).then((blob) => { const url = URL.createObjectURL(blob); made.push(url); return url; });
         found.catch(() => cache.delete(versionId)); // 실패하면 다음에 다시 시도
         cache.set(versionId, found);
       }
