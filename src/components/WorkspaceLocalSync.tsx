@@ -85,7 +85,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     try {
       const onProgress = (text: string) => patchState(id, { progress: text });
       const next = link.kind === "upload"
-        ? await runUploadLink(link, { files: nowFiles, folders: nowFolders, upload: latest.current.upload, createFolder: latest.current.createFolder, onProgress })
+        ? await runUploadLink(link, { files: nowFiles, folders: nowFolders, upload: latest.current.upload, load: latest.current.load, createFolder: latest.current.createFolder, onProgress })
         : await runDownloadLink(link, { files: nowFiles, load: latest.current.load, force: options.force, onProgress });
       // 아무것도 바뀌지 않은 확인은 마지막 결과(무엇을 올리고 받았는지)를 지우지 않고 확인 시각만 남긴다.
       const r = next?.last;
@@ -105,6 +105,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     setError("");
     try {
       const handle = await pickDirectory();
+      if (await usedByOther(handle, "upload")) { setError(`“${handle.name}” 폴더는 이미 받기에 연결돼 있어요. 올리기에는 다른 폴더를 골라 주세요.`); return; }
       const link: UploadLink = { id: newLinkId(), kind: "upload", projectId, userId, handle, dirName: handle.name, auto: true, targetFolderId: currentFolderId, entries: {}, folders: {} };
       await store(link);
       linksRef.current = [...linksRef.current, link];
@@ -119,6 +120,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     if (!supported) { void downloadOnce(fileIds); return; }
     try {
       const handle = await pickDirectory();
+      if (await usedByOther(handle, "download")) { setError(`“${handle.name}” 폴더는 이미 올리기에 연결돼 있어요. 받기에는 다른 폴더를 골라 주세요.`); return; }
       let existing: DownloadLink | undefined;
       for (const l of linksRef.current) if (l.kind === "download" && (await l.handle.isSameEntry?.(handle))) existing = l;
       const link: DownloadLink = existing
@@ -130,6 +132,12 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     } catch (e) { setError(errorText(e, "로컬 폴더를 고르지 못했어요.")); }
   }
   useImperativeHandle(ref, () => ({ addDownload: (ids) => void addDownload(ids) }));
+
+  // 같은 폴더를 올리기·받기 양쪽에 연결하면 받은 파일이 다시 올라가 같은 버전이 하나 더 생긴다.
+  async function usedByOther(handle: DirHandle, kind: SyncLink["kind"]): Promise<boolean> {
+    for (const l of linksRef.current) if (l.kind !== kind && (await l.handle.isSameEntry?.(handle))) return true;
+    return false;
+  }
 
   async function unlink(id: string) {
     setLinks((prev) => prev.filter((l) => l.id !== id));

@@ -270,7 +270,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   }
   function dropInto(item: DragItem, target: number | "root") {
     const folderId = target === "root" ? null : target;
-    if (item.kind === "files") void moveFiles(item.ids, folderId);
+    if (item.kind === "files") { void moveFiles(item.ids, folderId); setSelectedIds(new Set()); }
     else void moveFolder(item.id, folderId);
   }
   function endDrag() { setDragging(null); setDropSpot(null); }
@@ -336,7 +336,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   // 파일을 끌기 시작: 여러 개를 골라 둔 상태에서 그중 하나를 끌면 고른 파일 전부를 함께 옮긴다.
   function startFileDrag(e: React.DragEvent, f: WorkspaceFile) {
-    const ids = selectedIds.has(f.id) && selectedIds.size > 1 ? sortedFiles.filter((x) => selectedIds.has(x.id)).map((x) => x.id) : [f.id];
+    const ids = selectedIds.has(f.id) && visibleSelected.length > 1 ? visibleSelected.map((x) => x.id) : [f.id];
     e.dataTransfer.setData(ITEM_DRAG_TYPE, "files");
     e.dataTransfer.effectAllowed = "move";
     if (ids.length > 1) {
@@ -454,6 +454,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const tags = [null, ...Array.from(new Set(searchScope.flatMap((f) => f.tags)))];
   const filtered = filterTag === null ? searchScope : searchScope.filter((f) => f.tags.includes(filterTag));
   const sortedFiles = sortWorkspaceFiles(filtered, sortBy);
+  // 고른 파일 중 지금 보이는 것만(다른 폴더로 옮겼거나 검색으로 가려진 파일이 몰래 지워지거나 옮겨지지 않게).
+  const visibleSelected = sortedFiles.filter((f) => selectedIds.has(f.id));
   const selFile = selected !== null ? files.find((f) => f.id === selected) || null : null;
   const locked = project.status === "done";
   const canReorderFiles = !locked && !searchQuery.trim() && filterTag === null;
@@ -486,9 +488,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   // 고른 파일 중 지울 수 있는 것(팀장·부팀장 또는 올린 사람)만 지운다.
   async function bulkDelete() {
-    const ids = files.filter((f) => selectedIds.has(f.id) && canDeleteFile(f)).map((f) => f.id);
+    const ids = visibleSelected.filter(canDeleteFile).map((f) => f.id);
     if (bulkDeleting || ids.length === 0) return;
-    const skipped = selectedIds.size - ids.length;
+    const skipped = visibleSelected.length - ids.length;
     if (!(await ask({ title: `파일 ${ids.length}개를 삭제할까요?`, message: `모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다.${skipped > 0 ? ` (내가 지울 수 없는 ${skipped}개는 남겨 둡니다)` : ""}` }))) return;
     setBulkDeleting(true);
     setBulkDeleteError("");
@@ -848,14 +850,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && files.some((f) => selectedIds.has(f.id) && canDeleteFile(f)) && (
+          {visibleSelected.some(canDeleteFile) && (
             <button
               onClick={() => void bulkDelete()}
               disabled={bulkDeleting}
               className="text-xs font-700 px-3 py-1.5 disabled:opacity-50"
               style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
             >
-              {bulkDeleting ? "삭제 중…" : `선택 삭제 (${files.filter((f) => selectedIds.has(f.id) && canDeleteFile(f)).length})`}
+              {bulkDeleting ? "삭제 중…" : `선택 삭제 (${visibleSelected.filter(canDeleteFile).length})`}
             </button>
           )}
           {filtered.some(canDeleteFile) && (
@@ -887,17 +889,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           className="relative col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 pb-12"
           style={{ userSelect: band ? "none" : undefined }}
         >
-          {selectedIds.size > 0 && !selectMode && (
+          {visibleSelected.length > 0 && !selectMode && (
             <div className="sticky top-0 z-10 flex items-center gap-2 flex-wrap px-3 py-2 text-xs font-600" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }} role="status">
-              <span>파일 {selectedIds.size}개 선택됨 · 끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요</span>
-              <button type="button" onClick={() => syncRef.current?.addDownload(sortedFiles.filter((f) => selectedIds.has(f.id)).map((f) => f.id))} className="ml-auto px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }} title="고른 파일만 내 컴퓨터 폴더에 받아 두고, 새 버전이 생기면 다시 받아요">💻 로컬로 동기화</button>
+              <span>파일 {visibleSelected.length}개 선택됨 · 끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요</span>
+              <button type="button" onClick={() => syncRef.current?.addDownload(visibleSelected.map((f) => f.id))} className="ml-auto px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }} title="고른 파일만 내 컴퓨터 폴더에 받아 두고, 새 버전이 생기면 다시 받아요">💻 로컬로 동기화</button>
               <button type="button" onClick={() => setSelectedIds(new Set())} className="px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>선택 해제</button>
             </div>
           )}
           {sortedFiles.map((f) => {
             const tc = typeColors[f.type] || typeColors.doc;
             const deletable = canDeleteFile(f);
-            const isSelected = selectMode || selectedIds.size > 0 ? selectedIds.has(f.id) : selected === f.id;
+            const isSelected = selectMode || visibleSelected.length > 0 ? selectedIds.has(f.id) : selected === f.id;
             return (
               <button
                 key={f.id}

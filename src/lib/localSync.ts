@@ -132,6 +132,7 @@ export interface UploadDeps {
   files: WorkspaceFile[];
   folders: Folder[];
   upload: (input: FileUploadInput) => Promise<{ fileId: number; versionId: number }>;
+  load: (versionId: number) => Promise<Blob>; // 같은 이름·같은 크기의 워크스페이스 파일이 정말 같은 내용인지 볼 때
   createFolder: (name: string, parentId: number | null) => Promise<Folder>;
   onProgress?: (text: string) => void;
 }
@@ -204,7 +205,9 @@ export async function runUploadLink(link: UploadLink, deps: UploadDeps): Promise
         const folderId = await folderFor(parts.slice(0, -1));
         // 처음 보는 파일인데 같은 폴더에 같은 이름의 워크스페이스 파일이 있으면 그 파일의 새 버전으로 올린다(중복 파일을 만들지 않게).
         const target = mapped ?? deps.files.find((f) => f.folderId === folderId && f.name === local.name);
-        if (target && !mapped && currentVersion(target)?.byteSize === local.size) {
+        // 크기가 같으면 워크스페이스 원본을 받아 내용까지 같은지 본다(같으면 새 버전을 만들지 않고 연결만 한다).
+        const targetVersion = target && !mapped ? currentVersion(target) : undefined;
+        if (target && targetVersion && targetVersion.byteSize === local.size && await deps.load(targetVersion.id).then(sha256).then((h) => h === hash, () => false)) {
           entries[path] = { fileId: target.id, size: local.size, lastModified: local.lastModified, hash };
           result.unchanged++;
           continue;
