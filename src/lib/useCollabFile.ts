@@ -43,7 +43,11 @@ export function useCollabFile(opts: {
     if (r) setDirty(opts.keyOf(doc) !== r.savedKey());
   };
 
+  // 문서 정리 예약. 개발 모드(StrictMode)는 연결 → 정리 → 다시 연결을 한 번 해 보는데, 그 정리가 같은 문서를 없애면
+  // 다시 연결한 편집기의 변경 감지·실시간 전송이 끊긴다(입력해도 "변경사항 없음", 저장 버튼 꺼짐). 다시 연결하면 예약을 취소한다.
+  const destroyTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
+    window.clearTimeout(destroyTimer.current);
     const r = connectCollabRoom(doc, {
       projectId: opts.projectId, fileId: opts.fileId, room: opts.room, mode: opts.mode, initialKey: opts.keyOf(doc),
       me: opts.presence.me, awareness,
@@ -58,7 +62,7 @@ export function useCollabFile(opts: {
       doc.off("update", onUpdate);
       roomRef.current = null;
       r.destroy();
-      window.setTimeout(() => doc.destroy(), 1500); // 마지막 저장 알림이 나갈 시간
+      destroyTimer.current = window.setTimeout(() => doc.destroy(), 1500); // 마지막 저장 알림이 나갈 시간
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

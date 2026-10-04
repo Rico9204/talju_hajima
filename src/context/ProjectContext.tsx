@@ -24,10 +24,11 @@ import type {
 } from "../api/types";
 import type { NoticeItem, ScrappedNotice } from "../lib/crawler/types";
 import { useAuth } from "./AuthContext";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import CreateProjectModal from "../components/CreateProjectModal";
 import AdminPanel from "../components/AdminPanel";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
+import AdminReports from "../components/AdminReports";
 import NoProjectHome from "../components/NoProjectHome";
 import UnreadNotifier from "../components/UnreadNotifier";
 import { isMentionForMember } from "../lib/chatMentions";
@@ -271,8 +272,13 @@ function EmptyProjectsScreen({
         </div>
         {/* 프로젝트가 없는 운영자도 운영자 기능을 쓸 수 있도록 여기에서도 보여준다. */}
         {isOperator && (
-          <div className="p-6 pb-0 max-w-5xl mx-auto">
+          <div className="p-6 pb-0 max-w-5xl mx-auto space-y-6">
             <AdminOperatorPanel />
+            {/* 신고 관리도 운영자 기능이라 프로젝트가 없어도 볼 수 있어야 한다(예전엔 프로젝트가 있는 홈 화면에만 있었다). */}
+            <section className="space-y-4">
+              <h2 className="text-xl font-700">신고 관리</h2>
+              <AdminReports />
+            </section>
           </div>
         )}
         <AdminPanel />
@@ -406,6 +412,13 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   // 그 뒤 나간 팀원은 "접속 기록 없음"이나 옛 시각으로 보이므로, 온라인 목록에서 빠지는 순간을 기록한다.
   const [leftAt, setLeftAt] = useState<Record<string, string>>({});
   const [projectsLoaded, setProjectsLoaded] = useState(false);
+  // 프로젝트가 없으면 이 프로바이더가 화면(라우터) 대신 "시작하기" 화면을 그려서, 로그인 화면의 /home 이동이 실행되지 않는다.
+  // 그러면 주소가 /login(또는 처음 연 주소)에 남아 새로 고침·뒤로 가기 때 헷갈리므로 주소만 /home으로 맞춘다.
+  const navigate = useNavigate();
+  const noProjects = !!session && projectsLoaded && projects.length === 0;
+  useEffect(() => {
+    if (noProjects && pathname !== "/home" && pathname !== "/admin-application") navigate("/home", { replace: true });
+  }, [noProjects, pathname, navigate]);
   const [initialized, setInitialized] = useState(false);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const activityRevision = useRef(0);

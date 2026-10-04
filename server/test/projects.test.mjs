@@ -34,6 +34,9 @@ test('프로젝트 만들기: 프로젝트·팀·팀장(나)이 한 번에 생�
   assert.equal(team.body.members[0].name, 'user1');
   assert.equal(team.body.members[0].isLeader, true);
   assert.equal(team.body.members[0].userId, leader.id);
+  // 팀장 전공·학번: 프로필에 없으면 기본값(예전엔 예시 값 '역사문화학과 3학년'·'2021123456'이 들어갔다)
+  assert.equal(team.body.members[0].major, '전공 미지정');
+  assert.equal(team.body.members[0].student, '-');
   assert.ok((await call(leader, 'GET', '/projects')).body.some((p) => p.id === projectId));
   assert.deepEqual((await call(leader, 'GET', '/me/project-ids')).body, [projectId]);
   assert.equal((await call(leader, 'GET', `/projects/${encodeURIComponent(projectId)}`)).body.name, '캡스톤 디자인');

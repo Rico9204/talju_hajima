@@ -75,6 +75,8 @@ export async function imageAsPng(src: string): Promise<{ dataUrl: string; bytes:
 export function collabImageName(docName: string, file: File): string {
   const base = docName.replace(/\.[^.]+$/, "") || "문서";
   const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" } as Record<string, string>)[file.type] ?? "png";
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+  const d = new Date(); // 내 컴퓨터 시각(한국 시간)으로 — toISOString은 UTC라 9시간 어긋난다
+  const two = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
   return `${base} 이미지 ${stamp}.${ext}`;
 }

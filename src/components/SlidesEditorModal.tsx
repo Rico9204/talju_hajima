@@ -42,7 +42,12 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
   const [imageBusy, setImageBusy] = useState(false);
   const [loader] = useState(() => createCollabImageLoader(images.load));
   const imageInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => () => loader.dispose(), [loader]);
+  // 닫을 때 이미지 blob 주소를 정리한다. 개발 모드(StrictMode)의 시험용 정리→재연결에서는 예약을 취소해 그려 둔 이미지가 깨지지 않게.
+  const disposeTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    window.clearTimeout(disposeTimer.current);
+    return () => { disposeTimer.current = window.setTimeout(() => loader.dispose(), 1000); };
+  }, [loader]);
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
   const names = [...new Set(roomEditors.map((e) => e.name))];
   const baseName = file.name.replace(/\.slides$/i, "") || "슬라이드";

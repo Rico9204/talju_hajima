@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { useProject } from "../context/ProjectContext";
 import type { EvaluationData, EvaluationEntry, EvaluationPhase } from "../api/types";
 import PentagonChart from "./PentagonChart";
+import { useConfirm } from "./ConfirmDialog";
 
 const criteria = [
   { id: "role", label: "역할 이행", desc: "맡은 역할과 작업을 수행했는지", icon: "✓" },
@@ -184,6 +185,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const [maxCriterionStepSeen, setMaxCriterionStepSeen] = useState(0);
   const [data, setData] = useState<EvaluationData | null>(null);
   const [draft, setDraft] = useState<Record<string, EvaluationEntry>>({});
+  const [ask, confirmDialog] = useConfirm();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -226,6 +228,17 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const balanced = peers.length > 0;
   async function submit() {
     if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
+    // 제출하면 고칠 수 없다. 점수를 한 번도 바꾸지 않은 동료는 모든 항목 기본값(1점)으로 들어가므로 이름을 짚어 다시 확인한다.
+    const unrated = peers.filter((p) => !draft[p.id]);
+    const ok = await ask({
+      title: "동료 평가를 제출할까요?",
+      message: <>
+        제출한 평가는 수정할 수 없습니다.
+        {unrated.length > 0 && <><br /><br /><b style={{ color: "#ef4444" }}>아직 점수를 매기지 않은 동료: {unrated.map((p) => p.name).join(", ")}</b><br />이대로 제출하면 이 동료들은 모든 항목이 1점으로 제출됩니다.</>}
+      </>,
+      confirmLabel: unrated.length > 0 ? "그래도 제출" : "제출",
+    });
+    if (!ok) return;
     setBusy(true); onBusyChange(true); setError("");
     try {
       await submitEvaluations(phase, entries);
@@ -352,6 +365,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
           </div>);
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      {confirmDialog}
       {/* Header */}
       <div className="mb-5">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>

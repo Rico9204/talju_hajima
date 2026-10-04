@@ -226,10 +226,14 @@ export class ProjectsController {
       const project = (await selectOneJson(query, "select * from public.projects where id = $1", [id]))!;
       await query("insert into public.teams(project_id, team_label, team_sub) values ($1, $2, $3)",
         [id, `${project.name} 팀`, `${project.org} · 팀원을 초대해보세요`]);
+      // 팀장의 전공·학번: 계정 프로필(이전에 참여할 때 입력한 값)에서, 없으면 참여할 때와 같은 기본값.
+      // (예전에는 예시 값 '역사문화학과 3학년'·'2021123456'이 그대로 들어가 모든 팀장이 같은 전공·학번으로 보였다.)
       await query(
         `insert into public.members(project_id, name, role, major, student, avatar, tasks_done, tasks_total, activities, score, eval_count,
            online, responsibilities, color, criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, criteria_quality, is_leader)
-         values ($1, $2, '팀장', '역사문화학과 3학년', '2021123456', $3, 0, 0, 0, 0, 0, true, '{}', '#2563eb', 0, 0, 0, 0, 0, true)`,
+         select $1, $2, '팀장', coalesce(nullif(btrim(left(p.major, 100)), ''), '전공 미지정'), coalesce(nullif(btrim(left(p.student, 50)), ''), '-'),
+           $3, 0, 0, 0, 0, 0, true, '{}', '#2563eb', 0, 0, 0, 0, 0, true
+         from (select 1) one left join public.profiles p on p.id = auth.uid()`,
         [id, actor.name, actor.avatar]);
       await query("select public.get_or_rotate_join_code($1)", [id]); // 첫 참여 코드
       return mapProject(project);

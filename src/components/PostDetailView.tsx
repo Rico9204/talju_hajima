@@ -3,7 +3,7 @@ import { BOARD_CATEGORIES } from "../lib/boardData";
 import BoardPollView from "./BoardPollView";
 import { useConfirm } from "./ConfirmDialog";
 import { sanitizeBoardHtml } from "../lib/boardHtml";
-import { PostReportButton, PostReportList } from "./PostReport";
+import { CommentReportButton, PostReportButton, PostReportList } from "./PostReport";
 import type { BoardPost } from "../api/types";
 
 export default function PostDetailView({
@@ -84,10 +84,6 @@ export default function PostDetailView({
     onAddReply(post.id, replyingTarget.commentId, replyText.trim(), replyingTarget.targetAuthor);
     setReplyText("");
     setReplyingTarget(null);
-  }
-
-  function handleReport(target: string) {
-    alert(`${target} 신고가 접수되었습니다. (관리자 검토 예정)`);
   }
 
   function formatDate(iso: string): string {
@@ -335,14 +331,9 @@ export default function PostDetailView({
                             💬 답글
                           </button>
                         )}
-                        <button
-                          onClick={() => handleReport("댓글")}
-                          className="text-[11px] font-600 px-2 py-0.5 transition-all hover:bg-red-500/10"
-                          style={{ color: "#ef4444", borderRadius: "6px" }}
-                          title="댓글 신고하기"
-                        >
-                          🚨 신고
-                        </button>
+                        {currentUserId && c.authorUserId !== currentUserId && (
+                          <CommentReportButton post={post} author={c.author} text={c.content} onReported={() => onReported?.(post.id)} />
+                        )}
                         {canDeleteComment(c.authorUserId) && (
                           <button
                             onClick={() => confirmDeleteComment(c.id)}
@@ -406,14 +397,9 @@ export default function PostDetailView({
                                         💬 답글
                                       </button>
                                     )}
-                                    <button
-                                      onClick={() => handleReport("대댓글")}
-                                      className="text-[10px] font-600 px-1.5 py-0.5 transition-all hover:bg-red-500/10"
-                                      style={{ color: "#ef4444", borderRadius: "6px" }}
-                                      title="대댓글 신고하기"
-                                    >
-                                      🚨 신고
-                                    </button>
+                                    {currentUserId && r.authorUserId !== currentUserId && (
+                                      <CommentReportButton small post={post} author={r.author} text={r.content} onReported={() => onReported?.(post.id)} />
+                                    )}
                                     {canDeleteComment(r.authorUserId) && (
                                       <button
                                         onClick={() => confirmDeleteComment(r.id)}
