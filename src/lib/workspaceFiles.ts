@@ -63,7 +63,8 @@ export function latestFileUploadTime(file: WorkspaceFile): string {
   return latest ? formatUploadTime(latest.uploadedAt, latest.date) : formatUploadTime(file.createdAt, file.date);
 }
 
-export type FileSortOption = "latest" | "oldest" | "nameAsc" | "nameDesc" | "sizeDesc" | "sizeAsc";
+// manual = 직접 정렬(끌어서 바꾼 순서). 순서가 아직 없는 파일(새로 올린 파일 등)은 맨 위에 최신순으로 둔다.
+export type FileSortOption = "manual" | "latest" | "oldest" | "nameAsc" | "nameDesc" | "sizeDesc" | "sizeAsc";
 
 // 목록에 보이는 날짜(latestFileUploadTime)와 같은 기준: 마지막 버전을 올린 시각. 시각이 없는 옛 기록은 날짜, 그것도 없으면 id.
 function fileTimestamp(file: WorkspaceFile): number {
@@ -88,8 +89,14 @@ function fileByteSize(file: WorkspaceFile): number {
 const byName = (a: WorkspaceFile, b: WorkspaceFile) => a.name.localeCompare(b.name, "ko", { numeric: true, sensitivity: "base" });
 
 export function sortWorkspaceFiles(items: WorkspaceFile[], sortBy: FileSortOption): WorkspaceFile[] {
+  const latest = (a: WorkspaceFile, b: WorkspaceFile) => fileTimestamp(b) - fileTimestamp(a) || b.id - a.id;
   const compare: Record<FileSortOption, (a: WorkspaceFile, b: WorkspaceFile) => number> = {
-    latest: (a, b) => fileTimestamp(b) - fileTimestamp(a) || b.id - a.id,
+    manual: (a, b) => {
+      const x = a.sortOrder ?? null, y = b.sortOrder ?? null;
+      if (x === null || y === null) return x === y ? latest(a, b) : x === null ? -1 : 1;
+      return x - y || a.id - b.id;
+    },
+    latest,
     oldest: (a, b) => fileTimestamp(a) - fileTimestamp(b) || a.id - b.id,
     nameAsc: byName,
     nameDesc: (a, b) => byName(b, a),
@@ -97,6 +104,38 @@ export function sortWorkspaceFiles(items: WorkspaceFile[], sortBy: FileSortOptio
     sizeAsc: (a, b) => fileByteSize(a) - fileByteSize(b) || a.id - b.id,
   };
   return [...items].sort(compare[sortBy]);
+}
+
+// 폴더 순서: 순서를 정한 폴더가 앞(sortOrder 순), 순서가 없는 폴더는 그 뒤에 만든 순서대로.
+export function sortFolders<T extends { id: number; sortOrder?: number | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const x = a.sortOrder ?? null, y = b.sortOrder ?? null;
+    if (x === null || y === null) return x === y ? a.id - b.id : x === null ? 1 : -1;
+    return x - y || a.id - b.id;
+  });
+}
+
+// 끌어 놓은 결과 순서: order에서 moving(여러 개면 지금 순서 그대로)을 빼서 target 앞/뒤에 넣는다.
+// target이 moving 안에 있으면 바꾸지 않는다.
+export function reorderIds(order: number[], moving: number[], target: number, place: "before" | "after"): number[] {
+  const set = new Set(moving);
+  if (set.has(target)) return order;
+  const kept = order.filter((id) => !set.has(id));
+  const block = order.filter((id) => set.has(id));
+  const at = kept.indexOf(target);
+  if (at < 0) return order;
+  kept.splice(place === "before" ? at : at + 1, 0, ...block);
+  return kept;
+}
+
+// 한 폴더와 그 아래 모든 하위 폴더의 id(폴더를 자기 하위로 옮기는 선택지를 빼는 데 쓴다).
+export function folderSubtree(folders: { id: number; parentId: number | null }[], rootId: number): Set<number> {
+  const result = new Set([rootId]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const f of folders) if (f.parentId !== null && result.has(f.parentId) && !result.has(f.id)) { result.add(f.id); grew = true; }
+  }
+  return result;
 }
 
 // 바로 수정(동시 편집)이 가능한 텍스트 파일 — 원본 텍스트를 그대로 다루고 크기 제한을 둔다.

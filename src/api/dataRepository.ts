@@ -105,6 +105,8 @@ export interface DataRepository {
 
   deleteWorkspaceFile(fileId: number): Promise<void>;
   moveWorkspaceFile(fileId: number, folderId: number | null): Promise<void>; // null = 워크스페이스 루트
+  moveWorkspaceFolder(folderId: number, parentId: number | null): Promise<void>; // null = 워크스페이스 루트
+  reorderWorkspaceItems(kind: "folder" | "file", ids: number[]): Promise<void>; // 같은 폴더 안 항목들을 이 순서로
   deleteWorkspaceFolder(folderId: number): Promise<void>;
   pendingWorkspaceCleanup(projectId: string): Promise<string[]>;
   cleanupWorkspaceFiles(projectId: string): Promise<void>;

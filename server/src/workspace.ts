@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from "@nestjs/common";
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
 import { TODAY_SQL, myMember } from "./actor.js";
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
@@ -11,6 +11,17 @@ const EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
 class MoveFileDto {
   // null = 워크스페이스 루트. 키를 빠뜨리면(undefined) 잘못된 요청으로 본다.
   @ValidateIf((dto: MoveFileDto) => dto.folderId !== null) @IsInt() folderId!: number | null;
+}
+
+class MoveFolderDto {
+  // null = 워크스페이스 루트. 키를 빠뜨리면(undefined) 잘못된 요청으로 본다.
+  @ValidateIf((dto: MoveFolderDto) => dto.parentId !== null) @IsInt() parentId!: number | null;
+}
+
+// 같은 폴더 안의 폴더들(또는 파일들)을 화면에 보이는 순서대로. 같은 폴더인지·권한은 DB 함수가 검사한다.
+class ReorderDto {
+  @IsIn(["folder", "file"]) kind!: "folder" | "file";
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(2000) @IsInt({ each: true }) ids!: number[];
 }
 
 class CreateFolderDto {
@@ -67,7 +78,7 @@ export class WorkspaceController {
   @Get("projects/:projectId/folders")
   listFolders(@UserId() userId: string, @Param("projectId") projectId: string) {
     return this.db.asUser(userId, async (query) =>
-      (await selectJson(query, "select * from public.folders where project_id = $1 order by id", [projectId])).map(mapFolder));
+      (await selectJson(query, "select * from public.folders where project_id = $1 order by sort_order nulls last, id", [projectId])).map(mapFolder));
   }
 
   // 색은 프로젝트의 폴더 수에 따라 돌아가며 정한다(화면 쪽과 같은 규칙). 깊이 제한은 DB가 검사한다.
@@ -89,6 +100,19 @@ export class WorkspaceController {
   @HttpCode(204)
   async deleteFolder(@UserId() userId: string, @Param("folderId", ParseIntPipe) folderId: number) {
     await this.db.asUser(userId, (query) => query("select public.delete_workspace_folder($1::bigint)", [folderId]));
+  }
+
+  // 폴더를 다른 폴더 안(또는 루트)으로. 순환·깊이 10단계·권한은 DB 함수가 검사한다.
+  @Post("workspace/folders/:folderId/move")
+  @HttpCode(204)
+  async moveFolder(@UserId() userId: string, @Param("folderId", ParseIntPipe) folderId: number, @Body() body: MoveFolderDto) {
+    await this.db.asUser(userId, (query) => query("select public.move_workspace_folder($1::bigint, $2::bigint)", [folderId, body.parentId]));
+  }
+
+  @Post("workspace/reorder")
+  @HttpCode(204)
+  async reorder(@UserId() userId: string, @Body() body: ReorderDto) {
+    await this.db.asUser(userId, (query) => query("select public.reorder_workspace_items($1, $2::bigint[])", [body.kind, body.ids]));
   }
 
   @Get("projects/:projectId/files")

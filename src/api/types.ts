@@ -159,6 +159,7 @@ export interface WorkspaceFile {
   tag: string;
   tags: string[];
   folderId: number | null;
+  sortOrder?: number | null; // "직접 정렬" 순서(같은 폴더 안). null = 아직 순서 없음(맨 위에 최신순)
   versions: FileVersion[];
   comments: FileComment[];
 }
@@ -171,6 +172,7 @@ export interface Folder {
   color: string;
   createdBy: string;
   date: string;
+  sortOrder?: number | null; // 같은 상위 폴더 안의 순서. null = 순서 없음(순서 있는 폴더 뒤에 만든 순서대로)
 }
 
 export type TaskStatus = "todo" | "inprogress" | "review" | "done";

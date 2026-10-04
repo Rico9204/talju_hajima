@@ -39,3 +39,18 @@ test('파일 정렬: 최신순은 마지막 버전 시각, 이름순은 한국�
   assert.deepEqual(ids(sortWorkspaceFiles([old, updated, legacy], 'sizeDesc')), [2, 1, 3]); // 1.5 MB > 5000 B > 3 KB(3072 B)
   assert.deepEqual(ids(sortWorkspaceFiles([old, updated, legacy], 'sizeAsc')), [3, 1, 2]);
 });
+test('직접 정렬·폴더 순서·끌어 놓은 순서·하위 폴더 계산', async () => {
+  const { sortWorkspaceFiles, sortFolders, reorderIds, folderSubtree } = await import('../src/lib/workspaceFiles.ts');
+  const file = (id, sortOrder, uploadedAt) => ({ id, name: `${id}`, size: '', date: '', tags: [], sortOrder, versions: [{ id: id * 10, current: true, uploadedAt, date: '' }] });
+  const ids = (list) => list.map((f) => f.id);
+  // 순서 없는 파일(새로 올린 파일)은 맨 위에 최신순, 그다음 정한 순서
+  assert.deepEqual(ids(sortWorkspaceFiles([file(1, 2, '2026-09-01T00:00:00Z'), file(2, 1, '2026-09-02T00:00:00Z'), file(3, null, '2026-09-03T00:00:00Z'), file(4, null, '2026-09-04T00:00:00Z')], 'manual')), [4, 3, 2, 1]);
+  assert.deepEqual(ids(sortFolders([{ id: 5, sortOrder: null }, { id: 3, sortOrder: 2 }, { id: 9, sortOrder: 1 }, { id: 4, sortOrder: null }])), [9, 3, 4, 5]);
+  assert.deepEqual(reorderIds([1, 2, 3, 4, 5], [2], 4, 'after'), [1, 3, 4, 2, 5]);
+  assert.deepEqual(reorderIds([1, 2, 3, 4, 5], [5, 2], 1, 'before'), [2, 5, 1, 3, 4]); // 여러 개는 지금 순서 그대로 한 덩어리로
+  assert.deepEqual(reorderIds([1, 2, 3], [2], 2, 'after'), [1, 2, 3]); // 자기 위에 놓으면 그대로
+  assert.deepEqual(reorderIds([1, 2, 3], [2], 9, 'after'), [1, 2, 3]);
+  const tree = [{ id: 1, parentId: null }, { id: 2, parentId: 1 }, { id: 3, parentId: 2 }, { id: 4, parentId: null }, { id: 5, parentId: 4 }];
+  assert.deepEqual([...folderSubtree(tree, 1)].sort(), [1, 2, 3]);
+  assert.deepEqual([...folderSubtree(tree, 5)], [5]);
+});

@@ -31,6 +31,29 @@ test('폴더: 만든 사람 이름은 서버가 정하고, 하위 폴더·빈 �
   assert.deepEqual((await call(s.outsider, 'GET', `/projects/${s.p}/folders`)).body, []);
 });
 
+test('폴더 이동·순서: 하위·루트로 옮기고, 순환·외부인·잘못된 요청을 막고, 순서대로 돌려준다', async () => {
+  const make = async (name, parentId) => (await call(s.member, 'POST', `/projects/${s.p}/folders`, { name, parentId })).body.id;
+  const a = await make('가', null), b = await make('나', null), a1 = await make('가-1', a);
+  assert.equal((await call(s.member, 'POST', `/workspace/folders/${a}/move`, { parentId: b })).status, 204);
+  let folders = (await call(s.member, 'GET', `/projects/${s.p}/folders`)).body;
+  assert.equal(folders.find((f) => f.id === a).parentId, b);
+  assert.equal((await call(s.member, 'POST', `/workspace/folders/${b}/move`, { parentId: a1 })).status, 400); // 하위 폴더 안으로(순환)
+  assert.equal((await call(s.outsider, 'POST', `/workspace/folders/${a}/move`, { parentId: null })).status, 400);
+  assert.equal((await call(s.member, 'POST', `/workspace/folders/${a}/move`, {})).status, 400); // parentId 빠짐
+  assert.equal((await call(s.member, 'POST', `/workspace/folders/${a}/move`, { parentId: null })).status, 204);
+
+  assert.equal((await call(s.member, 'POST', '/workspace/reorder', { kind: 'folder', ids: [b, a] })).status, 204);
+  folders = (await call(s.member, 'GET', `/projects/${s.p}/folders`)).body;
+  const roots = folders.filter((f) => f.parentId === null).map((f) => f.id);
+  assert.deepEqual(roots.slice(0, 2), [b, a]);
+  assert.equal(folders.find((f) => f.id === b).sortOrder, 1);
+  assert.equal((await call(s.member, 'POST', '/workspace/reorder', { kind: 'folder', ids: [a, a1] })).status, 400); // 다른 상위 폴더
+  assert.equal((await call(s.member, 'POST', '/workspace/reorder', { kind: 'shape', ids: [a] })).status, 400);
+  assert.equal((await call(s.member, 'POST', '/workspace/reorder', { kind: 'folder', ids: [] })).status, 400);
+  assert.equal((await call(s.member, 'POST', '/workspace/reorder', { kind: 'file', ids: [fileId] })).status, 204);
+  assert.equal((await call(s.member, 'GET', `/projects/${s.p}/files`)).body[0].sortOrder, 1);
+});
+
 test('파일 목록과 댓글: 작성자는 서버가 정하고, 반응은 켜고 끌 수 있다', async () => {
   const comment = await call(s.member, 'POST', `/workspace/files/${fileId}/comments`, { text: '검토했어요' });
   assert.equal(comment.status, 201);

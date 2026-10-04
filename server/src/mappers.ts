@@ -64,7 +64,7 @@ export function mapMember(row: Row, profile?: Row) {
 }
 
 export function mapFolder(row: Row) {
-  return { id: row.id, parentId: row.parent_id ?? null, name: row.name, color: row.color, createdBy: row.created_by, ownerUserId: row.owner_user_id ?? null, date: row.date };
+  return { id: row.id, parentId: row.parent_id ?? null, name: row.name, color: row.color, createdBy: row.created_by, ownerUserId: row.owner_user_id ?? null, date: row.date, sortOrder: row.sort_order ?? null };
 }
 
 export function mapComment(row: Row) {
@@ -90,7 +90,7 @@ export function mapFile(row: Row) {
     id: row.id, name: row.name, type: row.type, createdAt: row.created_at ?? null, updatedAt: row.updated_at ?? null,
     uploader: row.uploader, avatar: row.avatar, date: row.date, size: row.size, tag: row.tag, ownerUserId: row.owner_user_id ?? null,
     tags: row.tags ?? (row.tag && row.tag !== "기타" ? [row.tag] : []),
-    folderId: row.folder_id, versions, comments,
+    folderId: row.folder_id, sortOrder: row.sort_order ?? null, versions, comments,
   };
 }
 

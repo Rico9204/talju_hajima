@@ -2,11 +2,12 @@ import SearchHighlight from "./SearchHighlight";
 import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/workspaceSearch";
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
-import { latestFileUploadTime, sortWorkspaceFiles, type FileSortOption } from "../lib/workspaceFiles";
+import { folderSubtree, latestFileUploadTime, reorderIds, sortFolders, sortWorkspaceFiles, type FileSortOption } from "../lib/workspaceFiles";
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
+import WorkspaceLocalSync, { type LocalSyncHandle } from "./WorkspaceLocalSync";
 import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
@@ -49,13 +50,18 @@ const COLLAB_FILE = {
 } as const;
 const collabKindOf = (name: string): CollabFileKind | null => (isRichDocName(name) ? "doc" : isSlidesName(name) ? "slides" : null);
 
+// 워크스페이스 안에서 끄는 항목(바탕화면에서 끌어온 새 파일과 구분하는 표시).
+const ITEM_DRAG_TYPE = "application/x-talju-workspace-item";
+type DragItem = { kind: "files"; ids: number[] } | { kind: "folder"; id: number };
+type DropSpot = { into: number | "root" } | { kind: "folder" | "file"; id: number; place: "before" | "after" };
+
 export interface WorkspaceFocus {
   fileId: number;
   folderId: number | null;
 }
 
 export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | null }) {
-  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isManager, deleteWorkspaceFile, markSectionViewed, downloadFileVersion, moveWorkspaceFile } = useProject();
+  const { project, folders, files, addFolder, uploadWorkspaceFile, currentMember, isManager, deleteWorkspaceFile, markSectionViewed, downloadFileVersion, moveWorkspaceFiles, moveWorkspaceFolder, reorderWorkspaceItems, loading } = useProject();
   const { lineSafeStyle } = useAccountBackground();
   const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
   const [ask, confirmDialog] = useConfirm();
@@ -79,16 +85,23 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [docEditing, setDocEditing] = useState<{ kind: CollabFileKind; fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
   const [newDoc, setNewDoc] = useState<{ kind: CollabFileKind; name: string } | null>(null); // null = 새 문서·슬라이드 입력창 닫힘
   const [docBusy, setDocBusy] = useState(false);
-  // 파일 끌어서 옮기기: 끌고 있는 파일 id와, 지금 위에 올라가 있는 놓을 곳(폴더 id, "root" = 워크스페이스 루트)
-  const [draggingFileId, setDraggingFileId] = useState<number | null>(null);
-  const [dropTarget, setDropTarget] = useState<number | "root" | null>(null);
+  // 끌어서 옮기기·순서 바꾸기: 끌고 있는 것(파일 여러 개 또는 폴더 하나)과 지금 놓으려는 곳.
+  // into = 그 폴더 안으로("root" = 워크스페이스 루트), before/after = 같은 목록에서 그 항목 앞/뒤로(순서 바꾸기).
+  const [dragging, setDragging] = useState<DragItem | null>(null);
+  const [dropSpot, setDropSpot] = useState<DropSpot | null>(null);
+  // 끌어서 여러 파일 고르기(빈 곳에서 시작한 사각형). 화면 좌표가 아니라 목록 안쪽(스크롤 포함) 좌표.
+  const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const bandRef = useRef<{ x0: number; y0: number; base: Set<number>; moved: boolean } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const syncRef = useRef<LocalSyncHandle>(null);
+  const anchorRef = useRef<number | null>(null); // Shift+클릭 범위 선택의 시작 파일
   const [moveError, setMoveError] = useState("");
   const [editError, setEditError] = useState("");
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTag, setFilterTag] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<FileSortOption>("latest");
+  const [sortBy, setSortBy] = useState<FileSortOption>("manual");
   const [dragOver, setDragOver] = useState(false);
   const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -129,7 +142,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setCurrentFolderId(null);
     setSelected(null);
     setFilterTag(null);
-    setSortBy("latest");
+    setSortBy("manual");
     setCreatingFolder(false);
     setFolderError("");
     setSelectMode(false);
@@ -212,37 +225,194 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     } finally { setDocBusy(false); }
   }
 
-  // 파일을 다른 폴더(null = 워크스페이스 루트)로 옮긴다. 끌어서 놓기와 상세 패널의 "폴더 이동"이 함께 쓴다.
-  async function moveFile(fileId: number, folderId: number | null) {
-    const file = files.find((f) => f.id === fileId);
-    if (!file || locked || file.folderId === folderId) return;
+  const errorText = (e: unknown, fallback: string) => (e instanceof Error ? e.message : (e as { message?: string })?.message ?? fallback);
+
+  // 파일들을 다른 폴더(null = 워크스페이스 루트)로 옮긴다. 끌어서 놓기와 상세 패널의 "폴더 이동"이 함께 쓴다.
+  async function moveFiles(ids: number[], folderId: number | null) {
+    const moving = ids.filter((id) => files.find((f) => f.id === id)?.folderId !== folderId);
+    if (locked || moving.length === 0) return;
     setMoveError("");
     try {
-      await moveWorkspaceFile(fileId, folderId);
+      const failed = await moveWorkspaceFiles(moving, folderId);
+      if (failed > 0) setMoveError(`${failed}개 파일을 옮기지 못했습니다. 다시 시도해 주세요.`);
     } catch (e) {
-      setMoveError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "파일을 옮기지 못했습니다.");
+      setMoveError(errorText(e, "파일을 옮기지 못했습니다."));
     }
   }
 
-  // 끌고 있는 것이 워크스페이스 파일일 때만 놓을 곳이 반응한다(바탕화면에서 끌어온 새 파일 업로드와 구분).
-  const FILE_DRAG_TYPE = "application/x-talju-file";
-  function dropHandlers(target: number | "root") {
+  // 폴더를 다른 폴더 안(null = 루트)으로. 자기 자신·하위 폴더 안으로는 화면에서도 막는다(DB도 다시 검사).
+  async function moveFolder(id: number, parentId: number | null) {
+    const folder = folders.find((f) => f.id === id);
+    if (locked || !folder || folder.parentId === parentId) return;
+    if (parentId !== null && folderSubtree(folders, id).has(parentId)) { setMoveError("폴더를 자기 자신이나 하위 폴더 안으로 옮길 수 없습니다."); return; }
+    setMoveError("");
+    try {
+      await moveWorkspaceFolder(id, parentId);
+    } catch (e) {
+      setMoveError(errorText(e, "폴더를 옮기지 못했습니다."));
+    }
+  }
+
+  async function reorder(kind: "folder" | "file", ids: number[]) {
+    setMoveError("");
+    try {
+      await reorderWorkspaceItems(kind, ids);
+    } catch (e) {
+      setMoveError(errorText(e, "순서를 바꾸지 못했습니다."));
+    }
+  }
+
+  // 놓을 수 있는지: 폴더는 자기 자신·하위 폴더 안으로 못 들어간다.
+  function canDropInto(item: DragItem | null, target: number | "root"): boolean {
+    if (!item || locked) return false;
+    if (item.kind === "folder" && target !== "root" && folderSubtree(folders, item.id).has(target)) return false;
+    return true;
+  }
+  function dropInto(item: DragItem, target: number | "root") {
     const folderId = target === "root" ? null : target;
+    if (item.kind === "files") void moveFiles(item.ids, folderId);
+    else void moveFolder(item.id, folderId);
+  }
+  function endDrag() { setDragging(null); setDropSpot(null); }
+
+  // 폴더·경로·"상위 폴더로" 버튼에 놓으면 그 안으로 옮긴다.
+  // 끌고 있는 것이 워크스페이스 항목일 때만 반응한다(바탕화면에서 끌어온 새 파일 업로드와 구분).
+  function dropHandlers(target: number | "root") {
     return {
       onDragOver: (e: React.DragEvent) => {
-        if (!e.dataTransfer.types.includes(FILE_DRAG_TYPE)) return;
-        e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget(target);
+        if (!e.dataTransfer.types.includes(ITEM_DRAG_TYPE) || !canDropInto(dragging, target)) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropSpot({ into: target });
       },
-      onDragLeave: () => setDropTarget((cur) => (cur === target ? null : cur)),
+      onDragLeave: () => setDropSpot((cur) => (cur && "into" in cur && cur.into === target ? null : cur)),
       onDrop: (e: React.DragEvent) => {
-        const id = Number(e.dataTransfer.getData(FILE_DRAG_TYPE));
-        if (!id) return;
-        e.preventDefault(); e.stopPropagation(); setDropTarget(null); setDraggingFileId(null);
-        void moveFile(id, folderId);
+        if (!dragging || !canDropInto(dragging, target)) return;
+        e.preventDefault(); e.stopPropagation();
+        const item = dragging; endDrag();
+        dropInto(item, target);
       },
     };
   }
-  const dropStyle = (target: number | "root") => (dropTarget === target ? { outline: "2px dashed var(--primary)", outlineOffset: "2px" } : {});
+  const isInto = (target: number | "root") => !!dropSpot && "into" in dropSpot && dropSpot.into === target;
+  const dropStyle = (target: number | "root") => (isInto(target) ? { outline: "2px dashed var(--primary)", outlineOffset: "2px" } : {});
+  const isSpot = (kind: "folder" | "file", id: number, place: "before" | "after") => !!dropSpot && !("into" in dropSpot) && dropSpot.kind === kind && dropSpot.id === id && dropSpot.place === place;
+
+  // 폴더 카드: 폴더를 끌어 카드 왼쪽·오른쪽 가장자리에 놓으면 순서 바꾸기, 가운데(또는 파일)는 그 폴더 안으로.
+  function folderCardDragOver(e: React.DragEvent, target: Folder) {
+    if (!e.dataTransfer.types.includes(ITEM_DRAG_TYPE) || !dragging || locked) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    if (dragging.kind === "folder" && dragging.id !== target.id && (ratio < 0.25 || ratio > 0.75)) {
+      e.preventDefault(); e.dataTransfer.dropEffect = "move";
+      setDropSpot({ kind: "folder", id: target.id, place: ratio < 0.25 ? "before" : "after" });
+      return;
+    }
+    if (!canDropInto(dragging, target.id)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropSpot({ into: target.id });
+  }
+  function folderCardDrop(e: React.DragEvent, target: Folder) {
+    if (!dragging || !dropSpot) return;
+    e.preventDefault(); e.stopPropagation();
+    const item = dragging, spot = dropSpot; endDrag();
+    if ("into" in spot) { if (canDropInto(item, target.id)) dropInto(item, target.id); return; }
+    if (item.kind === "folder") void reorder("folder", reorderIds(childFolders.map((f) => f.id), [item.id], target.id, spot.place));
+  }
+
+  // 파일 줄: 같은 목록 안에서 위·아래 절반에 놓으면 순서 바꾸기. 검색·태그로 일부만 보일 때는 순서를 바꾸지 않는다.
+  function fileRowDragOver(e: React.DragEvent, target: WorkspaceFile) {
+    if (!e.dataTransfer.types.includes(ITEM_DRAG_TYPE) || dragging?.kind !== "files" || !canReorderFiles || dragging.ids.includes(target.id)) return;
+    if (!dragging.ids.every((id) => scoped.some((f) => f.id === id))) return; // 다른 폴더의 파일(검색 결과에서 끈 것)
+    e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setDropSpot({ kind: "file", id: target.id, place: e.clientY - rect.top < rect.height / 2 ? "before" : "after" });
+  }
+  function fileRowDrop(e: React.DragEvent, target: WorkspaceFile) {
+    if (dragging?.kind !== "files" || !dropSpot || "into" in dropSpot || dropSpot.kind !== "file") return;
+    e.preventDefault(); e.stopPropagation();
+    const item = dragging, spot = dropSpot; endDrag();
+    // 지금 보이는 순서(정렬 기준이 무엇이든)를 바탕으로 바꾸고, 그때부터는 "직접 정렬"로 보여 준다.
+    void reorder("file", reorderIds(sortedFiles.map((f) => f.id), item.ids, target.id, spot.place));
+    setSortBy("manual");
+  }
+
+  // 파일을 끌기 시작: 여러 개를 골라 둔 상태에서 그중 하나를 끌면 고른 파일 전부를 함께 옮긴다.
+  function startFileDrag(e: React.DragEvent, f: WorkspaceFile) {
+    const ids = selectedIds.has(f.id) && selectedIds.size > 1 ? sortedFiles.filter((x) => selectedIds.has(x.id)).map((x) => x.id) : [f.id];
+    e.dataTransfer.setData(ITEM_DRAG_TYPE, "files");
+    e.dataTransfer.effectAllowed = "move";
+    if (ids.length > 1) {
+      // 여러 개를 끌 때는 "파일 N개" 표를 끌리는 모양으로 쓴다.
+      const ghost = document.createElement("div");
+      ghost.textContent = `📄 파일 ${ids.length}개`;
+      Object.assign(ghost.style, { position: "fixed", top: "-100px", left: "0", padding: "6px 12px", borderRadius: "999px", background: "#2563eb", color: "#fff", font: "600 13px sans-serif" });
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 10, 10);
+      setTimeout(() => ghost.remove(), 0);
+    }
+    setDragging({ kind: "files", ids });
+  }
+
+  // 파일 누르기: 그냥 누르면 하나만 열고, Ctrl/⌘는 하나씩 더하거나 빼고, Shift는 마지막으로 누른 파일부터 범위로 고른다.
+  function clickFile(e: React.MouseEvent, f: WorkspaceFile, deletable: boolean) {
+    if (selectMode) { if (deletable) toggleSelected(f.id); return; }
+    if (e.shiftKey && anchorRef.current !== null) {
+      const order = sortedFiles.map((x) => x.id);
+      const [from, to] = [order.indexOf(anchorRef.current), order.indexOf(f.id)].sort((a, b) => a - b);
+      if (from >= 0) { setSelectedIds(new Set(order.slice(from, to + 1))); return; }
+    }
+    if (e.ctrlKey || e.metaKey) {
+      const next = new Set(selectedIds);
+      if (selected !== null && next.size === 0) next.add(selected); // 열어 둔 파일부터 함께 고른다
+      if (next.has(f.id)) next.delete(f.id); else next.add(f.id);
+      setSelectedIds(next);
+      anchorRef.current = f.id;
+      return;
+    }
+    anchorRef.current = f.id;
+    setSelectedIds(new Set());
+    setSelected(selected === f.id ? null : f.id); setDetailTab("versions");
+  }
+
+  // 목록의 빈 곳(파일 사이·아래)에서 끌기 시작하면 사각형으로 여러 파일을 고른다. Ctrl/⌘/Shift를 누르고 있으면 기존 선택에 더한다.
+  function startBand(e: React.PointerEvent<HTMLDivElement>) {
+    const list = listRef.current;
+    // 마우스로만(터치로 시작하면 목록을 스크롤할 수 없다). 파일 줄·버튼 위에서 누른 것은 제외.
+    if (e.pointerType !== "mouse" || e.button !== 0 || !list || (e.target as HTMLElement).closest("[data-file-row], button")) return;
+    const rect = list.getBoundingClientRect();
+    if (e.clientX - rect.left >= list.clientWidth) return; // 스크롤 막대
+    e.preventDefault();
+    const x = e.clientX - rect.left + list.scrollLeft, y = e.clientY - rect.top + list.scrollTop;
+    bandRef.current = { x0: x, y0: y, base: e.ctrlKey || e.metaKey || e.shiftKey ? new Set(selectedIds) : new Set(), moved: false };
+    const move = (ev: PointerEvent) => {
+      const start = bandRef.current;
+      if (!start) return;
+      const r = list.getBoundingClientRect();
+      // 목록 위·아래 끝 너머로 끌면 그쪽으로 스크롤한다.
+      if (ev.clientY > r.bottom - 12) list.scrollTop += 16; else if (ev.clientY < r.top + 12) list.scrollTop -= 16;
+      const x1 = Math.max(0, Math.min(list.scrollWidth, ev.clientX - r.left + list.scrollLeft));
+      const y1 = Math.max(0, Math.min(list.scrollHeight, ev.clientY - r.top + list.scrollTop));
+      if (!start.moved && Math.abs(x1 - start.x0) + Math.abs(y1 - start.y0) < 4) return;
+      start.moved = true;
+      const box = { left: Math.min(start.x0, x1), right: Math.max(start.x0, x1), top: Math.min(start.y0, y1), bottom: Math.max(start.y0, y1) };
+      setBand({ x0: start.x0, y0: start.y0, x1, y1 });
+      const hits = new Set(start.base);
+      list.querySelectorAll<HTMLElement>("[data-file-row]").forEach((row) => {
+        const rr = row.getBoundingClientRect();
+        const top = rr.top - r.top + list.scrollTop, left = rr.left - r.left + list.scrollLeft;
+        if (top < box.bottom && top + rr.height > box.top && left < box.right && left + rr.width > box.left) hits.add(Number(row.dataset.fileRow));
+      });
+      setSelectedIds(hits);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const start = bandRef.current;
+      bandRef.current = null;
+      setBand(null);
+      if (start && !start.moved && start.base.size === 0) { setSelectedIds(new Set()); } // 빈 곳을 그냥 누르면 선택 해제
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
 
   async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number, auto: boolean): Promise<number> {
     const base = f.versions.find((v) => v.id === room);
@@ -278,7 +448,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   }
   const folderPath = pathOf(currentFolder);
   const parentFolder = folderPath.length > 1 ? folderPath[folderPath.length - 2] : null;
-  const childFolders = folders.filter((f) => f.parentId === (currentFolder?.id ?? null));
+  const childFolders = sortFolders(folders.filter((f) => f.parentId === (currentFolder?.id ?? null)));
   const canNestFolder = folderPath.length < 10;
   const searchScope = searchQuery.trim() ? files.filter((f) => matchesWorkspaceSearch(f, searchQuery)) : scoped;
   const tags = [null, ...Array.from(new Set(searchScope.flatMap((f) => f.tags)))];
@@ -286,6 +456,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const sortedFiles = sortWorkspaceFiles(filtered, sortBy);
   const selFile = selected !== null ? files.find((f) => f.id === selected) || null : null;
   const locked = project.status === "done";
+  const canReorderFiles = !locked && !searchQuery.trim() && filterTag === null;
+  const movableFolderTargets = currentFolder ? folders.filter((f) => !folderSubtree(folders, currentFolder.id).has(f.id)) : [];
   useEffect(() => {
     if (filterTag !== null && !searchScope.some((f) => f.tags.includes(filterTag))) setFilterTag(null);
   }, [files, currentFolderId, filterTag, searchQuery]);
@@ -312,12 +484,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     });
   }
 
+  // 고른 파일 중 지울 수 있는 것(팀장·부팀장 또는 올린 사람)만 지운다.
   async function bulkDelete() {
-    if (bulkDeleting || selectedIds.size === 0) return;
-    if (!(await ask({ title: `파일 ${selectedIds.size}개를 삭제할까요?`, message: "모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다." }))) return;
+    const ids = files.filter((f) => selectedIds.has(f.id) && canDeleteFile(f)).map((f) => f.id);
+    if (bulkDeleting || ids.length === 0) return;
+    const skipped = selectedIds.size - ids.length;
+    if (!(await ask({ title: `파일 ${ids.length}개를 삭제할까요?`, message: `모든 버전과 댓글도 함께 삭제되며 복구할 수 없습니다.${skipped > 0 ? ` (내가 지울 수 없는 ${skipped}개는 남겨 둡니다)` : ""}` }))) return;
     setBulkDeleting(true);
     setBulkDeleteError("");
-    const ids = Array.from(selectedIds);
     const results = await Promise.allSettled(ids.map((id) => deleteWorkspaceFile(id)));
     const failed = results.filter((r) => r.status === "rejected").length;
     setSelectedIds(new Set());
@@ -382,8 +556,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       <div className="flex items-center gap-2 mb-5 text-sm flex-wrap">
         <button
           onClick={() => openFolder(null)}
+          {...(!locked && currentFolder ? dropHandlers("root") : {})}
           className="font-600"
-          style={{ color: currentFolder ? "var(--primary)" : "var(--foreground)" }}
+          style={{ color: currentFolder ? "var(--primary)" : "var(--foreground)", ...dropStyle("root") }}
         >
           ⬡ 워크스페이스
         </button>
@@ -464,9 +639,20 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 <button
                   key={f.id}
                   onClick={() => openFolder(f.id)}
-                  {...(!locked ? dropHandlers(f.id) : {})}
+                  draggable={!locked}
+                  onDragStart={(e) => { e.dataTransfer.setData(ITEM_DRAG_TYPE, "folder"); e.dataTransfer.effectAllowed = "move"; setDragging({ kind: "folder", id: f.id }); }}
+                  onDragEnd={endDrag}
+                  onDragOver={(e) => folderCardDragOver(e, f)}
+                  onDragLeave={() => setDropSpot((cur) => (cur && ("into" in cur ? cur.into === f.id : cur.kind === "folder" && cur.id === f.id) ? null : cur))}
+                  onDrop={(e) => folderCardDrop(e, f)}
+                  title={!locked ? "끌어서 다른 폴더 안이나 경로로 옮기거나, 다른 폴더의 왼쪽·오른쪽 끝에 놓아 순서를 바꿀 수 있어요" : undefined}
                   className="flex items-center gap-3 p-4 text-left transition-all"
-                  style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", ...dropStyle(f.id) }}
+                  style={{
+                    background: "var(--card-glass)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", ...dropStyle(f.id),
+                    // 순서 바꾸기로 놓을 자리: 카드 왼쪽(앞)·오른쪽(뒤)에 굵은 선
+                    boxShadow: isSpot("folder", f.id, "before") ? "inset 4px 0 0 var(--primary), var(--shadow-card)" : isSpot("folder", f.id, "after") ? "inset -4px 0 0 var(--primary), var(--shadow-card)" : "var(--shadow-card)",
+                    opacity: dragging?.kind === "folder" && dragging.id === f.id ? 0.5 : 1,
+                  }}
                 >
                   <div
                     className="w-10 h-10 flex items-center justify-center text-lg shrink-0"
@@ -497,7 +683,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           className="mb-5 text-xs font-600 px-3 py-1.5"
           style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px", ...dropStyle(parentFolder?.id ?? "root") }}
         >
-          {draggingFileId !== null
+          {dragging !== null
             ? `⬆ 여기에 놓으면 상위(${parentFolder ? `“${parentFolder.name}” 폴더` : "워크스페이스 루트"})로 이동`
             : parentFolder ? "← 상위 폴더로" : "← 전체 폴더로"}
         </button>
@@ -537,8 +723,39 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </div>
       )}
 
+      {currentFolder && !locked && (
+        <label className="flex items-center gap-2 text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
+          <span className="shrink-0 font-600">이 폴더 옮기기</span>
+          <select
+            value={currentFolder.parentId ?? ""}
+            onChange={(e) => void moveFolder(currentFolder.id, e.target.value === "" ? null : Number(e.target.value))}
+            aria-label="이 폴더를 옮길 곳"
+            className="min-w-0 max-w-sm flex-1 text-xs px-2.5 py-1 border rounded-lg outline-none"
+            style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
+          >
+            <option value="">워크스페이스 루트</option>
+            {movableFolderTargets.map((fo) => <option key={fo.id} value={fo.id}>📁 {pathOf(fo).map((x) => x.name).join(" / ")}</option>)}
+          </select>
+        </label>
+      )}
       {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" childCount={scoped.length + childFolders.length} onDeleted={() => openFolder(null)} />}
       {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
+      {currentMember && (
+        <WorkspaceLocalSync
+          ref={syncRef}
+          projectId={project.id}
+          userId={currentMember.userId ?? currentMember.id}
+          locked={locked}
+          ready={!loading}
+          files={files}
+          folders={folders}
+          currentFolderId={currentFolderId}
+          folderLabel={(id) => { const f = id === null ? null : folderById.get(id) ?? null; return f ? pathOf(f).map((x) => x.name).join(" / ") : "워크스페이스 루트"; }}
+          upload={uploadWorkspaceFile}
+          createFolder={addFolder}
+          load={downloadFileVersion}
+        />
+      )}
       {/* Upload zone */}
       {!locked && (
         <>
@@ -552,7 +769,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               WebkitBackdropFilter: "var(--panel-blur)",
               ...lineSafeStyle,
             }}
-            onDragOver={(e) => { if (e.dataTransfer.types.includes(FILE_DRAG_TYPE)) return; e.preventDefault(); setDragOver(true); }}
+            onDragOver={(e) => { if (e.dataTransfer.types.includes(ITEM_DRAG_TYPE)) return; e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
@@ -620,6 +837,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 fontFamily: "var(--font-outfit)",
               }}
             >
+              <option value="manual">직접 정렬 (끌어서 순서 변경)</option>
               <option value="latest">최신순</option>
               <option value="oldest">오래된순</option>
               <option value="nameAsc">이름 오름차순</option>
@@ -630,14 +848,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {selectMode && selectedIds.size > 0 && (
+          {selectedIds.size > 0 && files.some((f) => selectedIds.has(f.id) && canDeleteFile(f)) && (
             <button
               onClick={() => void bulkDelete()}
               disabled={bulkDeleting}
               className="text-xs font-700 px-3 py-1.5 disabled:opacity-50"
               style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
             >
-              {bulkDeleting ? "삭제 중…" : `선택 삭제 (${selectedIds.size})`}
+              {bulkDeleting ? "삭제 중…" : `선택 삭제 (${files.filter((f) => selectedIds.has(f.id) && canDeleteFile(f)).length})`}
             </button>
           )}
           {filtered.some(canDeleteFile) && (
@@ -663,29 +881,43 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* File list */}
-        <div className="col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1">
+        <div
+          ref={listRef}
+          onPointerDown={startBand}
+          className="relative col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 pb-12"
+          style={{ userSelect: band ? "none" : undefined }}
+        >
+          {selectedIds.size > 0 && !selectMode && (
+            <div className="sticky top-0 z-10 flex items-center gap-2 flex-wrap px-3 py-2 text-xs font-600" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }} role="status">
+              <span>파일 {selectedIds.size}개 선택됨 · 끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요</span>
+              <button type="button" onClick={() => syncRef.current?.addDownload(sortedFiles.filter((f) => selectedIds.has(f.id)).map((f) => f.id))} className="ml-auto px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }} title="고른 파일만 내 컴퓨터 폴더에 받아 두고, 새 버전이 생기면 다시 받아요">💻 로컬로 동기화</button>
+              <button type="button" onClick={() => setSelectedIds(new Set())} className="px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>선택 해제</button>
+            </div>
+          )}
           {sortedFiles.map((f) => {
             const tc = typeColors[f.type] || typeColors.doc;
             const deletable = canDeleteFile(f);
-            const isSelected = selectMode ? selectedIds.has(f.id) : selected === f.id;
+            const isSelected = selectMode || selectedIds.size > 0 ? selectedIds.has(f.id) : selected === f.id;
             return (
               <button
                 key={f.id}
+                data-file-row={f.id}
                 draggable={!locked && !selectMode}
-                onDragStart={(e) => { e.dataTransfer.setData(FILE_DRAG_TYPE, String(f.id)); e.dataTransfer.effectAllowed = "move"; setDraggingFileId(f.id); }}
-                onDragEnd={() => { setDraggingFileId(null); setDropTarget(null); }}
-                title={!locked && !selectMode ? "끌어서 폴더로 옮길 수 있어요" : undefined}
-                onClick={() => {
-                  if (selectMode) { if (deletable) toggleSelected(f.id); return; }
-                  setSelected(isSelected ? null : f.id); setDetailTab("versions");
-                }}
+                onDragStart={(e) => startFileDrag(e, f)}
+                onDragEnd={endDrag}
+                onDragOver={(e) => fileRowDragOver(e, f)}
+                onDragLeave={() => setDropSpot((cur) => (cur && !("into" in cur) && cur.kind === "file" && cur.id === f.id ? null : cur))}
+                onDrop={(e) => fileRowDrop(e, f)}
+                title={!locked && !selectMode ? "끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요 · Ctrl/⌘·Shift+클릭이나 빈 곳에서 끌어 여러 개 선택" : undefined}
+                onClick={(e) => clickFile(e, f, deletable)}
                 className="flex items-center gap-3 p-4 border text-left transition-all group"
                 style={{
                   background: isSelected ? "var(--primary)" : "var(--card)",
                   borderColor: isSelected ? "var(--primary)" : "var(--border)",
                   color: isSelected ? "#fff" : "var(--foreground)",
                   borderRadius: "var(--radius)",
-                  opacity: selectMode && !deletable ? 0.5 : 1,
+                  opacity: (selectMode && !deletable) || (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? 0.5 : 1,
+                  boxShadow: isSpot("file", f.id, "before") ? "0 -3px 0 var(--primary)" : isSpot("file", f.id, "after") ? "0 3px 0 var(--primary)" : undefined,
                 }}
               >
                 {selectMode && (
@@ -752,6 +984,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               {searchQuery.trim() ? "검색 결과가 없습니다" : currentFolder ? "이 폴더에는 파일이 없습니다" : "루트에 저장된 파일이 없습니다 (위 폴더를 열어보세요)"}
             </div>
           )}
+          {band && (
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{
+              left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0),
+              background: "rgba(37,99,235,0.12)", border: "1px solid rgba(37,99,235,0.6)", borderRadius: 4,
+            }} />
+          )}
         </div>
 
         {/* Version panel */}
@@ -779,7 +1017,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <span className="shrink-0 font-600">폴더 이동</span>
                   <select
                     value={selFile.folderId ?? ""}
-                    onChange={(e) => void moveFile(selFile.id, e.target.value === "" ? null : Number(e.target.value))}
+                    onChange={(e) => void moveFiles([selFile.id], e.target.value === "" ? null : Number(e.target.value))}
                     className="flex-1 min-w-0 text-xs px-2.5 py-1 border rounded-lg outline-none"
                     style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
                   >

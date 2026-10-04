@@ -81,6 +81,8 @@ export class RestDataRepository implements DataRepository {
   createFolder(projectId: string, name: string, _actorName: string, parentId: number | null) { return this.api.request<Folder>(`/projects/${encodeURIComponent(projectId)}/folders`, { method: "POST", body: JSON.stringify({ name, parentId }) }); }
   deleteWorkspaceFile(fileId: number) { return this.api.request<void>(`/workspace/files/${fileId}`, { method: "DELETE" }); }
   moveWorkspaceFile(fileId: number, folderId: number | null) { return this.api.request<void>(`/workspace/files/${fileId}/move`, { method: "POST", body: JSON.stringify({ folderId }) }); }
+  moveWorkspaceFolder(folderId: number, parentId: number | null) { return this.api.request<void>(`/workspace/folders/${folderId}/move`, { method: "POST", body: JSON.stringify({ parentId }) }); }
+  reorderWorkspaceItems(kind: "folder" | "file", ids: number[]) { return this.api.request<void>("/workspace/reorder", { method: "POST", body: JSON.stringify({ kind, ids }) }); }
   deleteWorkspaceFolder(folderId: number) { return this.api.request<void>(`/workspace/folders/${folderId}`, { method: "DELETE" }); }
   pendingWorkspaceCleanup(projectId: string) { return this.api.request<string[]>(`/projects/${encodeURIComponent(projectId)}/workspace-cleanup`); }
   cleanupWorkspaceFiles(projectId: string) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}/workspace-cleanup`, { method: "POST" }); }

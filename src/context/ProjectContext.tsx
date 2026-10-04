@@ -121,10 +121,13 @@ interface ProjectContextValue {
   files: WorkspaceFile[];
   deleteWorkspaceFile: (id: number) => Promise<void>;
   moveWorkspaceFile: (id: number, folderId: number | null) => Promise<void>;
+  moveWorkspaceFiles: (ids: number[], folderId: number | null) => Promise<number>; // 옮기지 못한 개수
+  moveWorkspaceFolder: (id: number, parentId: number | null) => Promise<void>;
+  reorderWorkspaceItems: (kind: "folder" | "file", ids: number[]) => Promise<void>;
   deleteWorkspaceFolder: (id: number) => Promise<void>;
   pendingWorkspaceCleanup: () => Promise<string[]>;
   cleanupWorkspaceFiles: () => Promise<void>;
-  addFolder: (name: string, parentId: number | null) => Promise<void>;
+  addFolder: (name: string, parentId: number | null) => Promise<Folder>; // 만든 폴더
   uploadWorkspaceFile: (input: import("../api/types").FileUploadInput) => Promise<{ fileId: number; versionId: number; branched: boolean }>;
   promoteFileVersion: (fileId: number, versionId: number) => Promise<void>;
   // No longer called anywhere after the pdf-workspace-search merge — FileVersionPanel now
@@ -954,6 +957,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     if (project.status === "done") throw new Error("종료된 프로젝트에는 폴더를 만들 수 없습니다.");
     const created = await dataRepository.createFolder(projectId, name, currentMember.name, parentId);
     if (evaluationProjectRef.current === projectId) setFolders((prev) => prev.some((folder) => folder.id === created.id) ? prev : [...prev, created]);
+    return created;
   }
 
   async function uploadWorkspaceFile(input: import("../api/types").FileUploadInput) {
@@ -1345,6 +1349,22 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         files,
         deleteWorkspaceFile: async (id) => { await dataRepository.deleteWorkspaceFile(id); await refreshFiles(); },
         moveWorkspaceFile: async (id, folderId) => { await dataRepository.moveWorkspaceFile(id, folderId); await refreshFiles(); },
+        // 여러 파일을 한 번에: 하나씩 옮기고 목록은 마지막에 한 번만 다시 받는다.
+        moveWorkspaceFiles: async (ids, folderId) => {
+          let failed = 0;
+          for (const id of ids) { try { await dataRepository.moveWorkspaceFile(id, folderId); } catch { failed++; } }
+          await refreshFiles();
+          return failed;
+        },
+        moveWorkspaceFolder: async (id, parentId) => { await dataRepository.moveWorkspaceFolder(id, parentId); await refreshFolders(); },
+        // 끌어 놓자마자 화면 순서를 먼저 바꾸고(기다리지 않게), 저장에 실패하면 서버 순서로 되돌린다.
+        reorderWorkspaceItems: async (kind, ids) => {
+          const order = new Map(ids.map((id, i) => [id, i + 1]));
+          if (kind === "folder") setFolders((prev) => prev.map((f) => (order.has(f.id) ? { ...f, sortOrder: order.get(f.id) } : f)));
+          else setFiles((prev) => prev.map((f) => (order.has(f.id) ? { ...f, sortOrder: order.get(f.id) } : f)));
+          try { await dataRepository.reorderWorkspaceItems(kind, ids); }
+          finally { await (kind === "folder" ? refreshFolders() : refreshFiles()); }
+        },
         deleteWorkspaceFolder: async (id) => { await dataRepository.deleteWorkspaceFolder(id); await refreshFolders(); },
         pendingWorkspaceCleanup: () => dataRepository.pendingWorkspaceCleanup(project.id),
         cleanupWorkspaceFiles: () => dataRepository.cleanupWorkspaceFiles(project.id),
