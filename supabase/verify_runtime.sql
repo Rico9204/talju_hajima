@@ -16,7 +16,9 @@ with required_functions(label, signature) as (
     ('admin certificate cleanup', 'public.mark_admin_document_deleted(uuid)'),
     ('admin application list', 'public.list_admin_applications(text)'),
     ('admin roster', 'public.list_admins()'),
-    ('admin revoke', 'public.revoke_admin(uuid)')
+    ('admin revoke', 'public.revoke_admin(uuid)'),
+    ('workspace folder move', 'public.move_workspace_folder(bigint,bigint)'),
+    ('workspace manual order', 'public.reorder_workspace_items(text,bigint[])')
 ), checks as (
   select 'function'::text as kind, label as item, to_regprocedure(signature) is not null as ready
   from required_functions
@@ -27,6 +29,10 @@ with required_functions(label, signature) as (
   select 'workspace storage policy', policy_name,
     exists(select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = policy_name)
   from (values ('workspace_binary_insert'), ('workspace_binary_read'), ('workspace_binary_cleanup'), ('admin_verification_insert'), ('admin_verification_select')) as required_policies(policy_name)
+  union all
+  select 'column', table_name || '.' || column_name,
+    exists(select 1 from information_schema.columns c where c.table_schema = 'public' and c.table_name = t.table_name and c.column_name = t.column_name)
+  from (values ('folders', 'sort_order'), ('files', 'sort_order')) as t(table_name, column_name)
 )
 select kind, item, ready, case when ready then 'ready' else 'apply schema or the matching migration' end as action
 from checks

@@ -87,10 +87,20 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
       const next = link.kind === "upload"
         ? await runUploadLink(link, { files: nowFiles, folders: nowFolders, upload: latest.current.upload, load: latest.current.load, createFolder: latest.current.createFolder, onProgress })
         : await runDownloadLink(link, { files: nowFiles, load: latest.current.load, force: options.force, onProgress });
-      // 아무것도 바뀌지 않은 확인은 마지막 결과(무엇을 올리고 받았는지)를 지우지 않고 확인 시각만 남긴다.
-      const r = next?.last;
-      const quiet = !!r && !r.uploaded && !r.updated && !r.downloaded && !r.removedLocally && !r.conflicts.length && !r.errors.length;
-      if (next) await store(quiet && link.last ? { ...next, last: link.last, checkedAt: r.at } : { ...next, checkedAt: r?.at });
+      // 동기화하는 동안 연결을 끊었으면 결과를 버리고(되살리지 않게), 그사이 바꾼 "자동"·더한 파일은 지금 연결 것을 쓴다.
+      const current = linksRef.current.find((l) => l.id === id);
+      if (next && current) {
+        // 아무것도 바뀌지 않은 확인은 마지막 결과(무엇을 올리고 받았는지)를 지우지 않고 확인 시각만 남긴다.
+        const r = next.last;
+        const quiet = !!r && !r.uploaded && !r.updated && !r.downloaded && !r.removedLocally && !r.conflicts.length && !r.errors.length;
+        const last = quiet && current.last ? current.last : r;
+        const merged: SyncLink = next.kind === "upload"
+          ? { ...(current as UploadLink), entries: next.entries, folders: next.folders, last, checkedAt: r?.at }
+          : { ...(current as DownloadLink), entries: next.entries, last, checkedAt: r?.at,
+              // 받기 중에 지워져 빠진 파일은 빼고, 그사이 새로 더한 파일은 남긴다.
+              fileIds: [...next.fileIds, ...(current as DownloadLink).fileIds.filter((f) => !(link as DownloadLink).fileIds.includes(f))] };
+        await store(merged);
+      }
     } catch (e) {
       patchState(id, { progress: errorText(e, "동기화하지 못했어요.") || "" });
     } finally {
@@ -140,10 +150,15 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
   }
 
   async function unlink(id: string) {
+    linksRef.current = linksRef.current.filter((l) => l.id !== id); // 돌고 있는 동기화가 끝날 때 다시 저장하지 않게 바로 뺀다
     setLinks((prev) => prev.filter((l) => l.id !== id));
     await deleteLink(id).catch(() => {});
   }
-  async function toggleAuto(link: SyncLink) { await store({ ...link, auto: !link.auto }); }
+  async function toggleAuto(link: SyncLink) {
+    const next = { ...link, auto: !link.auto };
+    linksRef.current = linksRef.current.map((l) => (l.id === link.id ? next : l));
+    await store(next);
+  }
 
   // 자동 동기화: 올리기는 몇 초마다, 받기는 워크스페이스 파일이 바뀔 때와 가끔.
   useEffect(() => {
@@ -171,11 +186,17 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     for (const file of Array.from(list)) byPath.set(file.webkitRelativePath.split("/").slice(1).join("/") || file.name, file);
     const root = memoryDir(list[0]?.webkitRelativePath.split("/")[0] || "폴더", byPath);
     const temp: UploadLink = { id: newLinkId(), kind: "upload", projectId, userId, handle: root, dirName: root.name, auto: false, targetFolderId: currentFolderId, entries: {}, folders: {} };
+    if (!latest.current.ready) { setOneShot("프로젝트 파일 목록을 불러오는 중이에요. 잠시 뒤에 다시 골라 주세요."); return; }
     setOneShot("올리는 중…");
-    const done = await runUploadLink(temp, { ...latest.current, onProgress: (text) => setOneShot(text) });
-    setOneShot(`“${root.name}” 폴더 · ${describeResult(done?.last)}${done?.last?.errors.length ? ` — ${done.last.errors.slice(0, 3).join(", ")}` : ""}`);
+    try {
+      const done = await runUploadLink(temp, { ...latest.current, onProgress: (text) => setOneShot(text) });
+      setOneShot(`“${root.name}” 폴더 · ${describeResult(done?.last)}${done?.last?.errors.length ? ` — ${done.last.errors.slice(0, 3).join(", ")}` : ""}`);
+    } catch (e) {
+      setOneShot(errorText(e, "폴더를 올리지 못했어요."));
+    }
   }
   async function downloadOnce(fileIds: number[]) {
+    try {
     for (const id of fileIds) {
       const f = latest.current.files.find((x) => x.id === id);
       const version = f?.versions.find((v) => v.current);
@@ -186,6 +207,9 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     setOneShot(`파일 ${fileIds.length}개를 내려받았어요. 이 브라우저는 폴더 동기화를 지원하지 않아 한 번만 받아요(크롬·엣지 PC에서는 자동으로 다시 받아요).`);
+    } catch (e) {
+      setOneShot(errorText(e, "파일을 내려받지 못했어요."));
+    }
   }
 
   const pill = "text-xs font-700 px-3 py-1.5 disabled:opacity-50";
