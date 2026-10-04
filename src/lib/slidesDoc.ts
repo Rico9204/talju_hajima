@@ -3,9 +3,9 @@ import { textHash } from "./collabCore.ts";
 
 // 워크스페이스 "슬라이드"(.slides): 이 앱에서 여러 명이 함께 만드는 발표 자료. 파일 내용은 Yjs 문서 상태 그대로다.
 // 구조: slides(Y.Array) → 슬라이드(Y.Map: id, elements(Y.Array)) → 글상자(Y.Map: id, type "text", x·y·w·h(슬라이드
-// 크기의 %), text(Y.Text)). 위치를 %로 두어 화면 크기와 무관하게 같은 자리에 보인다.
-// 원본: Temporary_Merge a068d15. 이미지는 이번 판에서 넣지 않았다(문서에 이미지를 통째로 넣으면 실시간 전송 한도를
-// 넘을 수 있다).
+// 크기의 %), text(Y.Text)) 또는 이미지(Y.Map: id, type "image", x·y·w·h, versionId). 위치를 %로 두어 화면 크기와
+// 무관하게 같은 자리에 보인다. 이미지는 워크스페이스 파일로 따로 올리고 버전 번호만 둔다(collabImages.ts).
+// 원본: Temporary_Merge a068d15.
 
 export const SLIDES_EXT = "slides";
 export const SLIDES_MIME = "application/x-talju-slides";
@@ -30,6 +30,22 @@ export function createTextElement(text = "텍스트를 입력하세요", x = 10,
   el.set("w", w);
   el.set("h", h);
   el.set("text", new Y.Text(text));
+  return el;
+}
+
+// 이미지: 슬라이드 폭의 40%, 원래 비율 그대로(슬라이드는 16:9), 가운데. 너무 길면 높이 80%에 맞춘다.
+export function createImageElement(versionId: number, naturalWidth: number, naturalHeight: number): YMapAny {
+  let w = 40;
+  let h = (w * 16 / 9) * (naturalHeight / Math.max(1, naturalWidth));
+  if (h > 80) { w = w * 80 / h; h = 80; }
+  const el = new Y.Map<unknown>();
+  el.set("id", newId());
+  el.set("type", "image");
+  el.set("x", (100 - w) / 2);
+  el.set("y", (100 - h) / 2);
+  el.set("w", w);
+  el.set("h", h);
+  el.set("versionId", versionId);
   return el;
 }
 

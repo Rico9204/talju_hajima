@@ -11,6 +11,7 @@ import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
 import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/slidesDoc";
+import { collabImageName, type CollabImageStore } from "../lib/collabImages";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
@@ -173,6 +174,21 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       extractedText: { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" },
     });
     return result.versionId;
+  }
+
+  // 문서·슬라이드에 넣는 이미지: 그 문서와 같은 폴더에 워크스페이스 이미지로 올린다(이미지는 태그가 하나 이상 필요).
+  function collabImages(kind: CollabFileKind, f: WorkspaceFile): CollabImageStore {
+    const { label } = COLLAB_FILE[kind];
+    return {
+      upload: async (image) => {
+        const result = await uploadWorkspaceFile({
+          file: new File([image], collabImageName(f.name, image), { type: image.type }),
+          folderId: f.folderId, note: `${f.name}에 넣은 이미지`, tags: [`${label} 이미지`],
+        });
+        return result.versionId;
+      },
+      load: downloadFileVersion,
+    };
   }
 
   // 새 문서·슬라이드: 빈 파일을 지금 폴더에 올리고 바로 편집기를 연다.
@@ -847,6 +863,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 presence={presenceRef.current}
                 editors={editors}
                 save={(bytes, text, base, auto) => saveCollabFile(docEditing.kind, files.find((f) => f.id === docEditing.fileId)!, bytes, text, base, auto)}
+                images={collabImages(docEditing.kind, files.find((f) => f.id === docEditing.fileId)!)}
                 onClose={() => setDocEditing(null)}
               />
             );

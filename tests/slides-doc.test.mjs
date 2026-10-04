@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import * as Y from "yjs"
-import { newSlidesBytes, slidesText, slidesKey, isSlidesName, createSlide, createTextElement, slideElements, SLIDES_FIELD } from "../src/lib/slidesDoc.ts"
+import { newSlidesBytes, slidesText, slidesKey, isSlidesName, createSlide, createTextElement, createImageElement, slideElements, SLIDES_FIELD } from "../src/lib/slidesDoc.ts"
 import { applyTextEdit } from "../src/lib/collabCore.ts"
 
 const exchange = (a, b) => {
@@ -44,4 +44,16 @@ test("위치만 바꿔도 저장 비교값이 바뀌고, 파일 이름으로 슬
   assert.notEqual(slidesKey(d), before)
   assert.equal(isSlidesName("발표.slides"), true)
   assert.equal(isSlidesName("발표.pptx"), false)
+})
+
+test("이미지는 원래 비율로 가운데에, 너무 길면 높이 80%에 맞추고, 글자 추출에는 들어가지 않음", () => {
+  const d = new Y.Doc(); Y.applyUpdate(d, newSlidesBytes(), "seed")
+  const before = slidesText(d)
+  const elements = slideElements(d.getArray(SLIDES_FIELD).get(0))
+  elements.push([createImageElement(7, 1600, 900), createImageElement(8, 300, 900)]) // 넓은 사진, 세로로 긴 사진
+  const [wide, tall] = elements.toArray().slice(-2)
+  assert.deepEqual([wide.get("type"), wide.get("w"), wide.get("h"), wide.get("x"), wide.get("y"), wide.get("versionId")], ["image", 40, 40, 30, 30, 7])
+  assert.equal(tall.get("h"), 80)
+  assert.ok(Math.abs(tall.get("w") * 16 / 9 * 3 - 80) < 1e-9) // 화면에서 높이 = 폭의 3배
+  assert.equal(slidesText(d), before)
 })

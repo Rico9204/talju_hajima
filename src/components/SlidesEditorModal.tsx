@@ -5,8 +5,9 @@ import EditorAvatars from "./EditorAvatars";
 import type { CollabEditor, CollabMode, CollabPresence } from "../lib/collab";
 import { applyTextEdit } from "../lib/collabCore";
 import { useCollabFile } from "../lib/useCollabFile";
-import { createSlide, createTextElement, slideElements, slidesKey, slidesText, SLIDES_FIELD, type YMapAny } from "../lib/slidesDoc";
+import { createImageElement, createSlide, createTextElement, slideElements, slidesKey, slidesText, SLIDES_FIELD, type YMapAny } from "../lib/slidesDoc";
 import { buildSlidesPdf, captureSlideAsImage, exportSlidesAsPptx, type ExportSlide } from "../lib/exportSlides";
+import { collabImageError, COLLAB_IMAGE_TYPES, createCollabImageLoader, imageAsPng, loadImageElement, type CollabImageLoader, type CollabImageStore } from "../lib/collabImages";
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const num = (m: YMapAny, key: string) => (m.get(key) as number) ?? 0;
@@ -14,8 +15,9 @@ const str = (m: YMapAny, key: string) => (m.get(key) as string) ?? "";
 
 // 워크스페이스 "슬라이드"(.slides) 편집기: 글상자를 자유롭게 배치하는 발표 자료를 여러 명이 함께 만든다.
 // 저장·동시 편집 흐름은 문서 편집기와 같다(useCollabFile). 원본: Temporary_Merge a068d15(NestJS 웹소켓 대신
-// Supabase Realtime으로 이식, 이미지 삽입은 이번 판에서 제외). 슬라이드 캔버스는 다크 모드에서도 흰 종이다.
-export default function SlidesEditorModal({ projectId, file, room, mode, initialBytes, presence, editors, save, onClose }: {
+// Supabase Realtime으로 이식). 이미지는 워크스페이스 파일로 올리고 버전 번호만 둔다(collabImages.ts).
+// 슬라이드 캔버스는 다크 모드에서도 흰 종이다.
+export default function SlidesEditorModal({ projectId, file, room, mode, initialBytes, presence, editors, save, images, onClose }: {
   projectId: string;
   file: WorkspaceFile;
   room: number;
@@ -24,6 +26,7 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
   presence: CollabPresence;
   editors: CollabEditor[];
   save: (bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean) => Promise<number>;
+  images: CollabImageStore;
   onClose: () => void;
 }) {
   const { doc, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose, requestClose, saveAndClose } = useCollabFile({
@@ -36,6 +39,10 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
   const [editingId, setEditingId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"pptx" | "pdf" | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [loader] = useState(() => createCollabImageLoader(images.load));
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => () => loader.dispose(), [loader]);
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
   const names = [...new Set(roomEditors.map((e) => e.name))];
   const baseName = file.name.replace(/\.slides$/i, "") || "슬라이드";
@@ -67,6 +74,28 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
     doc.transact(() => slideElements(activeSlide).push([el]));
     setSelectedId(str(el, "id"));
   }
+  // 이미지를 워크스페이스에 올리고 지금 슬라이드 가운데에 원래 비율로 넣는다.
+  async function addImage(image: File) {
+    const slide = activeSlide;
+    if (!slide || imageBusy) return;
+    const problem = collabImageError(image);
+    if (problem) { setError(problem); return; }
+    setError("");
+    setImageBusy(true);
+    const local = URL.createObjectURL(image);
+    try {
+      const { naturalWidth, naturalHeight } = await loadImageElement(local);
+      const versionId = await images.upload(image);
+      const el = createImageElement(versionId, naturalWidth, naturalHeight);
+      doc.transact(() => slideElements(slide).push([el]));
+      setSelectedId(str(el, "id"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "이미지를 넣지 못했습니다.");
+    } finally {
+      URL.revokeObjectURL(local);
+      setImageBusy(false);
+    }
+  }
   function deleteElement(id: string) {
     if (!activeSlide) return;
     const elements = slideElements(activeSlide);
@@ -75,11 +104,13 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
     setSelectedId(null);
   }
 
-  const toPlain = (slide: YMapAny): ExportSlide => ({
+  const toPlain = async (slide: YMapAny): Promise<ExportSlide> => ({
     id: str(slide, "id"),
-    elements: slideElements(slide).toArray().map((el) => ({
-      id: str(el, "id"), type: "text" as const, x: num(el, "x"), y: num(el, "y"), w: num(el, "w"), h: num(el, "h"),
-      text: (el.get("text") as Y.Text | undefined)?.toString(),
+    elements: await Promise.all(slideElements(slide).toArray().map(async (el) => {
+      const base = { id: str(el, "id"), x: num(el, "x"), y: num(el, "y"), w: num(el, "w"), h: num(el, "h") };
+      if (str(el, "type") !== "image") return { ...base, type: "text" as const, text: (el.get("text") as Y.Text | undefined)?.toString() };
+      const imageDataUrl = await loader.url(num(el, "versionId")).then(imageAsPng).then((png) => png.dataUrl).catch(() => undefined);
+      return { ...base, type: "image" as const, imageDataUrl };
     })),
   });
 
@@ -90,7 +121,7 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
     const keep = { index: activeIndex, selected: selectedId, editing: editingId };
     try {
       if (kind === "pptx") {
-        await exportSlidesAsPptx(slides.map(toPlain), `${baseName}.pptx`);
+        await exportSlidesAsPptx(await Promise.all(slides.map(toPlain)), `${baseName}.pptx`);
       } else {
         // 선택 테두리·편집 상자 없이 한 장씩 화면에 띄워 캡처한다.
         setSelectedId(null); setEditingId(null);
@@ -132,6 +163,9 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
           <EditorAvatars editors={roomEditors} size={26} max={6} />
           <span className="flex-1 min-w-40">{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중` : "지금은 나만 수정 중이에요."} · 글상자는 더블클릭해 편집, 끌어서 이동, 오른쪽 아래 점으로 크기 조절</span>
           <button type="button" onClick={addTextBox} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: "var(--muted)", color: "var(--foreground)" }}>+ 글상자</button>
+          <button type="button" onClick={() => imageInputRef.current?.click()} disabled={imageBusy} className="text-xs font-700 px-3 py-1.5 rounded-full disabled:opacity-50" style={{ background: "var(--muted)", color: "var(--foreground)" }}>{imageBusy ? "이미지 올리는 중…" : "+ 이미지"}</button>
+          <input ref={imageInputRef} type="file" accept={COLLAB_IMAGE_TYPES.join(",")} hidden aria-label="넣을 이미지"
+            onChange={(e) => { const picked = e.target.files?.[0]; e.target.value = ""; if (picked) void addImage(picked); }} />
           {selectedId && <button type="button" onClick={() => deleteElement(selectedId)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: "#ef444418", color: "#ef4444" }}>선택 삭제</button>}
         </div>
         {confirmClose && (
@@ -152,7 +186,7 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
                   <div className="relative w-full overflow-hidden" style={{ aspectRatio: "16/9", background: "#fff", borderRadius: 6, border: i === current ? "2px solid var(--primary)" : "1px solid var(--border)" }}>
                     {slideElements(slide).toArray().map((el) => (
                       <div key={str(el, "id")} className="absolute overflow-hidden" style={{ left: `${num(el, "x")}%`, top: `${num(el, "y")}%`, width: `${num(el, "w")}%`, height: `${num(el, "h")}%`, fontSize: 4, lineHeight: 1.2, color: "#111" }}>
-                        {(el.get("text") as Y.Text | undefined)?.toString()}
+                        {str(el, "type") === "image" ? <SlideImage loader={loader} versionId={num(el, "versionId")} small /> : (el.get("text") as Y.Text | undefined)?.toString()}
                       </div>
                     ))}
                   </div>
@@ -168,7 +202,7 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
           <div className="flex-1 min-w-0 flex items-center justify-center">
             {activeSlide && (
               <div ref={captureRef} className="w-full" style={{ maxWidth: 900 }}>
-                <SlideCanvas doc={doc} slide={activeSlide} selectedId={selectedId} editingId={editingId} onSelect={setSelectedId} onStartEdit={setEditingId} onStopEdit={() => setEditingId(null)} onDelete={deleteElement} />
+                <SlideCanvas doc={doc} slide={activeSlide} loader={loader} selectedId={selectedId} editingId={editingId} onSelect={setSelectedId} onStartEdit={setEditingId} onStopEdit={() => setEditingId(null)} onDelete={deleteElement} />
               </div>
             )}
           </div>
@@ -178,9 +212,10 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
   );
 }
 
-function SlideCanvas({ doc, slide, selectedId, editingId, onSelect, onStartEdit, onStopEdit, onDelete }: {
+function SlideCanvas({ doc, slide, loader, selectedId, editingId, onSelect, onStartEdit, onStopEdit, onDelete }: {
   doc: Y.Doc;
   slide: YMapAny;
+  loader: CollabImageLoader;
   selectedId: string | null;
   editingId: string | null;
   onSelect: (id: string | null) => void;
@@ -191,7 +226,7 @@ function SlideCanvas({ doc, slide, selectedId, editingId, onSelect, onStartEdit,
   const canvasRef = useRef<HTMLDivElement>(null);
   const elements = slideElements(slide).toArray();
 
-  // 끌기·크기 조절: 슬라이드 크기 대비 %로 바꿔 저장한다(화면 크기와 무관하게 같은 자리).
+  // 끌기·크기 조절: 슬라이드 크기 대비 %로 바꿔 저장한다(화면 크기와 무관하게 같은 자리). 이미지는 비율을 지킨다.
   function track(e: React.MouseEvent, el: YMapAny, kind: "move" | "resize") {
     e.stopPropagation();
     if (kind === "move") onSelect(str(el, "id"));
@@ -205,6 +240,11 @@ function SlideCanvas({ doc, slide, selectedId, editingId, onSelect, onStartEdit,
         if (kind === "move") {
           el.set("x", Math.max(0, Math.min(100 - start.ow, start.ox + dx)));
           el.set("y", Math.max(0, Math.min(100 - start.oh, start.oy + dy)));
+        } else if (str(el, "type") === "image") {
+          const ratio = start.oh / Math.max(0.01, start.ow);
+          const w = Math.max(6, Math.min(100 - start.ox, (100 - start.oy) / ratio, start.ow + dx));
+          el.set("w", w);
+          el.set("h", w * ratio);
         } else {
           el.set("w", Math.max(6, Math.min(100 - start.ox, start.ow + dx)));
           el.set("h", Math.max(4, Math.min(100 - start.oy, start.oh + dy)));
@@ -223,10 +263,13 @@ function SlideCanvas({ doc, slide, selectedId, editingId, onSelect, onStartEdit,
         const w = num(el, "w");
         const selected = selectedId === id;
         const editing = editingId === id;
+        const isImage = str(el, "type") === "image";
         return (
-          <div key={id} onMouseDown={(e) => { if (!editing) track(e, el, "move"); }} onDoubleClick={(e) => { e.stopPropagation(); onStartEdit(id); }}
+          <div key={id} onMouseDown={(e) => { if (!editing) track(e, el, "move"); }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); if (!isImage) onStartEdit(id); }}
             className="absolute" style={{ left: `${num(el, "x")}%`, top: `${num(el, "y")}%`, width: `${w}%`, height: `${num(el, "h")}%`, cursor: editing ? "text" : "move", outline: selected ? "2px solid #2563eb" : "1px dashed transparent" }}>
-            {editing ? (
+            {isImage ? (
+              <SlideImage loader={loader} versionId={num(el, "versionId")} />
+            ) : editing ? (
               <TextBoxEditor doc={doc} ytext={el.get("text") as Y.Text} onBlur={onStopEdit} />
             ) : (
               <div className="w-full h-full p-1 overflow-hidden select-none" style={{ fontSize: Math.max(10, w * 0.16), lineHeight: 1.3, whiteSpace: "pre-wrap" }}>
@@ -235,13 +278,31 @@ function SlideCanvas({ doc, slide, selectedId, editingId, onSelect, onStartEdit,
             )}
             {selected && !editing && (
               <>
-                <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDelete(id); }} aria-label="글상자 삭제" className="absolute -top-3 -right-3 w-5 h-5 rounded-full text-[10px] flex items-center justify-center" style={{ background: "#ef4444", color: "#fff" }}>×</button>
+                <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDelete(id); }} aria-label={isImage ? "이미지 삭제" : "글상자 삭제"} className="absolute -top-3 -right-3 w-5 h-5 rounded-full text-[10px] flex items-center justify-center" style={{ background: "#ef4444", color: "#fff" }}>×</button>
                 <div onMouseDown={(e) => track(e, el, "resize")} aria-label="크기 조절" className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full" style={{ background: "#2563eb", cursor: "nwse-resize" }} />
               </>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// 슬라이드의 이미지: 워크스페이스에서 받아 칸에 꽉 채운다(넣을 때·크기를 바꿀 때 원래 비율을 지킨다).
+function SlideImage({ loader, versionId, small = false }: { loader: CollabImageLoader; versionId: number; small?: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    loader.url(versionId).then((u) => { if (alive) setUrl(u); }, () => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [loader, versionId]);
+  if (url) return <img src={url} alt="슬라이드 이미지" draggable={false} className="w-full h-full select-none pointer-events-none" style={{ objectFit: "fill" }} />;
+  return (
+    <div className="w-full h-full flex items-center justify-center text-center select-none" style={{ border: "1px dashed #cbd5e1", color: "#64748b", fontSize: small ? 4 : 12, background: "#f8fafc" }}>
+      {small ? "" : failed ? "이미지를 불러오지 못했어요" : "이미지를 불러오는 중…"}
     </div>
   );
 }

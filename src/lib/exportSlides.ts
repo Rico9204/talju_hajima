@@ -1,15 +1,16 @@
-// .slides(이 앱 자체 슬라이드 포맷)를 진짜 .pptx/.pdf로 내보낸다(원본: Temporary_Merge a068d15, 이미지 제외).
+// .slides(이 앱 자체 슬라이드 포맷)를 진짜 .pptx/.pdf로 내보낸다(원본: Temporary_Merge a068d15).
 // pptx: 텍스트박스/이미지를 좌표 그대로(퍼센트 -> 인치) 옮겨서 진짜 편집 가능한 pptx로 만든다.
 // pdf: 화면에 보이는 슬라이드 캔버스를 그대로 캡처해서(html2canvas) 슬라이드 1장 = PDF 1페이지로 담는다.
 
 export interface ExportElement {
   id: string;
-  type: "text";
+  type: "text" | "image";
   x: number;
   y: number;
   w: number;
   h: number;
   text?: string;
+  imageDataUrl?: string; // 이미지: PNG data 주소(못 불러온 이미지는 비워 둔다)
 }
 
 export interface ExportSlide {
@@ -56,6 +57,8 @@ export async function exportSlidesAsPptx(slides: ExportSlide[], filename: string
           valign: "top",
           wrap: true,
         });
+      } else if (el.imageDataUrl) {
+        pptxSlide.addImage({ data: el.imageDataUrl, x, y, w, h });
       }
     }
   }

@@ -1,4 +1,6 @@
 import type { Editor, JSONContent } from "@tiptap/react";
+import { imageAsPng } from "./collabImages";
+import { WORKSPACE_IMAGE_NODE } from "./workspaceImageNode";
 
 // 워크스페이스 문서(.rtdoc, TipTap)를 진짜 .docx/.pdf로 내보낸다(원본: Temporary_Merge a068d15). 두 라이브러리(docx, jspdf+html2canvas) 다
 // 꽤 무거워서(번들에 계속 들고 있을 필요 없음) 내보내기 버튼을 실제로 눌렀을 때만 동적 import한다.
@@ -48,9 +50,25 @@ async function inlineRunsToDocx(
   return runs;
 }
 
+// 이미지(워크스페이스 이미지의 버전 번호) → blob 주소. 못 불러온 이미지는 안내 글로 대신한다.
+type ImageUrl = (versionId: number) => Promise<string>;
+const MAX_DOCX_IMAGE_WIDTH = 600; // A4 본문 폭(px 기준) 안에 들어가게
+
+async function imageToParagraph(node: JSONContent, docx: typeof import("docx"), imageUrl?: ImageUrl): Promise<any> {
+  try {
+    if (!imageUrl) throw new Error("no loader");
+    const png = await imageAsPng(await imageUrl(Number(node.attrs?.versionId)));
+    const width = Math.min(MAX_DOCX_IMAGE_WIDTH, png.width);
+    const height = Math.round((png.height * width) / png.width);
+    return new docx.Paragraph({ children: [new docx.ImageRun({ type: "png", data: png.bytes, transformation: { width, height } })] });
+  } catch {
+    return new docx.Paragraph({ children: [new docx.TextRun({ text: "[이미지를 불러오지 못했습니다]", italics: true, color: "999999" })] });
+  }
+}
+
 const HEADING_LEVELS = ["HEADING_1", "HEADING_2", "HEADING_3", "HEADING_4", "HEADING_5", "HEADING_6"] as const;
 
-async function listToParagraphs(node: JSONContent, ordered: boolean, depth: number, docx: typeof import("docx")): Promise<any[]> {
+async function listToParagraphs(node: JSONContent, ordered: boolean, depth: number, docx: typeof import("docx"), imageUrl?: ImageUrl): Promise<any[]> {
   const out: any[] = [];
   const items = node.content ?? [];
   for (let i = 0; i < items.length; i++) {
@@ -66,16 +84,18 @@ async function listToParagraphs(node: JSONContent, ordered: boolean, depth: numb
           }),
         );
       } else if (child.type === "bulletList") {
-        out.push(...(await listToParagraphs(child, false, depth + 1, docx)));
+        out.push(...(await listToParagraphs(child, false, depth + 1, docx, imageUrl)));
       } else if (child.type === "orderedList") {
-        out.push(...(await listToParagraphs(child, true, depth + 1, docx)));
+        out.push(...(await listToParagraphs(child, true, depth + 1, docx, imageUrl)));
+      } else if (child.type === WORKSPACE_IMAGE_NODE) {
+        out.push(await imageToParagraph(child, docx, imageUrl));
       }
     }
   }
   return out;
 }
 
-async function blockToParagraphs(node: JSONContent, docx: typeof import("docx")): Promise<any[]> {
+async function blockToParagraphs(node: JSONContent, docx: typeof import("docx"), imageUrl?: ImageUrl): Promise<any[]> {
   switch (node.type) {
     case "heading": {
       const level = Math.min(6, Math.max(1, node.attrs?.level ?? 1));
@@ -89,9 +109,11 @@ async function blockToParagraphs(node: JSONContent, docx: typeof import("docx"))
     case "paragraph":
       return [new docx.Paragraph({ children: await inlineRunsToDocx(node.content, docx) })];
     case "bulletList":
-      return listToParagraphs(node, false, 0, docx);
+      return listToParagraphs(node, false, 0, docx, imageUrl);
     case "orderedList":
-      return listToParagraphs(node, true, 0, docx);
+      return listToParagraphs(node, true, 0, docx, imageUrl);
+    case WORKSPACE_IMAGE_NODE:
+      return [await imageToParagraph(node, docx, imageUrl)];
     case "blockquote": {
       const out: any[] = [];
       for (const child of node.content ?? []) {
@@ -124,12 +146,12 @@ async function blockToParagraphs(node: JSONContent, docx: typeof import("docx"))
   }
 }
 
-export async function exportRichDocAsDocx(editor: Editor, filename: string): Promise<void> {
+export async function exportRichDocAsDocx(editor: Editor, filename: string, imageUrl?: ImageUrl): Promise<void> {
   const docx = await import("docx");
   const json = editor.getJSON();
   const paragraphs: any[] = [];
   for (const node of json.content ?? []) {
-    paragraphs.push(...(await blockToParagraphs(node, docx)));
+    paragraphs.push(...(await blockToParagraphs(node, docx, imageUrl)));
   }
   const doc = new docx.Document({
     numbering: {

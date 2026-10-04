@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -11,11 +11,14 @@ import type { CollabEditor, CollabMode, CollabPresence, CursorUser } from "../li
 import { useCollabFile } from "../lib/useCollabFile";
 import { RICH_DOC_FIELD, richDocKey, richDocText } from "../lib/richDoc";
 import { exportElementAsPdf, exportRichDocAsDocx } from "../lib/exportRichDoc";
+import { collabImageError, COLLAB_IMAGE_TYPES, createCollabImageLoader, type CollabImageStore } from "../lib/collabImages";
+import { WorkspaceImage } from "../lib/workspaceImageNode";
 
 // 워크스페이스 "문서"(.rtdoc) 편집기: 서식 있는 글을 여러 명이 함께 쓴다(TipTap + Yjs, Supabase Realtime으로 동기화).
 // 저장 방식은 "바로 수정"과 같다 — 저장 버튼(Ctrl/⌘+S)이나 5분 자동 저장 때 지금 합쳐진 문서가 새 버전으로 올라가고,
 // 이미 같은 내용이 저장돼 있으면 건너뛴다. 원본: Temporary_Merge a068d15(NestJS 웹소켓 대신 Supabase로 이식).
-// 이번 판에서는 이미지 삽입을 넣지 않았다(문서에 이미지를 통째로 넣으면 실시간 전송 한도를 넘을 수 있다).
+// 이미지는 워크스페이스 파일로 따로 올리고 문서에는 버전 번호만 둔다(collabImages.ts) — 이미지를 문서에 통째로 넣으면
+// 실시간 전송 한도를 넘을 수 있다. 🖼 버튼, 붙여넣기, 끌어 놓기로 넣는다.
 
 // 다른 사람의 커서·선택 영역: Collaboration과 같은 @tiptap/y-tiptap의 yCursorPlugin을 쓴다(플러그인 키가 맞아야 한다 —
 // extension-collaboration-cursor는 옛 y-prosemirror를 봐서 섞으면 편집기가 열리지 않는다). 이름은 textContent로만 넣는다.
@@ -39,7 +42,7 @@ function collabCursor(awareness: Awareness) {
     },
   });
 }
-export default function DocEditorModal({ projectId, file, room, mode, initialBytes, presence, editors, save, onClose }: {
+export default function DocEditorModal({ projectId, file, room, mode, initialBytes, presence, editors, save, images, onClose }: {
   projectId: string;
   file: WorkspaceFile;
   room: number; // 편집을 시작한 기준 버전 id
@@ -48,12 +51,18 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   presence: CollabPresence;
   editors: CollabEditor[];
   save: (bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean) => Promise<number>;
+  images: CollabImageStore;
   onClose: () => void;
 }) {
   const { doc, awareness, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose, requestClose, saveAndClose } = useCollabFile({
     projectId, fileId: file.id, room, mode, initialBytes, presence, keyOf: richDocKey, textOf: richDocText, save,
   });
   const [exporting, setExporting] = useState<"docx" | "pdf" | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [loader] = useState(() => createCollabImageLoader(images.load));
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const insertImagesRef = useRef<(files: File[], at?: number) => Promise<void>>(async () => {});
+  useEffect(() => () => loader.dispose(), [loader]);
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
   const baseName = file.name.replace(/\.rtdoc$/i, "") || "문서";
 
@@ -62,16 +71,53 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
       StarterKit.configure({ undoRedo: false, link: { openOnClick: false, protocols: ["http", "https", "mailto"] } }),
       Collaboration.configure({ document: doc, field: RICH_DOC_FIELD }),
       collabCursor(awareness),
+      WorkspaceImage.configure({ loader }),
     ],
-    editorProps: { attributes: { class: "rich-doc-prose", "aria-label": "문서 내용" } },
+    editorProps: {
+      attributes: { class: "rich-doc-prose", "aria-label": "문서 내용" },
+      handlePaste: (_view, event) => {
+        const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+        if (!files.length) return false;
+        void insertImagesRef.current(files);
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        const files = moved ? [] : [...(event.dataTransfer?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+        if (!files.length) return false;
+        event.preventDefault();
+        void insertImagesRef.current(files, view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos);
+        return true;
+      },
+    },
   }, []);
+
+  // 한 장씩 워크스페이스에 올린 뒤 커서 자리(끌어 놓았으면 놓은 자리)에 넣는다.
+  async function insertImages(files: File[], at?: number) {
+    if (!editor || imageBusy) return;
+    setError("");
+    setImageBusy(true);
+    try {
+      for (const image of files) {
+        const problem = collabImageError(image);
+        if (problem) { setError(problem); continue; }
+        const versionId = await images.upload(image);
+        editor.chain().focus().insertWorkspaceImage(versionId, at).run();
+        at = undefined; // 여러 장이면 두 번째부터는 앞 이미지 다음에
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "이미지를 넣지 못했습니다.");
+    } finally {
+      setImageBusy(false);
+    }
+  }
+  insertImagesRef.current = insertImages;
 
   async function exportAs(kind: "docx" | "pdf") {
     if (!editor || exporting) return;
     setExporting(kind);
     setError("");
     try {
-      if (kind === "docx") await exportRichDocAsDocx(editor, `${baseName}.docx`);
+      if (kind === "docx") await exportRichDocAsDocx(editor, `${baseName}.docx`, loader.url);
       else await exportElementAsPdf(editor.view.dom as HTMLElement, `${baseName}.pdf`);
     } catch {
       setError(kind === "docx" ? "Word 파일로 내보내지 못했습니다." : "PDF로 내보내지 못했습니다.");
@@ -100,6 +146,10 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
         .rich-doc-prose a { color: var(--primary); text-decoration: underline; }
         .collab-cursor-caret { position: relative; margin-left: -1px; margin-right: -1px; border-left: 2px solid; pointer-events: none; word-break: normal; }
         .collab-cursor-label { position: absolute; bottom: 100%; left: -2px; font-size: 11px; font-weight: 700; line-height: 1; padding: 2px 5px; border-radius: 4px 4px 4px 0; color: #fff; white-space: nowrap; user-select: none; }
+        .workspace-image { margin: 0.6em 0; }
+        .workspace-image img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+        .workspace-image.ProseMirror-selectednode img, .workspace-image.ProseMirror-selectednode .workspace-image-note { outline: 2px solid var(--primary); outline-offset: 2px; }
+        .workspace-image-note { display: inline-block; padding: 10px 14px; border-radius: 6px; border: 1px dashed var(--border); color: var(--muted-foreground); font-size: 12px; }
         .rich-doc-prose hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
         .rich-doc-export, .rich-doc-export * { color: #111827 !important; background: #fff !important; }
         .rich-doc-export a { color: #2563eb !important; }
@@ -132,7 +182,9 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
           </div>
         )}
         {error && <p role="alert" className="mx-5 mt-2 text-xs rounded-lg bg-red-500/10 text-red-500 p-2">{error}</p>}
-        <Toolbar editor={editor} />
+        <Toolbar editor={editor} imageBusy={imageBusy} onPickImage={() => imageInputRef.current?.click()} />
+        <input ref={imageInputRef} type="file" accept={COLLAB_IMAGE_TYPES.join(",")} multiple hidden aria-label="넣을 이미지"
+          onChange={(e) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; if (files.length) void insertImages(files); }} />
         <div
           className="flex-1 min-h-0 overflow-auto mx-5 mb-5 rounded-[10px] border"
           style={{ background: "var(--muted)", borderColor: "var(--border)" }}
@@ -145,7 +197,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   );
 }
 
-function Toolbar({ editor }: { editor: Editor | null }) {
+function Toolbar({ editor, imageBusy, onPickImage }: { editor: Editor | null; imageBusy: boolean; onPickImage: () => void }) {
   if (!editor) return <div className="h-11 px-5" />;
   const chain = () => editor.chain().focus();
   const items: { key: string; label: string; title: string; active: boolean; run: () => void }[] = [
@@ -180,6 +232,7 @@ function Toolbar({ editor }: { editor: Editor | null }) {
           {item.label}
         </button>
       ))}
+      <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={onPickImage} disabled={imageBusy} title="이미지 넣기 (붙여넣기·끌어 놓기도 돼요)" aria-label="이미지 넣기" className={`${btn} disabled:opacity-50`} style={{ background: "var(--muted)", color: "var(--foreground)" }}>{imageBusy ? "올리는 중…" : "🖼"}</button>
       <span className="w-px h-5 mx-1" style={{ background: "var(--border)" }} />
       <button type="button" onClick={() => editor.commands.undo()} title="실행 취소" aria-label="실행 취소" className={btn} style={{ background: "var(--muted)", color: "var(--foreground)" }}>↺</button>
       <button type="button" onClick={() => editor.commands.redo()} title="다시 실행" aria-label="다시 실행" className={btn} style={{ background: "var(--muted)", color: "var(--foreground)" }}>↻</button>
