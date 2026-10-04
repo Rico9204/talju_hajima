@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
-import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta } from "../lib/collab";
+import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta, type RemoteCursor } from "../lib/collab";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
 
@@ -35,6 +35,9 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
   const saveRef = useRef(save);
   saveRef.current = save;
+  const [cursors, setCursors] = useState<RemoteCursor[]>([]);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [box, setBox] = useState({ width: 0, height: 0 });
 
   const refreshDirty = () => {
     const doc = docRef.current;
@@ -66,7 +69,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
 
   useEffect(() => {
     const doc = openCollabDoc({
-      projectId, fileId: file.id, room, mode, initialText,
+      projectId, fileId: file.id, room, mode, initialText, me: presence.me,
       onRemote: (delta) => {
         const next = docRef.current?.text() ?? valueRef.current;
         const el = areaRef.current;
@@ -79,7 +82,9 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
     });
     docRef.current = doc;
     presence.track({ fileId: file.id, room, mode });
+    const offCursors = doc.onCursors(() => setCursors(doc.cursors()));
     return () => {
+      offCursors();
       presence.track(null);
       docRef.current = null;
       window.setTimeout(() => doc.destroy(), 1500); // 마지막 저장 알림이 나갈 시간
@@ -105,7 +110,41 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   useLayoutEffect(() => {
     const sel = pendingSel.current;
     if (sel && areaRef.current) { areaRef.current.setSelectionRange(sel[0], sel[1]); pendingSel.current = null; }
+    // 글이 바뀌면 다른 사람 커서의 글자 위치도 바뀐다(상대 위치 → 지금 글 기준 위치로 다시 계산).
+    if (docRef.current) setCursors(docRef.current.cursors());
+    measureBox();
   }, [value]);
+
+  // 겹쳐 그리는 커서 층은 스크롤 막대를 뺀 textarea 안쪽 크기와 같아야 줄바꿈 위치가 맞는다.
+  function measureBox() {
+    const el = areaRef.current;
+    if (el) setBox((cur) => (cur.width === el.clientWidth && cur.height === el.clientHeight ? cur : { width: el.clientWidth, height: el.clientHeight }));
+  }
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(measureBox);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // 커서·선택이 움직이면 알린다. React onSelect는 키보드·코드로 옮긴 커서를 놓칠 때가 있어 selectionchange를 직접 듣는다
+  // (요즘 브라우저는 textarea 자체에, 예전 브라우저는 document에 보낸다).
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const onSelection = () => { if (document.activeElement === el) shareCursor(el); };
+    el.addEventListener("selectionchange", onSelection);
+    document.addEventListener("selectionchange", onSelection);
+    return () => { el.removeEventListener("selectionchange", onSelection); document.removeEventListener("selectionchange", onSelection); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function shareCursor(el: HTMLTextAreaElement) {
+    if (composing.current !== null) return; // 조합 중에는 글이 아직 문서에 반영되지 않았다
+    const backward = el.selectionDirection === "backward";
+    docRef.current?.setCursor(backward ? el.selectionEnd : el.selectionStart, backward ? el.selectionStart : el.selectionEnd);
+  }
 
   function onChange(next: string) {
     setValue(next);
@@ -113,6 +152,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
     docRef.current?.edit(valueRef.current, next);
     valueRef.current = next;
     refreshDirty();
+    if (areaRef.current) shareCursor(areaRef.current);
   }
 
   function onCompositionEnd(el: HTMLTextAreaElement) {
@@ -129,6 +169,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
     valueRef.current = merged;
     setValue(merged);
     refreshDirty();
+    docRef.current?.setCursor(selStart, selEnd);
   }
 
   // 저장 안 한 변경이 있으면 저장 후 닫기 / 저장 없이 닫기 / 계속 수정 중에서 고르게 한다.
@@ -173,6 +214,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           </div>
         )}
         {error && <p role="alert" className="mx-5 mt-2 text-xs rounded-lg bg-red-500/10 text-red-500 p-2">{error}</p>}
+        <div className="relative flex-1 min-h-0 m-5">
         <textarea
           ref={areaRef}
           aria-label="파일 내용"
@@ -181,11 +223,45 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); } }}
           onCompositionStart={() => { composing.current = valueRef.current; remoteWhileComposing.current = []; }}
           onCompositionEnd={(e) => onCompositionEnd(e.currentTarget)}
+          onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
           spellCheck={false}
-          className="flex-1 min-h-0 m-5 p-3 text-sm resize-none outline-none border"
+          className="block w-full h-full p-3 text-sm resize-none outline-none border"
           style={{ fontFamily: "var(--font-jetbrains)", background: "var(--muted)", borderColor: "var(--border)", borderRadius: 10 }}
         />
+        {cursors.length > 0 && <RemoteCursors value={value} cursors={cursors} scrollTop={scrollTop} width={box.width} height={box.height} />}
+        </div>
       </section>
+    </div>
+  );
+}
+
+// textarea는 글자 위치의 화면 좌표를 알려 주지 않으므로, 같은 글꼴·여백·줄바꿈으로 같은 글을 투명하게 겹쳐 그리고
+// 그 안에 다른 사람의 선택 영역(옅은 색)과 커서(세로선 + 이름)를 끼워 넣는다. 클릭은 아래 textarea로 그대로 간다.
+function RemoteCursors({ value, cursors, scrollTop, width, height }: { value: string; cursors: RemoteCursor[]; scrollTop: number; width: number; height: number }) {
+  const clamp = (n: number) => Math.max(0, Math.min(n, value.length));
+  const list = cursors.map((c) => ({ ...c, from: clamp(Math.min(c.anchor, c.head)), to: clamp(Math.max(c.anchor, c.head)), at: clamp(c.head) }));
+  const points = [...new Set([0, value.length, ...list.flatMap((c) => [c.from, c.to, c.at])])].sort((a, b) => a - b);
+  const parts: ReactNode[] = [];
+  points.forEach((point, i) => {
+    for (const c of list) {
+      if (c.at !== point) continue;
+      parts.push(
+        <span key={`c${c.clientId}`} className="relative" style={{ borderLeft: `2px solid ${c.user.color}`, marginLeft: -1, marginRight: -1 }}>
+          <span className="absolute left-[-2px] bottom-full px-1 rounded-t rounded-br whitespace-nowrap font-700" style={{ background: c.user.color, color: "#fff", fontSize: 10, lineHeight: "13px", fontFamily: "var(--font-outfit)" }}>{c.user.name}</span>
+        </span>,
+      );
+    }
+    const next = points[i + 1];
+    if (next === undefined) return;
+    const owner = list.find((c) => c.from <= point && next <= c.to && c.from < c.to);
+    const slice = value.slice(point, next);
+    parts.push(owner ? <span key={`s${point}`} style={{ background: `${owner.user.color}40` }}>{slice}</span> : slice);
+  });
+  return (
+    <div aria-hidden="true" className="absolute pointer-events-none overflow-hidden" style={{ top: 1, left: 1, width, height, borderRadius: 9 }}>
+      <div className="p-3 text-sm" style={{ fontFamily: "var(--font-jetbrains)", color: "transparent", whiteSpace: "pre-wrap", overflowWrap: "break-word", transform: `translateY(${-scrollTop}px)` }}>
+        {parts}{"​"}
+      </div>
     </div>
   );
 }

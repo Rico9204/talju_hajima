@@ -1,10 +1,13 @@
 import { useState } from "react";
+import { Extension } from "@tiptap/core";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
+import { yCursorPlugin } from "@tiptap/y-tiptap";
+import type { Awareness } from "y-protocols/awareness";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
-import type { CollabEditor, CollabMode, CollabPresence } from "../lib/collab";
+import type { CollabEditor, CollabMode, CollabPresence, CursorUser } from "../lib/collab";
 import { useCollabFile } from "../lib/useCollabFile";
 import { RICH_DOC_FIELD, richDocKey, richDocText } from "../lib/richDoc";
 import { exportElementAsPdf, exportRichDocAsDocx } from "../lib/exportRichDoc";
@@ -13,6 +16,29 @@ import { exportElementAsPdf, exportRichDocAsDocx } from "../lib/exportRichDoc";
 // 저장 방식은 "바로 수정"과 같다 — 저장 버튼(Ctrl/⌘+S)이나 5분 자동 저장 때 지금 합쳐진 문서가 새 버전으로 올라가고,
 // 이미 같은 내용이 저장돼 있으면 건너뛴다. 원본: Temporary_Merge a068d15(NestJS 웹소켓 대신 Supabase로 이식).
 // 이번 판에서는 이미지 삽입을 넣지 않았다(문서에 이미지를 통째로 넣으면 실시간 전송 한도를 넘을 수 있다).
+
+// 다른 사람의 커서·선택 영역: Collaboration과 같은 @tiptap/y-tiptap의 yCursorPlugin을 쓴다(플러그인 키가 맞아야 한다 —
+// extension-collaboration-cursor는 옛 y-prosemirror를 봐서 섞으면 편집기가 열리지 않는다). 이름은 textContent로만 넣는다.
+function collabCursor(awareness: Awareness) {
+  return Extension.create({
+    name: "collabCursor",
+    addProseMirrorPlugins() {
+      return [yCursorPlugin(awareness, {
+        cursorBuilder: (user: CursorUser) => {
+          const caret = document.createElement("span");
+          caret.className = "collab-cursor-caret";
+          caret.style.borderLeftColor = user.color;
+          const label = document.createElement("span");
+          label.className = "collab-cursor-label";
+          label.style.background = user.color;
+          label.textContent = user.name;
+          caret.appendChild(label);
+          return caret;
+        },
+      })];
+    },
+  });
+}
 export default function DocEditorModal({ projectId, file, room, mode, initialBytes, presence, editors, save, onClose }: {
   projectId: string;
   file: WorkspaceFile;
@@ -24,7 +50,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   save: (bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean) => Promise<number>;
   onClose: () => void;
 }) {
-  const { doc, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose, requestClose, saveAndClose } = useCollabFile({
+  const { doc, awareness, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose, requestClose, saveAndClose } = useCollabFile({
     projectId, fileId: file.id, room, mode, initialBytes, presence, keyOf: richDocKey, textOf: richDocText, save,
   });
   const [exporting, setExporting] = useState<"docx" | "pdf" | null>(null);
@@ -35,6 +61,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
     extensions: [
       StarterKit.configure({ undoRedo: false, link: { openOnClick: false, protocols: ["http", "https", "mailto"] } }),
       Collaboration.configure({ document: doc, field: RICH_DOC_FIELD }),
+      collabCursor(awareness),
     ],
     editorProps: { attributes: { class: "rich-doc-prose", "aria-label": "문서 내용" } },
   }, []);
@@ -71,6 +98,8 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
         .rich-doc-prose pre { background: var(--card); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-family: var(--font-jetbrains); font-size: 12px; }
         .rich-doc-prose code { font-family: var(--font-jetbrains); }
         .rich-doc-prose a { color: var(--primary); text-decoration: underline; }
+        .collab-cursor-caret { position: relative; margin-left: -1px; margin-right: -1px; border-left: 2px solid; pointer-events: none; word-break: normal; }
+        .collab-cursor-label { position: absolute; bottom: 100%; left: -2px; font-size: 11px; font-weight: 700; line-height: 1; padding: 2px 5px; border-radius: 4px 4px 4px 0; color: #fff; white-space: nowrap; user-select: none; }
         .rich-doc-prose hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
         .rich-doc-export, .rich-doc-export * { color: #111827 !important; background: #fff !important; }
         .rich-doc-export a { color: #2563eb !important; }

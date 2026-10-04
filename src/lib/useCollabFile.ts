@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import { connectCollabRoom, type CollabMode, type CollabPresence, type CollabRoom } from "./collab";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
@@ -8,6 +9,7 @@ const AUTOSAVE_MS = 5 * 60 * 1000;
 //  - 저장된 바이트(Yjs 상태)로 문서를 만들고 같은 방(파일·기준 버전·모드)에 실시간 연결
 //  - 저장 버튼·Ctrl/⌘+S·5분 자동 저장, 이미 같은 내용이 저장돼 있으면 건너뜀
 //  - 저장 안 한 변경이 있으면 닫을 때 확인, 탭을 닫으면 브라우저 경고
+//  - awareness: 같은 방 사람들의 커서·선택(편집기 커서 플러그인이 쓴다)
 // keyOf: 저장 비교값(내용이 같으면 같은 값), textOf: 검색·버전 비교용 글자.
 export function useCollabFile(opts: {
   projectId: string;
@@ -25,6 +27,7 @@ export function useCollabFile(opts: {
     Y.applyUpdate(d, opts.initialBytes, "seed");
     return d;
   });
+  const [awareness] = useState(() => new Awareness(doc));
   const roomRef = useRef<CollabRoom | null>(null);
   const saving = useRef(false);
   const saveRef = useRef(opts.save);
@@ -43,6 +46,7 @@ export function useCollabFile(opts: {
   useEffect(() => {
     const r = connectCollabRoom(doc, {
       projectId: opts.projectId, fileId: opts.fileId, room: opts.room, mode: opts.mode, initialKey: opts.keyOf(doc),
+      me: opts.presence.me, awareness,
       onSaved: () => { setStatus("saved"); setError(""); refreshDirty(); },
     });
     roomRef.current = r;
@@ -99,7 +103,7 @@ export function useCollabFile(opts: {
   const statusText = status === "saving" ? "저장 중…" : status === "error" ? "저장 실패" : dirty ? "저장하지 않은 변경사항이 있어요 (5분마다 자동 저장)" : status === "saved" ? `저장됨 ${savedAt}`.trim() : "변경사항 없음";
 
   return {
-    doc, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose,
+    doc, awareness, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose,
     requestClose: (onClose: () => void) => { if (dirty) setConfirmClose(true); else onClose(); },
     saveAndClose: async (onClose: () => void) => { if (await runSave()) onClose(); else setConfirmClose(false); },
   };
