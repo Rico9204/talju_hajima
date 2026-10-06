@@ -137,9 +137,10 @@ export class OnlyofficeService {
 
     // 문서 서버가 준 주소는 문서 서버 안쪽 주소일 수 있고, 아무 주소로나 요청하면 안 되므로 경로만 빌려 우리가 아는 문서 서버로.
     // 문서 서버는 자기 공개 주소를 "<공개 주소>/onlyoffice"로 알기 때문에(중계의 가상 경로) 그 접두어를 떼고 요청한다.
+    // 쿼리스트링은 사용하지 않는다 — 문서 서버 내부 API에 임의 파라미터를 주입하는 경로를 막기 위해.
     const given = new URL(data.url);
     const path = given.pathname.startsWith(`${PREFIX}/`) ? given.pathname.slice(PREFIX.length) : given.pathname;
-    const response = await this.fetchImpl(new URL(path + given.search, settings.url));
+    const response = await this.fetchImpl(new URL(path, settings.url));
     if (!response.ok) throw new Error(`편집한 문서를 받지 못했습니다(HTTP ${response.status}).`);
     const bytes = Buffer.from(await response.arrayBuffer());
 

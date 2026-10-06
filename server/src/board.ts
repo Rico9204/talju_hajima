@@ -3,9 +3,50 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, MaxLength, ValidateIf, ValidateNested,
 } from "class-validator";
+import sanitizeHtml from "sanitize-html";
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
 import { BOARD_FLAG_TAGS, mapBoardPost, normalizeBoardTags, storedBoardTags } from "./mappers.js";
+
+const BOARD_ALLOWED_TAGS = [
+  "p", "div", "span", "br", "hr", "b", "strong", "i", "em", "u", "s", "strike", "del", "sub", "sup",
+  "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "code", "ul", "ol", "li",
+  "a", "img", "figure", "figcaption", "table", "thead", "tbody", "tr", "th", "td",
+];
+
+const BOARD_DROP_WITH_CONTENT: sanitizeHtml.IOptions["nonTextTags"] = [
+  "script", "style", "iframe", "object", "embed", "template", "noscript", "svg", "math",
+  "form", "button", "textarea", "select", "input", "link", "meta", "base",
+];
+
+function sanitizeBoardContent(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: BOARD_ALLOWED_TAGS,
+    nonTextTags: BOARD_DROP_WITH_CONTENT,
+    allowedAttributes: {
+      "*": ["class", "alt", "title"],
+      "a": ["href", "target", "rel"],
+      "img": ["src"],
+    },
+    allowedSchemes: ["https", "mailto"],
+    allowedSchemesByTag: { "img": ["https", "data"] },
+    allowedSchemesAppliedToAttributes: ["href", "src"],
+    transformTags: {
+      "a": (_tagName, attribs) => {
+        const href = (attribs.href ?? "").trim();
+        if (!/^(https?:|mailto:)/i.test(href)) return { tagName: "a", attribs: {} };
+        return { tagName: "a", attribs: { ...attribs, href, target: "_blank", rel: "noopener noreferrer nofollow" } };
+      },
+    },
+    exclusiveFilter: (frame) => {
+      if (frame.tag === "img") {
+        const src = frame.attribs.src ?? "";
+        return !/^https:\/\//i.test(src) && !/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(src);
+      }
+      return false;
+    },
+  });
+}
 
 const CATEGORIES = ["notice", "free", "recruit"];
 const REASONS = ["spam", "abuse", "sexual", "privacy", "other"];
@@ -150,7 +191,7 @@ export class BoardController {
     return this.db.asUser(userId, async (query) => {
       const [row] = await query<{ id: number }>(
         "insert into public.board_posts(category, title, content, author_user_id, attachments, tags) values ($1, $2, $3, auth.uid(), $4::jsonb, $5::text[]) returning id",
-        [body.category, body.title.trim(), body.content, JSON.stringify(body.attachments), tags]);
+        [body.category, body.title.trim(), sanitizeBoardContent(body.content), JSON.stringify(body.attachments), tags]);
       let poll = null;
       if (body.poll && body.poll.question.trim() && body.poll.options.length >= 2) {
         const [{ id: pollId }] = await query<{ id: number }>(
@@ -170,7 +211,7 @@ export class BoardController {
       const updates: Record<string, unknown> = {};
       if (patch.category !== undefined) updates.category = patch.category;
       if (patch.title !== undefined) updates.title = patch.title.trim();
-      if (patch.content !== undefined) updates.content = patch.content;
+      if (patch.content !== undefined) updates.content = sanitizeBoardContent(patch.content);
       if (patch.attachments !== undefined) updates.attachments = JSON.stringify(patch.attachments);
       if (patch.hideImagePreview !== undefined || patch.tags !== undefined) {
         // 보내지 않은 쪽(사용자 태그 또는 미리보기 방지)은 지금 값을 그대로 둔다.
