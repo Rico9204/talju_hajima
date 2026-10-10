@@ -6,6 +6,7 @@ interface RadarAxis {
   label: string;
   value: number;
   note?: string; // 점수 옆에 붙는 짧은 설명(예: "상위 12%")
+  display?: string; // 숫자 대신 보여 줄 글자(예: 아직 고르지 않은 항목은 "—")
 }
 
 const MAX_VALUE = 10;
@@ -204,7 +205,7 @@ export default function PentagonChart({
               {d.label}
             </text>
             <text x={p.x} y={p.y + valueDy} textAnchor="middle" fontSize={10} fontWeight={700} fill={valueColor} fontFamily="var(--font-jetbrains)">
-              {displayValues[i].toFixed(1)}
+              {d.display ?? displayValues[i].toFixed(1)}
               {d.note && <tspan fontFamily="inherit" fontWeight={600} fill={labelColor} fillOpacity={0.65}>{" · " + d.note}</tspan>}
             </text>
           </g>

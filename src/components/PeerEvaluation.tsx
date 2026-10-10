@@ -13,22 +13,21 @@ const criteria = [
   { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
 ] as const;
 
-type Scores = Record<string, number>;
-
 // One continuous track over a fixed min..max range (0..10 per person) —
 // click anywhere or drag across it and the value snaps to whichever zone
 // the pointer is over.
 function ScoreTrack({
   value, min = 0, max = 10, limit, onChange, disabled, label,
-}: { value: number; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean; label: string }) {
+}: { value: number | null; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean; label: string }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const steps = max - min + 1;
   const effectiveLimit = Math.min(limit ?? max, max);
-  const clamped = Math.min(Math.max(value, min), effectiveLimit);
+  // value가 null이면 아직 고르지 않은 상태: 손잡이·채운 막대를 그리지 않는다(시작점이 점수에 영향을 주지 않게).
+  const clamped = value === null ? null : Math.min(Math.max(value, min), effectiveLimit);
 
   function zoneFromClientX(clientX: number): number {
     const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect) return clamped;
+    if (!rect) return clamped ?? min;
     const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 0.999999);
     const raw = min + Math.min(Math.floor(ratio * steps), steps - 1);
     return Math.min(raw, effectiveLimit);
@@ -54,14 +53,17 @@ function ScoreTrack({
       aria-label={label}
       aria-valuemin={min}
       aria-valuemax={effectiveLimit}
-      aria-valuenow={value}
+      aria-valuenow={value ?? undefined}
+      aria-valuetext={value === null ? "미선택" : `${value}점`}
       aria-disabled={disabled}
       tabIndex={disabled ? -1 : 0}
       onKeyDown={(e) => {
         if (disabled) return;
+        // 아직 고르지 않았으면 화살표는 가운데(5점)부터 시작한다.
+        const base = value ?? Math.round((min + max) / 2);
         const next = e.key === "Home" ? min : e.key === "End" ? effectiveLimit
-          : ["ArrowRight", "ArrowUp"].includes(e.key) ? value + 1
-          : ["ArrowLeft", "ArrowDown"].includes(e.key) ? value - 1 : null;
+          : ["ArrowRight", "ArrowUp"].includes(e.key) ? (value === null ? base : value + 1)
+          : ["ArrowLeft", "ArrowDown"].includes(e.key) ? (value === null ? base : value - 1) : null;
         if (next !== null) { e.preventDefault(); onChange(Math.min(effectiveLimit, Math.max(min, next))); }
       }}
       onPointerDown={handlePointerDown}
@@ -87,7 +89,7 @@ function ScoreTrack({
       {/* filled rail up to the selected zone */}
       <div
         className="absolute left-0 transition-all"
-        style={{ top: 15, height: 3, width: `${pctForIndex(clamped)}%`, background: "var(--primary)", borderRadius: "4px" }}
+        style={{ top: 15, height: 3, width: clamped === null ? 0 : `${pctForIndex(clamped)}%`, background: "var(--primary)", borderRadius: "4px" }}
       />
       {/* per-zone ticks + numbers */}
       {Array.from({ length: steps }, (_, i) => min + i).map((v) => {
@@ -105,7 +107,7 @@ function ScoreTrack({
         );
       })}
       {/* thumb */}
-      <div
+      {clamped !== null && <div
         className="absolute rounded-full transition-all"
         style={{
           left: `${pctForIndex(clamped)}%`,
@@ -119,14 +121,14 @@ function ScoreTrack({
           boxShadow: "0 2px 6px rgba(37,99,235,0.4)",
           pointerEvents: "none",
         }}
-      />
+      />}
     </div>
   );
 }
 
-const emptyEntry = (id: string): EvaluationEntry => ({
-  recipient_id: id, role: 1, deadline: 1, communication: 1, collaboration: 1, quality: 1, comment: "",
-});
+type CriterionId = typeof criteria[number]["id"];
+// 작성 중인 평가: 고른 항목만 값이 있다. 기본값(예전 1점)을 두지 않아, 모든 항목을 직접 골라야 제출할 수 있다.
+type Draft = Partial<Record<CriterionId, number>> & { comment?: string };
 function errorMessage(error: unknown) {
   const message = error && typeof error === "object" && "message" in error ? String(error.message) : "요청에 실패했습니다.";
   if (/peer_evaluation|schema cache|complete_evaluation_project/.test(message)) {
@@ -184,7 +186,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const [criterionStep, setCriterionStep] = useState(0);
   const [maxCriterionStepSeen, setMaxCriterionStepSeen] = useState(0);
   const [data, setData] = useState<EvaluationData | null>(null);
-  const [draft, setDraft] = useState<Record<string, EvaluationEntry>>({});
+  const [draft, setDraft] = useState<Record<string, Draft>>({});
   const [ask, confirmDialog] = useConfirm();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -221,24 +223,30 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const peers = team.members.filter((m) => submitted
     ? data?.records.some((r) => r.evaluator_id === currentMember?.id && r.recipient_id === m.id)
     : m.id !== currentMember?.id && m.userId !== null);
-  const entries = peers.map((peer) => {
-    const previous = data?.records.find((r) => r.evaluator_id === currentMember?.id && r.recipient_id === peer.id);
-    return submitted && previous ? previous : draft[peer.id] ?? emptyEntry(peer.id);
-  });
-  const balanced = peers.length > 0;
+  // 제출한 뒤에는 저장된 평가를, 작성 중에는 고른 값만(고르지 않은 항목은 null) 쓴다.
+  function recordFor(peerId: string) {
+    return submitted ? data?.records.find((r) => r.evaluator_id === currentMember?.id && r.recipient_id === peerId) : undefined;
+  }
+  function scoreOf(peerId: string, id: CriterionId): number | null {
+    const record = recordFor(peerId);
+    return record ? record[id] : draft[peerId]?.[id] ?? null;
+  }
+  // 동료마다 아직 고르지 않은 항목 수. 모두 0이어야 제출할 수 있다(예전처럼 1점으로 채워 제출하지 않는다).
+  const remaining = peers.map((peer) => ({ peer, left: criteria.filter((c) => scoreOf(peer.id, c.id) === null).length }))
+    .filter((item) => item.left > 0);
+  const balanced = peers.length > 0 && remaining.length === 0;
   async function submit() {
     if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
-    // 제출하면 고칠 수 없다. 점수를 한 번도 바꾸지 않은 동료는 모든 항목 기본값(1점)으로 들어가므로 이름을 짚어 다시 확인한다.
-    const unrated = peers.filter((p) => !draft[p.id]);
     const ok = await ask({
       title: "동료 평가를 제출할까요?",
-      message: <>
-        제출한 평가는 수정할 수 없습니다.
-        {unrated.length > 0 && <><br /><br /><b style={{ color: "#ef4444" }}>아직 점수를 매기지 않은 동료: {unrated.map((p) => p.name).join(", ")}</b><br />이대로 제출하면 이 동료들은 모든 항목이 1점으로 제출됩니다.</>}
-      </>,
-      confirmLabel: unrated.length > 0 ? "그래도 제출" : "제출",
+      message: <>제출한 평가는 수정할 수 없습니다.</>,
+      confirmLabel: "제출",
     });
     if (!ok) return;
+    const entries: EvaluationEntry[] = peers.map((peer) => {
+      const d = draft[peer.id] ?? {};
+      return { recipient_id: peer.id, role: d.role!, deadline: d.deadline!, communication: d.communication!, collaboration: d.collaboration!, quality: d.quality!, comment: d.comment ?? "" };
+    });
     setBusy(true); onBusyChange(true); setError("");
     try {
       await submitEvaluations(phase, entries);
@@ -256,9 +264,9 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   }
 
   const selectedPeer = Math.max(0, peers.findIndex((peer) => peer.id === selectedPeerId));
-  const selectedEntry = entries[selectedPeer];
-  const peerScores: Scores = Object.fromEntries(criteria.map((c) => [c.id, selectedEntry?.[c.id] ?? 1]));
-  const peerComment = selectedEntry?.comment ?? "";
+  const selectedPeerId_ = peers[selectedPeer]?.id;
+  const peerScores = Object.fromEntries(criteria.map((c) => [c.id, selectedPeerId_ ? scoreOf(selectedPeerId_, c.id) : null])) as Record<CriterionId, number | null>;
+  const peerComment = selectedPeerId_ ? recordFor(selectedPeerId_)?.comment ?? draft[selectedPeerId_]?.comment ?? "" : "";
   const isDone = phase === "final";
   const midtermSkipped = skipped;
   const isSubmitted = submitted;
@@ -266,16 +274,16 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   const submitEval = submit;
   const average = data?.average;
   function setSelectedPeer(index: number) { setSelectedPeerId(peers[index].id); }
-  function scoreFor(id: typeof criteria[number]["id"], index: number) { return entries[index]?.[id] ?? 1; }
-  function maxAllowed(_id: typeof criteria[number]["id"], _index: number) { return 10; }
-  function handleScoreClick(id: typeof criteria[number]["id"], value: number) {
-    if (!selectedEntry || isSubmitted || busy) return;
+  function scoreFor(id: CriterionId, index: number) { return peers[index] ? scoreOf(peers[index].id, id) : null; }
+  function maxAllowed(_id: CriterionId, _index: number) { return 10; }
+  function handleScoreClick(id: CriterionId, value: number) {
+    if (!selectedPeerId_ || isSubmitted || busy) return;
     const score = Math.max(0, Math.min(value, maxAllowed(id, selectedPeer)));
-    setDraft((prev) => ({ ...prev, [selectedEntry.recipient_id]: { ...selectedEntry, [id]: score } }));
+    setDraft((prev) => ({ ...prev, [selectedPeerId_]: { ...prev[selectedPeerId_], [id]: score } }));
   }
   function updateComment(comment: string) {
-    if (!selectedEntry || isDone || isSubmitted || busy || comment.length > 150) return;
-    setDraft((prev) => ({ ...prev, [selectedEntry.recipient_id]: { ...selectedEntry, comment } }));
+    if (!selectedPeerId_ || isDone || isSubmitted || busy || comment.length > 150) return;
+    setDraft((prev) => ({ ...prev, [selectedPeerId_]: { ...prev[selectedPeerId_], comment } }));
   }
 
   const feedbackAvailable = average?.available && average.criteria !== null;
@@ -456,7 +464,9 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
             {/* Peer list */}
             <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
               {peers.map((p, i) => {
-                const peerAverage = criteria.reduce((sum, c) => sum + scoreFor(c.id, i), 0) / criteria.length;
+                const values = criteria.map((c) => scoreFor(c.id, i)).filter((v): v is number => v !== null);
+                const peerDone = values.length === criteria.length;
+                const peerAverage = peerDone ? values.reduce((sum, v) => sum + v, 0) / criteria.length : 0;
                 const active = selectedPeer === i;
                 return (
                   <button
@@ -480,9 +490,9 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                     </div>
                     <span
                       className="text-xs px-2.5 py-1 font-700 shrink-0"
-                      style={{ background: active ? "rgba(255,255,255,0.2)" : "var(--muted)", color: active ? "#fff" : "var(--muted-foreground)", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
+                      style={{ background: active ? "rgba(255,255,255,0.2)" : peerDone ? "var(--muted)" : "#f59e0b22", color: active ? "#fff" : peerDone ? "var(--muted-foreground)" : "#b45309", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
                     >
-                      평균 {peerAverage.toFixed(1)}점
+                      {peerDone ? `평균 ${peerAverage.toFixed(1)}점` : `${values.length}/${criteria.length} 입력`}
                     </span>
                   </button>
                 );
@@ -512,7 +522,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                 <div className="flex justify-center mb-4" role="group" aria-label="선택한 동료의 항목별 평가 오각형 차트">
                   <PentagonChart
                     size={320}
-                    data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 1 }))}
+                    data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 0, display: peerScores[c.id] === null ? "—" : undefined }))}
                     onValueChange={(index, value) => handleScoreClick(criteria[index].id, value)}
                     limits={criteria.map((c) => maxAllowed(c.id, selectedPeer))}
                     disabled={isSubmitted || busy}
@@ -570,7 +580,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                   </div>
                 ) : (() => {
                   const c = criteria[criterionStep];
-                  const current = peerScores[c.id] ?? 1;
+                  const current = peerScores[c.id];
                   const capped = maxAllowed(c.id, selectedPeer);
                   return (
                     <div role="tabpanel" className="mb-4 p-4" style={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "0 12px 12px 12px" }}>
@@ -578,8 +588,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                         <div className="flex items-center gap-2">
                           <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
                           <span className="text-sm font-700 shrink-0">{c.label}</span>
-                          <span className="ml-auto text-xs font-700 text-right shrink-0" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
-                            {current}점
+                          <span className="ml-auto text-xs font-700 text-right shrink-0" style={{ color: current === null ? "#b45309" : "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+                            {current === null ? "미선택" : `${current}점`}
                           </span>
                         </div>
                         <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{c.desc}</p>
@@ -634,6 +644,11 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                     >
                       {busy ? "제출 중…" : "전체 동료 평가 제출"} (비공개)
                     </button>
+                    {remaining.length > 0 && (
+                      <p className="text-xs text-center mt-2" style={{ color: "#b45309" }}>
+                        모든 동료의 모든 항목을 골라야 제출할 수 있어요 · 남은 항목: {remaining.map(({ peer, left }) => `${peer.name} ${left}개`).join(", ")}
+                      </p>
+                    )}
                   </>
                 )}
                 {isSubmitted && (
