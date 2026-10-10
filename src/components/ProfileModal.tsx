@@ -406,7 +406,8 @@ export default function ProfileModal() {
 
   return (
     <>
-      {viewedMember && (
+      {/* "비밀번호 변경"으로 열 때는 effect가 비밀번호 창으로 바꾸기 전에 카드가 한 번 비치지 않도록 그리지 않는다. */}
+      {viewedMember && !(isSelfProfile && profileSection === "password") && (
         <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4 z-50" style={{ background: "rgba(15,18,53,0.42)" }} onClick={closeMemberProfile}>
           {/* Wrapper exists so TierFlame can sit outside the card's overflow-hidden clip. */}
           <div className={`relative isolate w-[820px] max-w-full my-auto${editSection ? " profile-edit-static" : ""}`} onClick={(e) => e.stopPropagation()}>

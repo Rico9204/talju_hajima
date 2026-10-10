@@ -84,6 +84,11 @@ export default function Home() {
   // 프로젝트 화면의 내 카드 메뉴에서 "설정"을 누르면 설정 탭으로 바로 연다.
   const location = useLocation();
   const [activeTab, setActiveTab] = useState<HomeTab>(() => (location.state as { tab?: HomeTab } | null)?.tab === "settings" ? "settings" : "projects");
+  // 한 번 열었으면 기록에서 지운다(새로고침·뒤로 가기로 돌아와도 다시 설정 탭으로 열리지 않게).
+  useEffect(() => {
+    if ((location.state as { tab?: HomeTab } | null)?.tab) navigate(location.pathname + location.search, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [homeMenuOrder, saveHomeMenuOrder] = useHomeMenuOrder();
   const [draggedTab, setDraggedTab] = useState<HomeNavTab | null>(null);
