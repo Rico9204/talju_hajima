@@ -50,7 +50,9 @@ export interface DataRepository {
   getMyEvaluationSummary(): Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
   getEvaluationMode(): Promise<boolean>;
   setEvaluationMode(enabled: boolean): Promise<void>;
-  getEvaluations(projectId: string, phase: EvaluationPhase): Promise<EvaluationData>;
+  getEvaluationMethodPreview(): Promise<boolean>;
+  setEvaluationMethodPreview(enabled: boolean): Promise<void>;
+  getEvaluations(projectId: string, phase: EvaluationPhase, method?: import("./types").EvaluationScoreMethod): Promise<EvaluationData>;
   submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]): Promise<void>;
   completeProject(projectId: string): Promise<Project>;
   listProjects(): Promise<Project[]>;

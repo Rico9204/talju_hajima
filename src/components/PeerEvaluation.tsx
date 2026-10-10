@@ -1,7 +1,7 @@
 import StillImg from "./StillImg";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useProject } from "../context/ProjectContext";
-import type { EvaluationData, EvaluationEntry, EvaluationPhase } from "../api/types";
+import type { EvaluationData, EvaluationEntry, EvaluationPhase, EvaluationScoreMethod } from "../api/types";
 import PentagonChart from "./PentagonChart";
 import { useConfirm } from "./ConfirmDialog";
 
@@ -141,25 +141,30 @@ export default function PeerEvaluation() {
   return <EvaluationSelector key={project.id + ":" + project.status + ":" + currentMember?.id} />;
 }
 function EvaluationSelector() {
-  const { project, getEvaluationMode } = useProject();
+  const { project, getEvaluationMode, getEvaluationMethodPreview } = useProject();
   const [prototype, setPrototype] = useState<boolean | null>(null);
+  // 점수 방식 토글은 관리자 설정(점수 방식 비교)이 켜져 있을 때만. 테스트 모드와 따로 켜고 끈다.
+  const [methodPreview, setMethodPreview] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const [phase, setPhase] = useState<EvaluationPhase>(project.status === "done" ? "final" : "midterm");
+  // 점수 방식 미리보기: 현재 방식(받은 점수 평균) ↔ CCA(성향 보정 합의 평균). 저장된 점수는 바뀌지 않는다.
+  const [method, setMethod] = useState<EvaluationScoreMethod>("raw");
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     let active = true;
     setError("");
-    getEvaluationMode().then((enabled) => { if (active) setPrototype(enabled); })
-      .catch((e) => { if (active) setError(errorMessage(e)); });
+    Promise.all([getEvaluationMode(), getEvaluationMethodPreview()]).then(([enabled, preview]) => {
+      if (active) { setPrototype(enabled); setMethodPreview(preview); }
+    }).catch((e) => { if (active) setError(errorMessage(e)); });
     return () => { active = false; };
   }, [retry]);
   if (error) return <div role="alert" className="p-6">{error} <button onClick={() => setRetry((n) => n + 1)}>다시 불러오기</button></div>;
-  if (prototype === null) return <p role="status" className="p-6">평가 설정을 불러오는 중…</p>;
+  if (prototype === null || methodPreview === null) return <p role="status" className="p-6">평가 설정을 불러오는 중…</p>;
   const phases: EvaluationPhase[] = prototype ? ["midterm", "final"] : [phase];
   return <div>
-    {prototype && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
-      <p className="text-sm mb-3">프로토타입 검증 모드 · 기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다. 최종 평가 평균은 본인의 대시보드와 프로필에서 확인할 수 있습니다.</p>
+    {(prototype || methodPreview) && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
+      {prototype && <><p className="text-sm mb-3">프로토타입 검증 모드 · 기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다. 최종 평가 평균은 본인의 대시보드와 프로필에서 확인할 수 있습니다.</p>
       <div role="tablist" aria-label="평가 유형" className="flex gap-2">
         {phases.map((value) => <button key={value} type="button" role="tab" id={"evaluation-tab-" + value}
           aria-selected={phase === value} aria-controls={"evaluation-panel-" + value} disabled={submitting}
@@ -167,16 +172,28 @@ function EvaluationSelector() {
           style={{ background: phase === value ? "var(--primary)" : "var(--muted)", color: phase === value ? "#fff" : "var(--foreground)" }}>
           {value === "midterm" ? "중간 평가" : "최종 평가"}
         </button>)}
-      </div>
+      </div></>}
+      {methodPreview && <div role="radiogroup" aria-label="점수 방식" className="flex items-center gap-2 mt-3 flex-wrap">
+        <span className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>점수 방식</span>
+        {([["raw", "현재 방식"], ["cca", "CCA (미리보기)"]] as const).map(([value, label]) => <button key={value} type="button" role="radio"
+          aria-checked={method === value} disabled={submitting} onClick={() => setMethod(value)}
+          className="px-3 py-1 text-xs font-700 rounded-full disabled:opacity-50"
+          style={{ background: method === value ? "var(--primary)" : "var(--muted)", color: method === value ? "#fff" : "var(--foreground)" }}>
+          {label}
+        </button>)}
+        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+          {method === "cca" ? "평가자마다 후하게·짜게 주는 습관을 빼고, 혼자 크게 튀는 점수는 줄여 계산한 내 평균입니다. 실제 반영 점수는 바뀌지 않습니다." : "받은 점수를 그대로 평균합니다(지금 반영되는 방식)."}
+        </span>
+      </div>}
     </div>}
     {phases.map((value) => <div key={value} hidden={phase !== value} role={prototype ? "tabpanel" : undefined}
       id={"evaluation-panel-" + value} aria-labelledby={prototype ? "evaluation-tab-" + value : undefined}>
-      <EvaluationPanel phase={value} prototype={prototype} active={phase === value} onBusyChange={setSubmitting} />
+      <EvaluationPanel phase={value} prototype={prototype} active={phase === value} method={methodPreview ? method : "raw"} methodPreview={methodPreview} onBusyChange={setSubmitting} />
     </div>)}
   </div>;
 }
-function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
-  phase: EvaluationPhase; prototype: boolean; active: boolean; onBusyChange: (busy: boolean) => void;
+function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBusyChange }: {
+  phase: EvaluationPhase; prototype: boolean; active: boolean; method: EvaluationScoreMethod; methodPreview: boolean; onBusyChange: (busy: boolean) => void;
 }) {
   const { project, team, currentMember, isLeader, isShortTerm, getEvaluations, submitEvaluations, completeProject } = useProject();
   const skipped = !prototype && phase === "midterm" && isShortTerm;
@@ -198,12 +215,12 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
     if (!active) return;
     let mounted = true;
     setError("");
-    getEvaluations(phase).then((result) => {
+    getEvaluations(phase, method).then((result) => {
       if (mounted) setData(result);
     }).catch((e) => { if (mounted) setError(errorMessage(e)); });
     return () => { mounted = false; };
     // Each phase keeps its own draft; project/account changes remount the selector.
-  }, [phase, refresh, active]);
+  }, [phase, refresh, active, method]);
   const submitted = saved || !!data?.submitted;
   useEffect(() => {
     setCriterionStep(0);
@@ -220,8 +237,10 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
   function goToPrevCriterion() {
     setCriterionStep((step) => Math.max(step - 1, 0));
   }
-  const peers = team.members.filter((m) => submitted
-    ? data?.records.some((r) => r.evaluator_id === currentMember?.id && r.recipient_id === m.id)
+  // 제출 직후 새 데이터를 받기 전에는 내 기록이 아직 없으므로, 그동안은 작성하던 목록을 그대로 쓴다.
+  const myRecords = data?.records.filter((r) => r.evaluator_id === currentMember?.id) ?? [];
+  const peers = team.members.filter((m) => submitted && myRecords.length > 0
+    ? myRecords.some((r) => r.recipient_id === m.id)
     : m.id !== currentMember?.id && m.userId !== null);
   // 제출한 뒤에는 저장된 평가를, 작성 중에는 고른 값만(고르지 않은 항목은 null) 쓴다.
   function recordFor(peerId: string) {
@@ -308,7 +327,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
               className="flex items-center justify-between w-full text-left mb-3"
             >
               <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.7)" }}>
-                {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}
+                {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}{method === "cca" ? " · CCA 미리보기" : ""}
               </span>
               <span className="text-xs font-700 shrink-0 ml-3" style={{ color: "rgba(255,255,255,0.85)" }}>
                 {summaryCollapsed ? "펼치기 ▾" : "접기 ▴"}
@@ -360,7 +379,7 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
                     <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
                       {average?.score?.toFixed(1)}
                     </span>
-                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
+                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}{method === "cca" ? " (CCA 보정)" : ""}</span>
                   </div>
                 </div>
               </div>
@@ -434,7 +453,8 @@ function EvaluationPanel({ phase, prototype, active, onBusyChange }: {
           <button type="button" disabled={busy} onClick={() => setConfirmClose(false)} className="ml-3">취소</button></div>}
       </div>}
 
-      {data && !isDone && !midtermSkipped && currentMember && evaluationSummary}
+      {/* 최종 평가 평균은 원래 대시보드·프로필에서만 보지만, 테스트 모드에서는 점수 방식을 비교해 보도록 여기서도 보여 준다. */}
+      {data && (!isDone || prototype || methodPreview) && !midtermSkipped && currentMember && evaluationSummary}
 
       {midtermSkipped && (
         <div

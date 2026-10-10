@@ -20,8 +20,6 @@ export default function AdminPanel() {
   const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
   const [viewingMembers, setViewingMembers] = useState<Project | null>(null);
   const [cleanupNotice, setCleanupNotice] = useState("");
-  const [evalMode, setEvalMode] = useState<boolean | null>(null);
-  const [evalModeBusy, setEvalModeBusy] = useState(false);
 
   async function retryCleanup() {
     setBusyId("cleanup"); setError(null); setCleanupNotice("");
@@ -45,22 +43,7 @@ export default function AdminPanel() {
 
   useEffect(() => {
     refresh();
-    dataRepository.getEvaluationMode().then(setEvalMode).catch(() => setEvalMode(null));
   }, []);
-
-  async function toggleEvalMode() {
-    if (evalMode === null || evalModeBusy) return;
-    setEvalModeBusy(true);
-    setError(null);
-    try {
-      await dataRepository.setEvaluationMode(!evalMode);
-      setEvalMode(!evalMode);
-    } catch (err) {
-      setError(err && typeof err === "object" && "message" in err ? String(err.message) : "요청을 처리하지 못했습니다.");
-    } finally {
-      setEvalModeBusy(false);
-    }
-  }
 
   async function approve(id: string) {
     setBusyId(id);
@@ -127,28 +110,20 @@ export default function AdminPanel() {
 
       {error && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
 
-      <div className="mb-4 flex items-center justify-between gap-3 p-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-        <div>
-          <div className="text-sm font-700">동료평가 테스트 모드</div>
-          <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-            켜져 있으면 프로젝트 상태·기간, 전원 제출 여부와 무관하게 평가 제출과 평판 조회가 가능해요. 실제 운영 시에는 꺼주세요.
-          </p>
-        </div>
-        <button
-          onClick={toggleEvalMode}
-          disabled={evalMode === null || evalModeBusy}
-          role="switch"
-          aria-checked={evalMode === true}
-          className="text-xs font-700 px-4 py-2 shrink-0 transition-all"
-          style={{
-            background: evalMode ? "#22c55e18" : "var(--muted)",
-            color: evalMode ? "#22c55e" : "var(--muted-foreground)",
-            borderRadius: "20px",
-          }}
-        >
-          {evalMode === null ? "불러오는 중…" : evalModeBusy ? "변경 중…" : evalMode ? "켜짐" : "꺼짐"}
-        </button>
-      </div>
+      <SettingSwitch
+        title="동료평가 테스트 모드"
+        description="켜져 있으면 프로젝트 상태·기간, 전원 제출 여부와 무관하게 평가 제출과 평판 조회가 가능하고, 중간·최종 평가를 골라 볼 수 있어요. 실제 운영 시에는 꺼주세요."
+        load={dataRepository.getEvaluationMode}
+        save={dataRepository.setEvaluationMode}
+        onError={setError}
+      />
+      <SettingSwitch
+        title="점수 방식 비교 (CCA 미리보기)"
+        description="켜져 있으면 동료 평가 화면에 ‘현재 방식 / CCA’ 토글이 보여요. 두 점수를 비교하면 작은 팀에서 다른 팀원끼리 준 점수의 합을 짐작할 수 있으니, 검토할 때만 켜 주세요."
+        load={dataRepository.getEvaluationMethodPreview}
+        save={dataRepository.setEvaluationMethodPreview}
+        onError={setError}
+      />
 
       <div className="mb-4 flex items-center gap-3 text-xs">
         <button disabled={busyId !== null} onClick={retryCleanup} className="rounded-full px-3 py-2" style={{ background: "var(--muted)", color: "var(--primary)" }}>원본 파일 정리 재시도</button>
@@ -296,6 +271,60 @@ export default function AdminPanel() {
       {viewingMembers && (
         <AdminProjectMembers project={viewingMembers} onClose={() => setViewingMembers(null)} />
       )}
+    </div>
+  );
+}
+
+
+function SettingSwitch({ title, description, load, save, onError }: {
+  title: string;
+  description: string;
+  load: () => Promise<boolean>;
+  save: (enabled: boolean) => Promise<void>;
+  onError: (message: string | null) => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    load().then(setEnabled).catch(() => setEnabled(null));
+  }, [load]);
+
+  async function toggle() {
+    if (enabled === null || busy) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await save(!enabled);
+      setEnabled(!enabled);
+    } catch (err) {
+      onError(err && typeof err === "object" && "message" in err ? String(err.message) : "요청을 처리하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-4 flex items-center justify-between gap-3 p-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+      <div>
+        <div className="text-sm font-700">{title}</div>
+        <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{description}</p>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={enabled === null || busy}
+        role="switch"
+        aria-checked={enabled === true}
+        aria-label={title}
+        className="text-xs font-700 px-4 py-2 shrink-0 transition-all"
+        style={{
+          background: enabled ? "#22c55e18" : "var(--muted)",
+          color: enabled ? "#22c55e" : "var(--muted-foreground)",
+          borderRadius: "20px",
+        }}
+      >
+        {enabled === null ? "불러오는 중…" : busy ? "변경 중…" : enabled ? "켜짐" : "꺼짐"}
+      </button>
     </div>
   );
 }

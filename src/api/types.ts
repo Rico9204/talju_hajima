@@ -427,8 +427,10 @@ export interface PeerEvaluationRecord extends EvaluationEntry {
   phase: EvaluationPhase;
   created_at: string;
 }
+// 동료 평가 점수 방식: raw = 받은 점수 평균(현재), cca = 성향 보정 합의 평균(미리보기)
+export type EvaluationScoreMethod = "raw" | "cca";
 export interface EvaluationData {
-  average?: { available: boolean; count: number; score: number | null; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null; comments?: string[] };
+  average?: { method?: EvaluationScoreMethod; available: boolean; count: number; score: number | null; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null; comments?: string[] };
   records: PeerEvaluationRecord[];
   submitted: boolean;
 }

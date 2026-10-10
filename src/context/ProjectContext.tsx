@@ -93,7 +93,8 @@ export function isShortTermProject(p: Project): boolean {
 interface ProjectContextValue {
   getMyEvaluationSummary: () => Promise<import("../lib/evaluationSummary").MyEvaluationSummary>;
   getEvaluationMode: () => Promise<boolean>;
-  getEvaluations: (phase: EvaluationPhase) => Promise<EvaluationData>;
+  getEvaluationMethodPreview: () => Promise<boolean>;
+  getEvaluations: (phase: EvaluationPhase, method?: import("../api/types").EvaluationScoreMethod) => Promise<EvaluationData>;
   submitEvaluations: (phase: EvaluationPhase, entries: EvaluationEntry[]) => Promise<void>;
   completeProject: () => Promise<void>;
   projects: Project[];
@@ -318,6 +319,8 @@ const ProjectManagementContext = createContext<{
   listScrappedNotices: typeof dataRepository.listScrappedNotices;
   toggleScrapNotice: typeof dataRepository.toggleScrapNotice;
   setEvaluationMode: typeof dataRepository.setEvaluationMode;
+  getEvaluationMethodPreview: typeof dataRepository.getEvaluationMethodPreview;
+  setEvaluationMethodPreview: typeof dataRepository.setEvaluationMethodPreview;
 } | null>(null);
 const managementActions = {
   retryFileCleanup: async () => {
@@ -342,6 +345,8 @@ const managementActions = {
   searchAdmins: (query: string) => dataRepository.searchAdmins(query),
   getEvaluationMode: () => dataRepository.getEvaluationMode(),
   setEvaluationMode: (enabled: boolean) => dataRepository.setEvaluationMode(enabled),
+  getEvaluationMethodPreview: () => dataRepository.getEvaluationMethodPreview(),
+  setEvaluationMethodPreview: (enabled: boolean) => dataRepository.setEvaluationMethodPreview(enabled),
   fetchCampusNotices: (params: { school?: string; category?: string }) => dataRepository.fetchCampusNotices(params),
   listScrappedNotices: () => dataRepository.listScrappedNotices(),
   toggleScrapNotice: (notice: NoticeItem) => dataRepository.toggleScrapNotice(notice),
@@ -1327,9 +1332,10 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
       value={{
         getMyEvaluationSummary,
         getEvaluationMode: () => dataRepository.getEvaluationMode(),
-        getEvaluations: async (phase) => {
+        getEvaluationMethodPreview: () => dataRepository.getEvaluationMethodPreview(),
+        getEvaluations: async (phase, method) => {
           const [result, refreshedTeam] = await Promise.all([
-            dataRepository.getEvaluations(project.id, phase),
+            dataRepository.getEvaluations(project.id, phase, method),
             dataRepository.getTeam(project.id),
           ]);
           if (evaluationProjectRef.current === project.id) setTeam(refreshedTeam);

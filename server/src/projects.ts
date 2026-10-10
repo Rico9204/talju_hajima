@@ -356,13 +356,27 @@ export class ProjectsController {
     await this.db.asUser(userId, (query) => query("select public.set_evaluation_prototype_enabled($1)", [body.enabled]));
   }
 
+  // 점수 방식 비교(CCA 미리보기) 켜짐 여부. 바꾸기는 DB 함수가 관리자만 허용한다.
+  @Get("evaluation-method-preview")
+  evaluationMethodPreview(@UserId() userId: string) {
+    return this.db.asUser(userId, (query) => scalarJson<boolean>(query, "public.evaluation_method_preview_enabled()"));
+  }
+
+  @Put("evaluation-method-preview")
+  @HttpCode(204)
+  async setEvaluationMethodPreview(@UserId() userId: string, @Body() body: EnabledDto) {
+    await this.db.asUser(userId, (query) => query("select public.set_evaluation_method_preview_enabled($1)", [body.enabled]));
+  }
+
+  // method=cca: 내 평균을 CCA(성향 보정 합의 평균)로 계산해 미리 본다(관리자가 미리보기를 켰을 때만). 저장된 점수·다른 화면의 점수는 그대로.
   @Get("projects/:projectId/evaluations/:phase")
-  getEvaluations(@UserId() userId: string, @Param("projectId") projectId: string, @Param("phase") phase: string) {
+  getEvaluations(@UserId() userId: string, @Param("projectId") projectId: string, @Param("phase") phase: string, @QueryParam("method") method?: string) {
     assertPhase(phase);
+    if (method !== undefined && method !== "raw" && method !== "cca") throw new BadRequestException("점수 방식은 raw 또는 cca 이어야 합니다.");
     return this.db.asUser(userId, async (query) => {
       const records = await selectJson(query, "select * from public.peer_evaluations where project_id = $1 and phase = $2 order by created_at", [projectId, phase]);
       const submissions = await selectJson(query, "select id from public.peer_evaluation_submissions where project_id = $1 and phase = $2", [projectId, phase]);
-      const average = await scalarJson(query, "public.my_evaluation_average($1, $2)", [projectId, phase]);
+      const average = await scalarJson(query, method === "cca" ? "public.cca_evaluation_average($1, $2)" : "public.my_evaluation_average($1, $2)", [projectId, phase]);
       return { records, submitted: submissions.length > 0, average };
     });
   }

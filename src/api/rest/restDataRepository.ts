@@ -35,7 +35,9 @@ export class RestDataRepository implements DataRepository {
   getMyEvaluationSummary() { return this.api.request<import("../../lib/evaluationSummary").MyEvaluationSummary>("/me/evaluation-summary"); }
   getEvaluationMode() { return this.api.request<boolean>("/evaluation-mode"); }
   setEvaluationMode(enabled: boolean) { return this.api.request<void>("/evaluation-mode", { method: "PUT", body: JSON.stringify({ enabled }) }); }
-  getEvaluations(projectId: string, phase: EvaluationPhase) { return this.api.request<EvaluationData>(`/projects/${encodeURIComponent(projectId)}/evaluations/${phase}`); }
+  getEvaluationMethodPreview() { return this.api.request<boolean>("/evaluation-method-preview"); }
+  setEvaluationMethodPreview(enabled: boolean) { return this.api.request<void>("/evaluation-method-preview", { method: "PUT", body: JSON.stringify({ enabled }) }); }
+  getEvaluations(projectId: string, phase: EvaluationPhase, method?: import("../types").EvaluationScoreMethod) { return this.api.request<EvaluationData>(`/projects/${encodeURIComponent(projectId)}/evaluations/${phase}${method === "cca" ? "?method=cca" : ""}`); }
   submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}/evaluations/${phase}`, { method: "POST", body: JSON.stringify({ entries }) }); }
   completeProject(projectId: string) { return this.api.request<Project>(`/projects/${encodeURIComponent(projectId)}/complete`, { method: "POST" }); }
   listProjects() { return this.api.request<Project[]>("/projects"); }

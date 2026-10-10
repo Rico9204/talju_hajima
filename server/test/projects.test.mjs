@@ -155,6 +155,17 @@ test('평가·업적: 단계 이름 검사, 빈 평가 조회, 업적 요약, �
   assert.equal(evals.status, 200);
   assert.deepEqual(evals.body.records, []);
   assert.equal(evals.body.submitted, false);
+  // 점수 방식 미리보기: 기본 꺼짐(거절), 켜기는 관리자만, 켜면 CCA 함수 결과(method 표시), 정해진 값이 아니면 400
+  assert.equal((await call(alice, 'GET', '/evaluation-method-preview')).body, false);
+  assert.equal((await call(alice, 'GET', `/projects/${p}/evaluations/midterm?method=cca`)).status, 400);
+  assert.equal((await call(alice, 'PUT', '/evaluation-method-preview', { enabled: true })).status, 400);
+  assert.equal((await call(admin, 'PUT', '/evaluation-method-preview', { enabled: true })).status, 204);
+  assert.equal((await call(alice, 'GET', '/evaluation-method-preview')).body, true);
+  const ccaEvals = await call(alice, 'GET', `/projects/${p}/evaluations/midterm?method=cca`);
+  assert.equal(ccaEvals.status, 200);
+  assert.equal(ccaEvals.body.average.method, 'cca');
+  assert.equal((await call(alice, 'GET', `/projects/${p}/evaluations/midterm?method=zscore`)).status, 400);
+  assert.equal((await call(admin, 'PUT', '/evaluation-method-preview', { enabled: false })).status, 204);
   assert.equal(typeof (await call(alice, 'GET', '/evaluation-mode')).body, 'boolean');
   const summary = await call(alice, 'GET', '/me/evaluation-summary');
   assert.equal(summary.body.projectCount, 0); // 종료된 프로젝트만 센다
