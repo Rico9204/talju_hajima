@@ -144,3 +144,22 @@ test('board_profiles: 게시판 활동이 없는 사람의 프로필은 프로�
   const own = await db.asUser(quiet.id, (query) => query('select display_name from public.board_profiles($1::uuid[])', [[quiet.id]]));
   assert.equal(own.length, 1); // 본인은 보인다
 });
+
+test('본문 정리: 저장 전에 스크립트·이벤트 속성·위험한 링크를 지우고, 서식·링크·이미지는 남긴다(수정도 같은 규칙)', async () => {
+  const dirty = '<p class="x" style="color:red" onclick="alert(1)">안녕<script>alert(1)</script></p>'
+    + '<a href="javascript:alert(1)">나쁜</a><a href="http://example.com">일반</a><a href="https://example.com">보안</a>'
+    + '<img src="data:image/png;base64,iVBORw0KGgo=" onerror="alert(1)"><img src="data:image/svg+xml;base64,PHN2Zz4=">'
+    + '<iframe src="https://evil.example"></iframe><strong>굵게</strong>';
+  const created = await call(author, 'POST', '/board/posts', { category: 'free', title: '정리', content: dirty, attachments: [] });
+  assert.equal(created.status, 201);
+  const saved = (await call(reader, 'GET', `/board/posts/${created.body.id}/content`)).body.content;
+  assert.doesNotMatch(saved, /script|onclick|onerror|style=|javascript:|iframe|svg/i);
+  assert.match(saved, /<p class="x">안녕<\/p>/);
+  assert.match(saved, /<a>나쁜<\/a>/); // 위험한 주소만 지우고 글자는 남김
+  assert.match(saved, /href="http:\/\/example\.com"/); // 화면 규칙과 같이 http 링크도 유지
+  assert.match(saved, /href="https:\/\/example\.com"/);
+  assert.match(saved, /<img src="data:image\/png;base64,iVBORw0KGgo=" \/>/);
+  assert.match(saved, /<strong>굵게<\/strong>/);
+  assert.equal((await call(author, 'PATCH', `/board/posts/${created.body.id}`, { content: '<p>고침<img src=x onerror=alert(1)></p>' })).status, 204);
+  assert.equal((await call(reader, 'GET', `/board/posts/${created.body.id}/content`)).body.content, '<p>고침</p>');
+});
