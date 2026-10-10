@@ -66,6 +66,8 @@ export function dmChannelId(memberIdA: string, memberIdB: string): string {
   return `dm:${a}:${b}`;
 }
 
+export type ProfileSection = "info" | "photo" | "links" | "theme" | "effect" | "password";
+
 export interface ChatMentionItem {
   messageId: number;
   channelId: string;
@@ -194,7 +196,9 @@ interface ProjectContextValue {
   // clickable (chat, comments, task cards, team view) so the same modal
   // opens for them, not just for the signed-in user's own avatar.
   viewedMemberId: string | null;
-  openMemberProfile: (memberId: string) => void;
+  // 내 프로필을 열 때 바로 보여 줄 편집 항목(왼쪽 아래 내 카드 메뉴에서 고른 것). 없으면 보기 화면.
+  profileSection: ProfileSection | null;
+  openMemberProfile: (memberId: string, section?: ProfileSection) => void;
   closeMemberProfile: () => void;
   fetchCampusNotices: (params: { school?: string; category?: string }) => Promise<NoticeItem[]>;
   listScrappedNotices: () => Promise<ScrappedNotice[]>;
@@ -409,6 +413,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   const refreshChatGroupsRef = useRef<() => void>(() => {});
   const [chatToolEvents, setChatToolEvents] = useState<Record<number, ChatToolEvent[]>>({});
   const [viewedMemberId, setViewedMemberId] = useState<string | null>(null);
+  const [profileSection, setProfileSection] = useState<ProfileSection | null>(null);
   // A project-scoped Realtime Presence channel supplies the member ids that
   // currently have this project open in one or more browser tabs.
   const [onlineMemberIds, setOnlineMemberIds] = useState<Set<string>>(new Set());
@@ -1450,7 +1455,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         loading,
         onlineMemberStates,
         viewedMemberId,
-        openMemberProfile: setViewedMemberId,
+        profileSection,
+        openMemberProfile: (memberId, section) => { setProfileSection(section ?? null); setViewedMemberId(memberId); },
         closeMemberProfile: () => setViewedMemberId(null),
         fetchCampusNotices: (params) => dataRepository.fetchCampusNotices(params),
         listScrappedNotices: () => dataRepository.listScrappedNotices(),

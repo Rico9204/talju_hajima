@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 import { dataRepository } from "../api";
-import { useProject, useProjectManagement } from "../context/ProjectContext";
+import { useProject, useProjectManagement, type ProfileSection } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import { isValidDepartmentName } from "../lib/validators";
 import { collaborationTrust } from "../lib/collaborationTrust";
@@ -35,6 +35,16 @@ import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import { useStillUrl } from "../lib/useStillUrl";
 import { PROFILE_IMAGE_MIME_TYPES, validateProfileImage } from "../lib/profileImages";
 
+// 내 프로필 편집은 항목별로 나눠 하나씩 보여 준다(왼쪽 아래 내 카드 메뉴와 같은 구분). 저장은 모든 항목을 한 번에.
+type EditSection = Exclude<ProfileSection, "password">;
+const EDIT_SECTIONS: { id: EditSection; label: string }[] = [
+  { id: "info", label: "기본 정보" },
+  { id: "photo", label: "사진 · 배너" },
+  { id: "links", label: "링크" },
+  { id: "theme", label: "배경 · UI 테마" },
+  { id: "effect", label: "카드 효과" },
+];
+
 const BANNER_COLOR_PALETTE = ["#2563eb", "#f59e0b", "#22c55e", "#8b5cf6", "#ef4444", "#06b6d4", "#ec4899", "#64748b"];
 
 // Small dark tooltip that appears below the trigger on hover/focus — used
@@ -60,7 +70,7 @@ function HoverTip({ children, label, detail }: { children: ReactNode; label: str
 // avatar anywhere in the app (Sidebar, Home, chat, comments, team view…) can
 // open it, and it renders itself wherever it's mounted with zero props.
 export default function ProfileModal() {
-  const { currentMember, team, project, viewedMemberId, closeMemberProfile, updateMyProfile } = useProject();
+  const { currentMember, team, project, viewedMemberId, profileSection, closeMemberProfile, updateMyProfile } = useProject();
   const { user, updatePassword } = useAuth();
   const { isAdmin } = useProjectManagement();
 
@@ -129,7 +139,7 @@ export default function ProfileModal() {
       } as CSSProperties)
     : { boxShadow: "0 24px 64px rgba(15,18,53,0.22)" };
 
-  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [editSection, setEditSection] = useState<EditSection | null>(null);
   const [profileName, setProfileName] = useState("");
   const [profileSchool, setProfileSchool] = useState("");
   const [profileMajor, setProfileMajor] = useState("");
@@ -182,7 +192,13 @@ export default function ProfileModal() {
   // single entry point.
   useEffect(() => {
     if (viewedMemberId !== currentMember?.id || !currentMember) return;
-    setProfileEditOpen(false);
+    // 메뉴에서 "비밀번호 변경"을 고르면 프로필 카드 대신 비밀번호 창만 연다.
+    if (profileSection === "password") {
+      closeMemberProfile();
+      setPasswordOpen(true);
+      return;
+    }
+    setEditSection(profileSection);
     setPresetNaming(false);
     setProfileName(currentMember.name ?? "");
     setProfileSchool(currentMember.school ?? "");
@@ -208,7 +224,7 @@ export default function ProfileModal() {
     setNewLinkUrl("");
     setProfileError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewedMemberId, currentMember?.id]);
+  }, [viewedMemberId, currentMember?.id, profileSection]);
 
   async function selectProfileImage(e: ChangeEvent<HTMLInputElement>, apply: (file: File) => void) {
     const file = e.target.files?.[0];
@@ -341,7 +357,7 @@ export default function ProfileModal() {
       });
       // Keep the card open so the member can immediately verify the saved
       // profile. Only leave edit mode and show the refreshed read view.
-      setProfileEditOpen(false);
+      setEditSection(null);
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : "저장하지 못했습니다.");
     } finally {
@@ -393,7 +409,7 @@ export default function ProfileModal() {
       {viewedMember && (
         <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4 z-50" style={{ background: "rgba(15,18,53,0.42)" }} onClick={closeMemberProfile}>
           {/* Wrapper exists so TierFlame can sit outside the card's overflow-hidden clip. */}
-          <div className={`relative isolate w-[820px] max-w-full my-auto${profileEditOpen ? " profile-edit-static" : ""}`} onClick={(e) => e.stopPropagation()}>
+          <div className={`relative isolate w-[820px] max-w-full my-auto${editSection ? " profile-edit-static" : ""}`} onClick={(e) => e.stopPropagation()}>
           {isSelfProfile && cardHasEffects && tierCardAnimation && <div aria-hidden="true" className="tier-card-glow" style={{ ...tierCardStyle, boxShadow: "0 0 34px 6px var(--tier-glow)", animation: tierCardAnimation }} />}
           {isSelfProfile && profileTheme.flame && (profileTheme.flameColors || myTier) && <TierFlame tierId={profileTheme.flameColors ? "platinum" : myTier?.id ?? ""} colors={profileTheme.flameColors} scale={profileTheme.flameScale} />}
           {isSelfProfile && profileTheme.decoration && <CardDecoration kind={profileTheme.decoration} layer="back" />}
@@ -429,12 +445,7 @@ export default function ProfileModal() {
               }
             >
               <div className="absolute top-3 right-3 flex items-center gap-2">
-                {isSelfProfile && profileEditOpen && <div className="flex items-center gap-1.5 p-1.5" style={{ background: "rgba(255,255,255,.94)", borderRadius: "12px", boxShadow: "0 4px 12px rgba(15,18,53,.16)" }}>
-                  {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-4 h-4" title={`${color} 배경`} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid #111827" : "1px solid rgba(255,255,255,.7)" }} />)}
-              <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "8px" }}>🖼️<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleBannerPick} className="hidden" /></label>
-                  {(bannerPreview || currentMember?.bannerImageUrl) && <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} title="배너 사진 제거" className="w-6 h-6 text-xs" style={{ background: "var(--muted)", borderRadius: "8px" }}>🗑️</button>}
-                </div>}
-                {isSelfProfile && <button type="button" onClick={() => setProfileEditOpen((open) => !open)} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>}
+                {isSelfProfile && !editSection && <button type="button" onClick={() => setEditSection("info")} className="w-8 h-8 text-sm" style={{ background: "#fff", color: "#111827", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }} title="프로필 편집">✎</button>}
                 <button type="button" onClick={closeMemberProfile} className="w-8 h-8 text-lg" style={{ background: "rgba(15,18,53,.35)", color: "#fff", borderRadius: "999px" }}>×</button>
               </div>
             </div>
@@ -457,7 +468,7 @@ export default function ProfileModal() {
                       );
                       return isSelfProfile && avatarFrame ? <AvatarFrame kind={avatarFrame} size={78} c1={cardC1} c2={cardC2}>{photo}</AvatarFrame> : photo;
                     })()}
-                    {isSelfProfile && profileEditOpen && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleAvatarPick} className="hidden" /></label>}
+                    {isSelfProfile && editSection === "photo" && <label title="프로필 사진 변경" className="absolute -right-1 -bottom-1 z-30 w-7 h-7 flex items-center justify-center cursor-pointer text-sm" style={{ background: "#fff", color: "#111827", border: "1px solid rgba(15,18,53,.18)", borderRadius: "999px", boxShadow: "0 2px 8px rgba(15,18,53,.18)" }}>📷<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleAvatarPick} className="hidden" /></label>}
                   </div>
                   {isSelfProfile && myTier && (
                     <HoverTip
@@ -478,17 +489,35 @@ export default function ProfileModal() {
                 </div>
                 <h2 className="text-xl font-800 mb-3">{isSelfProfile ? profileName || myName : viewedMember.name}</h2>
                 <div className="h-px mb-3" style={{ background: "var(--border)" }} />
-                {isSelfProfile && profileEditOpen ? (
+                {isSelfProfile && editSection && <div role="tablist" aria-label="편집 항목" className="flex flex-wrap gap-1.5 mb-4">
+                  {EDIT_SECTIONS.map((item) => <button key={item.id} type="button" role="tab" aria-selected={editSection === item.id} onClick={() => setEditSection(item.id)}
+                    className="px-3 py-1.5 text-xs font-700" style={{ background: editSection === item.id ? "var(--primary)" : "var(--muted)", color: editSection === item.id ? "#fff" : "inherit", borderRadius: "999px" }}>{item.label}</button>)}
+                </div>}
+                {isSelfProfile && editSection === "photo" && <div className="mb-4 space-y-3">
+                  <div>
+                    <div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>프로필 사진</div>
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-700 cursor-pointer" style={{ background: "var(--muted)", borderRadius: "999px" }}>📷 사진 선택<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleAvatarPick} className="hidden" /></label>
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>배너 색 · 사진</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {BANNER_COLOR_PALETTE.map((color) => <button key={color} type="button" onClick={() => { setBannerColor(color); setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} className="w-6 h-6" title={`${color} 배경`} style={{ background: color, borderRadius: "999px", border: bannerColor === color ? "2px solid #111827" : "1px solid var(--border)" }} />)}
+                      <label title="배너 사진 선택" className="w-6 h-6 flex items-center justify-center cursor-pointer text-sm" style={{ background: "var(--muted)", borderRadius: "999px" }}>🖼️<input type="file" accept={PROFILE_IMAGE_MIME_TYPES.join(",")} onChange={handleBannerPick} className="hidden" /></label>
+                      {(bannerPreview || (!bannerCleared && currentMember?.bannerImageUrl)) && <button type="button" onClick={() => { setBannerImageFile(null); setBannerPreview(null); setBannerCleared(true); }} title="배너 사진 제거" className="w-6 h-6 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>🗑️</button>}
+                    </div>
+                  </div>
+                </div>}
+                {isSelfProfile && editSection === "info" ? (
                   <>
                     <div className="grid grid-cols-2 gap-2">{[["이름", profileName, setProfileName], ["학과 · 학년", profileMajor, setProfileMajor], ["학번", profileStudent, setProfileStudent], ["연락처", profileContact, setProfileContact], ...(isAdmin ? [["소속(관리자 검색용)", profileOrg, setProfileOrg]] : [])].map(([label, value, setter]) => <label key={label as string} className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{label as string}<input value={value as string} onChange={(e) => (setter as (value: string) => void)(e.target.value)} className="w-full mt-1 px-2 py-1.5 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "8px", color: "var(--foreground)" }} /></label>)}</div>
                   </>
-                ) : <div className="space-y-3 text-sm">{(isSelfProfile
+                ) : !(isSelfProfile && editSection) && <div className="space-y-3 text-sm">{(isSelfProfile
                     ? [["학과 · 학년", profileMajor || currentMember?.major], ["학번", profileStudent || currentMember?.student], ["연락처", profileContact || currentMember?.contact || "미입력"], ["이메일", user?.email], ...(isAdmin ? [["소속", profileOrg || currentMember?.org || "미입력 — 조장이 승인 요청 시 검색할 수 없어요"]] : [])]
                     : [["역할", viewedMember.role], ["학과 · 학년", viewedMember.major || "미입력"], ["학번", viewedMember.student || "미입력"], ["연락처", viewedMember.contact || "미입력"]]
                   ).map(([label, value]) => <div key={label as string}><div className="text-[11px] font-700 mb-0.5" style={{ color: "var(--muted-foreground)" }}>{label as string}</div><div className="font-600" style={{ color: "var(--foreground)" }}>{value as string}</div></div>)}
                   </div>}
-                <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{(isSelfProfile ? profileLinks : viewedMember.links).map((link) => <a key={link.id} href={/^https?:\/\//i.test(link.url) ? link.url : undefined} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{isSelfProfile && profileEditOpen && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{isSelfProfile && profileEditOpen && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>
-                {isSelfProfile && profileEditOpen && (() => {
+                {(!isSelfProfile || !editSection || editSection === "links") && <div className="mt-4"><div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>링크</div><div className="flex flex-wrap gap-1">{(isSelfProfile ? profileLinks : viewedMember.links).map((link) => <a key={link.id} href={/^https?:\/\//i.test(link.url) ? link.url : undefined} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 text-xs" style={{ background: "var(--muted)", borderRadius: "999px" }}>{link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={12} />}{link.label}{isSelfProfile && editSection === "links" && <button type="button" onClick={(e) => { e.preventDefault(); setProfileLinks((links) => links.filter((item) => item.id !== link.id)); }}>×</button>}</a>)}{isSelfProfile && editSection === "links" && <><input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addProfileLink()} placeholder="링크" className="w-20 px-2 text-xs outline-none" style={{ background: "var(--muted)", borderRadius: "999px" }} /><button type="button" onClick={addProfileLink} className="text-xs">＋</button></>}</div></div>}
+                {isSelfProfile && editSection === "theme" && (() => {
                   const uiThemeState = { backgroundColor, backgroundGradient, backgroundImageUrl: editorImageUrl, hasLocalImage: !!backgroundPreview, glassOpacity, glassBlur };
                   const activeUiTheme = matchUiTheme(uiThemeState, [...UI_THEMES, ...customUiThemes]);
                   // Saving needs something new to save: not a photo that isn't uploaded yet, not a limit hit, not a copy of an existing preset.
@@ -538,7 +567,7 @@ export default function ProfileModal() {
                     </div>
                   </div>;
                 })()}
-                {isSelfProfile && profileEditOpen && <div className="mt-4">
+                {isSelfProfile && editSection === "theme" && <div className="mt-4">
                   <div className="text-[11px] font-700 mb-1" style={{ color: "var(--muted-foreground)" }}>배경화면 · 세부 조정</div>
                   <div className="flex flex-wrap items-center gap-1.5 mb-2">
                     {BACKGROUND_PRESETS.map((preset) => {
@@ -569,7 +598,7 @@ export default function ProfileModal() {
                     </label>
                   </div>
                 </div>}
-                {isSelfProfile && profileEditOpen && <div className="mt-4">
+                {isSelfProfile && editSection === "effect" && <div className="mt-4">
                   <div className="text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>카드 효과 테마</div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {PROFILE_CARD_THEMES.filter((theme) => canUseTheme(theme, themeViewer) || previewAll).map((theme) => {
@@ -593,7 +622,7 @@ export default function ProfileModal() {
                     })}
                   </div>
                 </div>}
-                {isSelfProfile && profileEditOpen && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
+                {isSelfProfile && editSection && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
                 {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
               </section>
               {isSelfProfile ? (

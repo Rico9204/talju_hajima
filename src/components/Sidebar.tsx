@@ -4,27 +4,11 @@ import { useNavigate } from "react-router-dom";
 import { Page } from "../App";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { formatChatTime } from "../lib/chatDate";
-import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
-import Avatar from "./Avatar";
-import AvatarFrame from "./AvatarFrame";
-import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
-import { useMyProfileTheme } from "../lib/useMyProfileTheme";
-import type { Tier } from "../lib/achievements";
+import UserMenu from "./UserMenu";
 import { useMenuOrder, reorderMenuItem, type NavPage } from "../lib/menuPreferences";
-
-// Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
-// same tier medal shown on the 업적 page and profile card, just shrunk to
-// fit. No circular frame — matches the profile card's tier icon treatment.
-function TierMedal({ tier }: { tier: Tier }) {
-  return (
-    <span title={tier.label} className="flex items-center justify-center w-full h-full">
-      <MedalIcon shape={tier.shape} colors={tier.colors} size={18} />
-    </span>
-  );
-}
 
 const navItems: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
@@ -51,7 +35,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
   const routerNavigate = useNavigate();
   const {
     projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, getJoinCode, rotateJoinCode, isLeader, isViceLeader, chatUnreadTotal, unreadMentions, currentMember,
-    openMemberProfile, tasksUnread, scheduleUnread, workspaceUnread,
+    tasksUnread, scheduleUnread, workspaceUnread,
     newTasks, newScheduleEvents, newFiles,
   } = useProject();
   const navUnread: Partial<Record<Page, number>> = { chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
@@ -70,7 +54,6 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     setNotifOpen((v) => !v);
     setSwitcherOpen(false);
   }
-  const { signOut } = useAuth();
   const { isAdmin } = useProjectManagement();
   const [menuOrder, saveMenuOrder] = useMenuOrder();
   const [draggedPage, setDraggedPage] = useState<NavPage | null>(null);
@@ -157,10 +140,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     setDragOverPage(null);
     setDropPosition(null);
   }
-  const myName = currentMember?.name ?? "참여자";
   const myRole = currentMember?.role ?? "참여자";
-  const myAvatar = currentMember?.avatar ?? "?";
-  const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const logoCardRef = useRef<HTMLDivElement>(null);
   // The notif panel is portaled to document.body (see below — a backdrop-filter
@@ -246,10 +226,6 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     setDeleting(false);
     setPendingDelete(false);
     onNavigate("dashboard");
-  }
-
-  function openProfile() {
-    if (currentMember) openMemberProfile(currentMember.id);
   }
 
   return (
@@ -748,47 +724,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         </div>
       </nav>
 
-      {/* User card */}
-      <div
-        className="mt-4 px-4 py-3"
-        style={{
-          background: "var(--card-glass)",
-          borderRadius: "var(--radius)",
-          boxShadow: "var(--shadow-card)",
-          backdropFilter: "var(--panel-blur)",
-          WebkitBackdropFilter: "var(--panel-blur)",
-        }}
-      >
-        <div className="flex items-center gap-2.5">
-          <button type="button" onClick={openProfile} className="shrink-0" title="프로필 설정">
-            {avatarFrame
-              ? <AvatarFrame kind={avatarFrame} size={36} c1={cardC1} c2={cardC2}><Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} /></AvatarFrame>
-              : <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} />}
-          </button>
-          <button type="button" onClick={openProfile} className="flex-1 min-w-0 text-left">
-            <div className="text-sm font-700">{myName}</div>
-            <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-              {myRole} · 이 프로젝트
-            </div>
-          </button>
-          <div
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ background: "#22c55e" }}
-          />
-          <button
-            onClick={signOut}
-            title="로그아웃"
-            className="w-7 h-7 flex items-center justify-center shrink-0 transition-all"
-            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      <UserMenu subtitle={`${myRole} · 이 프로젝트`} onOpenSettings={() => { setMobileOpen(false); routerNavigate("/home", { state: { tab: "settings" } }); }} />
     </aside>
     {createOpen && (
       <CreateProjectModal

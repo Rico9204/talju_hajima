@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
@@ -10,16 +10,12 @@ import Achievements from "./Achievements";
 import Settings from "./Settings";
 import AdminApplicationNotice from "./AdminApplicationNotice";
 import AdminOperatorPanel from "./AdminOperatorPanel";
-import Avatar from "./Avatar";
-import AvatarFrame from "./AvatarFrame";
-import MedalIcon from "./MedalIcon";
 import ProfileModal from "./ProfileModal";
+import UserMenu from "./UserMenu";
 import AdminReports from "./AdminReports";
 import CampusNoticesView from "./CampusNoticesView";
 import { dataRepository } from "../api";
 import { useAccountBackground } from "../lib/useAccountBackground";
-import { useMyProfileTheme } from "../lib/useMyProfileTheme";
-import type { Tier } from "../lib/achievements";
 import {
   useHomeMenuOrder,
   reorderHomeMenuItem,
@@ -36,16 +32,6 @@ const EVENT_TYPE: Record<ScheduleEventType, { label: string; color: string }> = 
   other: { label: "기타", color: "#8b5cf6" },
 };
 
-// Small medal pinned to an Avatar's corner (see Avatar's `badge` prop) —
-// mirrors the same treatment in Sidebar.tsx's bottom user card.
-function TierMedal({ tier }: { tier: Tier }) {
-  return (
-    <span title={tier.label} className="flex items-center justify-center w-full h-full">
-      <MedalIcon shape={tier.shape} colors={tier.colors} size={18} />
-    </span>
-  );
-}
-
 const statusStyle: Record<"active" | "done", { label: string; bg: string; color: string }> = {
   active: { label: "진행 중", bg: "#22c55e18", color: "#22c55e" },
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
@@ -54,7 +40,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
 type HomeTab = "projects" | "campus" | "board" | "achievements" | "settings" | "operator" | "reports";
 
 export default function Home() {
-  const { projects, setProjectId, addProject, lookupProject, joinProject, currentMember, openMemberProfile, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
+  const { projects, setProjectId, addProject, lookupProject, joinProject, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
   // 프로젝트 카드의 주황 알림 점. 지금 선택된 프로젝트는 실시간으로 계산된 안 읽음 수를,
   // 나머지는 서버(my_project_alerts)에 물어본 결과를 쓴다.
   // ponytail: 다른 프로젝트는 화면 진입·창 포커스·1분마다 다시 묻는다. 즉시 반영이 필요하면 프로젝트별 실시간 구독으로.
@@ -90,15 +76,14 @@ export default function Home() {
   }, [projects.length]);
   const liveUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
   const hasAlert = (id: string) => (id === project.id ? liveUnread > 0 : alertProjectIds.has(id));
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const myName = currentMember?.name ?? "참여자";
-  const myAvatar = currentMember?.avatar ?? "?";
   const { backgroundStyle, glassStyle, lineSafeStyle } = useAccountBackground();
-  const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<HomeTab>("projects");
+  // 프로젝트 화면의 내 카드 메뉴에서 "설정"을 누르면 설정 탭으로 바로 연다.
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState<HomeTab>(() => (location.state as { tab?: HomeTab } | null)?.tab === "settings" ? "settings" : "projects");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [homeMenuOrder, saveHomeMenuOrder] = useHomeMenuOrder();
   const [draggedTab, setDraggedTab] = useState<HomeNavTab | null>(null);
@@ -450,33 +435,7 @@ export default function Home() {
           )}
         </nav>
 
-        {/* User card */}
-        <div className="mt-4 px-4 py-3" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-          <div className="flex items-center gap-2.5">
-            <button type="button" onClick={() => currentMember && openMemberProfile(currentMember.id)} className="shrink-0" title="프로필 설정">
-              {avatarFrame
-                ? <AvatarFrame kind={avatarFrame} size={36} c1={cardC1} c2={cardC2}><Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} /></AvatarFrame>
-                : <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} badge={myTier && <TierMedal tier={myTier} />} />}
-            </button>
-            <button type="button" onClick={() => currentMember && openMemberProfile(currentMember.id)} className="flex-1 min-w-0 text-left">
-              <div className="text-sm font-700">{myName}</div>
-              <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{user?.email}</div>
-            </button>
-            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: "#22c55e" }} />
-            <button
-              onClick={signOut}
-              title="로그아웃"
-              className="w-7 h-7 flex items-center justify-center shrink-0 transition-all"
-              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-          </div>
-        </div>
+          <UserMenu subtitle={user?.email ?? ""} onOpenSettings={() => selectTab("settings")} />
       </aside>
 
       <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
