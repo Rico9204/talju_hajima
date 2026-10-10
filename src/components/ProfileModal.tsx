@@ -33,6 +33,7 @@ import { canUseTheme, PROFILE_CARD_THEMES } from "../lib/profileThemes";
 import { ACHIEVEMENTS, formatAchievementValue } from "../lib/achievements";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import { useStillUrl } from "../lib/useStillUrl";
+import { useEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
 import { PROFILE_IMAGE_MIME_TYPES, validateProfileImage } from "../lib/profileImages";
 
 // 내 프로필 편집은 항목별로 나눠 하나씩 보여 준다(왼쪽 아래 내 카드 메뉴와 같은 구분). 저장은 모든 항목을 한 번에.
@@ -99,6 +100,7 @@ export default function ProfileModal() {
 
   // 보이는 점수(이 프로젝트 기준)가 서비스 전체 사용자 중 상위 몇 %인지. 서버가 비율만 돌려준다.
   const [otherPercentiles, setOtherPercentiles] = useState<EvaluationPercentiles | null>(null);
+  const scoreCca = useEvaluationScoreCca();
   useEffect(() => {
     setOtherPercentiles(null);
     if (isSelfProfile || !viewedMember || viewedMember.evalCount === 0 || !project.id) return;
@@ -647,7 +649,7 @@ export default function ProfileModal() {
                     <>
                       <div className="flex items-baseline gap-1.5 mb-3">
                         <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
-                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10 · {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10{scoreCca ? " (CCA 보정)" : ""} · {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
                       </div>
                       <p className="text-xs mb-1" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       {otherPercentiles && (

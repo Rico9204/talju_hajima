@@ -140,27 +140,39 @@ export default function PeerEvaluation() {
   const { project, currentMember } = useProject();
   return <EvaluationSelector key={project.id + ":" + project.status + ":" + currentMember?.id} />;
 }
+// 점수 방식 비교에서 고른 방식은 이 브라우저에 기억한다(다른 화면에 갔다 와도 유지).
+const SCORE_METHOD_KEY = "talju:evaluation-score-method";
+function readScoreMethod(): EvaluationScoreMethod | null {
+  try { const v = localStorage.getItem(SCORE_METHOD_KEY); return v === "raw" || v === "cca" ? v : null; } catch { return null; }
+}
 function EvaluationSelector() {
-  const { project, getEvaluationMode, getEvaluationMethodPreview } = useProject();
+  const { project, getEvaluationMode, getEvaluationMethodPreview, getEvaluationScoreCca } = useProject();
   const [prototype, setPrototype] = useState<boolean | null>(null);
   // 점수 방식 토글은 관리자 설정(점수 방식 비교)이 켜져 있을 때만. 테스트 모드와 따로 켜고 끈다.
   const [methodPreview, setMethodPreview] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const [phase, setPhase] = useState<EvaluationPhase>(project.status === "done" ? "final" : "midterm");
-  // 점수 방식 미리보기: 현재 방식(받은 점수 평균) ↔ CCA(성향 보정 합의 평균). 저장된 점수는 바뀌지 않는다.
-  const [method, setMethod] = useState<EvaluationScoreMethod>("raw");
+  // 공식 점수 방식(관리자 설정). 실제 평점·프로필·상위 %는 이 방식으로 계산된다.
+  const [official, setOfficial] = useState<EvaluationScoreMethod | null>(null);
+  // 점수 방식 비교에서 고른 방식. 고른 적이 없으면 공식 방식.
+  const [picked, setPicked] = useState<EvaluationScoreMethod | null>(readScoreMethod);
+  const method = picked ?? official ?? "raw";
+  function pickMethod(value: EvaluationScoreMethod) {
+    setPicked(value);
+    try { localStorage.setItem(SCORE_METHOD_KEY, value); } catch { /* 저장할 수 없어도 이 화면에서는 쓴다 */ }
+  }
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     let active = true;
     setError("");
-    Promise.all([getEvaluationMode(), getEvaluationMethodPreview()]).then(([enabled, preview]) => {
-      if (active) { setPrototype(enabled); setMethodPreview(preview); }
+    Promise.all([getEvaluationMode(), getEvaluationMethodPreview(), getEvaluationScoreCca()]).then(([enabled, preview, cca]) => {
+      if (active) { setPrototype(enabled); setMethodPreview(preview); setOfficial(cca ? "cca" : "raw"); }
     }).catch((e) => { if (active) setError(errorMessage(e)); });
     return () => { active = false; };
   }, [retry]);
   if (error) return <div role="alert" className="p-6">{error} <button onClick={() => setRetry((n) => n + 1)}>다시 불러오기</button></div>;
-  if (prototype === null || methodPreview === null) return <p role="status" className="p-6">평가 설정을 불러오는 중…</p>;
+  if (prototype === null || methodPreview === null || official === null) return <p role="status" className="p-6">평가 설정을 불러오는 중…</p>;
   const phases: EvaluationPhase[] = prototype ? ["midterm", "final"] : [phase];
   return <div>
     {(prototype || methodPreview) && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
@@ -175,25 +187,26 @@ function EvaluationSelector() {
       </div></>}
       {methodPreview && <div role="radiogroup" aria-label="점수 방식" className="flex items-center gap-2 mt-3 flex-wrap">
         <span className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>점수 방식</span>
-        {([["raw", "현재 방식"], ["cca", "CCA (미리보기)"]] as const).map(([value, label]) => <button key={value} type="button" role="radio"
-          aria-checked={method === value} disabled={submitting} onClick={() => setMethod(value)}
+        {([["raw", "원점수 평균"], ["cca", "CCA"]] as const).map(([value, label]) => <button key={value} type="button" role="radio"
+          aria-checked={method === value} disabled={submitting} onClick={() => pickMethod(value)}
           className="px-3 py-1 text-xs font-700 rounded-full disabled:opacity-50"
           style={{ background: method === value ? "var(--primary)" : "var(--muted)", color: method === value ? "#fff" : "var(--foreground)" }}>
-          {label}
+          {label}{value === official ? " · 반영 중" : ""}
         </button>)}
         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-          {method === "cca" ? "평가자마다 후하게·짜게 주는 습관을 빼고, 혼자 크게 튀는 점수는 줄여 계산한 내 평균입니다. 실제 반영 점수는 바뀌지 않습니다." : "받은 점수를 그대로 평균합니다(지금 반영되는 방식)."}
+          {method === "cca" ? "평가자마다 후하게·짜게 주는 습관을 빼고, 혼자 크게 튀는 점수는 줄여 계산한 내 평균입니다." : "받은 점수를 그대로 평균합니다."}
+          {method === official ? " 프로필·대시보드 평점에 반영되는 방식입니다." : " 비교용이며 실제 평점은 바뀌지 않습니다."}
         </span>
       </div>}
     </div>}
     {phases.map((value) => <div key={value} hidden={phase !== value} role={prototype ? "tabpanel" : undefined}
       id={"evaluation-panel-" + value} aria-labelledby={prototype ? "evaluation-tab-" + value : undefined}>
-      <EvaluationPanel phase={value} prototype={prototype} active={phase === value} method={methodPreview ? method : "raw"} methodPreview={methodPreview} onBusyChange={setSubmitting} />
+      <EvaluationPanel phase={value} prototype={prototype} active={phase === value} method={methodPreview ? method : undefined} methodPreview={methodPreview} onBusyChange={setSubmitting} />
     </div>)}
   </div>;
 }
 function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBusyChange }: {
-  phase: EvaluationPhase; prototype: boolean; active: boolean; method: EvaluationScoreMethod; methodPreview: boolean; onBusyChange: (busy: boolean) => void;
+  phase: EvaluationPhase; prototype: boolean; active: boolean; method?: EvaluationScoreMethod; methodPreview: boolean; onBusyChange: (busy: boolean) => void;
 }) {
   const { project, team, currentMember, isLeader, isShortTerm, getEvaluations, submitEvaluations, completeProject } = useProject();
   const skipped = !prototype && phase === "midterm" && isShortTerm;
@@ -327,7 +340,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
               className="flex items-center justify-between w-full text-left mb-3"
             >
               <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.7)" }}>
-                {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}{method === "cca" ? " · CCA 미리보기" : ""}
+                {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}{data?.average?.method === "cca" ? " · CCA" : ""}
               </span>
               <span className="text-xs font-700 shrink-0 ml-3" style={{ color: "rgba(255,255,255,0.85)" }}>
                 {summaryCollapsed ? "펼치기 ▾" : "접기 ▴"}
@@ -379,7 +392,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                     <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
                       {average?.score?.toFixed(1)}
                     </span>
-                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}{method === "cca" ? " (CCA 보정)" : ""}</span>
+                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}{data?.average?.method === "cca" ? " (CCA 보정)" : ""}</span>
                   </div>
                 </div>
               </div>

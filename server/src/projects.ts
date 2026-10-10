@@ -368,7 +368,19 @@ export class ProjectsController {
     await this.db.asUser(userId, (query) => query("select public.set_evaluation_method_preview_enabled($1)", [body.enabled]));
   }
 
-  // method=cca: 내 평균을 CCA(성향 보정 합의 평균)로 계산해 미리 본다(관리자가 미리보기를 켰을 때만). 저장된 점수·다른 화면의 점수는 그대로.
+  // 공식 점수 방식(원점수 평균 / CCA): 관리자가 CCA를 켜면 모든 평점·프로필·상위 %가 CCA로 계산된다. 바꾸기는 DB 함수가 관리자만 허용한다.
+  @Get("evaluation-score-cca")
+  evaluationScoreCca(@UserId() userId: string) {
+    return this.db.asUser(userId, (query) => scalarJson<boolean>(query, "public.evaluation_score_cca_enabled()"));
+  }
+
+  @Put("evaluation-score-cca")
+  @HttpCode(204)
+  async setEvaluationScoreCca(@UserId() userId: string, @Body() body: EnabledDto) {
+    await this.db.asUser(userId, (query) => query("select public.set_evaluation_score_cca_enabled($1)", [body.enabled]));
+  }
+
+  // method 없음: 공식 점수 방식으로 계산한 내 평균. method=raw|cca: 공식 방식과 관계없이 고른 방식으로 미리 본다(관리자가 미리보기를 켰을 때만).
   @Get("projects/:projectId/evaluations/:phase")
   getEvaluations(@UserId() userId: string, @Param("projectId") projectId: string, @Param("phase") phase: string, @QueryParam("method") method?: string) {
     assertPhase(phase);
@@ -376,7 +388,7 @@ export class ProjectsController {
     return this.db.asUser(userId, async (query) => {
       const records = await selectJson(query, "select * from public.peer_evaluations where project_id = $1 and phase = $2 order by created_at", [projectId, phase]);
       const submissions = await selectJson(query, "select id from public.peer_evaluation_submissions where project_id = $1 and phase = $2", [projectId, phase]);
-      const average = await scalarJson(query, method === "cca" ? "public.cca_evaluation_average($1, $2)" : "public.my_evaluation_average($1, $2)", [projectId, phase]);
+      const average = await scalarJson(query, method ? "public.evaluation_average_preview($1, $2, $3)" : "public.my_evaluation_average($1, $2)", method ? [projectId, phase, method] : [projectId, phase]);
       return { records, submitted: submissions.length > 0, average };
     });
   }

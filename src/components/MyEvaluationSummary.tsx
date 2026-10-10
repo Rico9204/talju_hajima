@@ -4,6 +4,7 @@ import type { EvaluationPercentiles } from "../api/types";
 import { useProject } from "../context/ProjectContext";
 import { criteriaChartData, percentileCaption, type MyEvaluationSummary as Summary } from "../lib/evaluationSummary";
 import { collaborationTrust } from "../lib/collaborationTrust";
+import { useEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
 import PentagonChart from "./PentagonChart";
 
 export default function MyEvaluationSummary({ chart = false }: { chart?: boolean }) {
@@ -11,6 +12,7 @@ export default function MyEvaluationSummary({ chart = false }: { chart?: boolean
   const [result, setResult] = useState<Summary | null>(null);
   const [percentiles, setPercentiles] = useState<EvaluationPercentiles | null>(null);
   const [error, setError] = useState(false);
+  const scoreCca = useEvaluationScoreCca();
   const [retry, setRetry] = useState(0);
   const projectKey = projects.map((p) => p.id + p.status).join(",");
   useEffect(() => {
@@ -34,7 +36,7 @@ export default function MyEvaluationSummary({ chart = false }: { chart?: boolean
       : !result ? <p role="status" className="text-sm">평가 요약을 불러오는 중…</p>
       : <>
         <div className={`grid grid-cols-2 ${chart ? "gap-2" : "gap-4"}`}>
-          <div><div className={labelSize}>내 협업 신뢰도</div><strong className={valueSize} style={{ color: "var(--primary)" }}>{result.score === null ? "공개 대기" : result.score.toFixed(1) + " / 10"}</strong><p className={labelSize}>{trust?.label} · {trust?.evidence}</p>{caption && <p className={`${labelSize} font-700`} style={{ color: percentiles?.available ? "var(--primary)" : "var(--muted-foreground)" }}>{caption}</p>}</div>
+          <div><div className={labelSize}>내 협업 신뢰도</div><strong className={valueSize} style={{ color: "var(--primary)" }}>{result.score === null ? "공개 대기" : result.score.toFixed(1) + " / 10" + (scoreCca ? " (CCA 보정)" : "")}</strong><p className={labelSize}>{trust?.label} · {trust?.evidence}</p>{caption && <p className={`${labelSize} font-700`} style={{ color: percentiles?.available ? "var(--primary)" : "var(--muted-foreground)" }}>{caption}</p>}</div>
           <div><div className={labelSize}>프로젝트 참여 횟수</div><strong className={valueSize}>{result.projectCount}회</strong><p className={labelSize}>종료된 프로젝트 기준</p></div>
           <div className="col-span-2"><div className={labelSize}>참여한 동료</div><strong className={valueSize}>{result.collaboratorCount}명</strong><p className={labelSize}>종료된 프로젝트에서 함께한 인원 (중복 제외)</p></div>
         </div>

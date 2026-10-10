@@ -37,7 +37,10 @@ export class RestDataRepository implements DataRepository {
   setEvaluationMode(enabled: boolean) { return this.api.request<void>("/evaluation-mode", { method: "PUT", body: JSON.stringify({ enabled }) }); }
   getEvaluationMethodPreview() { return this.api.request<boolean>("/evaluation-method-preview"); }
   setEvaluationMethodPreview(enabled: boolean) { return this.api.request<void>("/evaluation-method-preview", { method: "PUT", body: JSON.stringify({ enabled }) }); }
-  getEvaluations(projectId: string, phase: EvaluationPhase, method?: import("../types").EvaluationScoreMethod) { return this.api.request<EvaluationData>(`/projects/${encodeURIComponent(projectId)}/evaluations/${phase}${method === "cca" ? "?method=cca" : ""}`); }
+  getEvaluationScoreCca() { return this.api.request<boolean>("/evaluation-score-cca"); }
+  setEvaluationScoreCca(enabled: boolean) { return this.api.request<void>("/evaluation-score-cca", { method: "PUT", body: JSON.stringify({ enabled }) }); }
+  // method 없음 = 공식 점수 방식, 있으면 그 방식으로 미리보기(관리자가 점수 방식 비교를 켰을 때만)
+  getEvaluations(projectId: string, phase: EvaluationPhase, method?: import("../types").EvaluationScoreMethod) { return this.api.request<EvaluationData>(`/projects/${encodeURIComponent(projectId)}/evaluations/${phase}${method ? "?method=" + method : ""}`); }
   submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]) { return this.api.request<void>(`/projects/${encodeURIComponent(projectId)}/evaluations/${phase}`, { method: "POST", body: JSON.stringify({ entries }) }); }
   completeProject(projectId: string) { return this.api.request<Project>(`/projects/${encodeURIComponent(projectId)}/complete`, { method: "POST" }); }
   listProjects() { return this.api.request<Project[]>("/projects"); }
