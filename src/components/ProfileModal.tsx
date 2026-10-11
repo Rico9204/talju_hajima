@@ -634,7 +634,10 @@ export default function ProfileModal() {
                 <MyEvaluationSummary chart />
               ) : (
                 <section aria-label={`${viewedMember.name} 평가 요약`} className="p-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)" }}>
-                  <h2 className="text-sm font-700 mb-3 flex items-center gap-1.5">협업 신뢰도 <EvaluationInfoButton section="trust" /></h2>
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <h2 className="text-sm font-700">협업 신뢰도</h2>
+                    <EvaluationInfoButton section={viewedMember.evalCount > 0 ? "trust" : "disclosure"} />
+                  </div>
                   {otherStats && (
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div>
@@ -657,8 +660,8 @@ export default function ProfileModal() {
                       </div>
                       <p className="text-xs mb-1" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       {otherPercentiles && (
-                        <p className="text-xs font-700 mb-3 flex items-center gap-1" style={{ color: otherPercentiles.available ? "var(--primary)" : "var(--muted-foreground)" }}>
-                          {percentileCaption(otherPercentiles)} <EvaluationInfoButton section="percentile" />
+                        <p className="text-xs font-700 mb-3" style={{ color: otherPercentiles.available ? "var(--primary)" : "var(--muted-foreground)" }}>
+                          {percentileCaption(otherPercentiles)}
                         </p>
                       )}
                       <div className="flex justify-center">
@@ -666,8 +669,8 @@ export default function ProfileModal() {
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
-                      공개 대기 <EvaluationInfoButton section="disclosure" />
+                    <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+                      공개 대기
                     </p>
                   )}
                 </section>

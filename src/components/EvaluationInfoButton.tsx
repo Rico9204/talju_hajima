@@ -2,15 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EVALUATION_GUIDE, type EvaluationGuideSection } from "../lib/evaluationGuide";
 
-// 평가 점수 옆의 ⓘ. 누르면 평가 점수 안내 창이 열리고 해당 항목으로 바로 이동한다.
+// 평가 점수 카드 오른쪽 위의 ⓘ(카드마다 하나). 누르면 평가 점수 안내 창이 열리고 해당 항목으로 바로 이동한다.
 // 화면에는 점수와 짧은 상태만 두고, 계산 방식·공개 조건 같은 설명은 모두 이 창에서 본다.
-export default function EvaluationInfoButton({ section, light = false }: { section: EvaluationGuideSection; light?: boolean }) {
+export default function EvaluationInfoButton({ section }: { section: EvaluationGuideSection }) {
   const [open, setOpen] = useState(false);
   const title = EVALUATION_GUIDE.find((s) => s.id === section)?.title ?? "평가 점수 안내";
   return <>
     <button type="button" onClick={(e) => { e.stopPropagation(); setOpen(true); }} aria-label={`${title} 설명 보기`} title={`${title} 설명 보기`}
       className="inline-flex items-center justify-center w-4 h-4 shrink-0 align-middle rounded-full text-[10px] font-800 leading-none transition-opacity hover:opacity-70"
-      style={{ border: `1.5px solid ${light ? "rgba(255,255,255,0.75)" : "var(--muted-foreground)"}`, color: light ? "rgba(255,255,255,0.85)" : "var(--muted-foreground)", fontFamily: "Georgia, serif" }}>
+      style={{ border: "1.5px solid var(--muted-foreground)", color: "var(--muted-foreground)", fontFamily: "Georgia, serif" }}>
       i
     </button>
     {open && <EvaluationGuide section={section} onClose={() => setOpen(false)} />}

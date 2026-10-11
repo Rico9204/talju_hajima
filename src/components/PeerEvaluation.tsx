@@ -192,7 +192,6 @@ function EvaluationSelector() {
           {label}{value === official ? " · 반영 중" : ""}
         </button>)}
         {method !== official && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>미리보기</span>}
-        <EvaluationInfoButton section="cca" />
       </div>}
     </div>}
     {phases.map((value) => <div key={value} hidden={phase !== value} role={prototype ? "tabpanel" : undefined}
@@ -346,7 +345,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
               <>
             {!isDone && <div className="mb-4 text-sm">
               <h2 className="font-700 text-lg">내 중간 피드백 평균</h2>
-              <p className="flex items-center gap-1.5">{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"} <EvaluationInfoButton section="disclosure" light /></p>
+              <p>{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"}</p>
               <button type="button" className="underline mt-2" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>중간 피드백 새로고침</button>
             </div>}
             {feedbackAvailable ? (
@@ -393,7 +392,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                 </div>
               </div>
             ) : (
-              <p className="text-sm flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "공개 대기"} <EvaluationInfoButton section="disclosure" light /></p>
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "공개 대기"}</p>
             )}
               </>
             )}
@@ -402,10 +401,13 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
       {confirmDialog}
-      {/* Header */}
+      {/* Header: 이 화면의 설명은 오른쪽 위 ⓘ 하나로 연다. */}
       <div className="mb-5">
-        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          동료 평가 · {project.name}
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <div className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            동료 평가 · {project.name}
+          </div>
+          <EvaluationInfoButton section="phases" />
         </div>
         <h1 className="text-2xl font-700">Peer Evaluation</h1>
         <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
@@ -432,7 +434,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
         >
           {isDone ? "★" : midtermSkipped ? "◷" : "◎"}
         </div>
-        {/* 단계별 한 줄 요약만 두고, 형성적·총괄 평가와 2주 기준 설명은 ⓘ 안내에서 본다. */}
+        {/* 단계별 한 줄 요약만 두고, 형성적·총괄 평가와 2주 기준 설명은 오른쪽 위 ⓘ 안내에서 본다. */}
         <div className="flex items-center gap-1.5 flex-wrap">
           {isDone ? (
             <><strong>최종 평가</strong><span style={{ color: "var(--muted-foreground)" }}>· 평균이 프로필 평점이 됩니다</span></>
@@ -441,7 +443,6 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
           ) : (
             <><strong>중간 점검</strong><span style={{ color: "var(--muted-foreground)" }}>· 프로필에 반영되지 않음{prototype ? "" : " · 최종 평가는 프로젝트 종료 후"}</span></>
           )}
-          <EvaluationInfoButton section="phases" />
         </div>
       </div>
 

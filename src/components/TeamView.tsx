@@ -432,8 +432,9 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             </div>
 
             <div className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
-              <div className="text-xs font-600 mb-1.5 flex items-center gap-1" style={{ color: "var(--muted-foreground)" }}>
-                협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span> <EvaluationInfoButton section="trust" />
+              <div className="text-xs font-600 mb-1.5 flex items-start justify-between gap-2" style={{ color: "var(--muted-foreground)" }}>
+                <span>협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span></span>
+                <EvaluationInfoButton section={sel.evalCount > 0 ? "trust" : "disclosure"} />
               </div>
               {participationStats && (
                 <div className="grid grid-cols-2 gap-3 mb-3">
@@ -464,8 +465,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   </div>
                 </>
               ) : (
-                <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
-                  공개 대기 <EvaluationInfoButton section="disclosure" />
+                <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  공개 대기
                 </p>
               )}
             </div>
@@ -487,8 +488,9 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             </div>
 
             {/* Per-criterion radar chart */}
-            <div className="text-xs font-600 uppercase tracking-widest mb-3 flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
-              협업 항목별 참고 지표 <EvaluationInfoButton section="score" />
+            <div className="text-xs font-600 uppercase tracking-widest mb-3 flex items-start justify-between gap-2" style={{ color: "var(--muted-foreground)" }}>
+              <span>협업 항목별 참고 지표</span>
+              <EvaluationInfoButton section="score" />
             </div>
             {sel.evalCount > 0 ? (
               <div className="flex justify-center">
@@ -503,8 +505,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 />
               </div>
             ) : (
-              <div className="text-xs p-3 flex items-center gap-1.5" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                공개 대기 <EvaluationInfoButton section="disclosure" />
+              <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
+                공개 대기
               </div>
             )}
           </div>
