@@ -48,7 +48,7 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
         <div role="menu" aria-label="내 계정 메뉴" className="absolute bottom-full left-0 right-0 mb-2 py-2"
           style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 12px 32px rgba(15,18,53,0.22)" }}>
           <button type="button" role="menuitem" onClick={() => openSection()} className={itemClass + " font-700"}>
-            <span aria-hidden="true">🪪</span>내 프로필 보기
+            <span aria-hidden="true">📇</span>내 프로필 보기
           </button>
           <div className="h-px my-1.5 mx-3" style={{ background: "var(--border)" }} />
           <div className="px-3 pb-1 text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>프로필 편집</div>
