@@ -70,11 +70,12 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
           </button>
         </div>
       </>}
-      {/* 사이드바의 흐림 효과(backdrop-filter) 안에서는 fixed가 화면 기준이 아니게 되므로 body에 띄운다. */}
+      {/* 사이드바의 흐림 효과(backdrop-filter) 안에서는 fixed가 화면 기준이 아니게 되므로 body에 띄운다.
+          높이는 고정해서 내용이 적은 분야를 골라도 창 크기가 바뀌지 않게 한다(넘치면 안에서 스크롤). */}
       {settingsOpen && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}
           onMouseDown={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false); }}>
-          <div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" className="w-full max-w-4xl max-h-[88vh] flex flex-col"
+          <div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" className="w-full max-w-4xl h-[min(88vh,760px)] flex flex-col"
             style={{ background: "var(--background)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.32)" }}>
             <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
               <h2 id="settings-dialog-title" className="text-base font-800">설정</h2>
