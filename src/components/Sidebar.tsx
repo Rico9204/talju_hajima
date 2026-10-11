@@ -724,7 +724,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         </div>
       </nav>
 
-      <UserMenu subtitle={`${myRole} · 이 프로젝트`} onOpenSettings={() => { setMobileOpen(false); routerNavigate("/home", { state: { tab: "settings" } }); }} />
+      <UserMenu subtitle={`${myRole} · 이 프로젝트`} />
     </aside>
     {createOpen && (
       <CreateProjectModal

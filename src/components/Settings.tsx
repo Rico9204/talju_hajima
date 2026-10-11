@@ -328,7 +328,7 @@ function MenuOrderSettings() {
               <div>
                 <h2 className="text-sm font-800 leading-tight">메인 화면 좌측 메뉴 순서</h2>
                 <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
-                  메인 화면의 [내 프로젝트, 게시판, 업적, 설정] 메뉴 순서를 정렬합니다
+                  메인 화면의 [내 프로젝트, 캠퍼스 소식, 게시판, 업적] 메뉴 순서를 정렬합니다
                 </p>
               </div>
               <div className="flex items-center gap-2">

@@ -7,7 +7,7 @@ import "../../src/index.css";
 createRoot(document.getElementById("root")!).render(<Fixture>
   <aside className="w-64 p-4 flex flex-col" style={{ height: "calc(100vh - 48px)" }}>
     <div className="flex-1 p-4" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)" }}>메뉴 자리</div>
-    <UserMenu subtitle="팀장 · 이 프로젝트" onOpenSettings={() => console.log("[fixture] 설정 열기")} />
+    <UserMenu subtitle="팀장 · 이 프로젝트" />
   </aside>
   <ProfileModal />
 </Fixture>);

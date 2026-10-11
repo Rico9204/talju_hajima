@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useProject, type ProfileSection } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import Avatar from "./Avatar";
 import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
+import Settings from "./Settings";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 
 // 왼쪽 아래 내 카드. 누르면 디스코드처럼 위로 메뉴가 열리고, 고른 항목의 편집 화면을 바로 연다.
+// "설정"은 보던 화면을 떠나지 않도록 창으로 띄운다(메인 화면·프로젝트 화면 모두 같다).
 const EDIT_ITEMS: { section: ProfileSection; icon: string; label: string }[] = [
   { section: "info", icon: "👤", label: "기본 정보" },
   { section: "photo", icon: "📷", label: "사진 · 배너" },
@@ -15,18 +18,19 @@ const EDIT_ITEMS: { section: ProfileSection; icon: string; label: string }[] = [
   { section: "effect", icon: "✨", label: "카드 효과" },
 ];
 
-export default function UserMenu({ subtitle, onOpenSettings }: { subtitle: string; onOpenSettings: () => void }) {
+export default function UserMenu({ subtitle }: { subtitle: string }) {
   const { currentMember, openMemberProfile } = useProject();
   const { signOut } = useAuth();
   const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [open, setOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    if (!open && !settingsOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); setSettingsOpen(false); } };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, settingsOpen]);
 
   function openSection(section?: ProfileSection) {
     setOpen(false);
@@ -58,7 +62,7 @@ export default function UserMenu({ subtitle, onOpenSettings }: { subtitle: strin
           <button type="button" role="menuitem" onClick={() => openSection("password")} className={itemClass}>
             <span aria-hidden="true">🔒</span>비밀번호 변경
           </button>
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpenSettings(); }} className={itemClass}>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); setSettingsOpen(true); }} className={itemClass}>
             <span aria-hidden="true">⚙️</span>설정
           </button>
           <button type="button" role="menuitem" onClick={signOut} className={itemClass} style={{ color: "#ef4444" }}>
@@ -66,6 +70,23 @@ export default function UserMenu({ subtitle, onOpenSettings }: { subtitle: strin
           </button>
         </div>
       </>}
+      {/* 사이드바의 흐림 효과(backdrop-filter) 안에서는 fixed가 화면 기준이 아니게 되므로 body에 띄운다. */}
+      {settingsOpen && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false); }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title" className="w-full max-w-4xl max-h-[88vh] flex flex-col"
+            style={{ background: "var(--background)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.32)" }}>
+            <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+              <h2 id="settings-dialog-title" className="text-base font-800">설정</h2>
+              <button type="button" onClick={() => setSettingsOpen(false)} aria-label="설정 닫기" className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-[var(--muted)]">✕</button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-5">
+              <Settings />
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

@@ -1,13 +1,12 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
 import Achievements from "./Achievements";
-import Settings from "./Settings";
 import AdminApplicationNotice from "./AdminApplicationNotice";
 import AdminOperatorPanel from "./AdminOperatorPanel";
 import ProfileModal from "./ProfileModal";
@@ -37,7 +36,7 @@ const statusStyle: Record<"active" | "done", { label: string; bg: string; color:
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
 
-type HomeTab = "projects" | "campus" | "board" | "achievements" | "settings" | "operator" | "reports";
+type HomeTab = "projects" | "campus" | "board" | "achievements" | "operator" | "reports";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
@@ -81,14 +80,8 @@ export default function Home() {
   const { backgroundStyle, glassStyle, lineSafeStyle } = useAccountBackground();
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  // 프로젝트 화면의 내 카드 메뉴에서 "설정"을 누르면 설정 탭으로 바로 연다.
-  const location = useLocation();
-  const [activeTab, setActiveTab] = useState<HomeTab>(() => (location.state as { tab?: HomeTab } | null)?.tab === "settings" ? "settings" : "projects");
-  // 한 번 열었으면 기록에서 지운다(새로고침·뒤로 가기로 돌아와도 다시 설정 탭으로 열리지 않게).
-  useEffect(() => {
-    if ((location.state as { tab?: HomeTab } | null)?.tab) navigate(location.pathname + location.search, { replace: true, state: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 설정은 메인 화면 탭이 아니라 왼쪽 아래 내 카드 메뉴의 창(UserMenu)으로 연다.
+  const [activeTab, setActiveTab] = useState<HomeTab>("projects");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [homeMenuOrder, saveHomeMenuOrder] = useHomeMenuOrder();
   const [draggedTab, setDraggedTab] = useState<HomeNavTab | null>(null);
@@ -342,24 +335,6 @@ export default function Home() {
                   </span>
                 </button>
               );
-            } else if (tabId === "settings") {
-              buttonContent = (
-                <button
-                  type="button"
-                  onClick={() => selectTab("settings")}
-                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
-                  style={{ borderRadius: "10px", background: activeTab === "settings" ? "var(--primary)" : "transparent", color: activeTab === "settings" ? "#fff" : "var(--foreground)" }}
-                  title="설정 (드래그하여 순서 변경)"
-                >
-                  <span className="flex items-center gap-2.5">
-                    <span>⚙</span>
-                    <span>설정</span>
-                  </span>
-                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
-                    ⠿
-                  </span>
-                </button>
-              );
             }
 
             return (
@@ -440,15 +415,13 @@ export default function Home() {
           )}
         </nav>
 
-          <UserMenu subtitle={user?.email ?? ""} onOpenSettings={() => selectTab("settings")} />
+          <UserMenu subtitle={user?.email ?? ""} />
       </aside>
 
       <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
         <div className="max-w-5xl mx-auto">
           <AdminApplicationNotice />
-          {activeTab === "settings" ? (
-            <Settings />
-          ) : activeTab === "operator" && isOperator ? (
+          {activeTab === "operator" && isOperator ? (
             <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
           ) : activeTab === "reports" && isOperator ? (
             <div className="space-y-4">

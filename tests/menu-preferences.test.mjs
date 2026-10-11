@@ -108,14 +108,13 @@ test('isDefaultMenuOrder identifies matching vs non-matching orders', () => {
   assert.equal(isDefaultMenuOrder(DEFAULT_MENU_ORDER.slice(0, 5)), false);
 });
 
-test('DEFAULT_HOME_MENU_ORDER includes all 5 standard tabs', () => {
-  assert.equal(DEFAULT_HOME_MENU_ORDER.length, 5);
+test('DEFAULT_HOME_MENU_ORDER includes all 4 standard tabs (settings opens from the user menu)', () => {
+  assert.equal(DEFAULT_HOME_MENU_ORDER.length, 4);
   assert.deepEqual(DEFAULT_HOME_MENU_ORDER, [
     'projects',
     'campus',
     'board',
     'achievements',
-    'settings',
   ]);
 
   for (const tab of DEFAULT_HOME_MENU_ORDER) {
@@ -127,21 +126,20 @@ test('DEFAULT_HOME_MENU_ORDER includes all 5 standard tabs', () => {
 });
 
 test('sanitizeHomeMenuOrder preserves valid custom order, deduplicates, and appends missing tabs', () => {
-  const custom = ['settings', 'board'];
+  const custom = ['achievements', 'board'];
   const sanitized = sanitizeHomeMenuOrder(custom);
   assert.deepEqual(sanitized, [
-    'settings',
+    'achievements',
     'board',
     'projects',
     'campus',
-    'achievements',
   ]);
 
+  // 예전에 저장된 순서의 'settings'는 더 이상 메뉴가 아니라서 버린다.
   const messy = ['achievements', 'invalid', 'achievements', 'settings', 999];
   const sanitizedMessy = sanitizeHomeMenuOrder(messy);
   assert.deepEqual(sanitizedMessy, [
     'achievements',
-    'settings',
     'projects',
     'campus',
     'board',
@@ -149,18 +147,18 @@ test('sanitizeHomeMenuOrder preserves valid custom order, deduplicates, and appe
 });
 
 test('reorderHomeMenuItem and moveHomeMenuItem correctly adjust Home tabs', () => {
-  const original = ['projects', 'board', 'achievements', 'settings'];
+  const original = ['projects', 'board', 'achievements', 'campus'];
 
   // Move 'projects' (0) to index 3
   const reordered = reorderHomeMenuItem(original, 0, 3);
-  assert.deepEqual(reordered, ['board', 'achievements', 'settings', 'projects']);
+  assert.deepEqual(reordered, ['board', 'achievements', 'campus', 'projects']);
 
   // Move 'board' up -> cannot move up
   assert.deepEqual(moveHomeMenuItem(reordered, 0, 'up'), reordered);
 
   // Move 'board' down -> index 1
   const movedDown = moveHomeMenuItem(reordered, 0, 'down');
-  assert.deepEqual(movedDown, ['achievements', 'board', 'settings', 'projects']);
+  assert.deepEqual(movedDown, ['achievements', 'board', 'campus', 'projects']);
 
   assert.equal(isDefaultHomeMenuOrder([...DEFAULT_HOME_MENU_ORDER]), true);
   assert.equal(isDefaultHomeMenuOrder(movedDown), false);
