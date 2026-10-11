@@ -196,15 +196,14 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     return minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
   })();
   // 복사: 팀장·부팀장은 복사할 때마다 새 코드를 발급해 그 코드를 복사한다(이전 코드는 바로 무효, 6시간 유효).
-  // 다른 팀원은 갱신 권한이 없어 지금 코드를 그대로 복사한다.
-  // 새 코드를 기다리는 동안 클릭의 사용자 동작이 끊기지 않도록(사파리) 가능하면 ClipboardItem에 Promise를 넘긴다.
+  // 다른 팀원은 갱신 권한이 없으므로, 그 사이 다른 사람이 새로 발급했을 수 있어 서버에서 지금 유효한 코드를 다시 받아 복사한다.
+  // 코드를 기다리는 동안 클릭의 사용자 동작이 끊기지 않도록(사파리) 가능하면 ClipboardItem에 Promise를 넘긴다.
   async function copyJoinCode() {
     if (!projectIdForCode || !shownCode || rotatingCode) return;
-    const canRotate = isLeader || isViceLeader;
     const projectId = projectIdForCode;
-    const next = canRotate ? rotateJoinCode(projectId) : null;
-    const text = next ? next.then((code) => code.joinCode) : Promise.resolve(shownCode);
-    if (next) setRotatingCode(true);
+    const next = isLeader || isViceLeader ? rotateJoinCode(projectId) : getJoinCode(projectId);
+    const text = next.then((code) => code.joinCode);
+    setRotatingCode(true);
     try {
       if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
         await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((value) => new Blob([value], { type: "text/plain" })) })]);
@@ -214,15 +213,13 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 1500);
     } catch {
-      // 새 코드 발급이 실패했으면 그 이유를, 클립보드만 실패했으면 복사 실패를 알린다.
-      const issueError = next ? await next.then(() => null, (e) => (e instanceof Error ? e.message : "참여 코드를 갱신하지 못했습니다.")) : null;
+      // 코드를 받지 못했으면 그 이유를, 클립보드만 실패했으면 복사 실패를 알린다.
+      const issueError = await next.then(() => null, (e) => (e instanceof Error ? e.message : "참여 코드를 불러오지 못했습니다."));
       window.alert(issueError ?? "복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.");
     } finally {
-      if (next) {
-        const code = await next.catch(() => null);
-        if (code) { setJoinCode({ projectId, ...code }); setJoinCodeError(null); setNow(Date.now()); }
-        setRotatingCode(false);
-      }
+      const code = await next.catch(() => null);
+      if (code) { setJoinCode({ projectId, ...code }); setJoinCodeError(null); setNow(Date.now()); }
+      setRotatingCode(false);
     }
   }
   const [pendingDelete, setPendingDelete] = useState(false);
