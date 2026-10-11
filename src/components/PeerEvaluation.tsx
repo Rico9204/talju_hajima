@@ -4,14 +4,11 @@ import { useProject } from "../context/ProjectContext";
 import type { EvaluationData, EvaluationEntry, EvaluationPhase, EvaluationScoreMethod } from "../api/types";
 import PentagonChart from "./PentagonChart";
 import { useConfirm } from "./ConfirmDialog";
+import EvaluationInfoButton from "./EvaluationInfoButton";
+import CcaBadge from "./CcaBadge";
+import { EVALUATION_CRITERIA } from "../lib/evaluationGuide";
 
-const criteria = [
-  { id: "role", label: "역할 이행", desc: "맡은 역할과 작업을 수행했는지", icon: "✓" },
-  { id: "deadline", label: "약속 및 마감 준수", desc: "합의한 기한과 약속을 지켰는지", icon: "◷" },
-  { id: "communication", label: "의사소통", desc: "요청·질문·진행 상황 공유에 적절히 응답했는지", icon: "◎" },
-  { id: "collaboration", label: "협업 태도", desc: "팀 의사결정과 문제 해결 과정에 협조적으로 참여했는지", icon: "⊙" },
-  { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
-] as const;
+const criteria = EVALUATION_CRITERIA;
 
 // One continuous track over a fixed min..max range (0..10 per person) —
 // click anywhere or drag across it and the value snaps to whichever zone
@@ -176,8 +173,9 @@ function EvaluationSelector() {
   const phases: EvaluationPhase[] = prototype ? ["midterm", "final"] : [phase];
   return <div>
     {(prototype || methodPreview) && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
-      {prototype && <><p className="text-sm mb-3">프로토타입 검증 모드 · 기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다. 최종 평가 평균은 본인의 대시보드와 프로필에서 확인할 수 있습니다.</p>
-      <div role="tablist" aria-label="평가 유형" className="flex gap-2">
+      {prototype && <><div role="tablist" aria-label="평가 유형" className="flex items-center gap-2">
+        <span className="px-2 py-0.5 text-[11px] font-700 rounded-full" title="기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다."
+          style={{ background: "#f59e0b18", color: "#d97706" }}>테스트 모드</span>
         {phases.map((value) => <button key={value} type="button" role="tab" id={"evaluation-tab-" + value}
           aria-selected={phase === value} aria-controls={"evaluation-panel-" + value} disabled={submitting}
           onClick={() => setPhase(value)} className="px-5 py-2 rounded-full disabled:opacity-50"
@@ -193,10 +191,8 @@ function EvaluationSelector() {
           style={{ background: method === value ? "var(--primary)" : "var(--muted)", color: method === value ? "#fff" : "var(--foreground)" }}>
           {label}{value === official ? " · 반영 중" : ""}
         </button>)}
-        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-          {method === "cca" ? "평가자마다 후하게·짜게 주는 습관을 빼고, 혼자 크게 튀는 점수는 줄여 계산한 내 평균입니다." : "받은 점수를 그대로 평균합니다."}
-          {method === official ? " 프로필·대시보드 평점에 반영되는 방식입니다." : " 비교용이며 실제 평점은 바뀌지 않습니다."}
-        </span>
+        {method !== official && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>미리보기</span>}
+        <EvaluationInfoButton section="cca" />
       </div>}
     </div>}
     {phases.map((value) => <div key={value} hidden={phase !== value} role={prototype ? "tabpanel" : undefined}
@@ -350,8 +346,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
               <>
             {!isDone && <div className="mb-4 text-sm">
               <h2 className="font-700 text-lg">내 중간 피드백 평균</h2>
-              <p>{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"}</p>
-              <p className="text-xs mt-1">동료 2명 이상이 모두 제출한 후 본인의 평균만 공개합니다. 이 프로젝트에서만 관리하며 전체 프로필 평판에는 반영되지 않습니다.</p>
+              <p className="flex items-center gap-1.5">{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"} <EvaluationInfoButton section="disclosure" light /></p>
               <button type="button" className="underline mt-2" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>중간 피드백 새로고침</button>
             </div>}
             {feedbackAvailable ? (
@@ -392,12 +387,13 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                     <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
                       {average?.score?.toFixed(1)}
                     </span>
-                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}{data?.average?.method === "cca" ? " (CCA 보정)" : ""}</span>
+                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
+                    {data?.average?.method === "cca" && <CcaBadge light />}
                   </div>
                 </div>
               </div>
             ) : (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "평균 공개 대기 중입니다. 평가자가 1명이거나 제출이 진행 중이면 점수를 표시하지 않습니다."}</p>
+              <p className="text-sm flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "공개 대기"} <EvaluationInfoButton section="disclosure" light /></p>
             )}
               </>
             )}
@@ -436,20 +432,16 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
         >
           {isDone ? "★" : midtermSkipped ? "◷" : "◎"}
         </div>
-        <div>
+        {/* 단계별 한 줄 요약만 두고, 형성적·총괄 평가와 2주 기준 설명은 ⓘ 안내에서 본다. */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           {isDone ? (
-            <>
-              <strong>최종 평가</strong>는 총괄 평가입니다 — 제출된 결과는 <span style={{ color: "var(--muted-foreground)" }}>평균으로 집계되며, 본인의 최종 평균만 대시보드와 프로필에서 확인할 수 있습니다.</span>
-            </>
+            <><strong>최종 평가</strong><span style={{ color: "var(--muted-foreground)" }}>· 평균이 프로필 평점이 됩니다</span></>
           ) : midtermSkipped ? (
-            <>
-              프로젝트 기간이 <strong>2주 미만</strong>이라 <strong>중간 점검</strong>이 적용되지 않습니다 — <span style={{ color: "var(--muted-foreground)" }}>형성적 피드백을 반영할 시간이 부족한 단기 프로젝트는 중간 점검 없이 최종 평가로 바로 넘어갑니다.</span>
-            </>
+            <><strong>2주 미만 프로젝트</strong><span style={{ color: "var(--muted-foreground)" }}>· 중간 점검 없이 최종 평가만 진행</span></>
           ) : (
-            <>
-              <strong>중간 점검</strong>은 형성적 평가입니다 — 피드백 목적으로만 사용되며 <span style={{ color: "var(--muted-foreground)" }}>프로필 평판에 반영되지 않습니다. {prototype ? "프로토타입에서는 상단에서 최종 평가를 선택할 수 있습니다." : "최종 평가는 프로젝트 종료 후 활성화됩니다."}</span>
-            </>
+            <><strong>중간 점검</strong><span style={{ color: "var(--muted-foreground)" }}>· 프로필에 반영되지 않음{prototype ? "" : " · 최종 평가는 프로젝트 종료 후"}</span></>
           )}
+          <EvaluationInfoButton section="phases" />
         </div>
       </div>
 

@@ -4,6 +4,9 @@ import { dataRepository } from "../api";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
 import { collaborationTrust } from "../lib/collaborationTrust";
+import { useEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
+import EvaluationInfoButton from "./EvaluationInfoButton";
+import CcaBadge from "./CcaBadge";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import { useDraggableScroll } from "../hooks/useDraggableScroll";
 import type { Member, MemberPresenceState } from "../api/types";
@@ -56,6 +59,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   const { project, team, tasks, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile, onlineMemberStates } = useProject();
   const { isAdmin } = useProjectManagement();
   const { lineSafeStyle } = useAccountBackground();
+  const scoreCca = useEvaluationScoreCca();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memberSearch, setMemberSearch] = useState("");
   const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
@@ -428,8 +432,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             </div>
 
             <div className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
-              <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
-                협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
+              <div className="text-xs font-600 mb-1.5 flex items-center gap-1" style={{ color: "var(--muted-foreground)" }}>
+                협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span> <EvaluationInfoButton section="trust" />
               </div>
               {participationStats && (
                 <div className="grid grid-cols-2 gap-3 mb-3">
@@ -450,6 +454,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                       {sel.score.toFixed(1)}
                     </span>
                     <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
+                    {scoreCca && <CcaBadge />}
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
                     {collaborationTrust(sel.score, sel.evalCount).label} · {collaborationTrust(sel.score, sel.evalCount).evidence}
@@ -459,8 +464,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   </div>
                 </>
               ) : (
-                <p className="text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                  평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다.
+                <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
+                  공개 대기 <EvaluationInfoButton section="disclosure" />
                 </p>
               )}
             </div>
@@ -482,8 +487,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             </div>
 
             {/* Per-criterion radar chart */}
-            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
-              협업 항목별 참고 지표
+            <div className="text-xs font-600 uppercase tracking-widest mb-3 flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
+              협업 항목별 참고 지표 <EvaluationInfoButton section="score" />
             </div>
             {sel.evalCount > 0 ? (
               <div className="flex justify-center">
@@ -498,8 +503,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 />
               </div>
             ) : (
-              <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                최종 평가 평균 공개 후 표시됩니다. {sel.id === currentMember?.id && "중간 평균은 동료 평가 탭에서 확인하세요."}
+              <div className="text-xs p-3 flex items-center gap-1.5" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
+                공개 대기 <EvaluationInfoButton section="disclosure" />
               </div>
             )}
           </div>

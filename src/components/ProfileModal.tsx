@@ -8,6 +8,8 @@ import { detectLink } from "../lib/links";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 import MyEvaluationSummary from "./MyEvaluationSummary";
+import EvaluationInfoButton from "./EvaluationInfoButton";
+import CcaBadge from "./CcaBadge";
 import type { EvaluationPercentiles } from "../api/types";
 import { criteriaChartData, percentileCaption } from "../lib/evaluationSummary";
 import PentagonChart from "./PentagonChart";
@@ -632,7 +634,7 @@ export default function ProfileModal() {
                 <MyEvaluationSummary chart />
               ) : (
                 <section aria-label={`${viewedMember.name} 평가 요약`} className="p-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)" }}>
-                  <h2 className="text-sm font-700 mb-3">협업 신뢰도</h2>
+                  <h2 className="text-sm font-700 mb-3 flex items-center gap-1.5">협업 신뢰도 <EvaluationInfoButton section="trust" /></h2>
                   {otherStats && (
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div>
@@ -647,14 +649,16 @@ export default function ProfileModal() {
                   )}
                   {viewedMember.evalCount > 0 ? (
                     <>
-                      <div className="flex items-baseline gap-1.5 mb-3">
+                      <div className="flex items-baseline gap-1.5 mb-1 flex-wrap">
                         <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
-                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10{scoreCca ? " (CCA 보정)" : ""} · {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10</span>
+                        {scoreCca && <CcaBadge />}
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>· {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
                       </div>
                       <p className="text-xs mb-1" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       {otherPercentiles && (
-                        <p className="text-xs font-700 mb-3" style={{ color: otherPercentiles.available ? "var(--primary)" : "var(--muted-foreground)" }}>
-                          {percentileCaption(otherPercentiles)}
+                        <p className="text-xs font-700 mb-3 flex items-center gap-1" style={{ color: otherPercentiles.available ? "var(--primary)" : "var(--muted-foreground)" }}>
+                          {percentileCaption(otherPercentiles)} <EvaluationInfoButton section="percentile" />
                         </p>
                       )}
                       <div className="flex justify-center">
@@ -662,8 +666,8 @@ export default function ProfileModal() {
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-                      평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다.
+                    <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--muted-foreground)" }}>
+                      공개 대기 <EvaluationInfoButton section="disclosure" />
                     </p>
                   )}
                 </section>
