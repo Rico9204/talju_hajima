@@ -1,0 +1,233 @@
+// 직접 구현한 로그인: 메일 인증 가입(가입 여부가 드러나지 않음)·로그인·실패 제한·토큰 위조/만료·리프레시 1회용·로그아웃
+// ·비밀번호 재설정/변경·미인증 계정 가로채기 방지·기존(Supabase) 해시 호환·설정 검사.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import bcrypt from 'bcryptjs';
+import { SignJWT } from 'jose';
+import { loadConfig } from '../dist/config.js';
+import { JWT_SECRET, createTestDb, refreshCookie, startApp, tokenInMail } from './helpers.mjs';
+
+let pg, db, app, api, mailer, origin;
+before(async () => {
+  ({ pg, db } = await createTestDb());
+  ({ app, api, mailer, origin } = await startApp(db));
+});
+after(async () => { await app?.close(); await pg?.close(); });
+
+const signup = (email, password = 'correct-horse-1', displayName = '김철수') => api(null, 'POST', '/auth/signup', { email, password, displayName });
+const login = (email, password) => api(null, 'POST', '/auth/login', { email, password });
+const refresh = (cookie) => api(null, 'POST', '/auth/refresh', undefined, cookie ? { cookie } : {});
+const confirmLatest = (email) => api(null, 'POST', '/auth/confirm', { token: tokenInMail(mailer.last(email)) });
+
+test('가입: "메일을 보냈다"만 답하고, 인증 전에는 로그인 불가, 확인 링크는 인증만 하고 로그인은 직접', async () => {
+  const res = await signup('Kim@Example.com');
+  assert.equal(res.status, 202);
+  assert.deepEqual(res.body, { status: 'check_email', message: '메일을 보냈습니다. 메일의 링크를 눌러 계속해 주세요.' });
+  const mail = mailer.last('kim@example.com');
+  assert.match(mail.subject, /이메일 인증/);
+  assert.match(mail.text, /https:\/\/app\.test\/confirm-email\?token=/);
+  // HTML판도 같은 링크를 버튼으로(글자만 있는 메일보다 스팸으로 덜 분류된다)
+  assert.match(mail.html, /<a href="https:\/\/app\.test\/confirm-email\?token=[^"]+"[^>]*>이메일 인증하기<\/a>/);
+  const early = await login('kim@example.com', 'correct-horse-1');
+  assert.equal(early.status, 403);
+  assert.match(early.body.message, /이메일 인증/);
+  const confirmed = await confirmLatest('kim@example.com');
+  assert.equal(confirmed.status, 204);
+  assert.equal(confirmed.body, null); // 토큰도 쿠키도 주지 않는다(남이 먼저 만든 계정으로 로그인되는 일 방지)
+  assert.equal(confirmed.headers.getSetCookie().length, 0);
+  assert.equal((await confirmLatest('kim@example.com')).status, 400); // 링크는 한 번만
+  const session = await login('KIM@example.com', 'correct-horse-1');
+  assert.equal(session.status, 200);
+  assert.equal((await api(session.body.accessToken, 'GET', '/auth/me')).body.email, 'kim@example.com');
+  const profile = (await pg.query('select display_name, avatar_initial from profiles where id=$1', [session.body.user.id])).rows[0];
+  assert.deepEqual(profile, { display_name: '김철수', avatar_initial: '김' });
+  const stored = (await pg.query('select encrypted_password, email_confirmed_at from auth.users where id=$1', [session.body.user.id])).rows[0];
+  assert.match(stored.encrypted_password, /^\$2[aby]\$10\$/);
+  assert.ok(stored.email_confirmed_at);
+});
+
+test('이미 가입된 이메일로 다시 가입: 화면 응답은 똑같고, 메일로 재설정 링크가 가며 계정은 그대로', async () => {
+  const res = await signup('kim@example.com', 'another-password-1');
+  assert.equal(res.status, 202);
+  assert.deepEqual(res.body.status, 'check_email');
+  assert.match(mailer.last('kim@example.com').subject, /이미 가입된/);
+  assert.match(mailer.last('kim@example.com').text, /reset-password\?token=/);
+  assert.equal((await login('kim@example.com', 'correct-horse-1')).status, 200); // 비밀번호 안 바뀜
+  assert.equal((await login('kim@example.com', 'another-password-1')).status, 401);
+});
+
+test('미인증 계정 가로채기 방지: 나중 가입이 덮어쓰고, 먼저 만든 확인 링크는 무효', async () => {
+  await signup('victim@example.com', 'attacker-password-1', '공격자');
+  const attackerToken = tokenInMail(mailer.last('victim@example.com'));
+  await signup('victim@example.com', 'victim-password-1', '피해자');
+  assert.equal((await api(null, 'POST', '/auth/confirm', { token: attackerToken })).status, 400);
+  assert.equal((await confirmLatest('victim@example.com')).status, 204);
+  assert.equal((await login('victim@example.com', 'victim-password-1')).status, 200);
+  assert.equal((await login('victim@example.com', 'attacker-password-1')).status, 401);
+  const name = (await pg.query("select p.display_name from profiles p join auth.users u on u.id = p.id where u.email = 'victim@example.com'")).rows[0].display_name;
+  assert.equal(name, '피해자');
+});
+
+test('확인 메일 다시 받기: 미인증이면 새 메일, 아니면 조용히 같은 응답', async () => {
+  await signup('late@example.com');
+  const before = mailer.sent.length;
+  assert.equal((await api(null, 'POST', '/auth/resend-confirmation', { email: 'late@example.com' })).status, 202);
+  assert.equal(mailer.sent.length, before + 1);
+  assert.equal((await api(null, 'POST', '/auth/resend-confirmation', { email: 'nobody@example.com' })).status, 202);
+  assert.equal((await api(null, 'POST', '/auth/resend-confirmation', { email: 'kim@example.com' })).status, 202); // 이미 인증됨
+  assert.equal(mailer.sent.length, before + 1);
+  assert.equal((await confirmLatest('late@example.com')).status, 204);
+});
+
+test('짧은 비밀번호·정의하지 않은 필드·앱 역할의 계정 표 접근은 막힌다', async () => {
+  assert.equal((await signup('short@example.com', 'short')).status, 400);
+  assert.equal((await signup('six@example.com', 'abc123')).status, 202); // 최소 6자(가입 화면과 같은 기준)
+  // 입력 검사 안내는 한국어로(기본 영어 문구 대신)
+  assert.deepEqual((await signup('short2@example.com', 'abc12')).body, { message: '비밀번호는 6자 이상이어야 합니다.' });
+  assert.deepEqual((await signup('not-an-email', 'abc123')).body, { message: '이메일 형식이 올바르지 않습니다.' });
+  assert.deepEqual((await signup('long@example.com', 'abc123', '가'.repeat(31))).body, { message: '이름은 30자 이하여야 합니다.' });
+  assert.deepEqual((await api(null, 'POST', '/auth/signup', { password: 'abc123', displayName: '이' })).body, { message: '이메일을 입력해 주세요.' });
+  assert.deepEqual((await api(null, 'POST', '/auth/signup', { email: 'x2@example.com', password: 'abc123', displayName: '이', isAdmin: true })).body, { message: '허용되지 않은 항목(isAdmin)이 포함되어 있습니다.' });
+  assert.equal((await api(null, 'POST', '/auth/signup', { email: 'x@example.com', password: 'correct-horse-1', displayName: '이', isAdmin: true })).status, 400);
+  await pg.exec('set role authenticated');
+  await assert.rejects(pg.query('select * from auth.users'), /permission denied/);
+  await assert.rejects(pg.query('select * from auth.one_time_tokens'), /permission denied/);
+  await pg.exec('reset role');
+});
+
+test('로그인: 틀린 비밀번호와 없는 이메일은 같은 안내', async () => {
+  const wrong = await login('kim@example.com', 'wrong-password');
+  const unknown = await login('nobody@example.com', 'wrong-password');
+  assert.equal(wrong.status, 401);
+  assert.equal(unknown.status, 401);
+  assert.equal(wrong.body.message, unknown.body.message);
+});
+
+test('실패가 5번 쌓이면 같은 IP·이메일은 맞는 비밀번호도 15분간 막히지만, 다른 이메일은 영향 없다', async () => {
+  await signup('lee@example.com');
+  await confirmLatest('lee@example.com');
+  for (let i = 0; i < 5; i++) assert.equal((await login('lee@example.com', 'wrong-password')).status, 401);
+  assert.equal((await login('lee@example.com', 'correct-horse-1')).status, 429);
+  assert.equal((await login('kim@example.com', 'correct-horse-1')).status, 200);
+});
+
+test('위조·다른 키·만료·형식이 틀린 토큰은 401', async () => {
+  const ok = await login('kim@example.com', 'correct-horse-1');
+  const [h, p, s] = ok.body.accessToken.split('.');
+  assert.equal((await api(`${h}.${p}.${s.slice(0, -2)}xx`, 'GET', '/auth/me')).status, 401);
+  const forge = (secret, exp = '1h', sub = ok.body.user.id) => new SignJWT({ role: 'authenticated' }).setProtectedHeader({ alg: 'HS256' })
+    .setSubject(sub).setIssuer('talju-server').setAudience('talju-app').setIssuedAt().setExpirationTime(exp).sign(new TextEncoder().encode(secret));
+  assert.equal((await api(await forge('another-secret-that-is-32-characters-long'), 'GET', '/auth/me')).status, 401);
+  assert.equal((await api(await forge(JWT_SECRET, '-1m'), 'GET', '/auth/me')).status, 401);
+  assert.equal((await api(await forge(JWT_SECRET, '1h', 'not-a-uuid'), 'GET', '/auth/me')).status, 401);
+  assert.equal((await api(await forge(JWT_SECRET), 'GET', '/auth/me')).status, 200); // 같은 키로 서명하면 통과(대조군)
+  assert.equal((await api('garbage', 'GET', '/auth/me')).status, 401);
+});
+
+test('리프레시 토큰은 httpOnly 쿠키로만 주고, 한 번만 쓸 수 있고, 로그아웃하면 더 이상 쓸 수 없다', async () => {
+  const ok = await login('kim@example.com', 'correct-horse-1');
+  assert.equal(ok.body.refreshToken, undefined); // 본문(스크립트가 읽을 수 있는 곳)에는 없다
+  const setCookie = ok.headers.getSetCookie().find((c) => c.startsWith('talju_refresh='));
+  assert.match(setCookie, /HttpOnly/i);
+  assert.match(setCookie, /Path=\/api\/auth/i);
+  assert.match(setCookie, /SameSite=Lax/i);
+  const first = await refresh(refreshCookie(ok));
+  assert.equal(first.status, 200);
+  assert.equal(first.body.user.email, 'kim@example.com'); // 새로 고침 뒤 로그인 상태를 되찾는 데 쓴다
+  assert.ok(first.body.accessToken);
+  assert.equal((await refresh(refreshCookie(ok))).status, 401);
+  assert.equal((await api(null, 'POST', '/auth/refresh')).status, 401); // 쿠키 없음
+  assert.equal((await refresh('talju_refresh=%E0%A4%A')).status, 401); // 깨진 쿠키 값: 500이 아니라 401
+  assert.equal((await api(null, 'POST', '/auth/logout', undefined, { cookie: refreshCookie(first) })).status, 204);
+  assert.equal((await refresh(refreshCookie(first))).status, 401);
+});
+
+test('쿠키를 쓰거나 심는 요청은 허용한 화면 출처에서만 받는다(CSRF)', async () => {
+  const ok = await login('kim@example.com', 'correct-horse-1');
+  const evil = { origin: 'https://evil.example' };
+  assert.equal((await api(null, 'POST', '/auth/refresh', undefined, { cookie: refreshCookie(ok), ...evil })).status, 403);
+  assert.equal((await api(null, 'POST', '/auth/logout', undefined, { cookie: refreshCookie(ok), ...evil })).status, 403);
+  assert.equal((await api(null, 'POST', '/auth/login', { email: 'kim@example.com', password: 'correct-horse-1' }, evil)).status, 403);
+  assert.equal((await api(null, 'POST', '/auth/refresh', undefined, { cookie: refreshCookie(ok), origin: 'http://localhost:5173' })).status, 200);
+  // 화면(다른 출처)이 쿠키를 주고받으려면 CORS가 credentials를 허용해야 한다 — 허용한 출처에만.
+  const preflight = (origin) => api(null, 'OPTIONS', '/auth/login', undefined, { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' });
+  const allowed = await preflight('http://localhost:5173');
+  assert.equal(allowed.headers.get('access-control-allow-credentials'), 'true');
+  assert.equal(allowed.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+  assert.equal((await preflight('https://evil.example')).headers.get('access-control-allow-origin'), null);
+});
+
+test('비밀번호 재설정: 응답은 늘 같고, 링크는 한 번만, 재설정하면 모든 기기가 로그아웃된다', async () => {
+  const session = await login('kim@example.com', 'correct-horse-1');
+  const before = mailer.sent.length;
+  assert.equal((await api(null, 'POST', '/auth/password-reset/request', { email: 'nobody@example.com' })).status, 202);
+  assert.equal(mailer.sent.length, before); // 없는 이메일: 메일 없음(응답은 같음)
+  assert.equal((await api(null, 'POST', '/auth/password-reset/request', { email: 'KIM@example.com' })).status, 202);
+  const token = tokenInMail(mailer.last('kim@example.com'));
+  assert.equal((await api(null, 'POST', '/auth/password-reset/confirm', { token, password: 'new-password-123' })).status, 204);
+  assert.equal((await api(null, 'POST', '/auth/password-reset/confirm', { token, password: 'again-password-1' })).status, 400);
+  assert.equal((await refresh(refreshCookie(session))).status, 401);
+  assert.equal((await login('kim@example.com', 'correct-horse-1')).status, 401);
+  assert.equal((await login('kim@example.com', 'new-password-123')).status, 200);
+});
+
+test('비밀번호 변경: 현재 비밀번호가 맞아야 하고, 다른 기기는 로그아웃된다', async () => {
+  const other = await login('kim@example.com', 'new-password-123');
+  const me = await login('kim@example.com', 'new-password-123');
+  assert.equal((await api(me.body.accessToken, 'PATCH', '/auth/password', { currentPassword: 'wrong-password', newPassword: 'changed-password-1' })).status, 400);
+  const same = await api(me.body.accessToken, 'PATCH', '/auth/password', { currentPassword: 'new-password-123', newPassword: 'new-password-123' });
+  assert.equal(same.status, 400);
+  assert.match(same.body.message, /기존 비밀번호와 다르게/);
+  const otherKept = await refresh(refreshCookie(other)); // 거절되면 다른 기기도 그대로(토큰은 1회용이라 새로 받은 것을 이어 쓴다)
+  assert.equal(otherKept.status, 200);
+  const changed = await api(me.body.accessToken, 'PATCH', '/auth/password', { currentPassword: 'new-password-123', newPassword: 'changed-password-1' });
+  assert.equal(changed.status, 200);
+  assert.ok(changed.body.accessToken && refreshCookie(changed));
+  assert.equal((await refresh(refreshCookie(otherKept))).status, 401);
+  assert.equal((await login('kim@example.com', 'changed-password-1')).status, 200);
+});
+
+test('Supabase에서 옮겨 온 계정($2a$ bcrypt 해시, 인증됨)도 비밀번호 그대로 로그인된다', async () => {
+  const legacyHash = bcrypt.hashSync('old-supabase-pw', bcrypt.genSaltSync(10).replace(/^\$2b\$/, '$2a$'));
+  await pg.query("insert into auth.users(email, encrypted_password, raw_user_meta_data, email_confirmed_at) values('old@example.com', $1, '{\"display_name\":\"박\"}', now())", [legacyHash]);
+  assert.equal((await login('old@example.com', 'old-supabase-pw')).status, 200);
+});
+
+test('설정: 필수값·서명 키 길이·운영의 CORS·메일(SMTP)·화면 주소를 검사한다', () => {
+  const base = { DATABASE_URL: 'postgres://x', JWT_SECRET };
+  assert.throws(() => loadConfig({}), /DATABASE_URL, JWT_SECRET/);
+  assert.throws(() => loadConfig({ ...base, JWT_SECRET: 'short' }), /32자 이상/);
+  const prod = { ...base, NODE_ENV: 'production', CORS_ORIGIN: 'https://a.app', APP_URL: 'https://a.app' };
+  assert.throws(() => loadConfig({ ...prod, CORS_ORIGIN: '' }), /CORS_ORIGIN/);
+  assert.throws(() => loadConfig({ ...prod, MAIL_TRANSPORT: 'console' }), /MAIL_TRANSPORT=smtp/);
+  assert.throws(() => loadConfig(prod), /SMTP_URL과 MAIL_FROM/);
+  assert.throws(() => loadConfig({ ...prod, APP_URL: '', SMTP_URL: 'smtps://u:p@smtp.test', MAIL_FROM: 'no-reply@a.app' }), /APP_URL/);
+  const ok = loadConfig({ ...prod, SMTP_URL: 'smtps://u:p@smtp.test', MAIL_FROM: 'no-reply@a.app' });
+  assert.deepEqual(ok.mail, { transport: 'smtp', smtpUrl: 'smtps://u:p@smtp.test', from: 'no-reply@a.app' });
+  assert.equal(loadConfig(base).mail.transport, 'console'); // 개발 기본값
+});
+
+test('프레임워크 기본 오류(없는 주소·깨진 JSON·잘못된 번호)도 한국어로', async () => {
+  const notFound = await fetch(`${origin}/api/nope`);
+  assert.equal(notFound.status, 404);
+  assert.deepEqual(await notFound.json(), { message: '요청한 주소를 찾을 수 없습니다.' });
+  const broken = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{bad' });
+  assert.equal(broken.status, 400);
+  assert.deepEqual(await broken.json(), { message: '요청 형식이 올바르지 않습니다.' });
+  await signup('pipe@example.com');
+  await confirmLatest('pipe@example.com');
+  const token = (await login('pipe@example.com', 'correct-horse-1')).body.accessToken;
+  const badId = await api(token, 'DELETE', '/schedule/not-a-number');
+  assert.equal(badId.status, 400);
+  assert.deepEqual(badId.body, { message: '요청 형식이 올바르지 않습니다.' });
+});
+
+test('JSON 요청은 4MB까지 받고(게시글·검색 텍스트), 넘으면 413 한국어 안내', async () => {
+  const send = (bytes) => fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'big@example.com', password: 'x'.repeat(bytes) }) });
+  const medium = await send(600_000); // 예전 한도(100KB)를 넘지만 새 한도 안 → 본문은 읽히고 입력 검사에서 거부
+  assert.equal(medium.status, 400);
+  assert.deepEqual(await medium.json(), { message: '비밀번호는 72자 이하여야 합니다.' });
+  const tooBig = await send(5_000_000);
+  assert.equal(tooBig.status, 413);
+  assert.deepEqual(await tooBig.json(), { message: '보낸 내용이 너무 큽니다.' });
+});

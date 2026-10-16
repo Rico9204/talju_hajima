@@ -1,15 +1,14 @@
 import type { DataRepository } from "./dataRepository";
-import { nestDataRepository } from "./backend/nestDataRepository";
+import { RestDataRepository } from "./rest/restDataRepository";
+import { accessToken } from "./rest/session";
 
 /**
  * Single switch point for where the app's data comes from. Everything else
  * (ProjectContext, components) depends only on the `DataRepository` interface.
- *
- * [2026-09-13] 실제 NestJS 백엔드(제품개발/backend)로 전환함 — 내 프로젝트/멤버/폴더 연동/
- * 워크스페이스/일정은 실제로 동작하고, 과제 보드/팀 채팅/동료 평가/정보 수집은 이번 이식
- * 범위 밖이라 빈 상태로 남음. 자세한 내용은 talju_hajima_이식기록.txt 참고.
+ * The application uses the self-hosted API server.
  */
-export const dataRepository: DataRepository = nestDataRepository;
+const serverUrl = String(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+export const dataRepository: DataRepository = new RestDataRepository(serverUrl, accessToken);
 
 export type { DataRepository } from "./dataRepository";
 export * from "./types";

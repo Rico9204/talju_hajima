@@ -1,21 +1,124 @@
+import StillImg from "./StillImg";
 import { useEffect, useState } from "react";
-import { useProject } from "../context/ProjectContext";
+import { dataRepository } from "../api";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
 import PentagonChart from "./PentagonChart";
+import { collaborationTrust } from "../lib/collaborationTrust";
+import { useEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
+import EvaluationInfoButton from "./EvaluationInfoButton";
+import CcaBadge from "./CcaBadge";
+import { useAccountBackground } from "../lib/useAccountBackground";
+import { useDraggableScroll } from "../hooks/useDraggableScroll";
+import type { Member, MemberPresenceState } from "../api/types";
+
+function formatPresenceTooltip(m: Member, state?: MemberPresenceState): string {
+  const isOnline = m.online && !!state;
+  const isIdle = isOnline && state?.status === "idle";
+
+  if (isOnline && state) {
+    const onlineDate = new Date(state.onlineAt);
+    const timeStr = onlineDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    if (isIdle) {
+      return `[자리비움] 10분 이상 비활동\n접속 시각: 오늘 ${timeStr}`;
+    }
+    return `[온라인] 접속 시각: 오늘 ${timeStr}`;
+  }
+
+  if (!m.lastSeenAt) {
+    return "[오프라인] 접속 기록 없음";
+  }
+
+  const seenDate = new Date(m.lastSeenAt);
+  const now = new Date();
+  const diffMs = now.getTime() - seenDate.getTime();
+  const diffMins = Math.floor(diffMs / (60 * 1000));
+
+  let timeDesc = "";
+  if (diffMs < 0 || diffMins < 1) {
+    timeDesc = "방금 전";
+  } else if (diffMins < 60) {
+    timeDesc = `${diffMins}분 전`;
+  } else if (diffMins < 24 * 60 && seenDate.getDate() === now.getDate()) {
+    const timeStr = seenDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    timeDesc = `오늘 ${timeStr}`;
+  } else {
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (yesterday.getDate() === seenDate.getDate() && yesterday.getMonth() === seenDate.getMonth()) {
+      const timeStr = seenDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      timeDesc = `어제 ${timeStr}`;
+    } else {
+      timeDesc = `${seenDate.getMonth() + 1}월 ${seenDate.getDate()}일`;
+    }
+  }
+
+  return `[오프라인] 마지막 접속: ${timeDesc}`;
+}
 
 export default function TeamView({ onMessage }: { onMessage?: (memberId: string) => void }) {
-  const { project, team, transferLeadership, currentMember, isLeader } = useProject();
-  const [selected, setSelected] = useState<number>(0);
-  const [pendingTransfer, setPendingTransfer] = useState<string | null>(null);
+  const { project, team, tasks, transferLeadership, markProjectDone, kickMember, setViceLeader, currentMember, isLeader, openMemberProfile, onlineMemberStates } = useProject();
+  const { isAdmin } = useProjectManagement();
+  const { lineSafeStyle } = useAccountBackground();
+  const scoreCca = useEvaluationScoreCca();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [pendingTransfer, setPendingTransfer] = useState<{ id: string; name: string } | null>(null);
+  const [pendingKick, setPendingKick] = useState<{ id: string; name: string } | null>(null);
+  const [pendingVice, setPendingVice] = useState<{ id: string; name: string; appoint: boolean } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const {
+    ref: memberListRef,
+    events: memberListDragEvents,
+    preventClickIfDragged,
+  } = useDraggableScroll<HTMLDivElement>({ direction: "x" });
+
+  async function runAction(action: () => Promise<void>, done: () => void) {
+    if (busy) return; setBusy(true); setActionError(null);
+    try { await action(); done(); }
+    catch (err) { setActionError(err && typeof err === "object" && "message" in err ? String(err.message) : "처리에 실패했습니다."); }
+    finally { setBusy(false); }
+  }
+  const [pendingFinish, setPendingFinish] = useState(false);
 
   useEffect(() => {
-    setSelected(0);
+    setSelectedId(null);
+    setMemberSearch("");
   }, [project.id]);
 
   const members = team.members;
+  const memberSearchTrimmed = memberSearch.trim().toLowerCase();
+  // 접속 상태(온라인 → 자리비움 → 오프라인)가 직책보다 먼저. 같은 상태 안에서는 기존 순서(팀장·부팀장 우선)를 유지한다(안정 정렬).
+  const presenceRank = (m: (typeof members)[number]) => {
+    const presence = onlineMemberStates[m.id];
+    if (!m.online || !presence) return 2;
+    return presence.status === "idle" ? 1 : 0;
+  };
+  const filteredMembers = (memberSearchTrimmed
+    ? members.filter((m) => m.name.toLowerCase().includes(memberSearchTrimmed))
+    : members
+  ).slice().sort((a, b) => presenceRank(a) - presenceRank(b));
+  const showMemberSearch = members.length > 6;
+
+  // 선택된 팀원이 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지 —
+  // "협업 신뢰도" 카드는 이 프로젝트 기준 점수만 보여주므로 별도로 조회한다.
+  // early return(팀원 0명) 이전에 둬야 훅 순서가 매 렌더 동일하게 유지된다.
+  const selectedUserId = (members.find((m) => m.id === selectedId) ?? members[0])?.userId ?? null;
+  const [participationStats, setParticipationStats] = useState<{ projectCount: number; collaboratorCount: number } | null>(null);
+  useEffect(() => {
+    setParticipationStats(null);
+    if (!selectedUserId) return;
+    let active = true;
+    dataRepository.getMemberParticipationStats(selectedUserId)
+      .then((stats) => { if (active) setParticipationStats(stats); })
+      .catch(() => { if (active) setParticipationStats(null); });
+    return () => { active = false; };
+  }, [selectedUserId]);
 
   if (members.length === 0) {
     return (
-      <div className="p-6 max-w-5xl mx-auto">
+      <div className="p-4 md:p-6 max-w-5xl mx-auto">
         <div className="mb-6">
           <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
             팀 구성원
@@ -25,7 +128,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
         </div>
         <div
           className="p-8 border text-center"
-          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}
         >
           <div className="text-3xl mb-3">◎</div>
           <div className="text-sm font-600">아직 팀원이 없어요</div>
@@ -35,74 +138,207 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
     );
   }
 
-  const sel = members[selected] || members[0];
+  const sel = members.find((m) => m.id === selectedId) ?? members[0];
+  // sel.tasks.{done,total} are dead DB columns (default 0, never updated) —
+  // compute the real counts from this project's actual tasks instead.
+  const selTasks = tasks.filter((t) => t.assigneeIds.includes(sel.id));
+  const selTasksDone = selTasks.filter((t) => t.status === "done").length;
+  const selTasksTotal = selTasks.length;
+  const canManage = isLeader || isAdmin;
   const canTransfer = isLeader && project.status !== "done" && sel && sel.id !== currentMember?.id && !sel.isLeader;
+  const canKick = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && sel.id !== currentMember?.id && !sel.isLeader;
+  // 부팀장 임명·해임은 팀장과 관리자만. 팀원 제외와 같은 조건(진행 중인 승인된 프로젝트)에서만 가능하다.
+  const canAppointVice = canManage && project.status === "active" && project.approvalStatus === "approved" && sel && !sel.isLeader;
+  const canFinish = canManage && project.status === "active";
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="mb-6">
-        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          팀 구성원
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            팀 구성원
+          </div>
+          <h1 className="text-2xl font-700">{team.teamLabel}</h1>
+          <div className="flex items-center justify-between gap-3 mt-1">
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+            {showMemberSearch && (
+              <input
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="팀원 검색"
+                className="w-40 min-w-0 shrink-0 text-xs px-3 py-1.5 border outline-none"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+          </div>
         </div>
-        <h1 className="text-2xl font-700">{team.teamLabel}</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>{team.teamSub}</p>
+        {canFinish && (
+          <button
+            onClick={() => { setActionError(null); setPendingFinish(true); }}
+            className="text-xs font-700 px-3.5 py-2 shrink-0 transition-all"
+            style={{ background: "#22c55e66", color: "#fff", borderRadius: "20px" }}
+          >
+            프로젝트 종료
+          </button>
+        )}
       </div>
 
       {/* Member cards grid */}
-      <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
-        {members.map((m, i) => (
-          <button
-            key={i}
-            onClick={() => setSelected(i)}
-            className="flex flex-col items-center p-4 shrink-0 transition-all"
-            style={{
-              background: selected === i ? "var(--primary)" : "var(--card)",
-              borderRadius: "var(--radius)",
-              boxShadow: selected === i ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
-              width: 110,
-              color: selected === i ? "#fff" : "var(--foreground)",
-            }}
-          >
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-2 relative overflow-hidden"
-              style={{ background: m.avatarUrl ? "var(--card)" : selected === i ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: selected === i ? "#fff" : m.color }}
+      <div className="relative group/carousel mb-6">
+        <div
+          ref={memberListRef}
+          {...memberListDragEvents}
+          className="flex gap-3 overflow-x-auto pb-2 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+        >
+          {filteredMembers.map((m) => {
+            const isSelected = sel.id === m.id;
+            const presence = onlineMemberStates[m.id];
+            const isOnline = m.online && !!presence;
+            const isIdle = isOnline && presence?.status === "idle";
+            const tooltip = formatPresenceTooltip(m, presence);
+            const statusLabel = isOnline ? (isIdle ? "자리비움" : "온라인") : "오프라인";
+            const dotColor = isSelected
+              ? "#fff"
+              : isOnline
+              ? isIdle
+                ? "#f59e0b"
+                : "#22c55e"
+              : "#94a3b8";
+            const badgeBg = isSelected
+              ? "rgba(255, 255, 255, 0.2)"
+              : isOnline
+              ? isIdle
+                ? "rgba(245, 158, 11, 0.12)"
+                : "rgba(34, 197, 94, 0.12)"
+              : "rgba(148, 163, 184, 0.12)";
+            const badgeColor = isSelected
+              ? "#fff"
+              : isOnline
+              ? isIdle
+                ? "#d97706"
+                : "#16a34a"
+              : "var(--muted-foreground)";
+
+            return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={(e) => {
+                preventClickIfDragged(e);
+                if (!e.defaultPrevented) {
+                  setSelectedId(m.id);
+                }
+              }}
+              title={`${m.name} (${m.role})\n${tooltip}`}
+              className="flex flex-col items-center p-3.5 shrink-0 transition-all select-none cursor-pointer"
+              style={{
+                background: isSelected ? "var(--primary)" : "var(--card)",
+                borderRadius: "var(--radius)",
+                boxShadow: isSelected ? "0 8px 24px rgba(37,99,235,0.3)" : "var(--shadow-card)",
+                width: 110,
+                color: isSelected ? "#fff" : "var(--foreground)",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
             >
-              {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-              {m.isLeader && (
-                <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700 mb-1.5 relative overflow-hidden pointer-events-none"
+                style={{ background: m.avatarUrl ? "var(--card)" : isSelected ? "rgba(255,255,255,0.2)" : `${m.color}18`, color: isSelected ? "#fff" : m.color }}
+              >
+                {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} /> : m.avatar}
+                {m.isViceLeader && (
+                  <span className="absolute -top-1.5 -right-1.5 text-xs" title="부팀장">🚩</span>
+                )}
+                {m.isLeader && (
+                  <span className="absolute -top-1.5 -right-1.5 text-xs" title="팀장">🧭</span>
+                )}
+              </div>
+              <div className="text-xs font-700 truncate max-w-full">{m.name}</div>
+              <div className="text-xs mt-0.5 truncate max-w-full" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+                {m.role}
+              </div>
+              {m.id === currentMember?.id && m.evalCount > 0 ? (
+                <div className="flex items-center gap-1 mt-1.5">
+                  <span className="text-xs">★</span>
+                  <span className="text-xs font-700">{m.score.toFixed(1)}</span>
+                </div>
+              ) : (
+                <div className="text-xs mt-1.5" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
+                  평가 대기
+                </div>
               )}
-            </div>
-            <div className="text-xs font-700">{m.name}</div>
-            <div className="text-xs mt-0.5" style={{ color: selected === i ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
-              {m.role}
-            </div>
-            {m.evalCount > 0 ? (
-              <div className="flex items-center gap-1 mt-2">
-                <span className="text-xs">★</span>
-                <span className="text-xs font-700">{m.score.toFixed(1)}</span>
+              {/* 온라인 / 자리비움 / 오프라인 상태 배지 */}
+              <div
+                className="flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-600 transition-all pointer-events-auto"
+                style={{ background: badgeBg, color: badgeColor }}
+                title={tooltip}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline && !isIdle ? "animate-pulse" : ""}`}
+                  style={{ background: dotColor }}
+                />
+                <span>{statusLabel}</span>
               </div>
-            ) : (
-              <div className="text-xs mt-2" style={{ color: selected === i ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
-                평가 대기
-              </div>
-            )}
-            {m.online && <div className="w-2 h-2 rounded-full mt-1.5" style={{ background: selected === i ? "#fff" : "#22c55e" }} />}
-          </button>
-        ))}
+            </button>
+            );
+          })}
+          {filteredMembers.length === 0 && (
+            <div className="text-xs py-4" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+          )}
+        </div>
+
+        {/* 좌우 이동 버튼 (hover 시 표시) */}
+        <button
+          type="button"
+          onClick={() => {
+            if (memberListRef.current) {
+              memberListRef.current.scrollBy({ left: -240, behavior: "smooth" });
+            }
+          }}
+          className="hidden md:flex absolute -left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full items-center justify-center shadow-lg transition-all opacity-0 group-hover/carousel:opacity-100 z-10 text-lg font-bold"
+          style={{ background: "var(--card)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+          aria-label="이전 팀원 보기"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (memberListRef.current) {
+              memberListRef.current.scrollBy({ left: 240, behavior: "smooth" });
+            }
+          }}
+          className="hidden md:flex absolute -right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full items-center justify-center shadow-lg transition-all opacity-0 group-hover/carousel:opacity-100 z-10 text-lg font-bold"
+          style={{ background: "var(--card)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+          aria-label="다음 팀원 보기"
+        >
+          ›
+        </button>
       </div>
 
       {/* Detail */}
-      <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-        <div className="grid grid-cols-5 gap-6">
+      <div className="p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           {/* Left: profile */}
-          <div className="col-span-2">
+          <div className="col-span-1 md:col-span-2">
             <div className="flex items-start gap-4 mb-5">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden" style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}>
-                {sel.avatarUrl ? <img src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
-              </div>
-              <div>
+              <button
+                type="button"
+                onClick={() => openMemberProfile(sel.id)}
+                title={`${sel.name} 프로필 보기`}
+                className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-700 shrink-0 overflow-hidden"
+                style={{ background: sel.avatarUrl ? "var(--card)" : `${sel.color}18`, color: sel.color }}
+              >
+                {sel.avatarUrl ? <StillImg src={sel.avatarUrl} alt={sel.name} className="w-full h-full object-cover" /> : sel.avatar}
+              </button>
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-700">{sel.name}</h2>
+                  {sel.isViceLeader && (
+                    <span className="text-xs px-2 py-0.5 font-600" style={{ background: "#3b82f618", color: "#3b82f6", borderRadius: "20px" }}>
+                      🚩 부팀장
+                    </span>
+                  )}
                   {sel.isLeader && (
                     <span className="text-xs px-2 py-0.5 font-600" style={{ background: "#f59e0b18", color: "#f59e0b", borderRadius: "20px" }}>
                       🧭 팀장
@@ -116,30 +352,67 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                   </span>
                 </div>
                 <div className="text-sm font-600 mt-0.5" style={{ color: sel.color }}>{sel.role}</div>
-                <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
-                <div className="text-xs mt-1" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
-                <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-                  {sel.id !== currentMember?.id && onMessage && (
-                    <button
-                      onClick={() => onMessage(sel.id)}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
-                    >
-                      ◐ 메시지 보내기
-                    </button>
-                  )}
-                  {canTransfer && (
-                    <button
-                      onClick={() => setPendingTransfer(sel.name)}
-                      className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 transition-all"
-                      style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
-                    >
-                      🧭 팀장 권한 위임
-                    </button>
-                  )}
+                <div className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{sel.major}</div>
+                <div className="flex items-center justify-between gap-2 mt-1.5 min-h-[24px]">
+                  <div className="text-xs min-w-0 truncate" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--muted-foreground)" }}>{sel.student}</div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {sel.id !== currentMember?.id && onMessage && (
+                      <button
+                        onClick={() => onMessage(sel.id)}
+                        title="메시지 보내기"
+                        aria-label="메시지 보내기"
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: `${sel.color}12`, color: sel.color, borderRadius: "20px" }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="22" y1="2" x2="11" y2="13" />
+                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                        채팅
+                      </button>
+                    )}
+                    {canTransfer && (
+                      <button
+                        onClick={() => setPendingTransfer({ id: sel.id, name: sel.name })}
+                        title="팀장 권한 위임"
+                        aria-label="팀장 권한 위임"
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#f59e0b12", color: "#f59e0b", borderRadius: "20px" }}
+                      >
+                        🧭 위임
+                      </button>
+                    )}
+                    {canAppointVice && (
+                      <button
+                        disabled={busy}
+                        onClick={() => { setActionError(null); setPendingVice({ id: sel.id, name: sel.name, appoint: !sel.isViceLeader }); }}
+                        title={sel.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
+                        aria-label={sel.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#3b82f612", color: "#3b82f6", borderRadius: "20px" }}
+                      >
+                        {sel.isViceLeader ? "🚩 부팀장 해임" : "🚩 부팀장 임명"}
+                      </button>
+                    )}
+                    {canKick && (
+                      <button
+                        onClick={() => { setActionError(null); setPendingKick({ id: sel.id, name: sel.name }); }}
+                        title="팀에서 제외"
+                        aria-label="팀에서 제외"
+                        className="flex items-center gap-1 text-xs font-700 px-2 py-1 transition-all"
+                        style={{ background: "#ef444412", color: "#ef4444", borderRadius: "20px" }}
+                      >
+                        ✕ 제외
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
+
+            {actionError && !pendingTransfer && !pendingKick && !pendingVice && !pendingFinish && (
+              <p role="alert" className="mb-4 text-xs" style={{ color: "#ef4444" }}>{actionError}</p>
+            )}
 
             {/* Responsibilities */}
             <div className="mb-4">
@@ -159,9 +432,22 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             </div>
 
             <div className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
-              <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>
-                협업 평판 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span>
+              <div className="text-xs font-600 mb-1.5 flex items-start justify-between gap-2" style={{ color: "var(--muted-foreground)" }}>
+                <span>협업 신뢰도 <span style={{ fontWeight: 400 }}>· {team.teamLabel.replace(" 팀", "")}</span></span>
+                <EvaluationInfoButton section={sel.evalCount > 0 ? "trust" : "disclosure"} />
               </div>
+              {participationStats && (
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>참여 프로젝트</div>
+                    <strong className="text-sm">{participationStats.projectCount}회</strong>
+                  </div>
+                  <div>
+                    <div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>함께한 동료</div>
+                    <strong className="text-sm">{participationStats.collaboratorCount}명</strong>
+                  </div>
+                </div>
+              )}
               {sel.evalCount > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1.5">
@@ -169,33 +455,30 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                       {sel.score.toFixed(1)}
                     </span>
                     <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
+                    {scoreCca && <CcaBadge />}
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-                    {project.status === "done"
-                      ? `이 프로젝트 종료 평가 ${sel.evalCount}건 기준`
-                      : `중간 점검 참고 점수 · ${sel.evalCount}건 (형성적 평가, 프로필 미반영)`}
+                    {collaborationTrust(sel.score, sel.evalCount).label} · {collaborationTrust(sel.score, sel.evalCount).evidence}
                   </div>
                   <div className="mt-2 h-1.5 w-full" style={{ background: "var(--border)", borderRadius: "4px" }}>
                     <div className="h-1.5" style={{ width: `${(sel.score / 10) * 100}%`, background: "linear-gradient(90deg, var(--primary), #60a5fa)", borderRadius: "4px" }} />
                   </div>
                 </>
               ) : (
-                <p className="text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                  {project.status === "done"
-                    ? "이 프로젝트에서 받은 종료 평가가 아직 없어요."
-                    : "프로젝트가 진행 중이라 아직 평판 점수가 없어요. 종료 평가는 프로젝트 종료 후 공개됩니다."}
+                <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+                  공개 대기
                 </p>
               )}
             </div>
           </div>
 
           {/* Right: stats */}
-          <div className="col-span-3">
-            <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="col-span-1 md:col-span-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {[
-                { label: "완료 과제", value: `${sel.tasks.done}/${sel.tasks.total}`, icon: "✓", color: "#22c55e" },
-                { label: "활동 횟수", value: `${sel.activities}`, icon: "◷", color: "var(--primary)" },
-                { label: "완료율", value: `${sel.tasks.total ? Math.round((sel.tasks.done / sel.tasks.total) * 100) : 0}%`, icon: "⬤", color: sel.color },
+                { label: "완료 과제", value: `${selTasksDone}/${selTasksTotal}`, icon: "✓", color: "#22c55e" },
+                { label: "함께한 동료", value: `${participationStats?.collaboratorCount ?? 0}명`, icon: "◷", color: "var(--primary)" },
+                { label: "완료율", value: `${selTasksTotal ? Math.round((selTasksDone / selTasksTotal) * 100) : 0}%`, icon: "⬤", color: sel.color },
               ].map((st) => (
                 <div key={st.label} className="p-4" style={{ background: "var(--muted)", borderRadius: "12px" }}>
                   <div className="text-xl font-800 mb-0.5" style={{ color: st.color, fontFamily: "var(--font-outfit)" }}>{st.value}</div>
@@ -205,8 +488,9 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
             </div>
 
             {/* Per-criterion radar chart */}
-            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "var(--muted-foreground)" }}>
-              동료 평가 항목별 점수 (참고)
+            <div className="text-xs font-600 uppercase tracking-widest mb-3 flex items-start justify-between gap-2" style={{ color: "var(--muted-foreground)" }}>
+              <span>협업 항목별 참고 지표</span>
+              <EvaluationInfoButton section="score" />
             </div>
             {sel.evalCount > 0 ? (
               <div className="flex justify-center">
@@ -222,9 +506,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               </div>
             ) : (
               <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
-                {project.status === "done"
-                  ? "이 프로젝트에서 받은 항목별 평가가 없어요."
-                  : "중간 점검은 형성적 평가로 프로필에 반영되지 않으며, 항목별 점수는 종료 평가 공개 후 표시됩니다."}
+                공개 대기
               </div>
             )}
           </div>
@@ -233,26 +515,118 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
 
       {pendingTransfer && (
         <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-          <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#f59e0b18", borderRadius: "12px" }}>🧭</div>
             <h3 className="font-700 mb-1">팀장 권한을 위임할까요?</h3>
             <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
-              <strong>{pendingTransfer}</strong>님에게 팀장 권한이 넘어가고, 나는 팀원으로 전환됩니다. 이 작업은 즉시 적용됩니다.
+              <strong>{pendingTransfer.name}</strong>님에게 팀장 권한이 넘어가고, 나는 팀원으로 전환됩니다. 이 작업은 즉시 적용됩니다.
             </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
             <div className="flex gap-2">
               <button
-                onClick={() => setPendingTransfer(null)}
+                onClick={() => { setPendingTransfer(null); setActionError(null); }}
                 className="flex-1 py-2.5 text-sm font-600"
                 style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
               >
                 취소
               </button>
               <button
-                onClick={() => { transferLeadership(pendingTransfer); setPendingTransfer(null); }}
-                className="flex-1 py-2.5 text-sm font-700 transition-all"
-                style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}
+                disabled={busy}
+                onClick={() => runAction(() => transferLeadership(pendingTransfer.id), () => setPendingTransfer(null))}
+                className="flex-1 py-2.5 text-sm font-700 transition-all disabled:opacity-60"
+                style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}
               >
                 위임하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingVice && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#3b82f618", borderRadius: "12px" }}>🚩</div>
+            <h3 className="font-700 mb-1">{pendingVice.appoint ? "부팀장으로 임명할까요?" : "부팀장에서 해임할까요?"}</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              <strong>{pendingVice.name}</strong>님이 과제·팀 일정·워크스페이스 정리 같은 운영 권한을 {pendingVice.appoint ? "갖게 됩니다" : "잃고 팀원으로 돌아갑니다"}.
+            </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingVice(null)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => runAction(() => setViceLeader(pendingVice.id, pendingVice.appoint), () => setPendingVice(null))}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#3b82f6", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(59,130,246,0.3)" }}
+              >
+                {pendingVice.appoint ? "임명하기" : "해임하기"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingKick && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>✕</div>
+            <h3 className="font-700 mb-1">팀에서 제외할까요?</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              <strong>{pendingKick.name}</strong>님이 이 프로젝트에서 제외됩니다. 이 작업은 되돌릴 수 없습니다.
+            </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingKick(null)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => runAction(() => kickMember(pendingKick.id), () => { setSelectedId(null); setPendingKick(null); })}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(239,68,68,0.3)" }}
+              >
+                제외하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingFinish && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
+          <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: "#22c55e18", borderRadius: "12px" }}>✓</div>
+            <h3 className="font-700 mb-1">프로젝트를 종료할까요?</h3>
+            <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>
+              종료하면 프로젝트가 읽기 전용으로 전환되며 종료 평가를 작성할 수 있습니다.
+            </p>
+            {actionError && <p role="alert" className="mb-3 text-sm text-red-600">{actionError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPendingFinish(false)}
+                className="flex-1 py-2.5 text-sm font-600"
+                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
+              >
+                취소
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => runAction(markProjectDone, () => setPendingFinish(false))}
+                className="flex-1 py-2.5 text-sm font-700 transition-all"
+                style={{ background: "#22c55e", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(34,197,94,0.3)" }}
+              >
+                종료하기
               </button>
             </div>
           </div>

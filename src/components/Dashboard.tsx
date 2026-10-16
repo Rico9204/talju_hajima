@@ -1,5 +1,12 @@
+import { Link } from "react-router-dom";
+import { dashboardActivity } from "../lib/dashboardActivity";
+import { useEffect, useState } from "react";
+import { summarizeDashboardTasks } from "../lib/dashboardTasks";
+import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
+import type { Task } from "../api/types";
+import { useDraggableScroll } from "../hooks/useDraggableScroll";
 
 interface Deadline { label: string; due: string; days: number; color: string }
 interface Activity { who: string; action: string; time: string; avatar: string; color: string }
@@ -21,9 +28,9 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ctaPrimary: { label: "동료 평가 하러가기 →", page: "evaluation" },
     stats: [
       { label: "완료 과제", value: "14", sub: "전체 22개 중", icon: "✓", color: "#22c55e" },
-      { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "var(--accent)" },
+      { label: "협업 평점", value: "4.4", sub: "3개 프로젝트 평균", icon: "★", color: "#f59e0b" },
       { label: "남은 마감", value: "3", sub: "다가오는 기한", icon: "◷", color: "#ef4444" },
-      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "var(--primary)" },
+      { label: "평가 완료", value: "4/5", sub: "중간 점검 라운드", icon: "⊙", color: "var(--status-inprogress)" },
     ],
     phases: [
       { label: "기획 및 자료 조사 계획", pct: 100 },
@@ -49,9 +56,9 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ctaPrimary: { label: "종료 평가 결과 보기 →", page: "evaluation" },
     stats: [
       { label: "완료 과제", value: "16", sub: "전체 16개 중", icon: "✓", color: "#22c55e" },
-      { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "var(--accent)" },
-      { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#7b82a8" },
-      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "var(--primary)" },
+      { label: "협업 평점", value: "4.5", sub: "이 프로젝트 평균", icon: "★", color: "#f59e0b" },
+      { label: "참여 기간", value: "14주", sub: "2026-03 ~ 2026-06", icon: "◷", color: "#454b6e" },
+      { label: "평가 완료", value: "2/2", sub: "종료 평가 라운드", icon: "⊙", color: "var(--status-inprogress)" },
     ],
     phases: [
       { label: "방언 조사 지역 선정 및 계획", pct: 100 },
@@ -74,42 +81,252 @@ const emptyDashboardData: ProjectDashboardData = {
   ctaPrimary: { label: "팀 관리로 이동 →", page: "team" },
   stats: [
     { label: "완료 과제", value: "0", sub: "전체 0개 중", icon: "✓", color: "#22c55e" },
-    { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "var(--accent)" },
+    { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "#f59e0b" },
     { label: "남은 마감", value: "0", sub: "등록된 일정 없음", icon: "◷", color: "#ef4444" },
-    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "var(--primary)" },
+    { label: "평가 완료", value: "0/0", sub: "중간 점검 라운드", icon: "⊙", color: "var(--status-inprogress)" },
   ],
   phases: [],
   deadlines: [],
   activity: [],
 };
 
-export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, currentMember } = useProject();
-  const data = dashboardData[project.id] || emptyDashboardData;
-  const isDone = project.status === "done";
+function DashboardTaskColumnList({
+  columnStatus,
+  filteredItems,
+}: {
+  columnStatus: string;
+  filteredItems: Task[];
+}) {
+  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLUListElement>({ direction: "y" });
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <ul
+      ref={ref}
+      {...events}
+      id={"dashboard-tasks-" + columnStatus}
+      className="flex flex-col gap-2 max-h-[140px] overflow-y-auto pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+    >
+      {filteredItems.map((task) => (
+        <li key={task.id}>
+          <Link
+            to={`/tasks/${task.id}`}
+            onClick={preventClickIfDragged}
+            draggable={false}
+            className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
+            style={{ background: "var(--muted)", borderRadius: "10px", userSelect: "none", WebkitUserSelect: "none" }}
+          >
+            <span className="text-sm break-words min-w-0 select-none pointer-events-none">{task.title}</span>
+            {task.due && <span className="text-xs shrink-0 select-none pointer-events-none" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
+          </Link>
+        </li>
+      ))}
+      {filteredItems.length === 0 && (
+        <li className="text-xs py-2 select-none" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</li>
+      )}
+    </ul>
+  );
+}
+
+function DashboardDeadlinesList({
+  deadlines,
+  emptyMessage,
+}: {
+  deadlines: { id: string | number; label: string; due: string; color: string; badge: string; days: number }[];
+  emptyMessage: string | null;
+}) {
+  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLDivElement>({ direction: "y" });
+
+  return (
+    <div
+      ref={ref}
+      {...events}
+      className="flex flex-col gap-2.5 max-h-[160px] overflow-y-auto pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+    >
+      {deadlines.map((d) => (
+        <Link
+          key={d.id}
+          to={`/tasks/${d.id}`}
+          onClick={preventClickIfDragged}
+          draggable={false}
+          className="flex items-center justify-between p-2.5 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
+          style={{ background: "var(--muted)", borderRadius: "10px", userSelect: "none", WebkitUserSelect: "none" }}
+        >
+          <div className="flex items-center gap-2 pointer-events-none select-none">
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+            <div><div className="text-xs font-500">{d.label}</div><div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{d.due}</div></div>
+          </div>
+          <span
+            className="text-xs font-700 px-2 py-0.5 pointer-events-none select-none"
+            style={{
+              background: d.days <= 7 ? `${d.color}20` : "var(--card)",
+              color: d.days <= 7 ? d.color : "var(--muted-foreground)",
+              borderRadius: "20px",
+              fontFamily: "var(--font-jetbrains)",
+            }}
+          >
+            {d.badge}
+          </span>
+        </Link>
+      ))}
+      {emptyMessage && (
+        <div className="text-xs text-center py-3 select-none" style={{ color: "var(--muted-foreground)" }}>
+          {emptyMessage}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DashboardActivityList({
+  activities,
+  emptyMessage,
+}: {
+  activities: { id: string; href: string; who: string; action: string; time: string; avatar: string; color: string }[];
+  emptyMessage: string | null;
+}) {
+  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLDivElement>({ direction: "y" });
+
+  return (
+    <div
+      ref={ref}
+      {...events}
+      className="flex flex-col gap-3 max-h-[165px] overflow-y-auto overflow-x-hidden pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
+    >
+      {emptyMessage && (
+        <div className="text-xs text-center py-3 select-none" style={{ color: "var(--muted-foreground)" }}>
+          {emptyMessage}
+        </div>
+      )}
+      {activities.map((a) => (
+        <Link
+          key={a.id}
+          to={a.href}
+          onClick={preventClickIfDragged}
+          draggable={false}
+          className="flex items-center gap-2.5 rounded-lg -mx-2 px-2 py-1 transition-colors hover:bg-[var(--muted)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
+          style={{ userSelect: "none", WebkitUserSelect: "none" }}
+        >
+          <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm leading-none shrink-0 pointer-events-none select-none" aria-hidden="true" style={{ background: `${a.color}20`, color: a.color }}>
+            {a.avatar}
+          </div>
+          <div className="flex-1 min-w-0 text-xs leading-5 pointer-events-none select-none">
+            <div className="truncate"><span className="font-700">{a.who} </span><span style={{ color: "var(--muted-foreground)" }}>{a.action}</span></div>
+            <div className="text-xs leading-4 mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
+  const { project, team, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
+  const isDone = project.status === "done";
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const refreshDate = () => setNow(new Date());
+    const timer = window.setInterval(refreshDate, 60_000);
+    window.addEventListener("focus", refreshDate);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshDate); };
+  }, []);
+  const taskSummary = summarizeDashboardTasks(tasks, now);
+  const [columnSearch, setColumnSearch] = useState<Record<string, string>>({});
+  useEffect(() => { setColumnSearch({}); }, [project.id]);
+  const [deadlineSearch, setDeadlineSearch] = useState("");
+  const [activitySearch, setActivitySearch] = useState("");
+  const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
+  const evaluationKey = project.id + ":" + project.status;
+  useEffect(() => {
+    let active = true;
+    getEvaluationMode().then(async (prototype) => {
+      const result = await getEvaluations(prototype ? "midterm" : isDone ? "final" : "midterm");
+      const final = prototype ? await getEvaluations("final") : null;
+      return { key: evaluationKey, submitted: result.submitted, prototype, finalSubmitted: final?.submitted ?? false };
+    })
+      .then((result) => { if (active) setEvaluation(result); })
+      .catch(() => { if (active) setEvaluation(null); });
+    return () => { active = false; };
+  }, [evaluationKey]);
+  const source = dashboardData[project.id] || emptyDashboardData;
+  const data = {
+    ...source,
+    banner: isDone ? "프로젝트가 종료되었습니다. 종료 평가를 작성하고 받은 평가를 확인해 주세요." :
+      source.banner.includes("동료 평가") ? "프로젝트 진행 중입니다. 동료에게 중간 피드백을 남겨보세요." :
+      // 팀원 초대를 안내하는 신규 프로젝트 문구는 이미 2명 이상 모이면 의미가
+      // 없으므로 숨긴다.
+      source.banner.startsWith("새 프로젝트가 만들어졌어요") && team.members.length >= 2 ? "" : source.banner,
+    ctaPrimary: isDone ? { label: "종료 평가로 이동 →", page: "evaluation" as Page } : source.ctaPrimary,
+    deadlines: taskSummary.deadlines,
+    activity: dashboardActivity(files, scheduleEvents, currentMember?.id, now),
+    stats: source.stats.map((stat) => stat.label === "평가 완료" ? {
+      ...stat, label: "내 평가",
+      value: evaluation?.key !== evaluationKey ? "—" : evaluation.prototype
+        ? (evaluation.submitted ? "중간 완료" : "중간 대기") + " · " + (evaluation.finalSubmitted ? "최종 완료" : "최종 대기")
+        : !isDone && isShortTerm ? "생략" : evaluation.submitted ? "제출 완료" : "미제출",
+      sub: evaluation?.key === evaluationKey && evaluation.prototype ? "프로토타입 검증" : isDone ? "최종 평가" : "중간 점검",
+    } : stat.label === "협업 평점" ? {
+      ...stat, label: "현재 프로젝트 협업 신뢰도", value: currentMember?.evalCount ? currentMember.score.toFixed(1) : "—",
+      sub: currentMember?.evalCount ? `최종 평가 ${currentMember.evalCount}건 기준` : "최종 평가 공개 대기",
+    } : stat.label === "완료 과제" ? {
+      ...stat, value: String(taskSummary.completed), sub: "전체 " + taskSummary.total + "개 중",
+    } : ["남은 마감", "참여 기간"].includes(stat.label) ? {
+      ...stat, label: "남은 마감", value: String(taskSummary.remaining),
+      sub: "마감일 있는 미완료 과제" + (taskSummary.overdue ? " · 기한 초과 " + taskSummary.overdue + "개" : ""),
+    } : stat),
+  };
+  // "다가오는 마감"은 7일 이내(기한 초과 포함)로 임박한 것만 보여준다 —
+  // 전체 미완료 과제 수는 대시보드 상단 "남은 마감" 통계 카드가 따로 담당.
+  const upcomingDeadlines = data.deadlines.filter((d) => d.days <= 7);
+  const deadlineSearchTrimmed = deadlineSearch.trim().toLowerCase();
+  const showDeadlineSearch = upcomingDeadlines.length > 5;
+  const searchableDeadlines = upcomingDeadlines.filter(
+    (d) => !deadlineSearchTrimmed || d.label.toLowerCase().includes(deadlineSearchTrimmed)
+  );
+  const activitySearchTrimmed = activitySearch.trim().toLowerCase();
+  const showActivitySearch = data.activity.length > 5;
+  const searchableActivity = data.activity.filter(
+    (a) => !activitySearchTrimmed || `${a.who}${a.action}`.toLowerCase().includes(activitySearchTrimmed)
+  );
+  const isPending = project.approvalStatus === "pending";
+  const isRejected = project.approvalStatus === "rejected";
+  const bannerText = isPending
+    ? "관리자 승인 대기 중이에요. 승인되기 전까지는 대시보드 외 다른 기능을 사용할 수 없어요."
+    : isRejected
+      ? "관리자가 이 프로젝트 생성을 반려했어요. 자세한 사항은 관리자에게 문의해주세요."
+      : data.banner;
+
+  return (
+    <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
       {/* Hero banner */}
       <div
-        className="relative mb-6 overflow-hidden"
+        className="relative mb-8 overflow-hidden px-6 py-8 md:px-12 md:py-11" // 휴대폰에서는 여백을 줄인다(예전엔 44px·48px 고정)
         style={{
-          background: isDone
-            ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
-            : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%)",
-          borderRadius: "calc(var(--radius) + 4px)",
-          padding: "32px 36px",
-          boxShadow: isDone ? "0 8px 32px rgba(22,163,74,0.3)" : "0 8px 32px rgba(37,99,235,0.3)",
+          background: isRejected
+            ? "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #991b1b 100%)"
+            : isPending
+              ? "linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)"
+              : isDone
+                ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
+                : "var(--hero-banner-bg)",
+          borderRadius: "calc(var(--radius) + 8px)",
+          border: isRejected || isPending || isDone ? "none" : "var(--hero-banner-border)",
+          boxShadow: isDone
+            ? "0 8px 32px rgba(22,163,74,0.3)"
+            : isRejected
+              ? "0 8px 32px rgba(239,68,68,0.3)"
+              : isPending
+                ? "0 8px 32px rgba(245,158,11,0.3)"
+                : "var(--hero-banner-shadow)",
         }}
       >
         {/* decorative circles */}
         <div
           className="absolute"
-          style={{ width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.06)", right: -40, top: -60 }}
+          style={{ width: 200, height: 200, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: -40, top: -60 }}
         />
         <div
           className="absolute"
-          style={{ width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.05)", right: 80, bottom: -40 }}
+          style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: 80, bottom: -40 }}
         />
 
         <div className="relative">
@@ -119,35 +336,42 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           >
             {project.period}
           </div>
-          <h1 className="text-2xl font-700 mb-1" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
+          <h1 className="text-2xl md:text-3xl font-700 mb-2" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
             안녕하세요, {currentMember?.name ?? "참여자"}님
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "14px" }}>{data.banner}</p>
+          {bannerText && <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "15px" }}>{bannerText}</p>}
 
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => onNavigate(data.ctaPrimary.page)}
-              className="px-5 py-2.5 text-sm font-700 transition-all"
-              style={{ background: "#fff", color: isDone ? "#16a34a" : "var(--primary)", borderRadius: "40px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)" }}
-            >
-              {data.ctaPrimary.label}
-            </button>
-            <button
-              onClick={() => onNavigate("tasks")}
-              className="px-5 py-2.5 text-sm font-600 transition-all"
-              style={{ background: "rgba(255,255,255,0.15)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.25)" }}
-            >
-              과제 보드
-            </button>
-          </div>
+          {!isPending && !isRejected && (
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => onNavigate(data.ctaPrimary.page)}
+                className="px-5 py-2.5 text-sm font-700 transition-all"
+                style={{
+                  background: isDone ? "#fff" : "var(--hero-banner-btn-bg)",
+                  color: isDone ? "#16a34a" : "var(--hero-banner-btn-text)",
+                  borderRadius: "40px",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                }}
+              >
+                {data.ctaPrimary.label}
+              </button>
+              <button
+                onClick={() => onNavigate("tasks")}
+                className="px-5 py-2.5 text-sm font-600 transition-all"
+                style={{ background: "rgba(255,255,255,0.15)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.25)" }}
+              >
+                과제 보드
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 mb-8">
         {data.stats.map((s) => (
-          <div key={s.label} className="p-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <div className="w-9 h-9 flex items-center justify-center text-base mb-3" style={{ background: `${s.color}18`, borderRadius: "10px", color: s.color }}>
+          <div key={s.label} className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: `${s.color}18`, borderRadius: "12px", color: s.color }}>
               {s.icon}
             </div>
             <div className="text-2xl font-800 leading-none mb-1" style={{ fontFamily: "var(--font-outfit)", color: "var(--foreground)" }}>
@@ -159,12 +383,12 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
         ))}
       </div>
 
-      <div className="grid grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-5 md:items-start gap-6">
         {/* Progress */}
-        <div className="col-span-3 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+        <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-base font-700">프로젝트 진행 현황</h2>
+              <h2 className="text-base font-700">현황판</h2>
               <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{project.name}</p>
             </div>
             <button
@@ -176,86 +400,93 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             </button>
           </div>
 
-          {data.phases.length === 0 && (
-            <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
-              아직 등록된 진행 단계가 없어요. 과제 보드에서 작업을 추가해보세요.
-            </div>
-          )}
-          {data.phases.map((phase) => (
-            <div key={phase.label} className="mb-4">
-              <div className="flex justify-between text-sm mb-1.5">
-                <span className="font-500 text-xs">{phase.label}</span>
-                <span className="font-700 text-xs" style={{ fontFamily: "var(--font-jetbrains)", color: phase.pct === 100 ? "#22c55e" : "var(--primary)" }}>
-                  {phase.pct}%
-                </span>
-              </div>
-              <div className="h-2 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                <div
-                  className="h-2 transition-all"
-                  style={{
-                    width: `${phase.pct}%`,
-                    background: phase.pct === 100 ? "linear-gradient(90deg, #22c55e, #16a34a)" : "linear-gradient(90deg, #2563eb, #3b82f6)",
-                    borderRadius: "4px",
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+          <div className="flex flex-col gap-4">
+            {([
+              { status: "todo", label: "예정", color: "#454b6e" },
+              { status: "inprogress", label: "진행", color: "var(--status-inprogress)" },
+              { status: "review", label: "검토", color: "#f59e0b" },
+            ] as const).map((column) => {
+              const items = tasks.filter((task) => task.status === column.status);
+              const searchTrimmed = (columnSearch[column.status] ?? "").trim().toLowerCase();
+              const filteredItems = searchTrimmed
+                ? items.filter((task) => task.title.toLowerCase().includes(searchTrimmed))
+                : items;
+              const showSearch = items.length > 5;
+              return <section key={column.status} aria-label={column.label + " 과제"}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h3 className="text-sm font-700" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
+                  {showSearch && (
+                    <input
+                      value={columnSearch[column.status] ?? ""}
+                      onChange={(e) => setColumnSearch((previous) => ({ ...previous, [column.status]: e.target.value }))}
+                      placeholder="과제 검색"
+                      className="w-28 min-w-0 text-xs px-3 py-1 border outline-none"
+                      style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                    />
+                  )}
+                </div>
+                {items.length ? (
+                  <DashboardTaskColumnList
+                    columnStatus={column.status}
+                    filteredItems={filteredItems}
+                  />
+                ) : <p className="text-xs py-2 select-none" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
+              </section>;
+            })}
+          </div>
         </div>
 
         {/* Right column */}
-        <div className="col-span-2 flex flex-col gap-5">
+        <div className="col-span-1 md:col-span-2 flex flex-col gap-6">
+          <MyEvaluationSummary />
           {/* Deadlines */}
-          <div className="p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
             <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>
-            <div className="flex flex-col gap-2.5">
-              {data.deadlines.map((d) => (
-                <div key={d.label} className="flex items-center justify-between p-2.5" style={{ background: "var(--muted)", borderRadius: "10px" }}>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                    <span className="text-xs font-500">{d.label}</span>
-                  </div>
-                  <span
-                    className="text-xs font-700 px-2 py-0.5"
-                    style={{
-                      background: d.days <= 7 ? `${d.color}20` : "var(--card)",
-                      color: d.days <= 7 ? d.color : "var(--muted-foreground)",
-                      borderRadius: "20px",
-                      fontFamily: "var(--font-jetbrains)",
-                    }}
-                  >
-                    D-{d.days}
-                  </span>
-                </div>
-              ))}
-              {data.deadlines.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>
-                  종료된 프로젝트에는 마감 일정이 없어요
-                </div>
-              )}
-            </div>
+            {showDeadlineSearch && (
+              <input
+                value={deadlineSearch}
+                onChange={(e) => setDeadlineSearch(e.target.value)}
+                placeholder="마감 검색"
+                className="w-full text-xs px-3 py-1.5 border outline-none mb-2.5"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+            <DashboardDeadlinesList
+              deadlines={searchableDeadlines}
+              emptyMessage={
+                searchableDeadlines.length === 0
+                  ? data.deadlines.length === 0
+                    ? "마감일이 지정된 미완료 과제가 없습니다."
+                    : upcomingDeadlines.length === 0
+                      ? "7일 이내로 임박한 마감이 없어요."
+                      : "검색 결과가 없어요"
+                  : null
+              }
+            />
           </div>
 
           {/* Recent activity */}
-          <div className="p-5 flex-1" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-            <h2 className="text-sm font-700 mb-4">최근 활동</h2>
-            <div className="flex flex-col gap-3">
-              {data.activity.length === 0 && (
-                <div className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>아직 활동이 없어요</div>
-              )}
-              {data.activity.map((a, i) => (
-                <div key={i} className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-700 shrink-0" style={{ background: `${a.color}20`, color: a.color }}>
-                    {a.avatar}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-700">{a.who} </span>
-                    <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{a.action}</span>
-                    <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{a.time}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="p-5 flex-1" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
+            {showActivitySearch && (
+              <input
+                value={activitySearch}
+                onChange={(e) => setActivitySearch(e.target.value)}
+                placeholder="활동 검색"
+                className="w-full text-xs px-3 py-1.5 border outline-none mb-2.5"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+            <DashboardActivityList
+              activities={searchableActivity}
+              emptyMessage={
+                searchableActivity.length === 0
+                  ? data.activity.length === 0
+                    ? "최근 3일 이내 등록·수정된 일정이나 자료가 없습니다."
+                    : "검색 결과가 없어요"
+                  : null
+              }
+            />
           </div>
         </div>
       </div>

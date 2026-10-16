@@ -13,6 +13,12 @@ export function isCollabDocPath(path: string): boolean {
   return isRichDocPath(path) || isSlidesPath(path);
 }
 
+// main 쪽 일부 컴포넌트(FileVersionPanel/VersionPageView)가 쓰는 이름 — path와 name을 이 앱에서는
+// 구분하지 않으므로 isRichDocPath와 동일하게 동작한다.
+export function isRichDocName(name: string): boolean {
+  return isRichDocPath(name);
+}
+
 // 백엔드가 저장한 content가 (일반 텍스트가 아니라) Yjs 문서 스냅샷인지 — 파일 경로를 몰라도
 // content 자체로 판별 가능하게 붙인 접두사(backend/src/collab/collab.service.ts의
 // SNAPSHOT_PREFIX와 동일). 버전 diff 화면처럼 경로 없이 content만 보는 곳에서 쓴다.

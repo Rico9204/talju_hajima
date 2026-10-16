@@ -1,0 +1,451 @@
+import {
+  BadRequestException, Body, CanActivate, Controller, ExecutionContext, ForbiddenException, Get, HttpCode, HttpException, Injectable,
+  Logger, Patch, Post, Req, Res, UnauthorizedException, UseGuards, createParamDecorator,
+} from "@nestjs/common";
+import { IsEmail, IsIn, IsOptional, IsString, Length, MaxLength } from "class-validator";
+import bcrypt from "bcryptjs";
+import { SignJWT, jwtVerify } from "jose";
+import { createHash, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
+import type { Request, Response } from "express";
+import { Db, selectOneJson, type Query } from "./db.js";
+import { Mailer, mailTemplates, type MailMessage } from "./mail.js";
+
+// 로그인은 이 서버가 직접 한다(Supabase Auth 대체). 공유 브랜치(Temporary_Merge)의
+// bcrypt 가입·로그인, JwtAuthGuard·@CurrentUser 구조를 옮기되 약점을 고쳤다:
+//  - 서명 키는 필수 환경변수(기본값 없음), 액세스 토큰은 1시간 + 리프레시 토큰(해시 저장·1회용)
+//  - 계정 자체를 잠그지 않고 "IP+이메일" 단위로 실패 횟수를 제한(남의 계정을 일부러 잠그는 공격 방지)
+//  - 없는 이메일도 같은 시간이 걸리게 비교해 가입 여부가 응답 시간으로 드러나지 않게
+const ISSUER = "talju-server";
+const AUDIENCE = "talju-app";
+const ACCESS_TTL = "1h";
+const REFRESH_TTL_DAYS = 30;
+const BCRYPT_COST = 10; // Supabase와 같은 비용 — 옮겨 온 기존 해시와 새 해시가 같은 형식
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DUMMY_HASH = bcrypt.hashSync("timing-equalizer", BCRYPT_COST);
+
+export const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+export class TokenService {
+  private readonly key: Uint8Array;
+
+  constructor(secret: string) {
+    this.key = new TextEncoder().encode(secret);
+  }
+
+  signAccess(userId: string): Promise<string> {
+    return new SignJWT({ role: "authenticated" }).setProtectedHeader({ alg: "HS256" }).setSubject(userId)
+      .setIssuer(ISSUER).setAudience(AUDIENCE).setIssuedAt().setExpirationTime(ACCESS_TTL).sign(this.key);
+  }
+
+  async verifyAccess(token: string): Promise<string> {
+    return (await this.verifyClaims(token)).userId;
+  }
+
+  // 사용자 id + 만료 시각(초). 실시간 연결은 토큰이 만료되는 순간 닫는다.
+  async verifyClaims(token: string): Promise<{ userId: string; expiresAt: number }> {
+    const { payload } = await jwtVerify(token, this.key, { issuer: ISSUER, audience: AUDIENCE, algorithms: ["HS256"] });
+    if (typeof payload.sub !== "string" || !UUID.test(payload.sub)) throw new Error("토큰에 사용자 id가 없습니다.");
+    if (typeof payload.exp !== "number") throw new Error("토큰에 만료 시각이 없습니다.");
+    return { userId: payload.sub, expiresAt: payload.exp };
+  }
+}
+
+// 키별로 일정 시간 동안의 횟수를 센다.
+// ponytail: 서버 한 대의 메모리 기준. 서버를 여러 대로 늘리면 Redis·DB로 옮긴다. 근본 대책(CAPTCHA)은 별도 과제.
+export class RateLimiter {
+  private readonly failures = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(private readonly max: number, private readonly windowMs: number) {}
+
+  isBlocked(key: string): boolean {
+    const entry = this.failures.get(key);
+    if (!entry) return false;
+    if (entry.resetAt <= Date.now()) {
+      this.failures.delete(key);
+      return false;
+    }
+    return entry.count >= this.max;
+  }
+
+  hit(key: string): void {
+    const now = Date.now();
+    if (this.failures.size > 10_000) for (const [k, v] of this.failures) if (v.resetAt <= now) this.failures.delete(k);
+    const entry = this.failures.get(key);
+    if (!entry || entry.resetAt <= now) this.failures.set(key, { count: 1, resetAt: now + this.windowMs });
+    else entry.count += 1;
+  }
+
+  clear(key: string): void {
+    this.failures.delete(key);
+  }
+}
+
+// 로그인·가입 남용 제한. 계정 자체는 잠그지 않는다(남이 일부러 잠글 수 있으므로).
+// "IP"는 ClientAddress가 정한 사용자 IP(client)다.
+//  - loginPair: 같은 IP·같은 이메일 실패 → 그 조합만 막음(비밀번호 대입)
+//  - loginIp:   같은 IP의 실패 전체 → 이메일을 바꿔 가며 대입하거나 bcrypt 계산으로 CPU를 소모시키는 공격
+//  - signupIp:  같은 IP의 가입 시도 → 계정 대량 생성·bcrypt 소모
+// *Hop 한도는 서버에 실제로 연결한 주소(hop) 기준의 넉넉한 상한이다. Vercel을 거치면 모든 사용자가 Vercel 주소 몇 개를
+// 나눠 쓰므로 사람별 제한은 client로 하고, client 헤더를 위조해 Vercel 없이 직접 보내는 사람도 자기 실제 주소에서 이 상한에 걸린다.
+export class AuthLimits {
+  constructor(
+    readonly loginPair = new RateLimiter(5, 15 * 60_000),
+    readonly loginIp = new RateLimiter(30, 15 * 60_000),
+    readonly signupIp = new RateLimiter(10, 60 * 60_000),
+    // 확인 메일 다시 받기·비밀번호 재설정 요청(메일 폭탄 방지)
+    readonly mailIp = new RateLimiter(10, 60 * 60_000),
+    readonly loginHop = new RateLimiter(300, 15 * 60_000),
+    readonly signupHop = new RateLimiter(100, 60 * 60_000),
+    readonly mailHop = new RateLimiter(100, 60 * 60_000),
+  ) {}
+}
+
+// 요청의 사용자 IP(client)와 서버에 실제로 연결한 주소(hop, Express의 req.ip).
+// trustVercel이면 Vercel이 넣어 주는 X-Vercel-Forwarded-For를 사용자 IP로 쓴다(Vercel은 브라우저가 보낸 같은 이름의 헤더를 덮어쓴다).
+// Vercel을 거치지 않은 요청은 이 헤더를 위조할 수 있으므로 hop 기준 상한(AuthLimits의 *Hop)을 함께 건다.
+export class ClientAddress {
+  constructor(private readonly trustVercel = false) {}
+
+  of(req: Request): { client: string; hop: string } {
+    const hop = req.ip ?? req.socket.remoteAddress ?? "";
+    if (!this.trustVercel) return { client: hop, hop };
+    const header = req.headers["x-vercel-forwarded-for"];
+    const first = (Array.isArray(header) ? header[0] : header)?.split(",")[0]?.trim() ?? "";
+    return { client: isIP(first) ? first : hop, hop };
+  }
+}
+
+// 리프레시 토큰은 응답 본문이 아니라 httpOnly 쿠키로만 준다 → 화면의 스크립트(XSS)가 읽어 갈 수 없다.
+// 액세스 토큰(1시간)은 화면이 메모리에만 들고 있고, 새로 고침하면 이 쿠키로 다시 받는다.
+export const REFRESH_COOKIE = "talju_refresh";
+export class SessionCookie {
+  // sameSite: 화면과 서버가 같은 사이트(예: app.example.com ↔ api.example.com, localhost끼리)면 lax,
+  // 서로 다른 사이트(예: *.vercel.app ↔ 다른 도메인)면 none(+secure). none은 Safari 등이 제3자 쿠키로 막을 수 있다.
+  constructor(readonly origins: string[], readonly sameSite: "lax" | "strict" | "none" = "lax", readonly secure = false) {}
+
+  private get options() {
+    return { httpOnly: true, secure: this.secure || this.sameSite === "none", sameSite: this.sameSite, path: "/api/auth" } as const;
+  }
+
+  set(res: Response, token: string) { res.cookie(REFRESH_COOKIE, token, { ...this.options, maxAge: REFRESH_TTL_DAYS * 86_400_000 }); }
+  clear(res: Response) { res.clearCookie(REFRESH_COOKIE, this.options); }
+
+  read(req: Request): string | null {
+    for (const part of (req.headers.cookie ?? "").split(";")) {
+      const [name, ...value] = part.trim().split("=");
+      if (name !== REFRESH_COOKIE) continue;
+      try { return decodeURIComponent(value.join("=")); } catch { return null; } // 깨진 값은 쿠키 없음(401)으로
+    }
+    return null;
+  }
+
+  // 쿠키를 쓰거나 새로 심는 요청(refresh·logout·login)은 다른 사이트의 폼·fetch로도 보낼 수 있다(CSRF,
+  // 남의 계정으로 로그인시키기) → 브라우저는 다른 출처로 POST할 때 항상 Origin을 붙이므로, 붙어 있으면 우리 화면 출처만 받는다.
+  // Origin이 없는 요청(서버·스크립트 클라이언트)은 브라우저 쿠키를 도용할 수 없으므로 막지 않는다.
+  assertOrigin(req: Request) {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !this.origins.includes(origin)) throw new ForbiddenException("허용되지 않은 출처의 요청입니다.");
+  }
+}
+
+// 메일 링크가 가리킬 화면 주소(예: https://taljuhajima.vercel.app).
+export class MailSettings {
+  constructor(readonly appUrl: string) {}
+}
+
+// 가입·재설정 요청의 응답은 이메일이 있든 없든 항상 같다(가입 여부가 드러나지 않게).
+const CHECK_EMAIL = { status: "check_email", message: "메일을 보냈습니다. 메일의 링크를 눌러 계속해 주세요." };
+const passwordFingerprint = (hash: string) => createHash("sha256").update(hash).digest("hex");
+
+// bcrypt는 앞 72바이트만 쓴다 — 글자 수가 아니라 바이트로 검사해야 한글 비밀번호 뒷부분이 조용히 무시되지 않는다.
+const BCRYPT_MAX_BYTES = 72;
+const tooLongForBcrypt = (password: string) => Buffer.byteLength(password, "utf8") > BCRYPT_MAX_BYTES;
+
+type AuthedRequest = Request & { userId?: string };
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  constructor(private readonly tokens: TokenService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<AuthedRequest>();
+    const [scheme, token] = (request.headers.authorization ?? "").split(" ");
+    if (scheme !== "Bearer" || !token) throw new UnauthorizedException("로그인이 필요합니다.");
+    try {
+      request.userId = await this.tokens.verifyAccess(token);
+    } catch {
+      throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+    }
+    return true;
+  }
+}
+
+export const UserId = createParamDecorator((_data: unknown, context: ExecutionContext): string => {
+  const userId = context.switchToHttp().getRequest<AuthedRequest>().userId;
+  if (!userId) throw new UnauthorizedException("로그인이 필요합니다.");
+  return userId;
+});
+
+class SignupDto {
+  @IsEmail() @MaxLength(254) email!: string;
+  @IsString() @Length(6, 72) password!: string; // 최소 6자(Supabase 시절과 같음), bcrypt는 72바이트까지만 쓴다
+  @IsString() @Length(1, 30) displayName!: string;
+  @IsOptional() @IsString() @MaxLength(100) org?: string;
+  @IsOptional() @IsIn(["admin"]) signupType?: "admin";
+}
+
+class LoginDto {
+  @IsEmail() @MaxLength(254) email!: string;
+  @IsString() @Length(1, 72) password!: string;
+}
+
+class EmailDto {
+  @IsEmail() @MaxLength(254) email!: string;
+}
+
+class OneTimeTokenDto {
+  @IsString() @Length(20, 200) token!: string;
+}
+
+class ResetPasswordDto {
+  @IsString() @Length(20, 200) token!: string;
+  @IsString() @Length(6, 72) password!: string;
+}
+
+class ChangePasswordDto {
+  @IsString() @Length(1, 72) currentPassword!: string;
+  @IsString() @Length(6, 72) newPassword!: string;
+}
+
+@Controller("auth")
+export class AuthController {
+  private readonly logger = new Logger("Auth");
+
+  constructor(
+    private readonly db: Db, private readonly tokens: TokenService, private readonly limits: AuthLimits,
+    private readonly mailer: Mailer, private readonly mail: MailSettings, private readonly cookie: SessionCookie,
+    private readonly address: ClientAddress,
+  ) {}
+
+  // 확인 메일 다시 받기·비밀번호 재설정 요청 한도
+  private limitMail(req: Request) {
+    const { client, hop } = this.address.of(req);
+    if (this.limits.mailIp.isBlocked(client) || this.limits.mailHop.isBlocked(hop)) throw new HttpException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
+    this.limits.mailIp.hit(client);
+    this.limits.mailHop.hit(hop);
+  }
+
+  // 새 세션: 리프레시 토큰은 쿠키로, 본문에는 사용자와 액세스 토큰만.
+  private startSession(res: Response, user: object, issued: { accessToken: string; refreshToken: string }) {
+    this.cookie.set(res, issued.refreshToken);
+    return { user, accessToken: issued.accessToken };
+  }
+
+  // 메일 링크용 1회용 토큰. 같은 목적의 이전 토큰은 지운다(가장 최근 링크만 유효).
+  private async oneTimeToken(query: Query, userId: string, purpose: "confirm" | "reset", hours: number, fingerprint: string | null = null) {
+    const token = randomBytes(32).toString("base64url");
+    await query("delete from auth.one_time_tokens where user_id = $1 and purpose = $2", [userId, purpose]);
+    await query(
+      "insert into auth.one_time_tokens(token_hash, user_id, purpose, password_fingerprint, expires_at) values ($1, $2, $3, $4, now() + make_interval(hours => $5))",
+      [hashToken(token), userId, purpose, fingerprint, hours]);
+    return token;
+  }
+
+  // 응답을 기다리지 않고 보낸다 — 이메일이 있든 없든 응답 시간이 같게(가입 여부 노출 방지). 실패는 서버 로그에.
+  private deliver(message: MailMessage | null): void {
+    if (message) void this.mailer.send(message).catch((error) => this.logger.error(`메일을 보내지 못했습니다: ${error instanceof Error ? error.message : error}`));
+  }
+
+  // 액세스 토큰 + 새 리프레시 토큰. 만료된 토큰은 이때 함께 치운다.
+  private async issue(query: Query, userId: string) {
+    const refreshToken = randomBytes(32).toString("base64url");
+    await query("delete from auth.refresh_tokens where user_id = $1 and expires_at <= now()", [userId]);
+    await query("insert into auth.refresh_tokens(token_hash, user_id, expires_at) values ($1, $2, now() + make_interval(days => $3))",
+      [hashToken(refreshToken), userId, REFRESH_TTL_DAYS]);
+    return { accessToken: await this.tokens.signAccess(userId), refreshToken };
+  }
+
+  // 가입: 항상 같은 응답("메일을 보냈다"). 가입하면 schema.sql의 트리거(handle_new_user)가 프로필을 만든다.
+  //  - 새 이메일: 계정(미인증) + 확인 메일(24시간)
+  //  - 인증된 기존 이메일: 화면에는 똑같이, 메일로 "이미 가입됨 + 비밀번호 재설정 링크"
+  //  - 미인증 기존 이메일: 이번 가입 정보로 덮어쓰고 확인 메일 다시(남이 먼저 만들어 둔 미인증 계정을 가로챌 수 없게)
+  @Post("signup")
+  @HttpCode(202)
+  async signup(@Body() body: SignupDto, @Req() req: Request) {
+    if (tooLongForBcrypt(body.password)) throw new BadRequestException("비밀번호가 너무 깁니다(72바이트, 한글은 약 24자까지).");
+    const { client, hop } = this.address.of(req);
+    if (this.limits.signupIp.isBlocked(client) || this.limits.signupHop.isBlocked(hop)) throw new HttpException("가입 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", 429);
+    this.limits.signupIp.hit(client);
+    this.limits.signupHop.hit(hop);
+    const email = body.email.trim().toLowerCase();
+    const passwordHash = await bcrypt.hash(body.password, BCRYPT_COST);
+    const meta = JSON.stringify({ display_name: body.displayName.trim(), org: body.org?.trim() ?? "", ...(body.signupType ? { signup_type: body.signupType } : {}) });
+    const message = await this.db.asSystem(async (query) => {
+      const [created] = await query<{ id: string }>(
+        "insert into auth.users(email, encrypted_password, raw_user_meta_data) values ($1, $2, $3) on conflict (email) do nothing returning id",
+        [email, passwordHash, meta]);
+      if (created) {
+        return { to: email, ...mailTemplates.confirm(this.mail.appUrl, await this.oneTimeToken(query, created.id, "confirm", 24, passwordFingerprint(passwordHash))) };
+      }
+      const existing = (await selectOneJson(query, "select id, email_confirmed_at from auth.users where email = $1", [email]))!;
+      if (existing.email_confirmed_at) {
+        return { to: email, ...mailTemplates.alreadyRegistered(this.mail.appUrl, await this.oneTimeToken(query, existing.id, "reset", 1)) };
+      }
+      await query("update auth.users set encrypted_password = $2, raw_user_meta_data = $3 where id = $1", [existing.id, passwordHash, meta]);
+      await query("update public.profiles set display_name = $2, avatar_initial = left($2, 1) where id = $1", [existing.id, body.displayName.trim()]);
+      return { to: email, ...mailTemplates.confirm(this.mail.appUrl, await this.oneTimeToken(query, existing.id, "confirm", 24, passwordFingerprint(passwordHash))) };
+    });
+    this.deliver(message);
+    return CHECK_EMAIL;
+  }
+
+  // 메일의 확인 링크 → 인증만 한다. 링크를 만든 뒤 비밀번호가 바뀌었으면(다른 가입으로 덮어씀) 무효.
+  // 로그인시키지 않는다: 남이 내 이메일·자기 비밀번호로 먼저 가입해 둔 계정의 링크를 무심코 누르면, 그 계정을 내 것처럼 쓰게 되어
+  // 가입한 사람이 들여다볼 수 있다. 직접 로그인하게 하면 내 비밀번호가 안 맞아 재설정하게 되고, 재설정하면 그 사람은 쫓겨난다.
+  @Post("confirm")
+  @HttpCode(204)
+  async confirm(@Body() body: OneTimeTokenDto) {
+    await this.db.asSystem(async (query) => {
+      const [row] = await query<{ user_id: string; password_fingerprint: string | null }>(
+        "delete from auth.one_time_tokens where token_hash = $1 and purpose = 'confirm' and expires_at > now() returning user_id, password_fingerprint",
+        [hashToken(body.token)]);
+      const user = row ? await selectOneJson(query, "select id, email, encrypted_password, raw_user_meta_data from auth.users where id = $1", [row.user_id]) : null;
+      if (!row || !user || row.password_fingerprint !== passwordFingerprint(user.encrypted_password)) {
+        throw new BadRequestException("링크가 만료되었거나 이미 사용되었습니다. 확인 메일을 다시 받아 주세요.");
+      }
+      await query("update auth.users set email_confirmed_at = coalesce(email_confirmed_at, now()) where id = $1", [user.id]);
+    });
+  }
+
+  @Post("resend-confirmation")
+  @HttpCode(202)
+  async resendConfirmation(@Body() body: EmailDto, @Req() req: Request) {
+    this.limitMail(req);
+    const email = body.email.trim().toLowerCase();
+    const message = await this.db.asSystem(async (query) => {
+      const user = await selectOneJson(query, "select id, encrypted_password from auth.users where email = $1 and email_confirmed_at is null", [email]);
+      if (!user) return null;
+      return { to: email, ...mailTemplates.confirm(this.mail.appUrl, await this.oneTimeToken(query, user.id, "confirm", 24, passwordFingerprint(user.encrypted_password))) };
+    });
+    this.deliver(message);
+    return CHECK_EMAIL;
+  }
+
+  // 비밀번호 재설정 요청: 항상 같은 응답. 계정이 있으면 1시간짜리 링크를 보낸다.
+  @Post("password-reset/request")
+  @HttpCode(202)
+  async requestPasswordReset(@Body() body: EmailDto, @Req() req: Request) {
+    this.limitMail(req);
+    const email = body.email.trim().toLowerCase();
+    const message = await this.db.asSystem(async (query) => {
+      const user = await selectOneJson(query, "select id from auth.users where email = $1", [email]);
+      return user ? { to: email, ...mailTemplates.reset(this.mail.appUrl, await this.oneTimeToken(query, user.id, "reset", 1)) } : null;
+    });
+    this.deliver(message);
+    return CHECK_EMAIL;
+  }
+
+  // 새 비밀번호 정하기: 링크는 한 번만, 모든 기기에서 로그아웃(리프레시 토큰 전부 폐기). 메일을 받았으니 이메일도 인증된 것으로 본다.
+  @Post("password-reset/confirm")
+  @HttpCode(204)
+  async confirmPasswordReset(@Body() body: ResetPasswordDto) {
+    if (tooLongForBcrypt(body.password)) throw new BadRequestException("비밀번호가 너무 깁니다(72바이트, 한글은 약 24자까지).");
+    const passwordHash = await bcrypt.hash(body.password, BCRYPT_COST);
+    await this.db.asSystem(async (query) => {
+      const [row] = await query<{ user_id: string }>(
+        "delete from auth.one_time_tokens where token_hash = $1 and purpose = 'reset' and expires_at > now() returning user_id", [hashToken(body.token)]);
+      if (!row) throw new BadRequestException("링크가 만료되었거나 이미 사용되었습니다. 비밀번호 재설정을 다시 요청해 주세요.");
+      await query("update auth.users set encrypted_password = $2, email_confirmed_at = coalesce(email_confirmed_at, now()) where id = $1", [row.user_id, passwordHash]);
+      await query("delete from auth.refresh_tokens where user_id = $1", [row.user_id]);
+      await query("delete from auth.one_time_tokens where user_id = $1", [row.user_id]);
+    });
+  }
+
+  // 로그인한 상태에서 비밀번호 바꾸기(현재 비밀번호 확인). 다른 기기는 로그아웃되고 이 기기에는 새 토큰을 준다.
+  @Patch("password")
+  @UseGuards(AuthGuard)
+  async changePassword(@UserId() userId: string, @Body() body: ChangePasswordDto, @Res({ passthrough: true }) res: Response) {
+    if (tooLongForBcrypt(body.newPassword)) throw new BadRequestException("비밀번호가 너무 깁니다(72바이트, 한글은 약 24자까지).");
+    const user = await this.db.asSystem((query) => selectOneJson(query, "select encrypted_password from auth.users where id = $1", [userId]));
+    if (!user || tooLongForBcrypt(body.currentPassword) || !(await bcrypt.compare(body.currentPassword, user.encrypted_password))) {
+      throw new BadRequestException("현재 비밀번호가 올바르지 않습니다.");
+    }
+    // 현재 비밀번호는 위에서 확인했으므로 문자열 비교로 충분하다.
+    if (body.newPassword === body.currentPassword) throw new BadRequestException("새 비밀번호는 기존 비밀번호와 다르게 설정해야 합니다.");
+    const passwordHash = await bcrypt.hash(body.newPassword, BCRYPT_COST);
+    return this.db.asSystem(async (query) => {
+      await query("update auth.users set encrypted_password = $2 where id = $1", [userId, passwordHash]);
+      await query("delete from auth.refresh_tokens where user_id = $1", [userId]);
+      const issued = await this.issue(query, userId);
+      this.cookie.set(res, issued.refreshToken);
+      return { accessToken: issued.accessToken };
+    });
+  }
+
+  @Post("login")
+  @HttpCode(200)
+  async login(@Body() body: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.cookie.assertOrigin(req);
+    const email = body.email.trim().toLowerCase();
+    const { client, hop } = this.address.of(req);
+    const key = `${client}|${email}`;
+    if (this.limits.loginIp.isBlocked(client) || this.limits.loginPair.isBlocked(key) || this.limits.loginHop.isBlocked(hop)) {
+      throw new HttpException("로그인 시도가 너무 많습니다. 15분 뒤 다시 시도해 주세요.", 429);
+    }
+    const [user] = await this.db.asSystem((query) =>
+      query<{ id: string; encrypted_password: string; confirmed: boolean; raw_user_meta_data: Record<string, unknown> }>(
+        "select id, encrypted_password, email_confirmed_at is not null as confirmed, raw_user_meta_data from auth.users where email = $1", [email]));
+    // 72바이트를 넘는 비밀번호는 bcrypt가 앞부분만 비교하므로 맞았다고 보지 않는다(그런 비밀번호로는 가입할 수 없다).
+    const matches = !tooLongForBcrypt(body.password) && await bcrypt.compare(body.password, user?.encrypted_password ?? DUMMY_HASH);
+    if (!user || !matches) {
+      this.limits.loginPair.hit(key);
+      this.limits.loginIp.hit(client);
+      this.limits.loginHop.hit(hop);
+      throw new UnauthorizedException("이메일 또는 비밀번호가 올바르지 않습니다.");
+    }
+    // 성공하면 이 이메일의 실패만 지운다. IP 단위 실패는 남긴다(공격자가 자기 계정으로 한 번 성공해 초기화하지 못하게).
+    this.limits.loginPair.clear(key);
+    // 비밀번호가 맞은 사람에게만 알리므로 가입 여부가 새지 않는다.
+    if (!user.confirmed) throw new ForbiddenException("이메일 인증을 완료해 주세요. 가입할 때 받은 메일의 링크를 눌러 주세요.");
+    return this.db.asSystem(async (query) => {
+      await query("update auth.users set last_sign_in_at = now() where id = $1", [user.id]);
+      return this.startSession(res, { id: user.id, email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
+    });
+  }
+
+  // 쿠키의 리프레시 토큰으로 새 액세스 토큰. 한 번만 쓸 수 있다: 지우면서 새 것을 발급(rotation).
+  // 화면을 새로 고칠 때도 이것으로 로그인 상태를 되찾으므로 사용자 정보도 함께 준다.
+  @Post("refresh")
+  @HttpCode(200)
+  refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.cookie.assertOrigin(req);
+    const token = this.cookie.read(req);
+    if (!token) throw new UnauthorizedException("로그인이 필요합니다.");
+    return this.db.asSystem(async (query) => {
+      const [row] = await query<{ user_id: string }>(
+        "delete from auth.refresh_tokens where token_hash = $1 and expires_at > now() returning user_id", [hashToken(token)]);
+      const user = row ? await selectOneJson(query, "select id, email, raw_user_meta_data from auth.users where id = $1", [row.user_id]) : null;
+      // 쿠키는 지우지 않는다: 다른 탭이 방금 받은 새 쿠키를 지울 수 있다.
+      if (!user) throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+      return this.startSession(res, { id: user.id, email: user.email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
+    });
+  }
+
+  @Post("logout")
+  @HttpCode(204)
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    this.cookie.assertOrigin(req);
+    const token = this.cookie.read(req);
+    if (token) await this.db.asSystem((query) => query("delete from auth.refresh_tokens where token_hash = $1", [hashToken(token)]));
+    this.cookie.clear(res);
+  }
+
+  @Get("me")
+  @UseGuards(AuthGuard)
+  async me(@UserId() userId: string) {
+    const [user] = await this.db.asSystem((query) => query<{ id: string; email: string; raw_user_meta_data: Record<string, unknown> }>("select id, email, raw_user_meta_data from auth.users where id = $1", [userId]));
+    if (!user) throw new UnauthorizedException("계정을 찾을 수 없습니다.");
+    return { ...user, user_metadata: user.raw_user_meta_data ?? {} };
+  }
+}

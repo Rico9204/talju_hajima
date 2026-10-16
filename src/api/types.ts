@@ -1,3 +1,5 @@
+export type ProjectApprovalStatus = "pending" | "approved" | "rejected";
+
 export interface Project {
   id: string;
   name: string;
@@ -6,6 +8,15 @@ export interface Project {
   status: "active" | "done";
   startDate?: string;
   endDate?: string;
+  approvalStatus: ProjectApprovalStatus;
+  completedAt?: string;
+  requestedAdminId?: string;
+}
+
+// 프로젝트 참여 코드. 발급 후 6시간 유효하고, 팀원만 볼 수 있다.
+export interface JoinCode {
+  joinCode: string;
+  joinCodeExpiresAt: string;
 }
 
 export interface NewProjectInput {
@@ -14,6 +25,14 @@ export interface NewProjectInput {
   period: string;
   startDate?: string;
   endDate?: string;
+  requestedAdminId?: string;
+}
+
+export interface AdminProfileSummary {
+  id: string;
+  displayName: string;
+  org: string | null;
+  email: string | null;
 }
 
 export type ProfileLinkType = "github" | "instagram" | "notion" | "x" | "linkedin" | "behance" | "other";
@@ -25,29 +44,57 @@ export interface ProfileLink {
   label: string;
 }
 
+// 평가 점수의 "상위 N%" — 서비스 전체 사용자(최종 평가 공개된 사람) 기준. 비교 인원이 10명 미만이면 available=false.
+export type EvaluationPercentiles =
+  | { available: false; population: number }
+  | { available: true; population: number; overall: number; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> };
+
 export interface Member {
   id: string;
   userId: string | null;
   name: string;
   role: string;
-  school: string;
   major: string;
   student: string;
-  contact: string;
-  bannerColor: string | null;
-  bannerImageUrl: string | null;
-  links: ProfileLink[];
+  school: string | null;
   avatar: string;
   avatarUrl: string | null;
+  contact: string | null;
+  // Admin-only (see gwanhan.md) — the org/section a leader searches by when
+  // routing a new project's approval to this admin. Null for non-admins.
+  org: string | null;
+  bannerColor: string | null;
+  bannerImageUrl: string | null;
+  backgroundColor: string | null;
+  backgroundGradient: string | null;
+  backgroundImageUrl: string | null;
+  glassOpacity: number | null;
+  glassBlur: number | null;
+  links: ProfileLink[];
   tasks: { done: number; total: number };
   activities: number;
   score: number;
   evalCount: number;
   online: boolean;
+  lastSeenAt: string | null;
   responsibilities: string[];
   color: string;
   criteriaScores: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
   isLeader: boolean;
+  // 부팀장: 팀장과 같은 일상 운영 권한을 갖지만 팀원 제외·프로젝트 종료·팀장 위임은 할 수 없다.
+  isViceLeader: boolean;
+  // Only populated for the signed-in member's own row (see
+  // visible_evaluation_members in schema.sql) — used to compute the
+  // sidebar's "new content" badges for tasks/schedule/workspace.
+  tasksViewedAt: string | null;
+  scheduleViewedAt: string | null;
+  workspaceViewedAt: string | null;
+}
+
+export interface MemberPresenceState {
+  status: "active" | "idle";
+  lastActiveAt: string;
+  onlineAt: string;
 }
 
 export interface TeamData {
@@ -57,15 +104,38 @@ export interface TeamData {
 }
 
 export interface FileVersion {
+  searchText?: string;
+  searchStatus?: import("../lib/workspaceSearch").SearchStatus;
+  id: number;
+  parentVersionId: number | null;
+  storagePath: string | null;
+  originalName: string | null;
+  mimeType: string;
+  byteSize: number | null;
+  pinned: boolean;
   version: string;
   uploadedBy: string;
+  uploadedAt?: string | null;
   date: string;
   size: string;
   note: string;
   current: boolean;
 }
 
+export interface FileUploadInput {
+  extractedText?: import("../lib/workspaceSearch").ExtractedText;
+  tags?: string[];
+  file: File;
+  folderId: number | null;
+  fileId?: number;
+  baseVersionId?: number | null;
+  note?: string;
+}
+
 export interface FileComment {
+  memberId: string | null;
+  versionId: number | null; // null = 파일 전체 댓글
+  reactions: { commentId: number; memberId: string; emoji: string }[];
   id: number;
   author: string;
   avatar: string;
@@ -74,25 +144,35 @@ export interface FileComment {
 }
 
 export interface WorkspaceFile {
+  ownerUserId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   id: number;
   name: string;
+  content?: string;
+  previewData?: string;
   type: "pdf" | "doc" | "img" | "ppt" | "xls" | "zip";
   uploader: string;
   avatar: string;
   date: string;
   size: string;
   tag: string;
+  tags: string[];
   folderId: number | null;
+  sortOrder?: number | null; // "직접 정렬" 순서(같은 폴더 안). null = 아직 순서 없음(맨 위에 최신순)
   versions: FileVersion[];
   comments: FileComment[];
 }
 
 export interface Folder {
+  ownerUserId?: string | null;
   id: number;
+  parentId: number | null; // null = 워크스페이스 루트의 폴더. 최대 10단계(DB가 검사)
   name: string;
   color: string;
   createdBy: string;
   date: string;
+  sortOrder?: number | null; // 같은 상위 폴더 안의 순서. null = 순서 없음(순서 있는 폴더 뒤에 만든 순서대로)
 }
 
 export type TaskStatus = "todo" | "inprogress" | "review" | "done";
@@ -104,23 +184,24 @@ export interface ChecklistItem {
   done: boolean;
 }
 
+export interface TaskComment {
+  id: number;
+  memberId: string | null;
+  author: string;
+  avatar: string;
+  date: string;
+  text: string;
+  reactions: TaskCommentReaction[];
+}
+
 export interface TaskCommentReaction {
   commentId: number;
   memberId: string;
   emoji: string;
 }
 
-export interface TaskComment {
-  id: number;
-  author: string;
-  avatar: string;
-  date: string;
-  text: string;
-  memberId: string | null;
-  reactions: TaskCommentReaction[];
-}
-
 export interface Task {
+  createdAt?: string | null;
   id: number;
   title: string;
   assignee: string; // primary assignee (first of assigneeIds) — kept for older display code
@@ -148,62 +229,157 @@ export type ScheduleEventScope = "personal" | "team";
 export type ScheduleEventVisibility = "private" | "shared";
 
 export interface ScheduleEvent {
+  createdAt?: string | null;
+  updatedAt?: string | null;
   id: number;
   title: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD — 기간 일정이면 시작일
+  endDate: string | null; // YYYY-MM-DD — null이면 하루짜리 일정
   type: ScheduleEventType;
   scope: ScheduleEventScope;
   ownerMemberId: string | null; // scope === "personal"일 때만 존재
+  createdByMemberId?: string | null; // 만든 팀원(서버가 정함). 작성자 기록 전의 팀 일정은 null
   visibility: ScheduleEventVisibility | null; // scope === "personal"일 때만 존재
   hideTitle: boolean;
+}
+
+// 메인 화면 프로젝트 카드용: 내 모든 프로젝트의 오늘 이후 일정(남의 제목 숨김 일정은 "바쁨").
+export interface UpcomingEvent extends ScheduleEvent {
+  projectId: string;
+  projectName: string;
 }
 
 export interface NewScheduleEventInput {
   title: string;
   date: string;
+  endDate?: string | null; // 기간 일정일 때만 date보다 뒤 날짜로 지정
   type: ScheduleEventType;
   scope: ScheduleEventScope;
   visibility?: ScheduleEventVisibility; // scope === "personal"일 때 필수
   hideTitle?: boolean;
 }
 
-export interface ChatReaction {
-  messageId: number;
-  memberId: string;
-  emoji: string;
-}
+export type BoardCategory = "notice" | "free" | "recruit";
 
-export type EvaluationPhase = "midterm" | "final";
-
-export interface EvaluationEntry {
-  recipientId: string;
-  role: number;
-  deadline: number;
-  communication: number;
-  collaboration: number;
-  quality: number;
-  comment: string;
-}
-
-export interface PeerEvaluationRecord extends EvaluationEntry {
+export interface BoardAttachment {
   id: string;
-  evaluatorId: string;
-  phase: EvaluationPhase;
+  name: string;
+  size: string;
+  kind: "image" | "file";
+  url: string;
+  mimeType?: string;
+}
+
+export interface BoardReply {
+  id: number;
+  authorUserId: string;
+  author: string;
+  authorAvatarUrl: string | null;
+  createdAt: string;
+  content: string;
+}
+
+export interface BoardComment {
+  id: number;
+  authorUserId: string;
+  author: string;
+  authorAvatarUrl: string | null;
+  createdAt: string;
+  content: string;
+  replies: BoardReply[];
+}
+
+export type BoardReportReason = "spam" | "abuse" | "sexual" | "privacy" | "other";
+
+export interface BoardPostReport {
+  id: number;
+  postId: number | null; // 게시글이 삭제되면 null
+  postTitle: string;
+  postExcerpt: string;
+  postAuthorName: string;
+  reporterUserId: string;
+  reporterName: string;
+  reason: BoardReportReason;
+  detail: string;
+  status: "open" | "resolved" | "dismissed";
   createdAt: string;
 }
 
-export interface EvaluationAverage {
-  available: boolean;
-  count: number;
-  score: number | null;
-  criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null;
-  comments: string[];
+export interface BoardPollVoter {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
 }
 
-export interface EvaluationData {
-  records: PeerEvaluationRecord[];
-  submitted: boolean;
-  average: EvaluationAverage;
+export interface BoardPollOption {
+  id: number;
+  pollId: number;
+  text: string;
+  votesCount: number;
+  sortOrder: number;
+  voters?: BoardPollVoter[];
+}
+
+export interface BoardPoll {
+  id: number;
+  postId: number;
+  question: string;
+  allowMultiple: boolean;
+  isAnonymous: boolean;
+  closed: boolean;
+  closesAt: string | null;
+  createdAt: string;
+  options: BoardPollOption[];
+  totalVotes: number;
+  hasVoted: boolean;
+  myOptionIds: number[];
+}
+
+export interface NewBoardPollInput {
+  question: string;
+  options: string[];
+  allowMultiple: boolean;
+  isAnonymous: boolean;
+  closesAt?: string | null;
+}
+
+export interface BoardPost {
+  id: number;
+  category: BoardCategory;
+  title: string;
+  content: string;
+  authorUserId: string;
+  author: string;
+  authorAvatarUrl: string | null;
+  createdAt: string;
+  views: number;
+  likes: number;
+  likedByMe: boolean;
+  pinned: boolean;
+  tags: string[];
+  attachments: BoardAttachment[];
+  commentsCount: number;
+  comments: BoardComment[];
+  poll?: BoardPoll | null;
+  hideImagePreview?: boolean;
+  reportedByMe?: boolean;
+}
+
+export interface NewBoardPostInput {
+  category: BoardCategory;
+  title: string;
+  content: string;
+  attachments: BoardAttachment[];
+  poll?: NewBoardPollInput | null;
+  tags?: string[];
+  hideImagePreview?: boolean;
+}
+
+// 팀장·부팀장이 만든 단체 채팅방. 채널 id는 `grp:${id}`, 참여자에게만 보인다.
+export interface ChatGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
 }
 
 export interface ChatMessage {
@@ -215,4 +391,100 @@ export interface ChatMessage {
   createdAt: string;
   readBy: string[];
   reactions: ChatReaction[];
+}
+
+// 서버가 결과를 정하는 채팅 도구(제비뽑기·사다리·룰렛)의 결과 이벤트.
+export interface ChatToolEvent {
+  id: number;
+  messageId: number;
+  kind: "draw" | "ladder" | "roulette";
+  event: "init" | "draw_pick" | "draw_reveal_all" | "ladder_reveal" | "roulette_spin";
+  actorMemberId: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+  createdAt: string;
+}
+
+export interface ChatReaction {
+  messageId: number;
+  memberId: string;
+  emoji: string;
+}
+
+export type EvaluationPhase = "midterm" | "final";
+export interface EvaluationEntry {
+  recipient_id: string;
+  role: number;
+  deadline: number;
+  communication: number;
+  collaboration: number;
+  quality: number;
+  comment: string;
+}
+export interface PeerEvaluationRecord extends EvaluationEntry {
+  id: string;
+  evaluator_id: string;
+  phase: EvaluationPhase;
+  created_at: string;
+}
+// 동료 평가 점수 방식: raw = 받은 점수 평균(현재), cca = 성향 보정 합의 평균(미리보기)
+export type EvaluationScoreMethod = "raw" | "cca";
+export interface EvaluationData {
+  average?: { method?: EvaluationScoreMethod; available: boolean; count: number; score: number | null; criteria: Record<"role" | "deadline" | "communication" | "collaboration" | "quality", number> | null; comments?: string[] };
+  records: PeerEvaluationRecord[];
+  submitted: boolean;
+}
+
+// ── 관리자 가입 신청(교수·교원 증명서 PDF + 운영자 승인) ──
+export type AdminDocType = "employment" | "faculty_id" | "appointment" | "other";
+export type AdminApplicationStatus = "pending" | "approved" | "rejected";
+export interface AdminApplicationInput {
+  org: string;
+  jobTitle: string;
+  contact: string;
+  docType: AdminDocType;
+  file: File;
+  consent: boolean;
+}
+// 신청자 본인이 보는 신청 상태.
+export interface MyAdminApplication {
+  id: string;
+  status: AdminApplicationStatus;
+  org: string;
+  jobTitle: string;
+  docType: AdminDocType;
+  docName: string;
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+}
+// 운영자가 보는 신청 기록.
+export interface AdminApplicationRecord {
+  id: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  emailConfirmed: boolean;
+  org: string;
+  jobTitle: string;
+  contact: string;
+  docType: AdminDocType;
+  docName: string;
+  docSize: number;
+  // 처리 후 원본 PDF를 지우면 null.
+  docPath: string | null;
+  docDeleted: boolean;
+  status: AdminApplicationStatus;
+  submittedAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  reviewedByName: string | null;
+}
+export interface AdminAccount {
+  userId: string;
+  displayName: string;
+  email: string;
+  org: string | null;
+  isOperator: boolean;
+  pendingProjects: number;
 }

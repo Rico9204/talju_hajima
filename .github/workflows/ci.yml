@@ -1,0 +1,33 @@
+# PR과 main 푸시마다 타입 검사, 빌드, 테스트를 실행한다.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: npx tsc --noEmit -p .
+      - name: Build
+        run: pnpm run build
+      - name: Test
+        run: pnpm test
+      # 백엔드 API 서버(server/): 별도 패키지라 따로 설치한다. test가 빌드(tsc)까지 한다.
+      - name: Server install
+        run: pnpm --dir server install --frozen-lockfile --ignore-workspace
+      - name: Server build and test
+        run: pnpm --dir server test

@@ -1,0 +1,609 @@
+import type { CSSProperties } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
+import { useAuth } from "../context/AuthContext";
+import CreateProjectModal from "./CreateProjectModal";
+import JoinProjectModal from "./JoinProjectModal";
+import BoardView from "./BoardView";
+import Achievements from "./Achievements";
+import AdminApplicationNotice from "./AdminApplicationNotice";
+import AdminOperatorPanel from "./AdminOperatorPanel";
+import ProfileModal from "./ProfileModal";
+import UserMenu from "./UserMenu";
+import AdminReports from "./AdminReports";
+import CampusNoticesView from "./CampusNoticesView";
+import { dataRepository } from "../api";
+import { useAccountBackground } from "../lib/useAccountBackground";
+import {
+  useHomeMenuOrder,
+  reorderHomeMenuItem,
+  type HomeNavTab,
+} from "../lib/menuPreferences";
+import type { ScheduleEventType, UpcomingEvent } from "../api/types";
+import { dDayLabel } from "../lib/dday";
+import { recruitPostFromNotice, type BoardInitialState } from "../lib/recruitFromNotice";
+
+const EVENT_TYPE: Record<ScheduleEventType, { label: string; color: string }> = {
+  deadline: { label: "마감", color: "#ef4444" },
+  meeting: { label: "회의", color: "#2563eb" },
+  presentation: { label: "발표", color: "#f59e0b" },
+  other: { label: "기타", color: "#8b5cf6" },
+};
+
+const statusStyle: Record<"active" | "done", { label: string; bg: string; color: string }> = {
+  active: { label: "진행 중", bg: "#22c55e18", color: "#22c55e" },
+  done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
+};
+
+type HomeTab = "projects" | "campus" | "board" | "achievements" | "operator" | "reports";
+
+export default function Home() {
+  const { projects, setProjectId, addProject, lookupProject, joinProject, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
+  // 프로젝트 카드의 주황 알림 점. 지금 선택된 프로젝트는 실시간으로 계산된 안 읽음 수를,
+  // 나머지는 서버(my_project_alerts)에 물어본 결과를 쓴다.
+  // ponytail: 다른 프로젝트는 화면 진입·창 포커스·1분마다 다시 묻는다. 즉시 반영이 필요하면 프로젝트별 실시간 구독으로.
+  const [alertProjectIds, setAlertProjectIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let active = true;
+    const load = () => { dataRepository.getMyProjectAlerts().then((ids) => { if (active) setAlertProjectIds(new Set(ids)); }).catch(() => {}); };
+    load();
+    window.addEventListener("focus", load);
+    const timer = window.setInterval(load, 60_000);
+    return () => { active = false; window.removeEventListener("focus", load); window.clearInterval(timer); };
+  }, [projects.length]);
+  // 프로젝트 카드의 다가오는 일정(Temporary_Merge "내 프로젝트" 화면 이식): 가장 가까운 일정 + D-day, 카드에 올리면 전체 목록.
+  // 마우스가 없는 휴대폰·태블릿에서는 카드의 "+N" 버튼을 눌러 펼치고, 카드 밖을 누르면 닫는다.
+  const [upcoming, setUpcoming] = useState<UpcomingEvent[]>([]);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  const [openEventsProjectId, setOpenEventsProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!openEventsProjectId) return;
+    const close = (e: PointerEvent) => {
+      const card = (e.target as Element | null)?.closest?.("[data-project-card]");
+      if (card?.getAttribute("data-project-card") !== openEventsProjectId) setOpenEventsProjectId(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [openEventsProjectId]);
+  useEffect(() => {
+    let active = true;
+    const load = () => { dataRepository.listUpcomingEvents().then((list) => { if (active) setUpcoming(list); }).catch(() => {}); };
+    load();
+    window.addEventListener("focus", load);
+    return () => { active = false; window.removeEventListener("focus", load); };
+  }, [projects.length]);
+  const liveUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
+  const hasAlert = (id: string) => (id === project.id ? liveUnread > 0 : alertProjectIds.has(id));
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { backgroundStyle, glassStyle, lineSafeStyle } = useAccountBackground();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  // 설정은 메인 화면 탭이 아니라 왼쪽 아래 내 카드 메뉴의 창(UserMenu)으로 연다.
+  const [activeTab, setActiveTab] = useState<HomeTab>("projects");
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [homeMenuOrder, saveHomeMenuOrder] = useHomeMenuOrder();
+  const [draggedTab, setDraggedTab] = useState<HomeNavTab | null>(null);
+  const [dragOverTab, setDragOverTab] = useState<HomeNavTab | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>, tab: HomeNavTab) {
+    e.dataTransfer.setData("text/plain", tab);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedTab(tab);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>, tab: HomeNavTab) {
+    if (!draggedTab || draggedTab === tab) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const pos = e.clientY < midpoint ? "before" : "after";
+
+    if (dragOverTab !== tab || dropPosition !== pos) {
+      setDragOverTab(tab);
+      setDropPosition(pos);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    const related = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(related)) {
+      setDragOverTab(null);
+      setDropPosition(null);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, targetTab: HomeNavTab) {
+    e.preventDefault();
+    if (!draggedTab || draggedTab === targetTab) {
+      setDraggedTab(null);
+      setDragOverTab(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const fromIdx = homeMenuOrder.indexOf(draggedTab);
+    const toIdx = homeMenuOrder.indexOf(targetTab);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      let insertIdx = toIdx;
+      if (dropPosition === "after" && fromIdx > toIdx) {
+        insertIdx = toIdx + 1;
+      } else if (dropPosition === "before" && fromIdx < toIdx) {
+        insertIdx = toIdx - 1;
+      }
+      saveHomeMenuOrder(reorderHomeMenuItem(homeMenuOrder, fromIdx, insertIdx));
+    }
+
+    setDraggedTab(null);
+    setDragOverTab(null);
+    setDropPosition(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedTab(null);
+    setDragOverTab(null);
+    setDropPosition(null);
+  }
+
+  // 공모전 공지에서 '팀원 모집' 클릭 시 게시판으로 전달할 상태
+  const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
+
+  function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string }) {
+    setBoardInitialState(recruitPostFromNotice(notice));
+    setActiveTab("board");
+  }
+
+  // 운영자 전용 메뉴: 대기 중인 관리자 신청 수를 배지로 보여준다(운영자가 아니면 조회하지 않는다).
+  const { isOperator, listAdminApplications } = useProjectManagement();
+  const [pendingApplications, setPendingApplications] = useState(0);
+  const [openReports, setOpenReports] = useState(0); // 미처리 게시글 신고 수(운영자 메뉴 배지)
+  useEffect(() => {
+    if (!isOperator) return;
+    let active = true;
+    listAdminApplications()
+      .then((apps) => active && setPendingApplications(apps.filter((a) => a.status === "pending").length))
+      .catch(() => undefined);
+    dataRepository
+      .listAllBoardReports()
+      .then((list) => active && setOpenReports(list.filter((x) => x.status === "open").length))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isOperator]);
+
+  function enterProject(id: string) {
+    setProjectId(id);
+    navigate("/dashboard");
+  }
+
+  function selectTab(tab: HomeTab) {
+    setActiveTab(tab);
+    setMobileOpen(false);
+    // 공지에서 넘어온 "팀원 모집" 글쓰기는 게시판을 떠나면 버린다(다시 들어올 때 또 열리지 않게).
+    setBoardInitialState(null);
+  }
+
+  return (
+    <div className="relative h-full w-full overflow-hidden" style={glassStyle as CSSProperties}>
+      {/* Single filtered background layer, shared with Layout in App.tsx. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          ...backgroundStyle,
+          transform: "scale(1.1) translateZ(0)",
+          // Same tile-rasterization-seam fix as App.tsx's Layout — see the
+          // comment there (deliberately no will-change: transform; it broke
+          // backdrop-filter rendering on the fixed notification popup).
+          backfaceVisibility: "hidden",
+          WebkitBackfaceVisibility: "hidden",
+        }}
+      />
+      <div className="relative flex h-full w-full overflow-hidden">
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
+        style={{ background: "var(--card-glass)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
+        aria-label="메뉴 열기"
+      >
+        ☰
+      </button>
+
+      <aside
+        className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto bg-[var(--background)] md:bg-transparent`}
+      >
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden self-end w-9 h-9 flex items-center justify-center text-lg mb-2"
+          style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+          aria-label="메뉴 닫기"
+        >
+          ✕
+        </button>
+
+        <div className="px-4 py-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src="/slackerspace_icon.png"
+              alt="Slackerspace"
+              className="w-9 h-9 shrink-0"
+              style={{ borderRadius: "20%" }}
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-700 leading-none">Slackerspace</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>v1.0.0</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-2 mb-2">
+          <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>
+            메뉴
+          </span>
+          <span className="text-[10px] hidden md:inline-block select-none" style={{ color: "var(--muted-foreground)", opacity: 0.7 }} title="메뉴를 드래그하여 순서를 바꿀 수 있습니다">
+            끌어서 정렬
+          </span>
+        </div>
+        <nav className="flex-1 flex flex-col gap-1">
+          {homeMenuOrder.map((tabId) => {
+            const isDragging = draggedTab === tabId;
+            const isOver = dragOverTab === tabId;
+
+            let buttonContent: React.ReactNode = null;
+            if (tabId === "projects") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("projects")}
+                  className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "projects" ? "var(--primary)" : "transparent", color: activeTab === "projects" ? "#fff" : "var(--foreground)" }}
+                  title="내 프로젝트 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>📁</span>
+                    <span>내 프로젝트</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+                      style={{ background: activeTab === "projects" ? "rgba(255,255,255,0.2)" : "var(--muted)", color: activeTab === "projects" ? "#fff" : "var(--muted-foreground)", borderRadius: "20px" }}
+                    >
+                      {projects.length}
+                    </span>
+                    <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                      ⠿
+                    </span>
+                  </div>
+                </button>
+              );
+            } else if (tabId === "board") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("board")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "board" ? "var(--primary)" : "transparent", color: activeTab === "board" ? "#fff" : "var(--foreground)" }}
+                  title="게시판 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>💬</span>
+                    <span>게시판</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            } else if (tabId === "campus") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("campus")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "campus" ? "var(--primary)" : "transparent", color: activeTab === "campus" ? "#fff" : "var(--foreground)" }}
+                  title="캠퍼스 소식 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>🎓</span>
+                    <span>캠퍼스 소식</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            } else if (tabId === "achievements") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("achievements")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "achievements" ? "var(--primary)" : "transparent", color: activeTab === "achievements" ? "#fff" : "var(--foreground)" }}
+                  title="업적 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span>◈</span>
+                    <span>업적</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
+            }
+
+            return (
+              <div
+                key={tabId}
+                draggable
+                onDragStart={(e) => handleDragStart(e, tabId)}
+                onDragOver={(e) => handleDragOver(e, tabId)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, tabId)}
+                onDragEnd={handleDragEnd}
+                className="relative group transition-all"
+                style={{
+                  opacity: isDragging ? 0.35 : 1,
+                  transform: isDragging ? "scale(0.98)" : "none",
+                }}
+              >
+                {/* Visual drop indicator line */}
+                {isOver && dropPosition === "before" && (
+                  <div
+                    className="absolute -top-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
+                )}
+                {isOver && dropPosition === "after" && (
+                  <div
+                    className="absolute -bottom-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
+                )}
+
+                {buttonContent}
+              </div>
+            );
+          })}
+
+          {isOperator && (
+            <button
+              onClick={() => selectTab("operator")}
+              className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all"
+              style={{ borderRadius: "10px", background: activeTab === "operator" ? "var(--primary)" : "transparent", color: activeTab === "operator" ? "#fff" : "var(--foreground)" }}
+            >
+              <span className="flex items-center gap-2.5">
+                <span>🛡️</span>
+                <span>운영자</span>
+              </span>
+              {pendingApplications > 0 && (
+                <span
+                  aria-label={`대기 중인 관리자 신청 ${pendingApplications}건`}
+                  className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+                  style={{ background: activeTab === "operator" ? "rgba(255,255,255,0.2)" : "#ef444418", color: activeTab === "operator" ? "#fff" : "#ef4444", borderRadius: "20px" }}
+                >
+                  {pendingApplications}
+                </span>
+              )}
+            </button>
+          )}
+          {isOperator && (
+            <button
+              onClick={() => selectTab("reports")}
+              className="flex items-center justify-between gap-2 px-3 py-2.5 text-left text-xs font-700 transition-all"
+              style={{ borderRadius: "10px", background: activeTab === "reports" ? "var(--primary)" : "transparent", color: activeTab === "reports" ? "#fff" : "var(--foreground)" }}
+            >
+              <span className="flex items-center gap-2.5">
+                <span>🚩</span>
+                <span>신고 관리</span>
+              </span>
+              {openReports > 0 && (
+                <span
+                  aria-label={`미처리 신고 ${openReports}건`}
+                  className="text-xs px-1.5 py-0.5 font-700 shrink-0"
+                  style={{ background: activeTab === "reports" ? "rgba(255,255,255,0.2)" : "#ef444418", color: activeTab === "reports" ? "#fff" : "#ef4444", borderRadius: "20px" }}
+                >
+                  {openReports}
+                </span>
+              )}
+            </button>
+          )}
+        </nav>
+
+          <UserMenu subtitle={user?.email ?? ""} />
+      </aside>
+
+      <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
+        <div className="max-w-5xl mx-auto">
+          <AdminApplicationNotice />
+          {activeTab === "operator" && isOperator ? (
+            <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
+          ) : activeTab === "reports" && isOperator ? (
+            <div className="space-y-4">
+              <div>
+                <h1 className="text-xl font-700">신고 관리</h1>
+                <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>게시판에 들어온 신고를 상태와 구분별로 확인하고 처리해요.</p>
+              </div>
+              <AdminReports onOpenCountChange={setOpenReports} />
+            </div>
+          ) : activeTab === "campus" ? (
+            <CampusNoticesView onRecruitFromNotice={handleRecruitFromNotice} />
+          ) : activeTab === "board" ? (
+            <BoardView
+              initialCategory={boardInitialState?.category}
+              initialCreating={boardInitialState?.isCreating}
+              initialPostTitle={boardInitialState?.title}
+              initialPostContent={boardInitialState?.content}
+              onResetInitialState={() => setBoardInitialState(null)}
+            />
+          ) : activeTab === "achievements" ? (
+            <Achievements />
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-6">
+                <div>
+                  <h1 className="text-xl font-700">내 프로젝트</h1>
+                  <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>참여 중인 팀 협업 프로젝트 목록입니다.</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => setJoinOpen(true)}
+                    className="text-xs font-700 px-3.5 py-2"
+                    style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
+                  >
+                    참여하기
+                  </button>
+                  <button
+                    onClick={() => setCreateOpen(true)}
+                    className="text-xs font-700 px-3.5 py-2"
+                    style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+                  >
+                    새 프로젝트
+                  </button>
+                </div>
+              </div>
+
+              {projects.length === 0 ? (
+                <div
+                  className="p-8 text-center border-2 border-dashed"
+                  style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}
+                >
+                  참여 중인 프로젝트가 없어요
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {projects.map((p) => {
+                    const st = statusStyle[p.status];
+                    const events = upcoming.filter((e) => e.projectId === p.id);
+                    const nearest = events[0];
+                    return (
+                      <div
+                        key={p.id}
+                        data-project-card={p.id}
+                        className="relative"
+                        onMouseEnter={() => setHoveredProjectId(p.id)}
+                        onMouseLeave={() => setHoveredProjectId((id) => (id === p.id ? null : id))}
+                        onFocus={() => setHoveredProjectId(p.id)}
+                        onBlur={() => setHoveredProjectId((id) => (id === p.id ? null : id))}
+                      >
+                      <button
+                        onClick={() => enterProject(p.id)}
+                        className="relative w-full h-full text-left p-5 transition-all"
+                        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
+                        aria-label={hasAlert(p.id) ? `${p.name} (확인하지 않은 알림 있음)` : undefined}
+                      >
+                        {hasAlert(p.id) && (
+                          <span
+                            aria-hidden="true"
+                            title="확인하지 않은 알림이 있어요"
+                            className="absolute top-3 right-3 w-3 h-3 rounded-full"
+                            style={{ background: "#f97316", boxShadow: "0 0 0 3px #f9731633" }}
+                          />
+                        )}
+                        <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                          <span className="text-xs font-700 px-2 py-0.5" style={{ background: st.bg, color: st.color, borderRadius: "20px" }}>
+                            {st.label}
+                          </span>
+                          {p.approvalStatus === "pending" && (
+                            <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#f0a50018", color: "#f0a500", borderRadius: "20px" }}>
+                              승인 대기
+                            </span>
+                          )}
+                          {p.approvalStatus === "rejected" && (
+                            <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}>
+                              반려됨
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-base font-700 truncate mb-1">{p.name}</div>
+                        <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
+                        <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
+                        <div className={`flex items-center gap-2 mt-3 pt-2.5 min-w-0${events.length > 1 ? " pr-12" : ""}`} style={{ borderTop: "1px solid var(--border)" }}>
+                          {nearest ? (
+                            <>
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EVENT_TYPE[nearest.type].color }} />
+                              <span className="text-xs truncate flex-1" style={{ color: "var(--muted-foreground)" }}>{nearest.title}</span>
+                              <span className="text-[11px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: `${EVENT_TYPE[nearest.type].color}18`, color: EVENT_TYPE[nearest.type].color, borderRadius: "6px" }}>{dDayLabel(nearest.date, nearest.endDate)}</span>
+                            </>
+                          ) : (
+                            <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>예정된 일정 없음</span>
+                          )}
+                        </div>
+                      </button>
+                      {events.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // 휴대폰은 누를 때 "마우스 올림"도 함께 켜지므로, 닫을 때 그것도 꺼야 목록이 닫힌다.
+                            if (openEventsProjectId === p.id) { setOpenEventsProjectId(null); setHoveredProjectId(null); }
+                            else setOpenEventsProjectId(p.id);
+                          }}
+                          aria-expanded={openEventsProjectId === p.id || hoveredProjectId === p.id}
+                          aria-label={`다가오는 일정 ${events.length}개 보기`}
+                          className="absolute right-4 bottom-4 text-[11px] font-700 px-2 py-0.5"
+                          style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                        >
+                          +{events.length - 1}
+                        </button>
+                      )}
+                      {(hoveredProjectId === p.id || openEventsProjectId === p.id) && events.length > 1 && (
+                        <div className="absolute left-0 right-0 top-full mt-1.5 p-3 z-20" role="tooltip" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}>
+                          <div className="text-xs font-700 mb-2" style={{ color: "var(--muted-foreground)" }}>다가오는 일정 {events.length}개</div>
+                          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto">
+                            {events.map((e) => (
+                              <div key={e.id} className="flex items-center justify-between gap-2 p-2" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: EVENT_TYPE[e.type].color }} />
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-600 truncate">{e.title}</div>
+                                    <div className="text-[11px] truncate" style={{ color: "var(--muted-foreground)" }}>{e.date}{e.endDate ? ` ~ ${e.endDate}` : ""} · {EVENT_TYPE[e.type].label}{e.scope === "personal" ? " · 개인" : ""}</div>
+                                  </div>
+                                </div>
+                                <span className="text-[11px] font-700 shrink-0" style={{ color: EVENT_TYPE[e.type].color }}>{dDayLabel(e.date, e.endDate)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </main>
+
+      {createOpen && (
+        <CreateProjectModal
+          onCancel={() => setCreateOpen(false)}
+          onCreate={async (input, recruit) => {
+            const id = await addProject(input, recruit);
+            setCreateOpen(false);
+            navigate("/dashboard");
+            return id;
+          }}
+        />
+      )}
+      {joinOpen && (
+        <JoinProjectModal
+          lookupProject={lookupProject}
+          joinProject={joinProject}
+          onCancel={() => setJoinOpen(false)}
+          onJoined={() => {
+            setJoinOpen(false);
+            navigate("/dashboard");
+          }}
+        />
+      )}
+      <ProfileModal />
+      </div>
+    </div>
+  );
+}

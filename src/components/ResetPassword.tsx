@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { resetPassword } from "../api/rest/authApi";
 import { useAuth } from "../context/AuthContext";
 
 export default function ResetPassword() {
-  const { user, updatePassword } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { user, signOut } = useAuth();
+  const token = searchParams.get("token");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,20 +19,32 @@ export default function ResetPassword() {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
-    const result = await updatePassword(password);
+    const result = await resetPassword(token!, password).then(() => ({ error: null })).catch((error) => ({ error: error instanceof Error ? error.message : "비밀번호를 변경하지 못했습니다." }));
     setSubmitting(false);
     if (result.error) {
       setError(result.error);
       return;
     }
+    // 서버는 재설정하면 모든 기기를 로그아웃시킨다. 이 브라우저에 남은 로그인도 지워 새 비밀번호로 다시 로그인하게 한다.
+    if (user) await signOut();
     setDone(true);
   }
 
-  // No session at all means this wasn't reached via a valid reset link (or
-  // an already logged-in user navigating here directly) — there's nothing to
-  // reset.
-  if (!user) return <Navigate to="/login" replace />;
-  if (done) return <Navigate to="/dashboard" replace />;
+  if (!token) return <Navigate to="/login" replace />;
+  if (done) {
+    return (
+      <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
+        <div role="status" className="w-[24rem] max-w-[92vw] p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+          <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
+          <h3 className="font-700 mb-1">비밀번호가 변경되었습니다</h3>
+          <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>모든 기기에서 로그아웃되었어요. 새 비밀번호로 다시 로그인해 주세요.</p>
+          <Link to="/login" replace className="block w-full py-2.5 text-sm font-700 text-center" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}>
+            로그인하러 가기
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ background: "var(--background)" }}>
@@ -37,12 +52,7 @@ export default function ResetPassword() {
         className="w-[24rem] max-w-[92vw] p-6"
         style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
       >
-        <div
-          className="w-10 h-10 flex items-center justify-center text-lg font-700 mb-3"
-          style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "12px" }}
-        >
-          CP
-        </div>
+        <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
         <h3 className="font-700 mb-1">비밀번호 재설정</h3>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
           새로 사용할 비밀번호를 입력해주세요.

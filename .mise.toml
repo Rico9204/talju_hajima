@@ -1,3 +1,6 @@
 [tools]
 node = "22"
+# Project package manager is pnpm (pnpm-lock.yaml is authoritative). Never run
+# npm install here — it writes package-lock.json, which drifts from
+# pnpm-lock.yaml and breaks Vercel's pnpm install --frozen-lockfile step.
 "npm:pnpm" = "10.34.3"

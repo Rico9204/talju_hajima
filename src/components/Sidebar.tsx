@@ -1,66 +1,239 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { Page } from "../App";
-import { useProject } from "../context/ProjectContext";
-import { useAuth } from "../context/AuthContext";
-import { createInviteToken } from "../api/backend/nestDataRepository";
-import { addProfileLink, deleteProfileLink } from "../api/backend/profileLinks";
-import { detectLink } from "../lib/links";
-import type { ProfileLink } from "../api/types";
+import { useProject, useProjectManagement } from "../context/ProjectContext";
+import { formatChatTime } from "../lib/chatDate";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
-import SchoolMajorPicker from "./SchoolMajorPicker";
-import Avatar from "./Avatar";
-import BrandIcon, { type KnownLinkType } from "./BrandIcon";
+import ProfileModal from "./ProfileModal";
+import UserMenu from "./UserMenu";
+import { useMenuOrder, reorderMenuItem, type NavPage } from "../lib/menuPreferences";
 
-const navItems: { id: Page; label: string; icon: string }[] = [
+const navItems: { id: Page; label: string; icon: ReactNode }[] = [
   { id: "dashboard", label: "대시보드", icon: "⊞" },
   { id: "team", label: "팀 관리", icon: "◎" },
-  { id: "chat", label: "팀 채팅", icon: "◐" },
+  {
+    id: "chat",
+    label: "채팅",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      </svg>
+    ),
+  },
   { id: "tasks", label: "과제 보드", icon: "≡" },
   { id: "schedule", label: "일정", icon: "▤" },
-  { id: "workspace", label: "워킹스페이스", icon: "⬡" },
-  { id: "collector", label: "정보 수집", icon: "⌕" },
+  { id: "workspace", label: "워크스페이스", icon: "⬡" },
   { id: "evaluation", label: "동료 평가", icon: "★" },
 ];
 
-export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
-  const { projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, chatUnreadTotal, isLeader, currentMember, updateMyProfile } = useProject();
-  const { signOut, updatePassword } = useAuth();
-  const myName = currentMember?.name ?? "참여자";
+const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
+
+export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
+  const routerNavigate = useNavigate();
+  const {
+    projects, project, setProjectId, addProject, deleteProject, lookupProject, joinProject, getJoinCode, rotateJoinCode, isLeader, isViceLeader, chatUnreadTotal, unreadMentions, currentMember,
+    tasksUnread, scheduleUnread, workspaceUnread,
+    newTasks, newScheduleEvents, newFiles,
+  } = useProject();
+  const navUnread: Partial<Record<Page, number>> = { chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
+  const totalUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifPos, setNotifPos] = useState<{ top: number; left: number } | null>(null);
+  const notifButtonRef = useRef<HTMLButtonElement>(null);
+
+  function toggleNotif() {
+    if (!notifOpen && notifButtonRef.current) {
+      const rect = notifButtonRef.current.getBoundingClientRect();
+      const panelWidth = 288; // w-72
+      const left = Math.min(rect.right + 8, window.innerWidth - panelWidth - 8);
+      setNotifPos({ top: rect.top, left: Math.max(8, left) });
+    }
+    setNotifOpen((v) => !v);
+    setSwitcherOpen(false);
+  }
+  const { isAdmin } = useProjectManagement();
+  const [menuOrder, saveMenuOrder] = useMenuOrder();
+  const [draggedPage, setDraggedPage] = useState<NavPage | null>(null);
+  const [dragOverPage, setDragOverPage] = useState<NavPage | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+
+  const navItemsMap = useMemo(() => {
+    const map = new Map<Page, { id: Page; label: string; icon: ReactNode }>();
+    for (const item of navItems) {
+      map.set(item.id, item);
+    }
+    return map;
+  }, []);
+
+  const orderedNavItems = useMemo(() => {
+    const list: { id: Page; label: string; icon: ReactNode }[] = [];
+    for (const id of menuOrder) {
+      const item = navItemsMap.get(id);
+      if (item) list.push(item);
+    }
+    return list;
+  }, [menuOrder, navItemsMap]);
+
+  const visibleNavItems = isAdmin ? [...orderedNavItems, adminNavItem] : orderedNavItems;
+
+  function handleDragStart(e: DragEvent<HTMLDivElement>, page: NavPage) {
+    e.dataTransfer.setData("text/plain", page);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedPage(page);
+  }
+
+  function handleDragOver(e: DragEvent<HTMLDivElement>, page: NavPage) {
+    if (!draggedPage || draggedPage === page) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const pos = e.clientY < midpoint ? "before" : "after";
+
+    if (dragOverPage !== page || dropPosition !== pos) {
+      setDragOverPage(page);
+      setDropPosition(pos);
+    }
+  }
+
+  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+    const related = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(related)) {
+      setDragOverPage(null);
+      setDropPosition(null);
+    }
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>, targetPage: NavPage) {
+    e.preventDefault();
+    if (!draggedPage || draggedPage === targetPage) {
+      setDraggedPage(null);
+      setDragOverPage(null);
+      setDropPosition(null);
+      return;
+    }
+
+    const fromIdx = menuOrder.indexOf(draggedPage);
+    const toIdx = menuOrder.indexOf(targetPage);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      let insertIdx = toIdx;
+      if (dropPosition === "after" && fromIdx > toIdx) {
+        insertIdx = toIdx + 1;
+      } else if (dropPosition === "before" && fromIdx < toIdx) {
+        insertIdx = toIdx - 1;
+      }
+      saveMenuOrder(reorderMenuItem(menuOrder, fromIdx, insertIdx));
+    }
+
+    setDraggedPage(null);
+    setDragOverPage(null);
+    setDropPosition(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedPage(null);
+    setDragOverPage(null);
+    setDropPosition(null);
+  }
   const myRole = currentMember?.role ?? "참여자";
-  const myAvatar = currentMember?.avatar ?? "?";
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const logoCardRef = useRef<HTMLDivElement>(null);
+  // The notif panel is portaled to document.body (see below — a backdrop-filter
+  // ancestor was clipping/mispositioning it as a position:fixed element), so
+  // it's no longer a DOM descendant of logoCardRef and needs its own ref to
+  // stay excluded from the outside-click close check.
+  const notifPanelRef = useRef<HTMLDivElement>(null);
+
+  // Close the project switcher / notification dropdowns when clicking
+  // anywhere else — the switcher lives under logoCardRef, the notif panel
+  // under notifPanelRef (portaled to document.body).
+  useEffect(() => {
+    if (!switcherOpen && !notifOpen) return;
+    function handlePointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (logoCardRef.current?.contains(target)) return;
+      if (notifPanelRef.current?.contains(target)) return;
+      setSwitcherOpen(false);
+      setNotifOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [switcherOpen, notifOpen]);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
-  const [invitingCode, setInvitingCode] = useState(false);
+  // 참여 코드: 생성 후 6시간 유효. 만료 시각이 지나면 다시 받아 오고(서버가 새로 발급), 남은 시간은 1분마다 갱신.
+  const [joinCode, setJoinCode] = useState<{ projectId: string; joinCode: string; joinCodeExpiresAt: string } | null>(null);
+  const [joinCodeError, setJoinCodeError] = useState<string | null>(null);
+  const [rotatingCode, setRotatingCode] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const projectIdForCode = project?.id;
+  const codeExpiresAt = joinCode?.projectId === projectIdForCode ? joinCode?.joinCodeExpiresAt : undefined;
+  useEffect(() => {
+    if (!projectIdForCode) return;
+    let cancelled = false;
+    const load = () => getJoinCode(projectIdForCode)
+      .then((code) => { if (!cancelled) { setJoinCode({ projectId: projectIdForCode, ...code }); setJoinCodeError(null); } })
+      .catch((error) => { if (!cancelled) setJoinCodeError(error instanceof Error ? error.message : "참여 코드를 불러오지 못했습니다."); });
+    const wait = codeExpiresAt ? new Date(codeExpiresAt).getTime() - Date.now() : 0;
+    const timer = setTimeout(load, Math.max(0, wait) + (codeExpiresAt ? 1000 : 0));
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [projectIdForCode, codeExpiresAt]); // getJoinCode는 렌더마다 새 함수라 넣지 않는다(넣으면 매번 다시 요청)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const shownCode = joinCode?.projectId === projectIdForCode ? joinCode.joinCode : null;
+  const remaining = (() => {
+    if (!codeExpiresAt) return "";
+    const minutes = Math.max(0, Math.floor((new Date(codeExpiresAt).getTime() - now) / 60_000));
+    return minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
+  })();
+  // 복사: 팀장·부팀장은 복사할 때마다 새 코드를 발급해 그 코드를 복사한다(이전 코드는 바로 무효, 6시간 유효).
+  // 다른 팀원은 갱신 권한이 없으므로, 그 사이 다른 사람이 새로 발급했을 수 있어 서버에서 지금 유효한 코드를 다시 받아 복사한다.
+  // 코드를 기다리는 동안 클릭의 사용자 동작이 끊기지 않도록(사파리) 가능하면 ClipboardItem에 Promise를 넘긴다.
+  async function copyJoinCode() {
+    if (!projectIdForCode || !shownCode || rotatingCode) return;
+    const projectId = projectIdForCode;
+    const next = isLeader || isViceLeader ? rotateJoinCode(projectId) : getJoinCode(projectId);
+    const text = next.then((code) => code.joinCode);
+    setRotatingCode(true);
+    try {
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((value) => new Blob([value], { type: "text/plain" })) })]);
+      } else {
+        await navigator.clipboard.writeText(await text);
+      }
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      // 코드를 받지 못했으면 그 이유를, 클립보드만 실패했으면 복사 실패를 알린다.
+      const issueError = await next.then(() => null, (e) => (e instanceof Error ? e.message : "참여 코드를 불러오지 못했습니다."));
+      window.alert(issueError ?? "복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.");
+    } finally {
+      const code = await next.catch(() => null);
+      if (code) { setJoinCode({ projectId, ...code }); setJoinCodeError(null); setNow(Date.now()); }
+      setRotatingCode(false);
+    }
+  }
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Below the md breakpoint the sidebar is hidden behind a hamburger button
+  // and takes over the full screen when opened (there's no room for a
+  // permanent 240px rail on a phone). At md and up this state is unused —
+  // the aside is always shown inline.
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [profileName, setProfileName] = useState("");
-  const [profileSchool, setProfileSchool] = useState("");
-  const [profileMajor, setProfileMajor] = useState("");
-  const [profileStudent, setProfileStudent] = useState("");
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [profileLinks, setProfileLinks] = useState<ProfileLink[]>([]);
-  const [newLinkUrl, setNewLinkUrl] = useState("");
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [linkBusy, setLinkBusy] = useState(false);
-
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ next: "", confirm: "" });
-  const [passwordNotice, setPasswordNotice] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
-    };
-  }, [avatarPreview]);
+  function navigate(p: Page) {
+    setMobileOpen(false);
+    onNavigate(p);
+  }
 
   async function confirmDelete() {
     setDeleting(true);
@@ -70,142 +243,230 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     onNavigate("dashboard");
   }
 
-  function openProfile() {
-    setProfileName(currentMember?.name ?? "");
-    setProfileSchool(currentMember?.school ?? "");
-    setProfileMajor(currentMember?.major ?? "");
-    setProfileStudent(currentMember?.student ?? "");
-    setAvatarFile(null);
-    setAvatarPreview(null);
-    setProfileError(null);
-    setProfileLinks(currentMember?.links ?? []);
-    setNewLinkUrl("");
-    setLinkError(null);
-    setProfileOpen(true);
-  }
-
-  async function addLink() {
-    const raw = newLinkUrl.trim();
-    if (!raw || linkBusy) return;
-    const url = raw.includes("://") ? raw : `https://${raw}`;
-    const detected = detectLink(url);
-    setLinkBusy(true);
-    setLinkError(null);
-    try {
-      const { data } = await addProfileLink({ url, type: detected.type, label: detected.label });
-      setProfileLinks((links) => [...links, data]);
-      setNewLinkUrl("");
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : "링크를 추가하지 못했습니다.");
-    } finally {
-      setLinkBusy(false);
-    }
-  }
-
-  async function removeLink(linkId: string) {
-    setLinkBusy(true);
-    setLinkError(null);
-    try {
-      await deleteProfileLink(linkId);
-      setProfileLinks((links) => links.filter((l) => l.id !== linkId));
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : "링크를 삭제하지 못했습니다.");
-    } finally {
-      setLinkBusy(false);
-    }
-  }
-
-  function handleAvatarPick(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) return;
-    setAvatarFile(file);
-    setAvatarPreview(URL.createObjectURL(file));
-  }
-
-  async function saveProfile() {
-    setSavingProfile(true);
-    setProfileError(null);
-    try {
-      await updateMyProfile({
-        name: profileName.trim() || undefined,
-        school: profileSchool.trim() || undefined,
-        major: profileMajor.trim() || undefined,
-        student: profileStudent.trim() || undefined,
-        avatarFile: avatarFile ?? undefined,
-      });
-      setProfileOpen(false);
-    } catch (err) {
-      setProfileError(err instanceof Error ? err.message : "저장하지 못했습니다.");
-    } finally {
-      setSavingProfile(false);
-    }
-  }
-
-  async function submitPasswordChange() {
-    if (passwordForm.next.length < 6) {
-      setPasswordNotice("비밀번호는 6자 이상이어야 합니다.");
-      return;
-    }
-    if (passwordForm.next !== passwordForm.confirm) {
-      setPasswordNotice("새 비밀번호와 확인이 일치하지 않습니다.");
-      return;
-    }
-    setChangingPassword(true);
-    const result = await updatePassword(passwordForm.next);
-    setChangingPassword(false);
-    if (result.error) {
-      setPasswordNotice(result.error);
-      return;
-    }
-    setPasswordNotice("비밀번호가 변경되었습니다.");
-    setPasswordForm({ next: "", confirm: "" });
-    setTimeout(() => {
-      setPasswordOpen(false);
-      setPasswordNotice("");
-    }, 1200);
-  }
-
   return (
     <>
-    <aside
-      className="flex flex-col w-60 h-full shrink-0 p-4"
-      style={{ background: "var(--background)" }}
+    {/* Always reachable on mobile, even while the sidebar itself is hidden. */}
+    <button
+      onClick={() => setMobileOpen(true)}
+      className="md:hidden fixed top-4 left-4 z-50 w-10 h-10 flex items-center justify-center text-lg"
+      style={{ background: "var(--card-glass)", color: "var(--foreground)", borderRadius: "10px", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
+      aria-label="메뉴 열기"
     >
+      ☰
+    </button>
+    <aside
+      className={`${mobileOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-60 h-full shrink-0 p-4 fixed md:relative inset-0 z-40 overflow-y-auto bg-[var(--background)] md:bg-transparent`}
+    >
+      <button
+        onClick={() => setMobileOpen(false)}
+        className="md:hidden self-end w-9 h-9 flex items-center justify-center text-lg mb-2"
+        style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+        aria-label="메뉴 닫기"
+      >
+        ✕
+      </button>
       {/* Logo card */}
       <div
+        ref={logoCardRef}
         className="px-4 py-4 mb-5 relative"
         style={{
-          background: "var(--card)",
+          background: "var(--card-glass)",
           borderRadius: "var(--radius)",
           boxShadow: "var(--shadow-card)",
+          backdropFilter: "var(--panel-blur)",
+          WebkitBackdropFilter: "var(--panel-blur)",
+          // backdrop-filter creates a new stacking context, which would
+          // otherwise trap the z-20 project-switcher dropdown below the
+          // Nav card right after it (that card is its own stacking context
+          // too, and later in DOM order). An explicit z-index here lifts
+          // this whole card — dropdown included — above it.
+          zIndex: 20,
         }}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => { setMobileOpen(false); onHome(); }}
+            title="메인 화면으로"
+            aria-label="메인 화면으로"
+            className="flex items-center gap-3 min-w-0 text-left"
+          >
+            <img
+              src="/slackerspace_icon.png"
+              alt="Slackerspace"
+              className="w-9 h-9 shrink-0"
+              style={{ borderRadius: "20%" }}
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-700 leading-none">Slackerspace</div>
+              <div
+                className="text-xs mt-0.5"
+                style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}
+              >
+                v1.0.0
+              </div>
+            </div>
+          </button>
+          <button
+            ref={notifButtonRef}
+            type="button"
+            onClick={toggleNotif}
+            title="알림"
+            aria-label="알림"
+            className="w-8 h-8 relative flex items-center justify-center text-sm shrink-0 transition-all"
+            style={{ background: notifOpen ? "var(--primary)" : "var(--muted)", color: notifOpen ? "#fff" : "var(--muted-foreground)", borderRadius: "8px" }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            {totalUnread > 0 && (
+              <span
+                className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-700"
+                style={{ background: "#ef4444", color: "#fff", borderRadius: "20px" }}
+              >
+                {totalUnread > 99 ? "99+" : totalUnread}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {notifOpen && notifPos && createPortal(
           <div
-            className="w-9 h-9 flex items-center justify-center text-xs font-800"
+            ref={notifPanelRef}
+            className="w-72 max-w-[85vw] p-2 z-[999] border animate-fadeIn"
             style={{
-              background: "var(--primary)",
-              color: "#fff",
-              borderRadius: "10px",
-              boxShadow: "0 4px 12px rgba(37,99,235,0.35)",
+              position: "fixed",
+              top: notifPos.top,
+              left: notifPos.left,
+              background: "var(--card)",
+              borderColor: "var(--border)",
+              color: "var(--foreground)",
+              borderRadius: "14px",
+              boxShadow: "0 16px 40px rgba(0, 0, 0, 0.25)",
+              backdropFilter: "var(--panel-blur)",
+              WebkitBackdropFilter: "var(--panel-blur)",
+              maxHeight: 380,
+              overflowY: "auto",
             }}
           >
-            CP
-          </div>
-          <div>
-            <div className="text-sm font-700 leading-none">CollabPeer</div>
-            <div
-              className="text-xs mt-0.5"
-              style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}
-            >
-              v2.4.1
+            <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
+              알림
             </div>
-          </div>
-        </div>
+            {totalUnread === 0 && (
+              <div className="px-2.5 py-4 text-xs text-center" style={{ color: "var(--muted-foreground)" }}>
+                새로운 알림이 없어요
+              </div>
+            )}
+            {unreadMentions.length > 0 && (
+              <div
+                className="p-2 mb-2 rounded-xl border transition-all"
+                style={{
+                  background: "rgba(59, 130, 246, 0.08)",
+                  borderColor: "rgba(59, 130, 246, 0.25)",
+                }}
+              >
+                <div className="flex items-center justify-between gap-1 mb-1.5 px-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>📢 멘션 알림</span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.2 rounded-full font-bold"
+                      style={{ background: "var(--primary)", color: "#fff" }}
+                    >
+                      {unreadMentions.length}
+                    </span>
+                  </div>
+                  <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>클릭하여 바로가기</span>
+                </div>
+                <div className="space-y-1">
+                  {unreadMentions.slice(0, 5).map((m) => (
+                    <button
+                      key={m.messageId}
+                      type="button"
+                      onClick={() => {
+                        setNotifOpen(false);
+                        setMobileOpen(false);
+                        routerNavigate(`/chat/${encodeURIComponent(m.channelId)}?messageId=${m.messageId}`);
+                      }}
+                      className="w-full text-left p-2 rounded-lg transition-all hover:bg-[var(--card)] hover:shadow-xs group cursor-pointer border border-transparent hover:border-[var(--border)]"
+                      style={{ background: "var(--card)" }}
+                    >
+                      <div className="flex items-center justify-between text-[11px] mb-0.5">
+                        <span className="font-bold truncate" style={{ color: "var(--foreground)" }}>
+                          {m.senderName}
+                        </span>
+                        <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
+                          {formatChatTime(m.createdAt)}
+                        </span>
+                      </div>
+                      <div className="text-xs truncate font-medium" style={{ color: "var(--foreground)" }}>
+                        {m.text}
+                      </div>
+                    </button>
+                  ))}
+                  {unreadMentions.length > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => { setNotifOpen(false); navigate("chat"); }}
+                      className="w-full text-center text-[11px] font-700 py-1"
+                      style={{ color: "var(--primary)" }}
+                    >
+                      외 {unreadMentions.length - 5}건 더 보기
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {Math.max(0, chatUnreadTotal - unreadMentions.length) > 0 && (
+              <button
+                onClick={() => { setNotifOpen(false); navigate("chat"); }}
+                className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
+                style={{ borderRadius: "8px" }}
+              >
+                <span className="text-xs font-700">💬 새 메시지</span>
+                <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{Math.max(0, chatUnreadTotal - unreadMentions.length)}건</span>
+              </button>
+            )}
+            {newTasks.length > 0 && (
+              <div className="px-2.5 py-2">
+                <button onClick={() => { setNotifOpen(false); navigate("tasks"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
+                  <span className="text-xs font-700">📋 새 과제</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newTasks.length}건</span>
+                </button>
+                {newTasks.slice(0, 3).map((t) => (
+                  <div key={t.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {t.title}</div>
+                ))}
+              </div>
+            )}
+            {newScheduleEvents.length > 0 && (
+              <div className="px-2.5 py-2">
+                <button onClick={() => { setNotifOpen(false); navigate("schedule"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
+                  <span className="text-xs font-700">🗓 새 일정</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newScheduleEvents.length}건</span>
+                </button>
+                {newScheduleEvents.slice(0, 3).map((e) => (
+                  <div key={e.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {e.hideTitle ? "바쁨" : e.title}</div>
+                ))}
+              </div>
+            )}
+            {newFiles.length > 0 && (
+              <div className="px-2.5 py-2">
+                <button onClick={() => { setNotifOpen(false); navigate("workspace"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
+                  <span className="text-xs font-700">📁 새 파일</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newFiles.length}건</span>
+                </button>
+                {newFiles.slice(0, 3).map((f) => (
+                  <div key={f.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {f.name}</div>
+                ))}
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
 
         {/* Project switcher */}
         <button
-          onClick={() => setSwitcherOpen((v) => !v)}
+          onClick={() => { setSwitcherOpen((v) => !v); setNotifOpen(false); }}
           className="mt-3 px-3 py-2.5 w-full text-left transition-all"
           style={{ background: "var(--muted)", borderRadius: "10px" }}
         >
@@ -235,88 +496,95 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
           </div>
         </button>
 
-        <div className="mt-1.5 px-3 flex items-center justify-between gap-2">
-          <span className="text-xs truncate" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-            참여 코드는 "복사"를 눌러 발급하세요
-          </span>
-          <button
-            onClick={async () => {
-              setInvitingCode(true);
-              try {
-                const token = await createInviteToken(project.id);
-                await navigator.clipboard.writeText(token);
-                setCodeCopied(true);
-                setTimeout(() => setCodeCopied(false), 1500);
-              } catch {
-                // 발급 실패는 조용히 무시 — 복사 버튼을 다시 누르면 재시도됨
-              } finally {
-                setInvitingCode(false);
-              }
-            }}
-            disabled={invitingCode}
-            className="text-xs font-600 px-2 py-0.5 shrink-0"
-            style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
-          >
-            {invitingCode ? "발급 중…" : codeCopied ? "복사됨!" : "복사"}
-          </button>
+        <div className="mt-1.5 px-3">
+          <div className="flex items-center justify-between gap-1.5">
+            <span className="text-xs truncate flex-1 select-all" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }} title={shownCode ?? undefined}>
+              참여 코드: {shownCode ?? (joinCodeError ? "불러오지 못함" : "…")}
+            </span>
+            <button
+              onClick={() => void copyJoinCode()}
+              disabled={!shownCode || rotatingCode}
+              title={isLeader || isViceLeader ? "복사할 때마다 새 코드가 발급돼요(이전 코드는 바로 무효, 6시간 유효)" : "참여 코드 복사"}
+              className="text-xs font-600 px-2 py-0.5 shrink-0"
+              style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
+            >
+              {rotatingCode ? "…" : codeCopied ? "복사됨!" : "복사"}
+            </button>
+          </div>
+          <div className="flex items-center justify-end text-[10px] mt-0.5 px-0.5" style={{ color: "var(--muted-foreground)" }}>
+            <span>{joinCodeError && !shownCode ? joinCodeError : remaining}</span>
+          </div>
         </div>
 
         {switcherOpen && (
           <div
             className="absolute left-4 right-4 top-full mt-1.5 p-1.5 z-20"
-            style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}
+            style={{
+              // A floating menu needs to read as clearly separate from
+              // whatever's behind it, so it stays near-opaque regardless
+              // of the account's card-transparency setting.
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
+              borderRadius: "14px",
+              boxShadow: "0 16px 40px rgba(0, 0, 0, 0.25)",
+              backdropFilter: "var(--panel-blur)",
+              WebkitBackdropFilter: "var(--panel-blur)",
+            }}
           >
             <div className="text-xs font-600 uppercase tracking-widest px-2.5 pt-1.5 pb-2" style={{ color: "var(--muted-foreground)" }}>
               내 프로젝트 전환
             </div>
-            {projects.map((p) => {
-              const isCurrent = p.id === project.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => { setProjectId(p.id); setSwitcherOpen(false); }}
-                  className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
-                  style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-700 truncate" style={{ color: isCurrent ? "var(--primary)" : "var(--foreground)" }}>
-                      {p.name}
-                    </div>
-                    <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-                      {p.org}
-                    </div>
-                  </div>
-                  <span
-                    className="text-xs px-1.5 py-0.5 font-600 shrink-0"
-                    style={{
-                      background: p.status === "active" ? "#22c55e18" : "var(--muted)",
-                      color: p.status === "active" ? "#22c55e" : "var(--muted-foreground)",
-                      borderRadius: "3px",
-                    }}
+            <div className="max-h-64 overflow-y-auto">
+              {projects.map((p) => {
+                const isCurrent = p.id === project.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { setProjectId(p.id); setSwitcherOpen(false); setMobileOpen(false); }}
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left transition-all"
+                    style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
                   >
-                    {p.status === "active" ? "진행 중" : "완료"}
-                  </span>
-                  {isCurrent && isLeader && (
+                    <div className="min-w-0">
+                      <div className="text-xs font-700 truncate" style={{ color: isCurrent ? "var(--primary)" : "var(--foreground)" }}>
+                        {p.name}
+                      </div>
+                      <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
+                        {p.org}
+                      </div>
+                    </div>
                     <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); setSwitcherOpen(false); setPendingDelete(true); }}
-                      className="w-6 h-6 flex items-center justify-center shrink-0 transition-all"
-                      style={{ background: "#ef444418", borderRadius: "6px" }}
-                      title="프로젝트 삭제"
+                      className="text-xs px-1.5 py-0.5 font-600 shrink-0"
+                      style={{
+                        background: p.status === "active" ? "#22c55e18" : "var(--muted)",
+                        color: p.status === "active" ? "#22c55e" : "var(--muted-foreground)",
+                        borderRadius: "3px",
+                      }}
                     >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                        <path d="M10 11v6" />
-                        <path d="M14 11v6" />
-                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                      </svg>
+                      {p.status === "active" ? "진행 중" : "완료"}
                     </span>
-                  )}
-                </button>
-              );
-            })}
+                    {isCurrent && isAdmin && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setSwitcherOpen(false); setPendingDelete(true); }}
+                        className="w-6 h-6 flex items-center justify-center shrink-0 transition-all"
+                        style={{ background: "#ef444418", borderRadius: "6px" }}
+                        title="프로젝트 삭제"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        </svg>
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
             <div className="mt-1 pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
               <button
                 onClick={() => { setSwitcherOpen(false); setCreateOpen(true); }}
@@ -349,110 +617,118 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         )}
       </div>
 
-      {/* Nav — 접혀있다가 마우스를 올리면 아래로 펼쳐짐. "메인화면"(프로젝트 선택 전, myprojects)
-          에서는 아예 안 보이고, 프로젝트 안으로 들어갔을 때만 뜬다(update.txt 새 메인화면 요청). */}
-      {currentPage !== "myprojects" && (
+      {/* Nav */}
       <nav
-        className="group/menu relative shrink-0 mb-4 px-3 py-3"
+        className="flex-1 px-3 py-3"
         style={{
-          background: "var(--card)",
+          background: "var(--card-glass)",
           borderRadius: "var(--radius)",
           boxShadow: "var(--shadow-card)",
+          backdropFilter: "var(--panel-blur)",
+          WebkitBackdropFilter: "var(--panel-blur)",
         }}
       >
-        <div className="flex items-center justify-between px-2">
-          <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>메뉴</span>
-          <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>▾</span>
+        <div className="flex items-center justify-between px-2 mb-3">
+          <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>
+            메뉴
+          </span>
+          <span className="text-[10px] hidden md:inline-block select-none" style={{ color: "var(--muted-foreground)", opacity: 0.7 }} title="메뉴를 드래그하여 순서를 바꿀 수 있습니다">
+            끌어서 정렬
+          </span>
         </div>
-
-        <div
-          className="menu-dropdown-scroll hidden group-hover/menu:flex flex-col gap-1 absolute left-0 right-0 top-full z-30 p-1.5 max-h-[70vh] overflow-y-auto"
-          style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 16px 40px rgba(15,18,53,0.18)" }}
-        >
-          {navItems.map((item) => {
+        <div className="flex flex-col gap-1">
+          {visibleNavItems.map((item) => {
             const active = currentPage === item.id;
+            const isReorderable = item.id !== "admin";
+            const isDragging = draggedPage === item.id;
+            const isOver = dragOverPage === item.id;
+
             return (
-              <button
+              <div
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
-                className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
+                draggable={isReorderable}
+                onDragStart={isReorderable ? (e) => handleDragStart(e, item.id as NavPage) : undefined}
+                onDragOver={isReorderable ? (e) => handleDragOver(e, item.id as NavPage) : undefined}
+                onDragLeave={isReorderable ? handleDragLeave : undefined}
+                onDrop={isReorderable ? (e) => handleDrop(e, item.id as NavPage) : undefined}
+                onDragEnd={isReorderable ? handleDragEnd : undefined}
+                className="relative group transition-all"
                 style={{
-                  borderRadius: "10px",
-                  background: active ? "var(--primary)" : "transparent",
-                  color: active ? "#fff" : "var(--foreground)",
-                  fontWeight: active ? 600 : 400,
-                  fontSize: "13.5px",
-                  boxShadow: active ? "0 4px 12px rgba(37,99,235,0.25)" : "none",
+                  opacity: isDragging ? 0.35 : 1,
+                  transform: isDragging ? "scale(0.98)" : "none",
                 }}
               >
-                <span
-                  className="text-sm w-6 h-6 flex items-center justify-center shrink-0"
-                  style={{
-                    background: active ? "rgba(255,255,255,0.2)" : "var(--muted)",
-                    borderRadius: "7px",
-                  }}
-                >
-                  {item.icon}
-                </span>
-                <span className="flex-1">{item.label}</span>
-                {item.id === "chat" && chatUnreadTotal > 0 && (
-                  <span
-                    className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
-                    style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
-                  >
-                    {chatUnreadTotal}
-                  </span>
+                {/* Visual drop indicator line */}
+                {isOver && dropPosition === "before" && (
+                  <div
+                    className="absolute -top-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
                 )}
-              </button>
+                {isOver && dropPosition === "after" && (
+                  <div
+                    className="absolute -bottom-1 left-2 right-2 h-0.5 rounded-full z-20 pointer-events-none"
+                    style={{ background: "var(--primary)", boxShadow: "0 0 8px var(--primary)" }}
+                  />
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => navigate(item.id)}
+                  className="flex items-center gap-3 px-3 py-2.5 text-left w-full transition-all"
+                  style={{
+                    borderRadius: "10px",
+                    background: active ? "var(--nav-active-bg)" : "transparent",
+                    color: active ? "var(--nav-active-text)" : "var(--foreground)",
+                    fontWeight: active ? 600 : 400,
+                    fontSize: "13.5px",
+                    border: active ? "var(--nav-active-border)" : "1px solid transparent",
+                    boxShadow: active ? "var(--nav-active-shadow)" : "none",
+                    cursor: isReorderable ? "grab" : "pointer",
+                  }}
+                  title={isReorderable ? `${item.label} (드래그하여 순서 변경)` : item.label}
+                >
+                  <span
+                    className="text-sm w-6 h-6 flex items-center justify-center shrink-0"
+                    style={{
+                      background: active ? "var(--nav-active-icon-bg)" : "var(--muted)",
+                      borderRadius: "7px",
+                    }}
+                  >
+                    {item.icon}
+                  </span>
+                  <span className="flex-1">{item.label}</span>
+                  {!!navUnread[item.id] && (
+                    <span
+                      className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
+                      style={{ background: active ? "#fff" : "var(--accent)", color: active ? "var(--primary)" : "#fff", borderRadius: "20px" }}
+                    >
+                      {navUnread[item.id]}
+                    </span>
+                  )}
+                  {isReorderable && (
+                    <span
+                      className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block"
+                      style={{ color: "var(--muted-foreground)" }}
+                      aria-hidden="true"
+                    >
+                      ⠿
+                    </span>
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>
       </nav>
-      )}
 
-      {/* User card */}
-      <div
-        className="mt-auto px-4 py-3"
-        style={{
-          background: "var(--card)",
-          borderRadius: "var(--radius)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        <div className="flex items-center gap-2.5">
-          <button type="button" onClick={openProfile} className="shrink-0" title="프로필 설정">
-            <Avatar url={currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={36} />
-          </button>
-          <button type="button" onClick={openProfile} className="flex-1 min-w-0 text-left">
-            <div className="text-sm font-700">{myName}</div>
-            <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>
-              {myRole} · 이 프로젝트
-            </div>
-          </button>
-          <div
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ background: "#22c55e" }}
-          />
-          <button
-            onClick={signOut}
-            title="로그아웃"
-            className="w-7 h-7 flex items-center justify-center shrink-0 transition-all"
-            style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      <UserMenu subtitle={`${myRole} · 이 프로젝트`} />
     </aside>
     {createOpen && (
       <CreateProjectModal
         onCancel={() => setCreateOpen(false)}
-        onCreate={(input) => {
-          addProject(input);
+        onCreate={async (input, recruit) => {
+          await addProject(input, recruit);
           setCreateOpen(false);
           onNavigate("dashboard");
         }}
@@ -471,7 +747,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
     )}
     {pendingDelete && (
       <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.4)", backdropFilter: "blur(4px)" }}>
-        <div className="w-96 p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}>
+        <div className="w-96 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
           <div className="w-10 h-10 flex items-center justify-center mb-3" style={{ background: "#ef444418", borderRadius: "12px" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="3 6 5 6 21 6" />
@@ -506,199 +782,7 @@ export default function Sidebar({ currentPage, onNavigate }: { currentPage: Page
         </div>
       </div>
     )}
-    {profileOpen && (
-      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setProfileOpen(false)}>
-        <div className="w-[420px] max-w-[92vw] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-700">프로필 설정</h3>
-            <button type="button" onClick={() => setProfileOpen(false)} className="w-8 h-8 flex items-center justify-center text-lg" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>
-              ×
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4 mb-5">
-            <Avatar url={avatarPreview ?? currentMember?.avatarUrl} initial={myAvatar} color={currentMember?.color ?? "#f59e0b"} size={64} />
-            <div className="flex-1">
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>프로필 이미지</label>
-              <label className="inline-flex items-center justify-center px-3 py-2 text-sm font-600 cursor-pointer" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>
-                이미지 선택
-                <input type="file" accept="image/*" onChange={handleAvatarPick} className="hidden" />
-              </label>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>이름</label>
-              <input
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-            <div>
-              <SchoolMajorPicker school={profileSchool} onSchoolChange={setProfileSchool} major={profileMajor} onMajorChange={setProfileMajor} />
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>학번</label>
-              <input
-                value={profileStudent}
-                onChange={(e) => setProfileStudent(e.target.value)}
-                placeholder="예: 2021123456"
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)", fontFamily: "var(--font-jetbrains)" }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>링크</label>
-              {profileLinks.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {profileLinks.map((link) => (
-                    <span
-                      key={link.id}
-                      className="inline-flex items-center gap-1.5 text-xs font-600 px-2.5 py-1.5"
-                      style={{ background: "var(--muted)", borderRadius: "999px", color: "var(--foreground)" }}
-                    >
-                      {link.type !== "other" && <BrandIcon type={link.type as KnownLinkType} size={13} />}
-                      <a href={link.url} target="_blank" rel="noreferrer" className="truncate max-w-[140px]">{link.label}</a>
-                      <button
-                        type="button"
-                        onClick={() => removeLink(link.id)}
-                        disabled={linkBusy}
-                        style={{ color: "var(--muted-foreground)" }}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <input
-                  value={newLinkUrl}
-                  onChange={(e) => setNewLinkUrl(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addLink())}
-                  placeholder="예: github.com/me"
-                  className="flex-1 min-w-0 px-3 py-2.5 text-sm outline-none"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-                />
-                <button
-                  type="button"
-                  onClick={addLink}
-                  disabled={!newLinkUrl.trim() || linkBusy}
-                  className="px-3.5 text-sm font-700 shrink-0"
-                  style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}
-                >
-                  추가
-                </button>
-              </div>
-              {linkError && <div className="text-xs mt-1.5" style={{ color: "#ef4444" }}>{linkError}</div>}
-            </div>
-            <button
-              type="button"
-              onClick={() => { setProfileOpen(false); setPasswordOpen(true); }}
-              className="text-left text-xs font-600 px-3 py-2.5"
-              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "10px" }}
-            >
-              비밀번호 변경
-            </button>
-          </div>
-
-          {profileError && (
-            <div className="text-xs mt-3 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "10px" }}>{profileError}</div>
-          )}
-
-          <div className="flex gap-2 mt-5">
-            <button
-              type="button"
-              onClick={() => setProfileOpen(false)}
-              className="flex-1 py-2.5 text-sm font-600"
-              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              onClick={saveProfile}
-              disabled={savingProfile}
-              className="flex-1 py-2.5 text-sm font-700"
-              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
-            >
-              {savingProfile ? "저장 중…" : "저장"}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-    {passwordOpen && (
-      <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={() => setPasswordOpen(false)}>
-        <div className="w-[380px] max-w-[92vw] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-700">비밀번호 변경</h3>
-            <button
-              type="button"
-              onClick={() => { setPasswordOpen(false); setPasswordNotice(""); }}
-              className="w-8 h-8 flex items-center justify-center text-lg"
-              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호</label>
-              <input
-                type="password"
-                value={passwordForm.next}
-                onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
-                placeholder="6자 이상"
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호 확인</label>
-              <input
-                type="password"
-                value={passwordForm.confirm}
-                onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
-                onKeyDown={(e) => e.key === "Enter" && submitPasswordChange()}
-                className="w-full px-3 py-2.5 text-sm outline-none"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-              />
-            </div>
-          </div>
-
-          {passwordNotice && (
-            <div className="mt-3 text-xs font-600" style={{ color: passwordNotice.includes("변경되었습니다") ? "#22c55e" : "#ef4444" }}>
-              {passwordNotice}
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-5">
-            <button
-              type="button"
-              onClick={() => { setPasswordOpen(false); setPasswordNotice(""); }}
-              className="flex-1 py-2.5 text-sm font-600"
-              style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              onClick={submitPasswordChange}
-              disabled={changingPassword}
-              className="flex-1 py-2.5 text-sm font-700"
-              style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
-            >
-              {changingPassword ? "변경 중…" : "변경하기"}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
+    <ProfileModal />
     </>
   );
 }

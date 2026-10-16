@@ -7,8 +7,8 @@ export default function JoinProjectModal({
 }: {
   onCancel: () => void;
   onJoined: () => void;
-  lookupProject: (projectId: string) => Promise<Project | null>;
-  joinProject: (projectId: string, input: { school?: string; major: string; student: string }) => Promise<void>;
+  lookupProject: (code: string) => Promise<Project | null>;
+  joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [projectId, setProjectId] = useState("");
   const [preview, setPreview] = useState<{ id: string; name: string; org: string } | null>(null);
@@ -20,7 +20,7 @@ export default function JoinProjectModal({
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmitProfile = school.trim() !== "" && major !== "";
+  const canSubmitProfile = school.trim() !== "" && major.trim() !== "";
 
   async function checkCode() {
     const trimmed = projectId.trim();
@@ -47,7 +47,7 @@ export default function JoinProjectModal({
     setJoining(true);
     setError(null);
     try {
-      await joinProject(preview.id, { school: school.trim(), major: `${major} ${grade}학년`, student });
+      await joinProject(preview.id, projectId.trim(), { school: school.trim(), major: `${major.trim()} ${grade}학년`, student });
       onJoined();
     } catch (err) {
       setError(err instanceof Error ? err.message : "참여하지 못했습니다.");
@@ -64,7 +64,7 @@ export default function JoinProjectModal({
     >
       <div
         className="w-[26rem] max-w-[92vw] p-6"
-        style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)" }}
+        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
@@ -75,7 +75,7 @@ export default function JoinProjectModal({
         </div>
         <h3 className="font-700 mb-1">프로젝트 참여하기</h3>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
-          팀장에게 받은 참여 코드(프로젝트 주소의 마지막 부분)를 입력하면 그 프로젝트에 팀원으로 합류합니다.
+          팀장에게 받은 참여 코드(발급 후 6시간 유효)를 입력하면 그 프로젝트에 팀원으로 합류합니다.
         </p>
 
         <label className="text-xs font-600 block mb-1.5">참여 코드</label>
@@ -85,7 +85,7 @@ export default function JoinProjectModal({
             value={projectId}
             onChange={(e) => { setProjectId(e.target.value); setPreview(null); }}
             onKeyDown={(e) => e.key === "Enter" && checkCode()}
-            placeholder="예: heritage-1a2b3c"
+            placeholder="예: 캡스톤-7W2X9P"
             className="flex-1 min-w-0 text-sm px-3 py-2.5 outline-none"
             style={{ border: "2px solid var(--border)", borderRadius: "10px", background: "var(--muted)", fontFamily: "var(--font-jetbrains)" }}
           />

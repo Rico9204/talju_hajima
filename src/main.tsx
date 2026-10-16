@@ -1,12 +1,34 @@
+import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { reloadForNewVersion } from './components/ErrorBoundary'
 import './index.css'
 
-// StrictMode를 일부러 안 쓴다 — 개발 모드에서 마운트 직후 모든 effect를 정리→재실행하는 동작이
-// 이 앱의 실시간 공동편집(Yjs+y-websocket) 세션 관리와 맞물려 실제 버그를 두 번이나 만들었다
-// (ydoc이 정리 단계에서 destroy()돼 그 뒤 편집 내용이 저장 안 되던 버그, 그리고 연결을 끄고
-// 다시 켜는 그 순간 소켓이 잠깐 중복으로 열려 편집창을 닫아도 서버가 계속 "접속 중"으로 보던
-// 버그). 둘 다 프로덕션 빌드에서는 StrictMode 자체가 없어 애초에 일어나지 않는 문제였다 —
-// StrictMode가 잡아주는 "순수하지 않은 렌더" 경고보다, 이 반복되는 실사용 버그 쪽 비용이 커서
-// 껐다.
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />)
+// A new Vercel deploy replaces hashed chunk files; a tab left open across a
+// deploy can still try to lazy-load a chunk that no longer exists ("Failed
+// to fetch dynamically imported module"). Vite fires this event for exactly
+// that case — reload once to pick up the current build instead of leaving
+// the user stuck on a broken import.
+// 1분 안에 다시 실패하면(파일이 정말 없는 경우) 새로 고침을 반복하지 않고, 오류를 그대로 흘려 ErrorBoundary가 안내하게 한다.
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForNewVersion()) event.preventDefault()
+})
+
+// 서비스 워커(public/sw.js): 웹 푸시 + ngrok 백엔드의 이미지가 경고 페이지로 깨지지 않게 하는 헤더.
+// 처음 설치될 때는 이미 요청한 이미지가 깨져 있을 수 있어, 워커가 화면을 맡는 순간 깨진 이미지만 다시 불러온다.
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController) return
+    document.querySelectorAll('img').forEach((img) => {
+      if (img.src && img.complete && img.naturalWidth === 0) img.src = img.src
+    })
+  })
+  void navigator.serviceWorker.register('/sw.js').catch(() => {})
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)

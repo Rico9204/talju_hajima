@@ -1,42 +1,30 @@
+import StillImg from "./StillImg";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useProject } from "../context/ProjectContext";
-import { getEvaluations, submitEvaluations } from "../api/backend/evaluations";
-import type { EvaluationAverage, EvaluationPhase } from "../api/types";
+import type { EvaluationData, EvaluationEntry, EvaluationPhase, EvaluationScoreMethod } from "../api/types";
 import PentagonChart from "./PentagonChart";
+import { useConfirm } from "./ConfirmDialog";
+import EvaluationInfoButton from "./EvaluationInfoButton";
+import CcaBadge from "./CcaBadge";
+import { EVALUATION_CRITERIA } from "../lib/evaluationGuide";
 
-const criteria = [
-  { id: "role", label: "역할 이행", desc: "맡은 역할과 작업을 수행했는지", icon: "✓" },
-  { id: "deadline", label: "약속 및 마감 준수", desc: "합의한 기한과 약속을 지켰는지", icon: "◷" },
-  { id: "communication", label: "의사소통", desc: "요청·질문·진행 상황 공유에 적절히 응답했는지", icon: "◎" },
-  { id: "collaboration", label: "협업 태도", desc: "팀 의사결정과 문제 해결 과정에 협조적으로 참여했는지", icon: "⊙" },
-  { id: "quality", label: "결과물 품질", desc: "결과물의 완성도가 기대 수준을 충족했는지", icon: "★" },
-] as const;
+const criteria = EVALUATION_CRITERIA;
 
-// Each person still gets a 1-10 score per criterion, but the sum across all
-// peers for a given criterion must land exactly on a shared pool:
-// pool = peers.length * POOL_PER_PEER. Enforced at submit time via
-// `allBalanced`, not by capping any individual person's score below 10.
-const POOL_PER_PEER = 5;
-
-type Scores = Record<string, number>;
-
-// One continuous track over a fixed min..max range (1..10 per person) —
+// One continuous track over a fixed min..max range (0..10 per person) —
 // click anywhere or drag across it and the value snaps to whichever zone
-// the pointer is over. The scale always shows the same 1..max range, but
-// zones above `limit` (the shared-pool ceiling for this peer right now)
-// are dimmed and unselectable, so the visible scale stays consistent while
-// what you can actually pick shrinks as the pool gets used up.
+// the pointer is over.
 function ScoreTrack({
-  value, min = 1, max = 10, limit, onChange, disabled,
-}: { value: number; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean }) {
+  value, min = 0, max = 10, limit, onChange, disabled, label,
+}: { value: number | null; min?: number; max?: number; limit?: number; onChange: (v: number) => void; disabled?: boolean; label: string }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const steps = max - min + 1;
   const effectiveLimit = Math.min(limit ?? max, max);
-  const clamped = Math.min(Math.max(value, min), effectiveLimit);
+  // value가 null이면 아직 고르지 않은 상태: 손잡이·채운 막대를 그리지 않는다(시작점이 점수에 영향을 주지 않게).
+  const clamped = value === null ? null : Math.min(Math.max(value, min), effectiveLimit);
 
   function zoneFromClientX(clientX: number): number {
     const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect) return clamped;
+    if (!rect) return clamped ?? min;
     const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 0.999999);
     const raw = min + Math.min(Math.floor(ratio * steps), steps - 1);
     return Math.min(raw, effectiveLimit);
@@ -58,12 +46,31 @@ function ScoreTrack({
   return (
     <div
       ref={trackRef}
+      role="slider"
+      aria-label={label}
+      aria-valuemin={min}
+      aria-valuemax={effectiveLimit}
+      aria-valuenow={value ?? undefined}
+      aria-valuetext={value === null ? "미선택" : `${value}점`}
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        // 아직 고르지 않았으면 화살표는 가운데(5점)부터 시작한다.
+        const base = value ?? Math.round((min + max) / 2);
+        const next = e.key === "Home" ? min : e.key === "End" ? effectiveLimit
+          : ["ArrowRight", "ArrowUp"].includes(e.key) ? (value === null ? base : value + 1)
+          : ["ArrowLeft", "ArrowDown"].includes(e.key) ? (value === null ? base : value - 1) : null;
+        if (next !== null) { e.preventDefault(); onChange(Math.min(effectiveLimit, Math.max(min, next))); }
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       className="relative h-10 select-none"
       style={{ touchAction: "none", cursor: disabled ? "default" : "pointer" }}
     >
+      {/* base rail */}
       <div className="absolute left-0 right-0" style={{ top: 15, height: 3, background: "var(--muted)", borderRadius: "4px" }} />
+      {/* locked-out rail beyond the pool limit */}
       {effectiveLimit < max && (
         <div
           className="absolute right-0"
@@ -76,10 +83,12 @@ function ScoreTrack({
           }}
         />
       )}
+      {/* filled rail up to the selected zone */}
       <div
         className="absolute left-0 transition-all"
-        style={{ top: 15, height: 3, width: `${pctForIndex(clamped)}%`, background: "var(--primary)", borderRadius: "4px" }}
+        style={{ top: 15, height: 3, width: clamped === null ? 0 : `${pctForIndex(clamped)}%`, background: "var(--primary)", borderRadius: "4px" }}
       />
+      {/* per-zone ticks + numbers */}
       {Array.from({ length: steps }, (_, i) => min + i).map((v) => {
         const isSel = clamped === v;
         const locked = v > effectiveLimit;
@@ -94,7 +103,8 @@ function ScoreTrack({
           </div>
         );
       })}
-      <div
+      {/* thumb */}
+      {clamped !== null && <div
         className="absolute rounded-full transition-all"
         style={{
           left: `${pctForIndex(clamped)}%`,
@@ -108,171 +118,362 @@ function ScoreTrack({
           boxShadow: "0 2px 6px rgba(37,99,235,0.4)",
           pointerEvents: "none",
         }}
-      />
+      />}
     </div>
   );
 }
 
-const PHASES: { id: EvaluationPhase; label: string }[] = [
-  { id: "midterm", label: "중간 평가" },
-  { id: "final", label: "최종 평가" },
-];
-
+type CriterionId = typeof criteria[number]["id"];
+// 작성 중인 평가: 고른 항목만 값이 있다. 기본값(예전 1점)을 두지 않아, 모든 항목을 직접 골라야 제출할 수 있다.
+type Draft = Partial<Record<CriterionId, number>> & { comment?: string };
+function errorMessage(error: unknown) {
+  const message = error && typeof error === "object" && "message" in error ? String(error.message) : "요청에 실패했습니다.";
+  if (/peer_evaluation|schema cache|complete_evaluation_project/.test(message)) {
+    return "평가 기능을 불러오지 못했습니다. 관리자에게 평가 기능의 DB 설정 확인을 요청해 주세요.";
+  }
+  return message;
+}
 export default function PeerEvaluation() {
-  const { project, team, currentMember } = useProject();
-  const peers = team.members.filter((m) => m.id !== currentMember?.id && m.userId !== null);
-
-  const [phase, setPhase] = useState<EvaluationPhase>("midterm");
-  const [loading, setLoading] = useState(true);
-  const [submitted, setSubmitted] = useState(false);
-  const [average, setAverage] = useState<EvaluationAverage | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { project, currentMember } = useProject();
+  return <EvaluationSelector key={project.id + ":" + project.status + ":" + currentMember?.id} />;
+}
+// 점수 방식 비교에서 고른 방식은 이 브라우저에 기억한다(다른 화면에 갔다 와도 유지).
+const SCORE_METHOD_KEY = "talju:evaluation-score-method";
+function readScoreMethod(): EvaluationScoreMethod | null {
+  try { const v = localStorage.getItem(SCORE_METHOD_KEY); return v === "raw" || v === "cca" ? v : null; } catch { return null; }
+}
+function EvaluationSelector() {
+  const { project, getEvaluationMode, getEvaluationMethodPreview, getEvaluationScoreCca } = useProject();
+  const [prototype, setPrototype] = useState<boolean | null>(null);
+  // 점수 방식 토글은 관리자 설정(점수 방식 비교)이 켜져 있을 때만. 테스트 모드와 따로 켜고 끈다.
+  const [methodPreview, setMethodPreview] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [phase, setPhase] = useState<EvaluationPhase>(project.status === "done" ? "final" : "midterm");
+  // 공식 점수 방식(관리자 설정). 실제 평점·프로필·상위 %는 이 방식으로 계산된다.
+  const [official, setOfficial] = useState<EvaluationScoreMethod | null>(null);
+  // 점수 방식 비교에서 고른 방식. 고른 적이 없으면 공식 방식.
+  const [picked, setPicked] = useState<EvaluationScoreMethod | null>(readScoreMethod);
+  const method = picked ?? official ?? "raw";
+  function pickMethod(value: EvaluationScoreMethod) {
+    setPicked(value);
+    try { localStorage.setItem(SCORE_METHOD_KEY, value); } catch { /* 저장할 수 없어도 이 화면에서는 쓴다 */ }
+  }
   const [submitting, setSubmitting] = useState(false);
-
-  // phase별로 따로 유지 — 탭을 오가도 입력한 점수/코멘트가 남아있게.
-  const [scoresByPhase, setScoresByPhase] = useState<Record<EvaluationPhase, Record<number, Scores>>>({ midterm: {}, final: {} });
-  const [commentsByPhase, setCommentsByPhase] = useState<Record<EvaluationPhase, Record<number, string>>>({ midterm: {}, final: {} });
-  const [selectedPeer, setSelectedPeer] = useState(0);
-
-  const scores = scoresByPhase[phase];
-  const comments = commentsByPhase[phase];
-  const peerScores = scores[selectedPeer] || {};
-  const peerComment = comments[selectedPeer] || "";
-  const pool = peers.length * POOL_PER_PEER;
-
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getEvaluations(project.id, phase)
-      .then((data) => {
-        if (cancelled) return;
-        setSubmitted(data.submitted);
-        setAverage(data.average);
-      })
-      .catch(() => {
-        if (!cancelled) setError("평가 정보를 불러오지 못했습니다.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [project.id, phase]);
-
-  function scoreFor(criterionId: string, peerIdx: number): number {
-    return scores[peerIdx]?.[criterionId] ?? 1;
+    let active = true;
+    setError("");
+    Promise.all([getEvaluationMode(), getEvaluationMethodPreview(), getEvaluationScoreCca()]).then(([enabled, preview, cca]) => {
+      if (active) { setPrototype(enabled); setMethodPreview(preview); setOfficial(cca ? "cca" : "raw"); }
+    }).catch((e) => { if (active) setError(errorMessage(e)); });
+    return () => { active = false; };
+  }, [retry]);
+  if (error) return <div role="alert" className="p-6">{error} <button onClick={() => setRetry((n) => n + 1)}>다시 불러오기</button></div>;
+  if (prototype === null || methodPreview === null || official === null) return <p role="status" className="p-6">평가 설정을 불러오는 중…</p>;
+  const phases: EvaluationPhase[] = prototype ? ["midterm", "final"] : [phase];
+  return <div>
+    {(prototype || methodPreview) && <div className="px-4 pt-4 md:px-6 max-w-5xl mx-auto">
+      {prototype && <><div role="tablist" aria-label="평가 유형" className="flex items-center gap-2">
+        <span className="px-2 py-0.5 text-[11px] font-700 rounded-full" title="기간과 프로젝트 상태에 관계없이 두 평가를 선택할 수 있습니다."
+          style={{ background: "#f59e0b18", color: "#d97706" }}>테스트 모드</span>
+        {phases.map((value) => <button key={value} type="button" role="tab" id={"evaluation-tab-" + value}
+          aria-selected={phase === value} aria-controls={"evaluation-panel-" + value} disabled={submitting}
+          onClick={() => setPhase(value)} className="px-5 py-2 rounded-full disabled:opacity-50"
+          style={{ background: phase === value ? "var(--primary)" : "var(--muted)", color: phase === value ? "#fff" : "var(--foreground)" }}>
+          {value === "midterm" ? "중간 평가" : "최종 평가"}
+        </button>)}
+      </div></>}
+      {methodPreview && <div role="radiogroup" aria-label="점수 방식" className="flex items-center gap-2 mt-3 flex-wrap">
+        <span className="text-xs font-700" style={{ color: "var(--muted-foreground)" }}>점수 방식</span>
+        {([["raw", "원점수 평균"], ["cca", "CCA"]] as const).map(([value, label]) => <button key={value} type="button" role="radio"
+          aria-checked={method === value} disabled={submitting} onClick={() => pickMethod(value)}
+          className="px-3 py-1 text-xs font-700 rounded-full disabled:opacity-50"
+          style={{ background: method === value ? "var(--primary)" : "var(--muted)", color: method === value ? "#fff" : "var(--foreground)" }}>
+          {label}{value === official ? " · 반영 중" : ""}
+        </button>)}
+        {method !== official && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>미리보기</span>}
+      </div>}
+    </div>}
+    {phases.map((value) => <div key={value} hidden={phase !== value} role={prototype ? "tabpanel" : undefined}
+      id={"evaluation-panel-" + value} aria-labelledby={prototype ? "evaluation-tab-" + value : undefined}>
+      <EvaluationPanel phase={value} prototype={prototype} active={phase === value} method={methodPreview ? method : undefined} methodPreview={methodPreview} onBusyChange={setSubmitting} />
+    </div>)}
+  </div>;
+}
+function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBusyChange }: {
+  phase: EvaluationPhase; prototype: boolean; active: boolean; method?: EvaluationScoreMethod; methodPreview: boolean; onBusyChange: (busy: boolean) => void;
+}) {
+  const { project, team, currentMember, isLeader, isShortTerm, getEvaluations, submitEvaluations, completeProject } = useProject();
+  const skipped = !prototype && phase === "midterm" && isShortTerm;
+  // Midterm evaluations add a final "종합 코멘트" step after the 5 criteria; final evaluations have no comment.
+  const totalSteps = phase === "final" ? criteria.length : criteria.length + 1;
+  const [selectedPeerId, setSelectedPeerId] = useState("");
+  const [criterionStep, setCriterionStep] = useState(0);
+  const [maxCriterionStepSeen, setMaxCriterionStepSeen] = useState(0);
+  const [data, setData] = useState<EvaluationData | null>(null);
+  const [draft, setDraft] = useState<Record<string, Draft>>({});
+  const [ask, confirmDialog] = useConfirm();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(true);
+  useEffect(() => {
+    if (!active) return;
+    let mounted = true;
+    setError("");
+    getEvaluations(phase, method).then((result) => {
+      if (mounted) setData(result);
+    }).catch((e) => { if (mounted) setError(errorMessage(e)); });
+    return () => { mounted = false; };
+    // Each phase keeps its own draft; project/account changes remount the selector.
+  }, [phase, refresh, active, method]);
+  const submitted = saved || !!data?.submitted;
+  useEffect(() => {
+    setCriterionStep(0);
+    setMaxCriterionStepSeen(submitted ? totalSteps - 1 : 0);
+  }, [selectedPeerId, submitted, totalSteps]);
+  function goToCriterionStep(index: number) {
+    if (index <= maxCriterionStepSeen) setCriterionStep(index);
   }
-
-  function criterionTotal(criterionId: string): number {
-    return peers.reduce((sum, _, i) => sum + scoreFor(criterionId, i), 0);
+  function goToNextCriterion() {
+    const next = Math.min(criterionStep + 1, totalSteps - 1);
+    setCriterionStep(next);
+    setMaxCriterionStepSeen((seen) => Math.max(seen, next));
   }
-
-  function othersTotal(criterionId: string, excludeIdx: number): number {
-    return peers.reduce((sum, _, i) => (i === excludeIdx ? sum : sum + scoreFor(criterionId, i)), 0);
+  function goToPrevCriterion() {
+    setCriterionStep((step) => Math.max(step - 1, 0));
   }
-
-  // The most this peer can take for this criterion without pushing the
-  // shared total past the pool — never above the flat per-person cap of 10.
-  function maxAllowed(criterionId: string, peerIdx: number): number {
-    return Math.max(1, Math.min(10, pool - othersTotal(criterionId, peerIdx)));
+  // 제출 직후 새 데이터를 받기 전에는 내 기록이 아직 없으므로, 그동안은 작성하던 목록을 그대로 쓴다.
+  const myRecords = data?.records.filter((r) => r.evaluator_id === currentMember?.id) ?? [];
+  const peers = team.members.filter((m) => submitted && myRecords.length > 0
+    ? myRecords.some((r) => r.recipient_id === m.id)
+    : m.id !== currentMember?.id && m.userId !== null);
+  // 제출한 뒤에는 저장된 평가를, 작성 중에는 고른 값만(고르지 않은 항목은 null) 쓴다.
+  function recordFor(peerId: string) {
+    return submitted ? data?.records.find((r) => r.evaluator_id === currentMember?.id && r.recipient_id === peerId) : undefined;
   }
-
-  function handleScoreClick(criterionId: string, value: number) {
-    if (submitted) return;
-    const clamped = Math.min(Math.max(value, 1), maxAllowed(criterionId, selectedPeer));
-    setScoresByPhase((p) => ({ ...p, [phase]: { ...p[phase], [selectedPeer]: { ...p[phase][selectedPeer], [criterionId]: clamped } } }));
+  function scoreOf(peerId: string, id: CriterionId): number | null {
+    const record = recordFor(peerId);
+    return record ? record[id] : draft[peerId]?.[id] ?? null;
   }
-
-  const allBalanced = peers.length > 0 && criteria.every((c) => criterionTotal(c.id) === pool);
-
-  async function submitEval() {
-    if (!allBalanced || submitting) return;
-    setSubmitting(true);
-    setError(null);
+  // 동료마다 아직 고르지 않은 항목 수. 모두 0이어야 제출할 수 있다(예전처럼 1점으로 채워 제출하지 않는다).
+  const remaining = peers.map((peer) => ({ peer, left: criteria.filter((c) => scoreOf(peer.id, c.id) === null).length }))
+    .filter((item) => item.left > 0);
+  const balanced = peers.length > 0 && remaining.length === 0;
+  async function submit() {
+    if (!data || !currentMember || busy || submitted || !balanced || skipped) return;
+    const ok = await ask({
+      title: "동료 평가를 제출할까요?",
+      message: <>제출한 평가는 수정할 수 없습니다.</>,
+      confirmLabel: "제출",
+    });
+    if (!ok) return;
+    const entries: EvaluationEntry[] = peers.map((peer) => {
+      const d = draft[peer.id] ?? {};
+      return { recipient_id: peer.id, role: d.role!, deadline: d.deadline!, communication: d.communication!, collaboration: d.collaboration!, quality: d.quality!, comment: d.comment ?? "" };
+    });
+    setBusy(true); onBusyChange(true); setError("");
     try {
-      await submitEvaluations(
-        project.id,
-        phase,
-        peers.map((peer, i) => ({
-          recipientId: peer.id,
-          role: scoreFor("role", i),
-          deadline: scoreFor("deadline", i),
-          communication: scoreFor("communication", i),
-          collaboration: scoreFor("collaboration", i),
-          quality: scoreFor("quality", i),
-          comment: comments[i] ?? "",
-        })),
-      );
-      const fresh = await getEvaluations(project.id, phase);
-      setSubmitted(fresh.submitted);
-      setAverage(fresh.average);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "제출하지 못했습니다.");
-    } finally {
-      setSubmitting(false);
-    }
+      await submitEvaluations(phase, entries);
+      setSaved(true);
+      setRefresh((n) => n + 1);
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); onBusyChange(false); }
+  }
+  async function closeProject() {
+    if (busy || !isLeader || project.status !== "active") return;
+    setBusy(true); onBusyChange(true); setError("");
+    try { await completeProject(); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); onBusyChange(false); }
   }
 
+  const selectedPeer = Math.max(0, peers.findIndex((peer) => peer.id === selectedPeerId));
+  const selectedPeerId_ = peers[selectedPeer]?.id;
+  const peerScores = Object.fromEntries(criteria.map((c) => [c.id, selectedPeerId_ ? scoreOf(selectedPeerId_, c.id) : null])) as Record<CriterionId, number | null>;
+  const peerComment = selectedPeerId_ ? recordFor(selectedPeerId_)?.comment ?? draft[selectedPeerId_]?.comment ?? "" : "";
+  const isDone = phase === "final";
+  const midtermSkipped = skipped;
+  const isSubmitted = submitted;
+  const allBalanced = balanced;
+  const submitEval = submit;
+  const average = data?.average;
+  function setSelectedPeer(index: number) { setSelectedPeerId(peers[index].id); }
+  function scoreFor(id: CriterionId, index: number) { return peers[index] ? scoreOf(peers[index].id, id) : null; }
+  function maxAllowed(_id: CriterionId, _index: number) { return 10; }
+  function handleScoreClick(id: CriterionId, value: number) {
+    if (!selectedPeerId_ || isSubmitted || busy) return;
+    const score = Math.max(0, Math.min(value, maxAllowed(id, selectedPeer)));
+    setDraft((prev) => ({ ...prev, [selectedPeerId_]: { ...prev[selectedPeerId_], [id]: score } }));
+  }
+  function updateComment(comment: string) {
+    if (!selectedPeerId_ || isDone || isSubmitted || busy || comment.length > 150) return;
+    setDraft((prev) => ({ ...prev, [selectedPeerId_]: { ...prev[selectedPeerId_], comment } }));
+  }
+
+  const feedbackAvailable = average?.available && average.criteria !== null;
+  const evaluationSummary = (<div
+            aria-label={isDone ? "프로젝트 최종 평가 평균" : "내 중간 피드백 평균"}
+            className="relative overflow-hidden p-6 mb-5"
+            style={{
+              background: "var(--hero-banner-bg)",
+              borderRadius: "var(--radius)",
+              border: "var(--hero-banner-border)",
+              boxShadow: "var(--hero-banner-shadow)",
+              color: "#fff",
+            }}
+          >
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 200, height: 200, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: -40, top: -60 }} />
+            <div aria-hidden="true" className="absolute pointer-events-none" style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: 80, bottom: -40 }} />
+            <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSummaryCollapsed((v) => !v)}
+              aria-expanded={!summaryCollapsed}
+              className="flex items-center justify-between w-full text-left mb-3"
+            >
+              <span className="text-xs font-600 uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.7)" }}>
+                {isDone ? "최종 평가" : "중간 피드백"} ({currentMember?.name ?? "참여자"}) · {project.name}{data?.average?.method === "cca" ? " · CCA" : ""}
+              </span>
+              <span className="text-xs font-700 shrink-0 ml-3" style={{ color: "rgba(255,255,255,0.85)" }}>
+                {summaryCollapsed ? "펼치기 ▾" : "접기 ▴"}
+              </span>
+            </button>
+            {!summaryCollapsed && (
+              <>
+            {!isDone && <div className="mb-4 text-sm">
+              <h2 className="font-700 text-lg">내 중간 피드백 평균</h2>
+              <p>{feedbackAvailable ? "중간 피드백 수신 완료" : "중간 피드백 수신 중"}</p>
+              <button type="button" className="underline mt-2" disabled={busy} onClick={() => setRefresh((n) => n + 1)}>중간 피드백 새로고침</button>
+            </div>}
+            {feedbackAvailable ? (
+              // 중간 피드백: 왼쪽 동료 종합 코멘트, 오른쪽 오각형 점수(좁은 화면에서는 점수가 위).
+              // 최종 평가는 코멘트를 받지 않으므로 점수만 가운데 둔다.
+              <div className={isDone ? "" : "grid gap-6 md:grid-cols-2 md:items-start"}>
+                {!isDone && (
+                  <div className="grid gap-2 content-start md:order-1" aria-label="받은 종합 코멘트">
+                    <h3 className="text-sm font-700">동료들의 종합 코멘트</h3>
+                    {(average?.comments?.length ?? 0) > 0 ? (
+                      <div className="grid gap-2 max-h-[360px] overflow-y-auto pr-1">
+                        {average!.comments!.map((comment, index) => (
+                          <p key={index} className="p-3 text-sm leading-relaxed" style={{ background: "rgba(255,255,255,0.14)", borderRadius: "10px", overflowWrap: "anywhere" }}>
+                            {comment}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="p-3 text-sm" style={{ background: "rgba(255,255,255,0.1)", borderRadius: "10px", color: "rgba(255,255,255,0.8)" }}>아직 받은 코멘트가 없어요.</p>
+                    )}
+                  </div>
+                )}
+                <div className={isDone ? "" : "order-first md:order-2"}>
+                  <div className="flex justify-center mb-2">
+                    <PentagonChart
+                      size={320}
+                      gridColor="rgba(255,255,255,0.4)"
+                      fillColor="#ffffff"
+                      labelColor="#ffffff"
+                      valueColor="rgba(255,255,255,0.85)"
+                      data={criteria.map((c) => ({
+                        label: c.label,
+                        value: average!.criteria![c.id],
+                      }))}
+                    />
+                  </div>
+                  <div className="flex items-baseline gap-2 justify-center flex-wrap text-center">
+                    <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
+                      {average?.score?.toFixed(1)}
+                    </span>
+                    <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
+                    {data?.average?.method === "cca" && <CcaBadge light />}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>{isDone ? "아직 제출된 평가가 없습니다." : "공개 대기"}</p>
+            )}
+              </>
+            )}
+            </div>
+          </div>);
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+      {confirmDialog}
+      {/* Header: 이 화면의 설명은 오른쪽 위 ⓘ 하나로 연다. */}
       <div className="mb-5">
-        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          동료 평가 · {project.name}
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <div className="text-xs font-600 uppercase tracking-widest" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            동료 평가 · {project.name}
+          </div>
+          <EvaluationInfoButton section="phases" />
         </div>
         <h1 className="text-2xl font-700">Peer Evaluation</h1>
+        <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+          {isDone
+            ? "최종 평가(총괄) · 동료 평가 작성"
+            : midtermSkipped
+            ? "2주 미만 단기 프로젝트 · 중간 점검 생략"
+            : "중간 점검(형성적) · 항목별 0~10점으로 피드백을 남겨보세요"}
+        </p>
       </div>
 
-      <div className="flex gap-1.5 mb-5 p-1 w-fit" style={{ background: "var(--muted)", borderRadius: "10px" }}>
-        {PHASES.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => setPhase(p.id)}
-            className="text-xs font-700 px-4 py-1.5 transition-all"
-            style={{ background: phase === p.id ? "var(--card)" : "transparent", color: phase === p.id ? "var(--primary)" : "var(--muted-foreground)", borderRadius: "7px", boxShadow: phase === p.id ? "var(--shadow-card)" : "none" }}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
+      {/* Info strip */}
       <div
         className="flex items-center gap-3 px-4 py-3 mb-5 text-sm"
         style={{
-          background: phase === "final" ? "#22c55e12" : "#2563eb12",
+          background: isDone ? "#22c55e4D" : midtermSkipped ? "#454b6e12" : "#2563eb4D",
           borderRadius: "12px",
-          borderLeft: `3px solid ${phase === "final" ? "#22c55e" : "var(--primary)"}`,
+          borderLeft: `3px solid ${isDone ? "#22c55e" : midtermSkipped ? "#454b6e" : "var(--primary)"}`,
         }}
       >
         <div
           className="w-7 h-7 flex items-center justify-center text-base shrink-0"
-          style={{ background: phase === "final" ? "#22c55e18" : "#2563eb18", borderRadius: "8px", color: phase === "final" ? "#22c55e" : "var(--primary)" }}
+          style={{ background: isDone ? "#22c55e18" : midtermSkipped ? "#454b6e18" : "#2563eb18", borderRadius: "8px", color: isDone ? "#22c55e" : midtermSkipped ? "#454b6e" : "var(--primary)" }}
         >
-          {phase === "final" ? "★" : "◎"}
+          {isDone ? "★" : midtermSkipped ? "◷" : "◎"}
         </div>
-        <div>
-          {phase === "final" ? (
-            <>
-              <strong>최종 평가</strong>는 점수만 남깁니다(코멘트 없음) — <span style={{ color: "var(--muted-foreground)" }}>팀원 전체에게 공개되며, 팀원 전원이 나를 평가하면 내 평균 점수가 공개됩니다.</span>
-            </>
+        {/* 단계별 한 줄 요약만 두고, 형성적·총괄 평가와 2주 기준 설명은 오른쪽 위 ⓘ 안내에서 본다. */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {isDone ? (
+            <><strong>최종 평가</strong><span style={{ color: "var(--muted-foreground)" }}>· 평균이 프로필 평점이 됩니다</span></>
+          ) : midtermSkipped ? (
+            <><strong>2주 미만 프로젝트</strong><span style={{ color: "var(--muted-foreground)" }}>· 중간 점검 없이 최종 평가만 진행</span></>
           ) : (
-            <>
-              <strong>중간 평가</strong>는 나와 상대방만 볼 수 있는 비공개 피드백입니다 — <span style={{ color: "var(--muted-foreground)" }}>팀원 전원이 나를 평가하면 내 평균 점수와 코멘트가 나에게만 공개됩니다.</span>
-            </>
+            <><strong>중간 점검</strong><span style={{ color: "var(--muted-foreground)" }}>· 프로필에 반영되지 않음{prototype ? "" : " · 최종 평가는 프로젝트 종료 후"}</span></>
           )}
         </div>
       </div>
 
-      {error && (
-        <div className="text-sm mb-4 px-3 py-2" style={{ background: "#ef444412", color: "#ef4444", borderRadius: "var(--radius-sm)" }}>
-          {error}
+
+      {error && <div role="alert" className="mb-4 p-4 rounded-xl" style={{ background: "#ef444418" }}>
+        {error} <button type="button" className="underline ml-2" disabled={busy} onClick={() => { setData(null); setRefresh((n) => n + 1); }}>다시 불러오기</button>
+      </div>}
+      {!data && !error && <p role="status" className="mb-4">평가를 불러오는 중…</p>}
+      {!currentMember && <p className="mb-4">팀 참여 정보를 확인해 주세요.</p>}
+      {!prototype && isLeader && project.status === "active" && phase === "midterm" && <div className="mb-4">
+        {!confirmClose ? <button type="button" disabled={busy} onClick={() => setConfirmClose(true)}>프로젝트 종료 및 최종 평가 열기</button> :
+          <div><p>프로젝트를 종료하면 중간 평가가 마감됩니다. 종료하시겠습니까?</p>
+          <button type="button" disabled={busy} onClick={closeProject}>프로젝트 종료</button>
+          <button type="button" disabled={busy} onClick={() => setConfirmClose(false)} className="ml-3">취소</button></div>}
+      </div>}
+
+      {/* 최종 평가 평균은 원래 대시보드·프로필에서만 보지만, 테스트 모드에서는 점수 방식을 비교해 보도록 여기서도 보여 준다. */}
+      {data && (!isDone || prototype || methodPreview) && !midtermSkipped && currentMember && evaluationSummary}
+
+      {midtermSkipped && (
+        <div
+          className="p-8 border text-center"
+          style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
+        >
+          <div className="text-3xl mb-3">◷</div>
+          <div className="text-sm font-600">이 프로젝트는 중간 점검이 생략됩니다</div>
+          <div className="text-sm mt-1">프로젝트 종료 후 최종 평가만 진행돼요</div>
         </div>
       )}
 
-      {loading ? (
-        <div className="p-8 text-center text-sm" style={{ color: "var(--muted-foreground)" }}>불러오는 중...</div>
-      ) : peers.length === 0 ? (
+      {data && !midtermSkipped && peers.length === 0 && (
         <div
           className="p-8 border text-center"
           style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
@@ -281,93 +482,22 @@ export default function PeerEvaluation() {
           <div className="text-sm font-600">아직 평가할 동료가 없어요</div>
           <div className="text-sm mt-1">팀원을 초대하면 동료 평가를 진행할 수 있어요</div>
         </div>
-      ) : submitted ? (
-        <div>
-          <div className="flex items-center gap-2 mb-4 px-1">
-            <span className="text-xs font-700 px-2.5 py-1" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
-              ✓ 이번 {phase === "final" ? "최종" : "중간"} 평가를 이미 제출했습니다 (수정 불가)
-            </span>
-          </div>
-          <div
-            className="p-6 mb-5"
-            style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", borderRadius: "var(--radius)", boxShadow: "0 8px 32px rgba(37,99,235,0.3)", color: "#fff" }}
-          >
-            <div className="text-xs font-600 uppercase tracking-widest mb-3" style={{ color: "rgba(255,255,255,0.7)" }}>
-              나에 대한 {phase === "final" ? "최종" : "중간"} 평가 ({currentMember?.name ?? "참여자"}) · {project.name}
-            </div>
-            {average?.available ? (
-              <>
-                <div className="flex justify-center mb-2">
-                  <PentagonChart
-                    size={320}
-                    gridColor="rgba(255,255,255,0.4)"
-                    fillColor="#ffffff"
-                    labelColor="#ffffff"
-                    valueColor="rgba(255,255,255,0.85)"
-                    data={criteria.map((c) => ({ label: c.label, value: average.criteria?.[c.id] ?? 0 }))}
-                  />
-                </div>
-                <div className="flex items-baseline gap-2 justify-center mb-3">
-                  <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>{average.score?.toFixed(1)}</span>
-                  <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 · {average.count}명 응답</span>
-                </div>
-                {average.comments.length > 0 && (
-                  <div className="flex flex-col gap-2">
-                    {average.comments.map((c, i) => (
-                      <p key={i} className="text-sm leading-relaxed px-3 py-2.5" style={{ background: "rgba(255,255,255,0.12)", borderRadius: "10px" }}>
-                        "{c}"
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.85)" }}>
-                아직 나를 평가한 팀원이 {peers.length}명 중 일부뿐이에요 — 전원이 제출하면 익명 평균이 공개됩니다.
-              </p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="px-5 py-4 mb-5" style={{ background: "var(--card)", borderRadius: "12px", boxShadow: "var(--shadow-card)" }}>
-            <div className="text-xs font-600 mb-3" style={{ color: "var(--muted-foreground)" }}>
-              항목별 공유 점수 배분 현황 · 동료 {peers.length}명 × {POOL_PER_PEER}점 = 총 {pool}점
-            </div>
-            <div className="grid grid-cols-5 gap-3">
-              {criteria.map((c) => {
-                const used = criterionTotal(c.id);
-                const balanced = used === pool;
-                return (
-                  <div key={c.id}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-600">{c.label}</span>
-                      <span style={{ fontFamily: "var(--font-jetbrains)", color: balanced ? "#22c55e" : "var(--primary)" }}>{used}/{pool}</span>
-                    </div>
-                    <div className="h-1.5 w-full" style={{ background: "var(--muted)", borderRadius: "4px" }}>
-                      <div
-                        className="h-1.5 transition-all"
-                        style={{
-                          width: `${pool > 0 ? Math.min((used / pool) * 100, 100) : 0}%`,
-                          background: balanced ? "#22c55e" : "linear-gradient(90deg, var(--primary), #60a5fa)",
-                          borderRadius: "4px",
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      )}
 
-          <div className="grid grid-cols-5 gap-5">
-            <div className="col-span-2 flex flex-col gap-2.5">
+      {data && !midtermSkipped && peers.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+            {/* Peer list */}
+            <div className="col-span-1 md:col-span-2 flex flex-col gap-2.5">
               {peers.map((p, i) => {
-                const peerTotal = criteria.reduce((sum, c) => sum + scoreFor(c.id, i), 0);
+                const values = criteria.map((c) => scoreFor(c.id, i)).filter((v): v is number => v !== null);
+                const peerDone = values.length === criteria.length;
+                const peerAverage = peerDone ? values.reduce((sum, v) => sum + v, 0) / criteria.length : 0;
                 const active = selectedPeer === i;
                 return (
                   <button
                     key={p.id}
+                    aria-pressed={selectedPeer === i}
                     onClick={() => setSelectedPeer(i)}
                     className="flex items-center gap-3 p-4 text-left transition-all"
                     style={{
@@ -378,106 +508,186 @@ export default function PeerEvaluation() {
                     }}
                   >
                     <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-700 shrink-0 overflow-hidden" style={{ background: p.avatarUrl ? "var(--card)" : active ? "rgba(255,255,255,0.2)" : `${p.color}18`, color: active ? "#fff" : p.color }}>
-                      {p.avatarUrl ? <img src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" /> : p.avatar}
+                      {p.avatarUrl ? <StillImg src={p.avatarUrl} alt={p.name} className="w-full h-full object-cover" /> : p.avatar}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-700 truncate">{p.name}</div>
-                      <div className="text-xs truncate" style={{ color: active ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>{p.major || p.role}</div>
+                      <div className="text-sm font-700">{p.name}</div>
+                      <div className="text-xs" style={{ color: active ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>{p.major}</div>
                     </div>
                     <span
                       className="text-xs px-2.5 py-1 font-700 shrink-0"
-                      style={{ background: active ? "rgba(255,255,255,0.2)" : "var(--muted)", color: active ? "#fff" : "var(--muted-foreground)", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
+                      style={{ background: active ? "rgba(255,255,255,0.2)" : peerDone ? "var(--muted)" : "#f59e0b22", color: active ? "#fff" : peerDone ? "var(--muted-foreground)" : "#b45309", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
                     >
-                      {peerTotal}점
+                      {peerDone ? `평균 ${peerAverage.toFixed(1)}점` : `${values.length}/${criteria.length} 입력`}
                     </span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="col-span-3">
-              <div className="p-6" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
+            {/* Eval form */}
+            <div className="col-span-1 md:col-span-3">
+              <div className="p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+                {/* Peer header */}
                 <div className="flex items-center gap-3 mb-5 pb-4" style={{ borderBottom: "2px solid var(--muted)" }}>
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center font-700 text-lg overflow-hidden" style={{ background: peers[selectedPeer]?.avatarUrl ? "var(--muted)" : `${peers[selectedPeer]?.color}18`, color: peers[selectedPeer]?.color }}>
-                    {peers[selectedPeer]?.avatarUrl ? <img src={peers[selectedPeer].avatarUrl!} alt={peers[selectedPeer].name} className="w-full h-full object-cover" /> : peers[selectedPeer]?.avatar}
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center font-700 text-lg shrink-0 overflow-hidden" style={{ background: peers[selectedPeer]?.avatarUrl ? "var(--card)" : `${peers[selectedPeer]?.color}18`, color: peers[selectedPeer]?.color }}>
+                    {peers[selectedPeer]?.avatarUrl ? <StillImg src={peers[selectedPeer].avatarUrl} alt={peers[selectedPeer].name} className="w-full h-full object-cover" /> : peers[selectedPeer]?.avatar}
                   </div>
                   <div>
                     <div className="font-700">{peers[selectedPeer]?.name}</div>
-                    <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{peers[selectedPeer]?.major || peers[selectedPeer]?.role}</div>
+                    <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{peers[selectedPeer]?.major}</div>
                   </div>
+                  {isSubmitted && (
+                    <span className="ml-auto text-xs font-700 px-3 py-1.5" style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}>
+                      ✓ 제출 완료 (비공개)
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex justify-center mb-4">
-                  <PentagonChart size={320} data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 1 }))} />
+                {/* Live score preview */}
+                <div className="flex justify-center mb-4" role="group" aria-label="선택한 동료의 항목별 평가 오각형 차트">
+                  <PentagonChart
+                    size={320}
+                    data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 0, display: peerScores[c.id] === null ? "—" : undefined }))}
+                    onValueChange={(index, value) => handleScoreClick(criteria[index].id, value)}
+                    limits={criteria.map((c) => maxAllowed(c.id, selectedPeer))}
+                    disabled={isSubmitted || busy}
+                  />
                 </div>
 
-                {criteria.map((c) => {
-                  const current = peerScores[c.id] ?? 1;
-                  const totalForCriterion = criterionTotal(c.id);
-                  const remainingUnallocated = pool - totalForCriterion;
-                  const capped = maxAllowed(c.id, selectedPeer);
-                  const limitedByPool = capped < 10;
-                  return (
-                    <div key={c.id} className="mb-5">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="w-6 h-6 flex items-center justify-center text-xs" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
-                        <span className="text-sm font-700">{c.label}</span>
-                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{c.desc}</span>
-                        <span className="ml-auto text-xs font-700 text-right" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
-                          {current}점 <span style={{ color: "var(--muted-foreground)", fontWeight: 400 }}>(전체 남음 {remainingUnallocated}점)</span>
-                        </span>
-                      </div>
-                      <ScoreTrack value={current} limit={capped} onChange={(v) => handleScoreClick(c.id, v)} />
-                      {limitedByPool && (
-                        <div className="text-xs mt-1.5 font-600" style={{ color: "#ef4444" }}>
-                          다른 동료들에게 이미 많이 배분해서 이 항목은 {capped}점까지만 줄 수 있어요 (공유 점수 초과 방지)
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {phase === "midterm" && (
-                  <div className="mb-4">
+                <p className="text-xs text-center mb-4" style={{ color: "var(--muted-foreground)" }}>
+                  {isSubmitted ? "제출한 평가는 수정할 수 없습니다." : "오각형 안의 원하는 위치를 누르거나 꼭짓점을 드래그해 점수를 조절하세요."}
+                </p>
+                {/* Steps — one at a time; a bookmark tab appears for each item once you've reached it.
+                    Midterm evaluations add a trailing "종합 코멘트" step; final evaluations only have the 5 criteria. */}
+                <div role="tablist" aria-label="평가 항목" className={isDone ? "flex items-center gap-1 mb-4 flex-wrap" : "grid grid-cols-3 gap-1.5 mb-4"}>
+                  {Array.from({ length: totalSteps }, (_, i) => i).map((i) => {
+                    if (i > maxCriterionStepSeen) return null;
+                    const isActive = i === criterionStep;
+                    const isCommentStep = i === criteria.length;
+                    const icon = isCommentStep ? "💬" : criteria[i].icon;
+                    const label = isCommentStep ? "종합 코멘트" : criteria[i].label;
+                    return (
+                      <button
+                        key={isCommentStep ? "comment" : criteria[i].id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        onClick={() => goToCriterionStep(i)}
+                        className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-700 transition-all min-w-0"
+                        style={{
+                          background: isActive ? "var(--primary)" : "var(--secondary)",
+                          color: isActive ? "#fff" : "var(--primary)",
+                          borderRadius: "10px 10px 3px 3px",
+                        }}
+                      >
+                        <span className="shrink-0">{icon}</span><span className="truncate min-w-0">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {criterionStep === criteria.length ? (
+                  <div role="tabpanel" className="mb-4 p-4" style={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "0 12px 12px 12px" }}>
                     <label className="text-sm font-700 block mb-1.5">
                       종합 코멘트 <span className="font-400 text-xs" style={{ color: "var(--muted-foreground)" }}>(선택 · 최대 150자)</span>
                     </label>
                     <textarea
+                      aria-label="종합 코멘트"
+                      maxLength={150}
+                      disabled={isSubmitted || busy}
                       value={peerComment}
-                      onChange={(e) => e.target.value.length <= 150 && setCommentsByPhase((p) => ({ ...p, [phase]: { ...p[phase], [selectedPeer]: e.target.value } }))}
+                      onChange={(e) => updateComment(e.target.value)}
                       placeholder="건설적인 피드백을 간단히 작성해주세요..."
                       rows={2}
                       className="w-full text-sm p-3 resize-none outline-none"
-                      style={{ border: "2px solid var(--muted)", borderRadius: "10px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                      style={{ border: "2px solid var(--muted)", borderRadius: "10px", background: isSubmitted ? "var(--muted)" : "var(--background)", fontFamily: "var(--font-outfit)" }}
                     />
                     <div className="text-right text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{peerComment.length}/150</div>
                   </div>
-                )}
+                ) : (() => {
+                  const c = criteria[criterionStep];
+                  const current = peerScores[c.id];
+                  const capped = maxAllowed(c.id, selectedPeer);
+                  return (
+                    <div role="tabpanel" className="mb-4 p-4" style={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "0 12px 12px 12px" }}>
+                      <div className="mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
+                          <span className="text-sm font-700 shrink-0">{c.label}</span>
+                          <span className="ml-auto text-xs font-700 text-right shrink-0" style={{ color: current === null ? "#b45309" : "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+                            {current === null ? "미선택" : `${current}점`}
+                          </span>
+                        </div>
+                        <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{c.desc}</p>
+                      </div>
+                      <ScoreTrack
+                        label={c.label}
+                        value={current}
+                        limit={capped}
+                        disabled={isSubmitted || busy}
+                        onChange={(v) => handleScoreClick(c.id, v)}
+                      />
+                    </div>
+                  );
+                })()}
+                <div className="flex items-center justify-between mb-5">
+                  <button
+                    type="button"
+                    onClick={goToPrevCriterion}
+                    disabled={criterionStep === 0}
+                    className="text-xs font-700 px-3 py-1.5 disabled:opacity-40"
+                    style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                  >
+                    ← 이전
+                  </button>
+                  <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+                    {criterionStep + 1} / {totalSteps}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={goToNextCriterion}
+                    disabled={criterionStep === totalSteps - 1}
+                    className="text-xs font-700 px-3 py-1.5 disabled:opacity-40"
+                    style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                  >
+                    다음 →
+                  </button>
+                </div>
 
-                {!allBalanced && (
-                  <div className="text-xs text-center mb-2" style={{ color: "var(--muted-foreground)" }}>
-                    모든 항목의 공유 점수를 남김없이 다 나눠줘야 제출할 수 있어요 — 위 배분 현황에서 남은 점수를 확인해주세요.
+                {!isSubmitted && (
+                  <>
+                    <button
+                      onClick={submitEval}
+                      disabled={!allBalanced || busy}
+                      className="w-full py-3 text-sm font-700 transition-all"
+                      style={{
+                        background: allBalanced ? "var(--primary)" : "var(--muted)",
+                        color: allBalanced ? "#fff" : "var(--muted-foreground)",
+                        borderRadius: "40px",
+                        boxShadow: allBalanced ? "0 8px 20px rgba(37,99,235,0.3)" : "none",
+                        cursor: allBalanced ? "pointer" : "not-allowed",
+                      }}
+                    >
+                      {busy ? "제출 중…" : "전체 동료 평가 제출"} (비공개)
+                    </button>
+                    {remaining.length > 0 && (
+                      <p className="text-xs text-center mt-2" style={{ color: "#b45309" }}>
+                        모든 동료의 모든 항목을 골라야 제출할 수 있어요 · 남은 항목: {remaining.map(({ peer, left }) => `${peer.name} ${left}개`).join(", ")}
+                      </p>
+                    )}
+                  </>
+                )}
+                {isSubmitted && (
+                  <div className="text-xs text-center font-700" style={{ color: "#22c55e" }}>
+                    ✓ 전체 동료 평가 제출 완료 (비공개)
                   </div>
                 )}
-                <button
-                  onClick={submitEval}
-                  disabled={!allBalanced || submitting}
-                  className="w-full py-3 text-sm font-700 transition-all"
-                  style={{
-                    background: allBalanced && !submitting ? "var(--primary)" : "var(--muted)",
-                    color: allBalanced && !submitting ? "#fff" : "var(--muted-foreground)",
-                    borderRadius: "40px",
-                    boxShadow: allBalanced && !submitting ? "0 8px 20px rgba(37,99,235,0.3)" : "none",
-                    cursor: allBalanced && !submitting ? "pointer" : "not-allowed",
-                  }}
-                >
-                  {submitting ? "제출 중..." : `전체 동료 평가 제출 (${phase === "final" ? "공개" : "비공개"})`}
-                </button>
               </div>
             </div>
           </div>
         </>
       )}
+
     </div>
   );
 }

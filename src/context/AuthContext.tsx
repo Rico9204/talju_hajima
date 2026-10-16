@@ -1,109 +1,30 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { apiClient, clearAccessToken, getAccessToken, setAccessToken } from "../api/backend/client";
+import { ngrokHeaders } from "../api/rest/ngrok";
+import { accessToken, announce, readSession, refreshSession, sessionChangedEvent, writeSession, type SessionUser, type StoredSession } from "../api/rest/session";
+import { disablePush } from "../lib/webPush";
 
-// Supabase의 User/Session을 그대로 흉내내는 대신, 이 앱이 실제로 쓰는 필드(id/email/name,
-// accessToken)만 담은 최소 형태. 나머지 컴포넌트는 `session.user.id`/`session.user.email`만
-// 참조하므로 이 형태로도 100% 호환된다.
-export interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-}
-
-export interface AuthSession {
-  user: AuthUser;
-  accessToken: string;
-}
-
-interface AuthContextValue {
-  user: AuthUser | null;
-  session: AuthSession | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
-  signOut: () => Promise<void>;
-  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
-}
-
+export type AuthUser = SessionUser;
+export type AuthSession = StoredSession;
+interface AuthContextValue { user: AuthUser | null; session: AuthSession | null; loading: boolean; signIn: (email: string, password: string) => Promise<{ error: string | null }>; signUp: (email: string, password: string, displayName: string, signupType?: "admin") => Promise<{ error: string | null; signedIn: boolean }>; signOut: () => Promise<void>; updatePassword: (currentPassword: string, newPassword: string) => Promise<{ error: string | null }>; }
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-async function fetchMe(): Promise<AuthUser> {
-  const { data } = await apiClient.get<{ id: string; email: string; name: string }>("/users/me");
-  return { id: data.id, email: data.email, name: data.name };
-}
-
-function errorMessage(err: unknown): string {
-  const anyErr = err as { response?: { data?: { message?: string | string[] } } };
-  const msg = anyErr.response?.data?.message;
-  if (Array.isArray(msg)) return msg.join(", ");
-  if (typeof msg === "string") return msg;
-  return "요청을 처리하지 못했습니다.";
-}
+const serverUrl = String(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+// credentials: 로그인·로그아웃·비밀번호 변경 응답이 리프레시 토큰 쿠키(httpOnly)를 심고 지운다.
+async function serverRequest<T>(path: string, init: RequestInit = {}, token?: string | null) { if (!serverUrl) throw new Error("자체 서버 주소가 설정되지 않았습니다."); const headers = new Headers(init.headers); for (const [name, value] of Object.entries(ngrokHeaders(serverUrl))) headers.set(name, value); if (token) headers.set("Authorization", `Bearer ${token}`); if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json"); const response = await fetch(`${serverUrl}${path}`, { ...init, headers, credentials: "include" }); const body = await response.json().catch(() => null); if (!response.ok) throw new Error(body?.message || `요청을 처리하지 못했습니다(HTTP ${response.status}).`); return body as T; }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<AuthSession | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // 새로고침 후에도 로그인 유지 — 저장된 토큰이 있으면 /users/me로 유효성 확인
+  const [session, setSession] = useState<AuthSession | null>(readSession); const [loading, setLoading] = useState(true);
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    fetchMe()
-      .then((user) => setSession({ user, accessToken: token }))
-      .catch(() => clearAccessToken())
-      .finally(() => setLoading(false));
+    // 토큰 갱신·로그아웃(다른 탭 포함)은 session.ts가 알린다.
+    const sync = () => setSession(readSession());
+    window.addEventListener(sessionChangedEvent, sync);
+    // 새로 고침: 쿠키로 로그인 상태를 되찾는다. 서버에 닿지 않으면 로그아웃된 화면으로 시작한다.
+    void refreshSession().catch(() => null).finally(() => { sync(); setLoading(false); });
+    return () => window.removeEventListener(sessionChangedEvent, sync);
   }, []);
-
-  async function signIn(email: string, password: string) {
-    try {
-      const { data } = await apiClient.post<{ accessToken: string }>("/auth/login", { email, password });
-      setAccessToken(data.accessToken);
-      const user = await fetchMe();
-      setSession({ user, accessToken: data.accessToken });
-      return { error: null };
-    } catch (err) {
-      return { error: errorMessage(err) };
-    }
-  }
-
-  async function signUp(email: string, password: string, displayName: string) {
-    try {
-      const { data } = await apiClient.post<{ accessToken: string }>("/auth/register", {
-        email,
-        password,
-        name: displayName,
-      });
-      setAccessToken(data.accessToken);
-      const user = await fetchMe();
-      setSession({ user, accessToken: data.accessToken });
-      return { error: null };
-    } catch (err) {
-      return { error: errorMessage(err) };
-    }
-  }
-
-  async function signOut() {
-    clearAccessToken();
-    setSession(null);
-  }
-
-  // 백엔드에 비밀번호 변경 엔드포인트가 아직 없음 — 정직하게 실패로 알림 (조용히 성공한 척하지 않음)
-  async function updatePassword(_newPassword: string) {
-    return { error: "이 서버 백엔드는 아직 비밀번호 변경을 지원하지 않습니다." };
-  }
-
-  return (
-    <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  async function signIn(email: string, password: string) { try { writeSession(await serverRequest<AuthSession>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) })); announce("login"); return { error: null }; } catch (error) { return { error: error instanceof Error ? error.message : "로그인하지 못했습니다." }; } }
+  async function signUp(email: string, password: string, displayName: string, signupType?: "admin") { try { await serverRequest("/auth/signup", { method: "POST", body: JSON.stringify({ email, password, displayName, ...(signupType === "admin" ? { signupType } : {}) }) }); return { error: null, signedIn: false }; } catch (error) { return { error: error instanceof Error ? error.message : "가입하지 못했습니다.", signedIn: false }; } }
+  async function signOut() { await disablePush().catch(() => {}); /* 로그아웃한 뒤에도 이 기기로 내 알림이 오지 않게 구독을 먼저 지운다(아직 로그인 상태일 때) */ writeSession(null); announce("logout"); await serverRequest("/auth/logout", { method: "POST" }).catch(() => {}); }
+  async function updatePassword(currentPassword: string, newPassword: string) { try { const token = await accessToken(); const current = readSession(); if (!token || !current) throw new Error("로그인이 필요합니다."); const result = await serverRequest<{ accessToken: string }>("/auth/password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) }, token); writeSession({ ...current, accessToken: result.accessToken }); return { error: null }; } catch (error) { return { error: error instanceof Error ? error.message : "비밀번호를 변경하지 못했습니다." }; } }
+  return <AuthContext.Provider value={{ user: session?.user ?? null, session, loading, signIn, signUp, signOut, updatePassword }}>{children}</AuthContext.Provider>;
 }
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
-  return ctx;
-}
+export function useAuth() { const ctx = useContext(AuthContext); if (!ctx) throw new Error("useAuth must be used within an AuthProvider"); return ctx; }

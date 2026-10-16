@@ -116,6 +116,8 @@ function toProject(raw: RawProject): Project {
     status: "active",
     startDate: extras.startDate,
     endDate: extras.endDate,
+    // backend/(NestJS)에는 승인 절차 자체가 없어 늘 승인된 것으로 취급한다.
+    approvalStatus: "approved",
   };
 }
 
@@ -163,6 +165,19 @@ function toMember(raw: RawMember): Member {
     color: colorForName(raw.user.name),
     criteriaScores: { role: 0, deadline: 0, communication: 0, collaboration: 0, quality: 0 },
     isLeader: raw.role === "owner",
+    // 아래 필드들은 backend/(NestJS)가 아직 지원하지 않는, main 쪽에서 나중에 늘어난 항목들 —
+    // 타입만 맞춰두고 기본값으로 둔다(5단계: dataRepository 통합 때 실제 값 연결 예정).
+    org: null,
+    backgroundColor: null,
+    backgroundGradient: null,
+    backgroundImageUrl: null,
+    glassOpacity: null,
+    glassBlur: null,
+    isViceLeader: false,
+    lastSeenAt: null,
+    tasksViewedAt: null,
+    scheduleViewedAt: null,
+    workspaceViewedAt: null,
   };
 }
 
@@ -442,6 +457,13 @@ async function buildFileVersions(projectId: string, file: RawProjectFile, names:
   if (chain.length === 0) {
     return [
       {
+        id: hashId(file.id),
+        parentVersionId: null,
+        storagePath: null,
+        originalName: null,
+        mimeType: "text/plain",
+        byteSize: null,
+        pinned: false,
         version: "v1",
         uploadedBy: names.get(file.lastEditorId ?? "")?.name ?? "알 수 없음",
         date: formatDate(file.updatedAt),
@@ -455,6 +477,13 @@ async function buildFileVersions(projectId: string, file: RawProjectFile, names:
   const withLabels = chain.map((v, i) => ({ v, label: `v${i + 1}` }));
   withLabels.reverse(); // 최신이 0번
   return withLabels.map(({ v, label }) => ({
+    id: hashId(v.id),
+    parentVersionId: v.parentVersionId ? hashId(v.parentVersionId) : null,
+    storagePath: null,
+    originalName: null,
+    mimeType: "text/plain",
+    byteSize: null,
+    pinned: false,
     version: label,
     uploadedBy: names.get(v.authorId)?.name ?? "알 수 없음",
     date: formatDate(v.createdAt),
@@ -472,6 +501,9 @@ async function toWorkspaceFile(projectId: string, raw: RawProjectFile, names: Ma
   ]);
   const comments: FileComment[] = commentsRes.data.map((c) => ({
     id: hashId(c.id),
+    memberId: null,
+    versionId: null,
+    reactions: [],
     author: names.get(c.authorId)?.name ?? "알 수 없음",
     avatar: names.get(c.authorId)?.avatar ?? "?",
     date: formatDate(c.createdAt),
@@ -486,6 +518,7 @@ async function toWorkspaceFile(projectId: string, raw: RawProjectFile, names: Ma
     date: formatDate(raw.updatedAt),
     size: formatSize(raw.content),
     tag: raw.tag ?? "",
+    tags: raw.tag ? [raw.tag] : [],
     folderId: folderName ? numericFolderId(projectId, folderName) : null,
     versions,
     comments,

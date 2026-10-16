@@ -12,14 +12,43 @@ create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null,
   avatar_initial text not null,
-  -- Account-wide profile fields (photo, major, student id) — one value per
-  -- person, shown the same way in every project they're in. `members` still
-  -- carries its own copies of these for accounts-less/seeded teammates; for
-  -- a real account, the mapping layer prefers these columns over the
-  -- members-row ones whenever a profiles row exists (see mapMember).
+  -- Account-wide profile fields (photo, school, major, student id) — one
+  -- value per person, shown the same way in every project they're in.
+  -- `members` still carries its own copies of major/student/avatar for
+  -- accounts-less/seeded teammates; for a real account, the mapping layer
+  -- prefers these columns over the members-row ones whenever a profiles row
+  -- exists (see mapMember). `school` has no members-table fallback — it's
+  -- new, only used to look up majors.odcloud.kr, not displayed elsewhere.
   avatar_url text,
+  school text,
   major text,
   student text,
+  -- Optional reference info (KakaoTalk ID, phone number, etc.) shown to
+  -- teammates so they have a way to reach this person outside the app.
+  contact text,
+  -- Hex color for the profile card banner background. Independent from the
+  -- per-project members.color accent (that one is assigned automatically
+  -- from a palette and drives other UI); this is a user choice.
+  banner_color text,
+  -- Custom banner image (stored in the "avatars" bucket, see storage
+  -- policies below); takes priority over banner_color when set.
+  banner_image_url text,
+  -- App-wide background customization, applied behind the glass UI once
+  -- logged in. Priority: background_image_url > background_gradient >
+  -- background_color > the app default. Image reuses the "avatars" bucket.
+  background_color text,
+  background_gradient text,
+  background_image_url text,
+  -- Glass-card intensity for the same background: opacity of the card fill
+  -- (0-100, % white) and backdrop blur radius in px. Null falls back to the
+  -- app defaults (66 / 18) — see --glass-alpha/--panel-blur-px in index.css.
+  glass_opacity integer,
+  glass_blur integer,
+  -- Profile link chips (GitHub, Instagram, portfolio, ...) as a JSON array
+  -- of { id, type, url, label } — see src/lib/links.ts for the shape and
+  -- the auto-detect-from-URL logic. jsonb so new platform types never need
+  -- a schema change.
+  links jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -94,6 +123,8 @@ create table if not exists files (
   id bigint generated always as identity primary key,
   project_id text not null references projects(id) on delete cascade,
   name text not null,
+  content text,
+  file_data text,
   type text not null check (type in ('pdf', 'doc', 'img', 'ppt', 'xls', 'zip')),
   uploader text not null,
   avatar text not null,
@@ -190,11 +221,26 @@ create table if not exists task_checklist_items (
 create table if not exists task_comments (
   id bigint generated always as identity primary key,
   task_id bigint not null references tasks(id) on delete cascade,
+  -- author/avatar stay as a frozen snapshot for rows with no member_id
+  -- (legacy rows, or the author has since left the project); when member_id
+  -- is set, the UI resolves the *current* name/avatar/avatarUrl from
+  -- members/profiles instead of trusting these columns (see TaskDetailPanel).
+  member_id uuid references members(id) on delete set null,
   author text not null,
   avatar text not null,
   date date not null default current_date,
   text text not null
 );
+
+-- One member may add each supported emoji once to a task comment.
+create table if not exists task_comment_reactions (
+  comment_id bigint not null references task_comments(id) on delete cascade,
+  member_id uuid not null references members(id) on delete cascade,
+  emoji text not null check (emoji in ('👍', '❤️', '😂', '🎉', '👀', '✅')),
+  created_at timestamptz not null default now(),
+  primary key (comment_id, member_id, emoji)
+);
+create index if not exists task_comment_reactions_comment_idx on task_comment_reactions (comment_id);
 
 -- channel_id is 'all' for the whole-team channel, or 'dm:<lesser member
 -- id>:<greater member id>' for a 1:1 — the two member ids sorted as text so
@@ -208,6 +254,10 @@ create table if not exists chat_messages (
   file_id bigint references files(id) on delete set null,
   created_at timestamptz not null default now()
 );
+do $$ begin
+  alter table chat_messages add constraint chat_messages_id_project_unique unique (id, project_id);
+exception when duplicate_object or duplicate_table then null;
+end $$;
 create index if not exists chat_messages_channel_idx on chat_messages (project_id, channel_id, created_at);
 
 create table if not exists message_reads (
@@ -216,6 +266,36 @@ create table if not exists message_reads (
   project_id text not null references projects(id) on delete cascade,
   read_at timestamptz not null default now(),
   primary key (message_id, member_id)
+);
+do $$ begin
+  alter table message_reads add constraint message_reads_message_project_fk
+    foreign key (message_id, project_id) references chat_messages(id, project_id) on delete cascade;
+exception when duplicate_object then null;
+end $$;
+
+create table if not exists message_reactions (
+  message_id bigint not null references chat_messages(id) on delete cascade,
+  member_id uuid not null references members(id) on delete cascade,
+  project_id text not null references projects(id) on delete cascade,
+  emoji text not null check (emoji in ('👍', '❤️', '😂', '🎉', '👀', '✅')),
+  created_at timestamptz not null default now(),
+  primary key (message_id, member_id, emoji)
+);
+create index if not exists message_reactions_project_idx on message_reactions (project_id, message_id);
+do $$ begin
+  alter table message_reactions add constraint message_reactions_message_project_fk
+    foreign key (message_id, project_id) references chat_messages(id, project_id) on delete cascade;
+exception when duplicate_object then null;
+end $$;
+
+-- Private, trigger-managed counters. Clients have no grants on this table;
+-- it prevents a member from flooding chat or repeatedly toggling reactions.
+create table if not exists chat_write_rate_limits (
+  member_id uuid not null references members(id) on delete cascade,
+  kind text not null check (kind in ('message', 'reaction')),
+  window_started timestamptz not null default now(),
+  event_count integer not null default 0 check (event_count >= 0),
+  primary key (member_id, kind)
 );
 
 -- Auth is now wired up. Every table below is scoped to "signed-in users who
@@ -233,6 +313,115 @@ returns boolean language sql security definer stable as $$
     select 1 from members m where m.project_id = p_project_id and m.user_id = auth.uid()
   );
 $$;
+
+-- `all` is team-wide. A DM is readable/writable only when the caller's
+-- member id is one of its two UUID segments and both members are in project.
+create or replace function public.can_access_chat_channel(p_project_id text, p_channel_id text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select case
+    when p_channel_id = 'all' then exists (
+      select 1 from public.members mine
+      where mine.project_id = p_project_id and mine.user_id = (select auth.uid())
+    )
+    when p_channel_id ~ '^dm:[0-9a-f-]{36}:[0-9a-f-]{36}$'
+      and split_part(p_channel_id, ':', 2) <> split_part(p_channel_id, ':', 3)
+    then exists (
+      select 1
+      from public.members mine
+      where mine.project_id = p_project_id
+        and mine.user_id = (select auth.uid())
+        and mine.id::text in (split_part(p_channel_id, ':', 2), split_part(p_channel_id, ':', 3))
+        and exists (
+          select 1 from public.members first_member
+          where first_member.project_id = p_project_id and first_member.id::text = split_part(p_channel_id, ':', 2)
+        )
+        and exists (
+          select 1 from public.members second_member
+          where second_member.project_id = p_project_id and second_member.id::text = split_part(p_channel_id, ':', 3)
+        )
+    )
+    else false
+  end;
+$$;
+
+revoke all on function public.can_access_chat_channel(text, text) from public;
+grant execute on function public.can_access_chat_channel(text, text) to authenticated;
+
+create or replace function public.consume_chat_rate_limit(p_member_id uuid, p_kind text, p_max integer, p_window interval)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_limit public.chat_write_rate_limits%rowtype;
+begin
+  insert into public.chat_write_rate_limits (member_id, kind, window_started, event_count)
+  values (p_member_id, p_kind, now(), 0)
+  on conflict (member_id, kind) do nothing;
+
+  select * into current_limit
+  from public.chat_write_rate_limits
+  where member_id = p_member_id and kind = p_kind
+  for update;
+
+  if current_limit.window_started <= now() - p_window then
+    update public.chat_write_rate_limits
+    set window_started = now(), event_count = 1
+    where member_id = p_member_id and kind = p_kind;
+  elsif current_limit.event_count >= p_max then
+    raise exception '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' using errcode = 'P0001';
+  else
+    update public.chat_write_rate_limits
+    set event_count = event_count + 1
+    where member_id = p_member_id and kind = p_kind;
+  end if;
+end;
+$$;
+
+create or replace function public.enforce_chat_message_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$ begin
+  if not exists (select 1 from public.members m where m.id = new.sender_id and m.user_id = (select auth.uid())) then
+    raise exception 'Invalid chat sender.' using errcode = '42501';
+  end if;
+  perform public.consume_chat_rate_limit(new.sender_id, 'message', 12, interval '30 seconds');
+  return new;
+end; $$;
+
+create or replace function public.enforce_chat_reaction_rate_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$ begin
+  if not exists (select 1 from public.members m where m.id = new.member_id and m.user_id = (select auth.uid())) then
+    raise exception 'Invalid reaction member.' using errcode = '42501';
+  end if;
+  perform public.consume_chat_rate_limit(new.member_id, 'reaction', 30, interval '30 seconds');
+  return new;
+end; $$;
+
+drop trigger if exists chat_messages_rate_limit on chat_messages;
+create trigger chat_messages_rate_limit before insert on chat_messages
+for each row execute function public.enforce_chat_message_rate_limit();
+drop trigger if exists message_reactions_rate_limit on message_reactions;
+create trigger message_reactions_rate_limit before insert on message_reactions
+for each row execute function public.enforce_chat_reaction_rate_limit();
+
+alter table chat_write_rate_limits enable row level security;
+revoke all on table chat_write_rate_limits from anon, authenticated;
+revoke all on function public.consume_chat_rate_limit(uuid, text, integer, interval) from public;
+revoke all on function public.enforce_chat_message_rate_limit() from public;
+revoke all on function public.enforce_chat_reaction_rate_limit() from public;
 
 -- Deleting a whole project is destructive/irreversible, so it's restricted
 -- to the project's leader rather than any member.
@@ -329,7 +518,8 @@ drop policy if exists projects_update on projects;
 drop policy if exists projects_delete on projects;
 create policy projects_select on projects for select using (auth.role() = 'authenticated');
 create policy projects_insert on projects for insert with check (auth.role() = 'authenticated');
-create policy projects_update on projects for update using (is_project_member(id));
+create policy projects_update on projects for update
+  using (is_project_leader(id)) with check (is_project_leader(id));
 create policy projects_delete on projects for delete using (is_project_leader(id));
 
 drop policy if exists teams_select on teams;
@@ -338,10 +528,16 @@ drop policy if exists teams_update on teams;
 drop policy if exists teams_delete on teams;
 create policy teams_select on teams for select using (is_project_member(project_id));
 create policy teams_insert on teams for insert with check (auth.role() = 'authenticated');
-create policy teams_update on teams for update using (is_project_member(project_id));
-create policy teams_delete on teams for delete using (is_project_member(project_id));
+create policy teams_update on teams for update
+  using (is_project_leader(project_id)) with check (is_project_leader(project_id));
+create policy teams_delete on teams for delete using (is_project_leader(project_id));
 
--- members: select/update/delete require existing membership. Insert just
+-- members: select/delete require existing membership. Direct UPDATE is not
+-- exposed to clients: account-profile changes use `profiles`, and leadership
+-- changes use the narrowly checked transfer_leadership() RPC below. Leaving
+-- no UPDATE policy prevents a member from changing another member's role,
+-- account link, or project id through a raw client request.
+-- Insert just
 -- requires being signed in (covers both "become the first/leader member when
 -- creating a project" and "join an existing project") — the set_member_user_id
 -- trigger below is what actually guarantees a member row can only ever be
@@ -354,13 +550,20 @@ drop policy if exists members_delete on members;
 create policy members_select on members for select using (is_project_member(project_id));
 create policy members_insert on members for insert
   with check (auth.role() = 'authenticated');
-create policy members_update on members for update using (is_project_member(project_id));
-create policy members_delete on members for delete using (is_project_member(project_id));
+create policy members_delete on members for delete using (is_project_leader(project_id));
 
 create or replace function public.set_member_user_id()
 returns trigger language plpgsql as $$
 begin
   new.user_id := auth.uid();
+  -- 프로젝트에 이미 리더가 있으면 is_leader를 false로 강제
+  -- (createProject는 첫 번째 멤버라 리더 없음 → true 통과,
+  --  joinProject는 리더 이미 있음 → 클라이언트가 true 보내도 false로 교정)
+  if new.is_leader and exists (
+    select 1 from members where project_id = new.project_id and is_leader
+  ) then
+    new.is_leader := false;
+  end if;
   return new;
 end;
 $$;
@@ -369,6 +572,61 @@ drop trigger if exists set_member_user_id_trigger on members;
 create trigger set_member_user_id_trigger
   before insert on members
   for each row execute function public.set_member_user_id();
+
+-- is_leader 직접 UPDATE 차단: transfer_leadership RPC만 허용
+-- (RPC 내부에서 set_config('app.allow_leader_change','true',true)로 트랜잭션 범위 해제)
+create or replace function public.prevent_is_leader_direct_update()
+returns trigger language plpgsql as $$
+begin
+  if new.is_leader <> old.is_leader
+     and current_setting('app.allow_leader_change', true) is distinct from 'true'
+  then
+    raise exception 'is_leader 변경은 transfer_leadership() 함수를 통해서만 가능합니다';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_is_leader_direct_update on members;
+create trigger prevent_is_leader_direct_update
+  before update on members
+  for each row execute function public.prevent_is_leader_direct_update();
+
+-- transfer_leadership: 팀장 검증 + 원자적 교체
+-- SECURITY DEFINER로 실행되며 set_config 플래그로 위 트리거를 트랜잭션 내에서만 우회
+create or replace function public.transfer_leadership(p_project_id text, p_target_name text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_caller_id uuid;
+  v_caller_role text;
+  v_target_id uuid;
+  v_target_role text;
+begin
+  select id, role into v_caller_id, v_caller_role
+    from members
+    where project_id = p_project_id and user_id = auth.uid() and is_leader;
+  if v_caller_id is null then
+    raise exception '팀장만 권한을 이전할 수 있습니다';
+  end if;
+
+  select id, role into v_target_id, v_target_role
+    from members
+    where project_id = p_project_id and name = p_target_name and not is_leader;
+  if v_target_id is null then
+    raise exception '대상 멤버를 찾을 수 없거나 이미 팀장입니다';
+  end if;
+
+  perform set_config('app.allow_leader_change', 'true', true);
+
+  -- is_leader와 함께 role 표시 문구도 동기화 (커스텀 역할 문구는 그대로 둠)
+  update members set is_leader = false,
+    role = case when v_caller_role = '팀장' then '팀원' else v_caller_role end
+    where id = v_caller_id;
+  update members set is_leader = true,
+    role = case when v_target_role in ('참여자', '팀원') then '팀장' else v_target_role end
+    where id = v_target_id;
+end;
+$$;
 
 drop policy if exists folders_all on folders;
 drop policy if exists files_all on files;
@@ -410,10 +668,64 @@ create policy task_checklist_items_write on task_checklist_items for all
 
 -- task_comments: open to any project member, like chat — matches
 -- addTaskComment, which only requires being a signed-in team member.
+-- Insert additionally requires member_id to be the caller's own member row
+-- (same shape as chat_messages_insert) so comments can't be posted as
+-- someone else.
 drop policy if exists task_comments_select on task_comments;
 drop policy if exists task_comments_insert on task_comments;
 create policy task_comments_select on task_comments for select using (is_task_project_member(task_id));
-create policy task_comments_insert on task_comments for insert with check (is_task_project_member(task_id));
+create policy task_comments_insert on task_comments for insert
+  with check (
+    is_task_project_member(task_id)
+    and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+  );
+
+-- Comment reactions inherit the project membership of their parent task and
+-- may only be added/removed by the authenticated member who owns the row.
+create or replace function public.can_access_task_comment(p_comment_id bigint)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1
+    from public.task_comments c
+    join public.tasks t on t.id = c.task_id
+    join public.members mine on mine.project_id = t.project_id
+    where c.id = p_comment_id and mine.user_id = (select auth.uid())
+  );
+$$;
+revoke all on function public.can_access_task_comment(bigint) from public;
+grant execute on function public.can_access_task_comment(bigint) to authenticated;
+
+-- This deliberately does not check c.member_id: anyone on the task's team
+-- can react to anyone else's comment, but only with their own member id.
+create or replace function public.can_react_to_task_comment(p_comment_id bigint, p_member_id uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1
+    from public.task_comments c
+    join public.tasks t on t.id = c.task_id
+    join public.members reactor on reactor.id = p_member_id and reactor.project_id = t.project_id
+    where c.id = p_comment_id and reactor.user_id = (select auth.uid())
+  );
+$$;
+revoke all on function public.can_react_to_task_comment(bigint, uuid) from public;
+grant execute on function public.can_react_to_task_comment(bigint, uuid) to authenticated;
+
+alter table task_comment_reactions enable row level security;
+drop policy if exists task_comment_reactions_select on task_comment_reactions;
+drop policy if exists task_comment_reactions_insert on task_comment_reactions;
+drop policy if exists task_comment_reactions_delete on task_comment_reactions;
+create policy task_comment_reactions_select on task_comment_reactions for select to authenticated
+  using (public.can_access_task_comment(comment_id));
+create policy task_comment_reactions_insert on task_comment_reactions for insert to authenticated
+  with check (
+    public.can_react_to_task_comment(comment_id, member_id)
+  );
+create policy task_comment_reactions_delete on task_comment_reactions for delete to authenticated
+  using (
+    public.can_react_to_task_comment(comment_id, member_id)
+  );
+revoke all on table task_comment_reactions from anon, authenticated;
+grant select, insert, delete on table task_comment_reactions to authenticated;
 
 -- schedule_events: team-scope events are leader-managed; personal-scope
 -- events are owned by the one member they belong to. Select additionally
@@ -487,41 +799,69 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Chat: readable by any project member; inserting requires the sender/reader
--- to actually be the authenticated user's own member row (so you can't post
--- or mark things read as someone else).
+-- Chat access is channel-scoped: team members see `all`, while DMs are
+-- restricted to the two member ids encoded in the channel id.
 alter table chat_messages enable row level security;
 alter table message_reads enable row level security;
+alter table message_reactions enable row level security;
 
 drop policy if exists chat_messages_select on chat_messages;
 drop policy if exists chat_messages_insert on chat_messages;
-create policy chat_messages_select on chat_messages for select using (is_project_member(project_id));
-create policy chat_messages_insert on chat_messages for insert
+create policy chat_messages_select on chat_messages for select to authenticated using (can_access_chat_channel(project_id, channel_id));
+create policy chat_messages_insert on chat_messages for insert to authenticated
   with check (
-    is_project_member(project_id)
+    can_access_chat_channel(project_id, channel_id)
     and exists (select 1 from members m where m.id = sender_id and m.user_id = auth.uid())
   );
 
 drop policy if exists message_reads_select on message_reads;
 drop policy if exists message_reads_insert on message_reads;
-create policy message_reads_select on message_reads for select using (is_project_member(project_id));
-create policy message_reads_insert on message_reads for insert
+create policy message_reads_select on message_reads for select to authenticated using (
+  exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reads.project_id and can_access_chat_channel(c.project_id, c.channel_id))
+);
+create policy message_reads_insert on message_reads for insert to authenticated
   with check (
-    is_project_member(project_id)
+    exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reads.project_id and can_access_chat_channel(c.project_id, c.channel_id))
     and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
   );
+
+drop policy if exists message_reactions_select on message_reactions;
+drop policy if exists message_reactions_insert on message_reactions;
+drop policy if exists message_reactions_delete on message_reactions;
+create policy message_reactions_select on message_reactions for select to authenticated using (
+  exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id and can_access_chat_channel(c.project_id, c.channel_id))
+);
+create policy message_reactions_insert on message_reactions for insert to authenticated
+  with check (
+    exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id and can_access_chat_channel(c.project_id, c.channel_id))
+    and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+  );
+create policy message_reactions_delete on message_reactions for delete to authenticated
+  using (
+    exists (select 1 from chat_messages c where c.id = message_id and c.project_id = message_reactions.project_id and can_access_chat_channel(c.project_id, c.channel_id))
+    and exists (select 1 from members m where m.id = member_id and m.user_id = auth.uid())
+  );
+
+revoke all on table chat_messages, message_reads, message_reactions from anon, authenticated;
+grant select, insert on table chat_messages to authenticated;
+grant select, insert on table message_reads to authenticated;
+grant select, insert, delete on table message_reactions to authenticated;
 
 -- Realtime: without this, INSERTs into these tables never fire
 -- postgres_changes events on the client.
 alter publication supabase_realtime add table chat_messages;
 alter publication supabase_realtime add table message_reads;
+alter publication supabase_realtime add table message_reactions;
+alter table message_reactions replica identity full;
 
 -- Profile photo storage. Public bucket (avatars aren't sensitive and need to
 -- be viewable by teammates without a signed-URL round trip) — writes are
 -- still locked down below to "your own folder only".
-insert into storage.buckets (id, name, public)
-values ('avatars', 'avatars', true)
-on conflict (id) do nothing;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif']::text[])
+on conflict (id) do update set
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists avatars_public_read on storage.objects;
 drop policy if exists avatars_own_write on storage.objects;
@@ -529,9 +869,4179 @@ drop policy if exists avatars_own_update on storage.objects;
 drop policy if exists avatars_own_delete on storage.objects;
 create policy avatars_public_read on storage.objects for select
   using (bucket_id = 'avatars');
-create policy avatars_own_write on storage.objects for insert
-  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy avatars_own_update on storage.objects for update
-  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy avatars_own_write on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif', 'gif')
+    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif')
+  );
+create policy avatars_own_update on storage.objects for update to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = auth.uid()::text
+    and lower(storage.extension(name)) in ('jpg', 'jpeg', 'png', 'webp', 'avif', 'gif')
+    and (metadata->>'mimetype') in ('image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif')
+  );
 create policy avatars_own_delete on storage.objects for delete
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Peer evaluation tables, policies and RPCs.
+-- Apply in the Supabase SQL editor before deploying the evaluation UI.
+begin;
+create table if not exists public.peer_evaluation_submissions (
+  id uuid primary key default gen_random_uuid(),
+  project_id text not null references public.projects(id) on delete cascade,
+  evaluator_id uuid not null references public.members(id),
+  phase text not null check (phase in ('midterm', 'final')),
+  created_at timestamptz not null default now(),
+  unique(project_id, evaluator_id, phase)
+);
+create table if not exists public.peer_evaluations (
+  id uuid primary key default gen_random_uuid(),
+  submission_id uuid not null references public.peer_evaluation_submissions(id) on delete cascade,
+  project_id text not null references public.projects(id) on delete cascade,
+  evaluator_id uuid not null references public.members(id),
+  recipient_id uuid not null references public.members(id),
+  phase text not null check (phase in ('midterm', 'final')),
+  role integer not null check(role between 0 and 10),
+  deadline integer not null check(deadline between 0 and 10),
+  communication integer not null check(communication between 0 and 10),
+  collaboration integer not null check(collaboration between 0 and 10),
+  quality integer not null check(quality between 0 and 10),
+  comment text not null default '' check(char_length(comment) <= 150),
+  created_at timestamptz not null default now(),
+  check(evaluator_id <> recipient_id),
+  unique(submission_id, recipient_id)
+);
+alter table public.peer_evaluation_submissions enable row level security;
+alter table public.peer_evaluations enable row level security;
+revoke all on public.peer_evaluation_submissions, public.peer_evaluations from anon, authenticated;
+grant select on public.peer_evaluation_submissions, public.peer_evaluations to authenticated;
+drop policy if exists evaluation_submission_read on public.peer_evaluation_submissions;
+create policy evaluation_submission_read on public.peer_evaluation_submissions for select to authenticated
+using (exists(select 1 from public.members m where m.id = evaluator_id and m.user_id = auth.uid()));
+drop policy if exists evaluation_read on public.peer_evaluations;
+create policy evaluation_read on public.peer_evaluations for select to authenticated
+using (public.is_project_member(project_id) and (
+  exists(select 1 from public.members m where m.user_id = auth.uid() and m.id in (evaluator_id, recipient_id))
+  or (phase = 'final' and exists(select 1 from public.projects p where p.id = project_id and p.status = 'done'))
+));
+
+create or replace function public.submit_peer_evaluations(p_project_id text, p_phase text, p_entries jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  p public.projects%rowtype;
+  actor uuid;
+  submission uuid;
+  expected integer;
+  actual integer;
+begin
+  -- Serialize submission/closure and prevent a second concurrent submission.
+  select * into p from public.projects where id = p_project_id for update;
+  if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+  if actor is null then raise exception '프로젝트 참여자만 평가할 수 있습니다.'; end if;
+  if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형입니다.'; end if;
+  if (p_phase = 'midterm' and p.status <> 'active') or (p_phase = 'final' and p.status <> 'done') then
+    raise exception '프로젝트 상태가 변경되었습니다. 새로고침해 주세요.';
+  end if;
+  if p_phase = 'midterm' and p.end_date - p.start_date < 14 then
+    raise exception '2주 미만 프로젝트는 중간 평가를 생략합니다.';
+  end if;
+  if exists(select 1 from public.peer_evaluation_submissions where project_id = p_project_id and evaluator_id = actor and phase = p_phase) then
+    raise exception '이미 제출한 평가입니다.';
+  end if;
+  -- Lock the membership snapshot while validating all recipients.
+  perform id from public.members where project_id = p_project_id for share;
+  select count(*) into expected from public.members where project_id = p_project_id and id <> actor and user_id is not null;
+  if expected = 0 then raise exception '평가할 동료가 없습니다.'; end if;
+  if jsonb_typeof(p_entries) is distinct from 'array' then raise exception '평가 목록이 필요합니다.'; end if;
+  if jsonb_array_length(p_entries) <> expected then raise exception '팀원 목록이 변경되었습니다. 새로고침해 주세요.'; end if;
+  select count(distinct e.recipient_id) into actual
+  from jsonb_to_recordset(p_entries) as e(recipient_id uuid)
+  join public.members m on m.id = e.recipient_id and m.project_id = p_project_id and m.id <> actor and m.user_id is not null;
+  if actual <> expected then raise exception '평가 대상이 올바르지 않습니다.'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_entries) e
+    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
+    where jsonb_typeof(e->k) is distinct from 'number'
+       or (e->>k)::numeric <> trunc((e->>k)::numeric)
+       or (e->>k)::numeric not between 0 and 10
+  ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
+  insert into public.peer_evaluation_submissions(project_id,evaluator_id,phase)
+    values(p_project_id,actor,p_phase) returning id into submission;
+  insert into public.peer_evaluations(submission_id,project_id,evaluator_id,recipient_id,phase,role,deadline,communication,collaboration,quality,comment)
+    select submission,p_project_id,actor,e.recipient_id,p_phase,e.role,e.deadline,e.communication,e.collaboration,e.quality,coalesce(e.comment,'')
+    from jsonb_to_recordset(p_entries) as e(recipient_id uuid,role integer,deadline integer,communication integer,collaboration integer,quality integer,comment text);
+  -- Only final evaluations contribute to the existing project reputation fields.
+  if p_phase = 'final' then
+    update public.members m set
+      eval_count = a.n, score = a.score,
+      criteria_role = a.role, criteria_deadline = a.deadline,
+      criteria_communication = a.communication, criteria_collaboration = a.collaboration, criteria_quality = a.quality
+    from (
+      select recipient_id, count(*)::integer n,
+        avg((role+deadline+communication+collaboration+quality)/5.0) score,
+        avg(role) role, avg(deadline) deadline, avg(communication) communication,
+        avg(collaboration) collaboration, avg(quality) quality
+      from public.peer_evaluations where project_id = p_project_id and phase = 'final' group by recipient_id
+    ) a where m.id = a.recipient_id;
+  end if;
+end;
+$$;
+revoke all on function public.submit_peer_evaluations(text,text,jsonb) from public, anon;
+grant execute on function public.submit_peer_evaluations(text,text,jsonb) to authenticated;
+
+create or replace function public.complete_evaluation_project(p_project_id text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform id from public.projects where id = p_project_id for update;
+  if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+  if not public.is_project_leader(p_project_id) then raise exception '팀장만 프로젝트를 종료할 수 있습니다.'; end if;
+  update public.projects set status = 'done' where id = p_project_id and status = 'active';
+  if not exists (select 1 from public.projects where id = p_project_id and status = 'done') then
+    raise exception '프로젝트 종료 상태가 저장되지 않았습니다. 프로젝트 트리거를 확인해 주세요.';
+  end if;
+end;
+$$;
+revoke all on function public.complete_evaluation_project(text) from public, anon;
+grant execute on function public.complete_evaluation_project(text) to authenticated;
+commit;
+
+-- Prototype/test mode toggle. Backed by app_settings (see near the bottom of
+-- this file, after is_admin() is defined) so an admin can flip it at
+-- runtime via set_evaluation_prototype_enabled() instead of editing SQL.
+begin;
+create or replace function public.evaluation_prototype_enabled()
+returns boolean language sql stable as $$
+  select coalesce((select value from public.app_settings where key = 'evaluation_prototype_enabled'), true)
+$$;
+revoke all on function public.evaluation_prototype_enabled() from public, anon;
+grant execute on function public.evaluation_prototype_enabled() to authenticated;
+
+create or replace function public.submit_peer_evaluations(p_project_id text, p_phase text, p_entries jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  p public.projects%rowtype;
+  actor uuid;
+  submission uuid;
+  expected integer;
+  actual integer;
+begin
+  -- Serialize submission/closure and prevent a second concurrent submission.
+  select * into p from public.projects where id = p_project_id for update;
+  if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+  if actor is null then raise exception '프로젝트 참여자만 평가할 수 있습니다.'; end if;
+  if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형입니다.'; end if;
+  if not public.evaluation_prototype_enabled() then
+    if (p_phase = 'midterm' and p.status <> 'active') or (p_phase = 'final' and p.status <> 'done') then
+      raise exception '프로젝트 상태가 변경되었습니다. 새로고침해 주세요.';
+    end if;
+    if p_phase = 'midterm' and p.end_date - p.start_date < 14 then
+      raise exception '2주 미만 프로젝트는 중간 평가를 생략합니다.';
+    end if;
+  end if;
+  if exists(select 1 from public.peer_evaluation_submissions where project_id = p_project_id and evaluator_id = actor and phase = p_phase) then
+    raise exception '이미 제출한 평가입니다.';
+  end if;
+  -- Lock the membership snapshot while validating all recipients.
+  perform id from public.members where project_id = p_project_id for share;
+  select count(*) into expected from public.members where project_id = p_project_id and id <> actor and user_id is not null;
+  if expected = 0 then raise exception '평가할 동료가 없습니다.'; end if;
+  if jsonb_typeof(p_entries) is distinct from 'array' then raise exception '평가 목록이 필요합니다.'; end if;
+  if jsonb_array_length(p_entries) <> expected then raise exception '팀원 목록이 변경되었습니다. 새로고침해 주세요.'; end if;
+  select count(distinct e.recipient_id) into actual
+  from jsonb_to_recordset(p_entries) as e(recipient_id uuid)
+  join public.members m on m.id = e.recipient_id and m.project_id = p_project_id and m.id <> actor and m.user_id is not null;
+  if actual <> expected then raise exception '평가 대상이 올바르지 않습니다.'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_entries) e
+    cross join unnest(array['role','deadline','communication','collaboration','quality']) k
+    where jsonb_typeof(e->k) is distinct from 'number'
+       or (e->>k)::numeric <> trunc((e->>k)::numeric)
+       or (e->>k)::numeric not between 0 and 10
+  ) then raise exception '점수는 0~10 사이의 정수여야 합니다.'; end if;
+  insert into public.peer_evaluation_submissions(project_id,evaluator_id,phase)
+    values(p_project_id,actor,p_phase) returning id into submission;
+  insert into public.peer_evaluations(submission_id,project_id,evaluator_id,recipient_id,phase,role,deadline,communication,collaboration,quality,comment)
+    select submission,p_project_id,actor,e.recipient_id,p_phase,e.role,e.deadline,e.communication,e.collaboration,e.quality,coalesce(e.comment,'')
+    from jsonb_to_recordset(p_entries) as e(recipient_id uuid,role integer,deadline integer,communication integer,collaboration integer,quality integer,comment text);
+  -- Only final evaluations contribute to the existing project reputation fields.
+  if p_phase = 'final' then
+    update public.members m set
+      eval_count = a.n, score = a.score,
+      criteria_role = a.role, criteria_deadline = a.deadline,
+      criteria_communication = a.communication, criteria_collaboration = a.collaboration, criteria_quality = a.quality
+    from (
+      select recipient_id, count(*)::integer n,
+        avg((role+deadline+communication+collaboration+quality)/5.0) score,
+        avg(role) role, avg(deadline) deadline, avg(communication) communication,
+        avg(collaboration) collaboration, avg(quality) quality
+      from public.peer_evaluations where project_id = p_project_id and phase = 'final' group by recipient_id
+    ) a where m.id = a.recipient_id;
+  end if;
+end;
+$$;
+revoke all on function public.submit_peer_evaluations(text,text,jsonb) from public, anon;
+grant execute on function public.submit_peer_evaluations(text,text,jsonb) to authenticated;
+
+
+drop policy if exists evaluation_read on public.peer_evaluations;
+create policy evaluation_read on public.peer_evaluations for select to authenticated
+using (public.is_project_member(project_id) and (
+  exists(select 1 from public.members m where m.user_id = auth.uid() and m.id in (evaluator_id, recipient_id))
+  or (phase = 'final' and (public.evaluation_prototype_enabled()
+    or exists(select 1 from public.projects p where p.id = project_id and p.status = 'done')))
+));
+commit;
+
+
+-- Evaluation privacy: apply last.
+begin;
+drop policy if exists evaluation_read on public.peer_evaluations;
+create policy evaluation_read on public.peer_evaluations for select to authenticated
+using (exists(select 1 from public.members m where m.id=evaluator_id and m.user_id=auth.uid()));
+create or replace function public.my_evaluation_average(p_project_id text, p_phase text)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare actor uuid; expected integer; received integer; result jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형'; end if;
+ select id into actor from members where project_id=p_project_id and user_id=auth.uid();
+ if actor is null then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ select count(*) into expected from members where project_id=p_project_id and id<>actor and user_id is not null;
+ select count(*) into received from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
+ if not public.evaluation_prototype_enabled() and (expected<2 or received<expected) then
+   return jsonb_build_object('count',0,'score',null,'criteria',null,'comments','[]'::jsonb,'available',false);
+ end if;
+ select jsonb_build_object('count',count(*),'available',true,
+ 'score',avg((role+deadline+communication+collaboration+quality)::numeric/5),
+ 'criteria',jsonb_build_object('role',avg(role),'deadline',avg(deadline),'communication',avg(communication),'collaboration',avg(collaboration),'quality',avg(quality)),
+ 'comments',case when p_phase='midterm' then coalesce(jsonb_agg(comment) filter (where btrim(comment)<>''),'[]'::jsonb) else '[]'::jsonb end)
+ into result from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
+ return result;
+end $$;
+revoke all on function public.my_evaluation_average(text,text) from public,anon;
+grant execute on function public.my_evaluation_average(text,text) to authenticated;
+revoke select on public.members from public,anon,authenticated;
+do $$ declare cols text; begin
+ select string_agg(quote_ident(attname),',') into cols from pg_attribute
+ where attrelid='public.members'::regclass and attnum>0 and not attisdropped
+ and attname not in ('score','eval_count','criteria_role','criteria_deadline','criteria_communication','criteria_collaboration','criteria_quality');
+ execute 'grant select ('||cols||') on public.members to authenticated';
+end $$;
+revoke select(score,eval_count,criteria_role,criteria_deadline,criteria_communication,criteria_collaboration,criteria_quality) on public.members from public,anon,authenticated;
+-- 프로젝트 단위 조회(팀 관리 화면 등)에서 다른 멤버의 정산 완료된 평점
+-- 평균을 계산. 개별 평가자·코멘트는 노출하지 않고 평균만 반환.
+create or replace function public.member_evaluation_average(p_project_id text, p_member_id uuid, p_phase text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare expected integer; received integer; result jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형'; end if;
+ if not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ if not exists (select 1 from members where id = p_member_id and project_id = p_project_id) then
+   raise exception '멤버를 찾을 수 없습니다.';
+ end if;
+ select count(*) into expected from members where project_id = p_project_id and id <> p_member_id and user_id is not null;
+ select count(*) into received from peer_evaluations where project_id = p_project_id and phase = p_phase and recipient_id = p_member_id;
+ if not public.evaluation_prototype_enabled() and (expected < 2 or received < expected) then
+   return jsonb_build_object('count', 0, 'score', null, 'criteria', null, 'comments', '[]'::jsonb, 'available', false);
+ end if;
+ select jsonb_build_object('count', count(*), 'available', true,
+ 'score', avg((role+deadline+communication+collaboration+quality)::numeric/5),
+ 'criteria', jsonb_build_object('role', avg(role), 'deadline', avg(deadline), 'communication', avg(communication), 'collaboration', avg(collaboration), 'quality', avg(quality)),
+ 'comments', '[]'::jsonb)
+ into result from peer_evaluations where project_id = p_project_id and phase = p_phase and recipient_id = p_member_id;
+ return result;
+end $$;
+revoke all on function public.member_evaluation_average(text,uuid,text) from public, anon;
+grant execute on function public.member_evaluation_average(text,uuid,text) to authenticated;
+
+create or replace function public.visible_evaluation_members(p_project_id text default null)
+returns setof public.members language plpgsql stable security definer set search_path=public as $$
+declare m public.members; a jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_project_id is not null and not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ for m in select * from members where (p_project_id is null and user_id=auth.uid()) or (p_project_id is not null and project_id=p_project_id) loop
+  m.score:=0; m.eval_count:=0; m.criteria_role:=0; m.criteria_deadline:=0; m.criteria_communication:=0; m.criteria_collaboration:=0; m.criteria_quality:=0;
+  if p_project_id is not null then
+   a := public.member_evaluation_average(m.project_id, m.id, 'final');
+   if (a->>'available')::boolean then
+    m.score:=(a->>'score')::numeric; m.eval_count:=(a->>'count')::integer;
+    m.criteria_role:=(a->'criteria'->>'role')::numeric; m.criteria_deadline:=(a->'criteria'->>'deadline')::numeric;
+    m.criteria_communication:=(a->'criteria'->>'communication')::numeric; m.criteria_collaboration:=(a->'criteria'->>'collaboration')::numeric; m.criteria_quality:=(a->'criteria'->>'quality')::numeric;
+   end if;
+  elsif m.user_id=auth.uid() then
+   a:=public.my_evaluation_average(m.project_id,'final');
+   if (a->>'available')::boolean then
+    m.score:=(a->>'score')::numeric; m.eval_count:=(a->>'count')::integer;
+    m.criteria_role:=(a->'criteria'->>'role')::numeric; m.criteria_deadline:=(a->'criteria'->>'deadline')::numeric;
+    m.criteria_communication:=(a->'criteria'->>'communication')::numeric; m.criteria_collaboration:=(a->'criteria'->>'collaboration')::numeric; m.criteria_quality:=(a->'criteria'->>'quality')::numeric;
+   end if;
+  end if;
+  return next m;
+ end loop;
+end $$;
+revoke all on function public.visible_evaluation_members(text) from public,anon;
+grant execute on function public.visible_evaluation_members(text) to authenticated;
+update public.peer_evaluations set comment='' where phase='final' and comment<>'';
+create or replace function public.discard_final_evaluation_comment() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ if new.phase='final' then new.comment:=''; end if;
+ return new;
+end $$;
+drop trigger if exists peer_evaluation_final_comment_guard on public.peer_evaluations;
+create trigger peer_evaluation_final_comment_guard before insert or update of phase,comment
+on public.peer_evaluations for each row execute function public.discard_final_evaluation_comment();
+commit;
+
+-- Existing rows retain unknown timestamps; do not mark old records as newly created.
+begin;
+alter table public.files add column if not exists created_at timestamptz;
+alter table public.files add column if not exists updated_at timestamptz;
+alter table public.files alter column created_at set default now();
+alter table public.schedule_events add column if not exists updated_at timestamptz;
+create or replace function public.stamp_dashboard_activity() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ if TG_OP='INSERT' then new.created_at:=now(); new.updated_at:=null;
+ else new.created_at:=old.created_at; new.updated_at:=now(); end if;
+ return new;
+end $$;
+drop trigger if exists files_activity_stamp on public.files;
+create trigger files_activity_stamp before insert or update on public.files for each row execute function public.stamp_dashboard_activity();
+drop trigger if exists schedule_activity_stamp on public.schedule_events;
+create trigger schedule_activity_stamp before insert or update on public.schedule_events for each row execute function public.stamp_dashboard_activity();
+create or replace function public.touch_file_activity() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ -- The initial version is part of registration, not a separate modification.
+ if (select count(*) from public.file_versions where file_id=new.file_id)>1 then
+  update public.files set updated_at=now() where id=new.file_id;
+ end if;
+ return new;
+end $$;
+drop trigger if exists file_version_activity on public.file_versions;
+create trigger file_version_activity after insert on public.file_versions for each row execute function public.touch_file_activity();
+commit;
+
+
+-- Real immutable binary files, version trees, promotion and pins.
+begin;
+alter table public.file_versions add column if not exists parent_version_id bigint;
+alter table public.file_versions add column if not exists storage_path text;
+alter table public.file_versions add column if not exists original_name text;
+alter table public.file_versions add column if not exists mime_type text not null default 'application/octet-stream';
+alter table public.file_versions add column if not exists byte_size bigint;
+alter table public.file_versions add column if not exists pinned boolean not null default false;
+alter table public.file_versions add column if not exists file_type text;
+update public.file_versions v set file_type=f.type from public.files f where v.file_id=f.id and v.file_type is null;
+
+create unique index if not exists file_versions_file_id_id on public.file_versions(file_id,id);
+do $$ begin
+  alter table public.file_versions add constraint file_version_parent_same_file
+    foreign key(file_id,parent_version_id) references public.file_versions(file_id,id);
+exception when duplicate_object then null; end $$;
+create unique index if not exists file_versions_storage_path on public.file_versions(storage_path) where storage_path is not null;
+-- Preserve legacy history as a linear chain; there are no recoverable bytes for it.
+with history as (
+  select id, lag(id) over(partition by file_id order by id) parent_id
+  from public.file_versions where storage_path is null
+) update public.file_versions v set parent_version_id=h.parent_id
+  from history h where v.id=h.id and v.parent_version_id is null;
+with ranked as (
+  select id,row_number() over(partition by file_id order by id desc) n
+  from public.file_versions where current
+) update public.file_versions v set current=false from ranked r where v.id=r.id and r.n>1;
+create unique index if not exists file_versions_one_current on public.file_versions(file_id) where current;
+
+insert into storage.buckets(id,name,public,file_size_limit)
+values('workspace-files','workspace-files',false,52428800)
+on conflict(id) do update set public=false,file_size_limit=52428800;
+
+-- All version mutations go through the checked transactional functions below.
+revoke insert,update,delete on public.files,public.file_versions from anon,authenticated;
+grant select on public.files,public.file_versions to authenticated;
+
+-- Decode new ASCII-only paths; keep existing three-segment paths readable.
+create or replace function public.workspace_storage_project(p_path text)
+returns text language plpgsql immutable set search_path=public as $$
+begin
+  if array_length(string_to_array(p_path,'/'),1)=4 and split_part(p_path,'/',1)='v2' then
+    return convert_from(decode(split_part(p_path,'/',2),'hex'),'UTF8');
+  elsif array_length(string_to_array(p_path,'/'),1)=3 then
+    return split_part(p_path,'/',1);
+  end if;
+  return null;
+exception when others then return null;
+end $$;
+create or replace function public.workspace_storage_owner(p_path text)
+returns text language sql immutable set search_path=public as $$
+  select case when array_length(string_to_array(p_path,'/'),1)=4 and split_part(p_path,'/',1)='v2'
+    then split_part(p_path,'/',3)
+    when array_length(string_to_array(p_path,'/'),1)=3 then split_part(p_path,'/',2) end;
+$$;
+
+create or replace function public.register_workspace_version(
+  p_project_id text,p_file_id bigint,p_base_version_id bigint,p_folder_id bigint,
+  p_name text,p_type text,p_path text,p_note text
+) returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  actor public.members%rowtype;
+  f public.files%rowtype;
+  existing public.file_versions%rowtype;
+  head_id bigint;
+  new_id bigint;
+  n integer;
+  bytes bigint;
+  mime text;
+  size_label text;
+  make_current boolean;
+begin
+  -- Same lock used by project completion: no upload can commit after closure.
+  perform id from public.projects where id=p_project_id and status='active' for update;
+  if not found then raise exception '진행 중인 프로젝트에만 업로드할 수 있습니다.'; end if;
+  select * into actor from public.members where project_id=p_project_id and user_id=auth.uid();
+  if not found then raise exception '프로젝트 참여자만 업로드할 수 있습니다.'; end if;
+  if p_name is null or length(trim(p_name))=0 or length(p_name)>255 or length(coalesce(p_note,''))>2000 then
+    raise exception '파일 이름 또는 메모가 올바르지 않습니다.';
+  end if;
+  if p_type is null or p_type not in ('pdf','doc','img','ppt','xls','zip') then raise exception '잘못된 파일 유형입니다.'; end if;
+  if p_path is null or public.workspace_storage_project(p_path) is distinct from p_project_id or public.workspace_storage_owner(p_path) is distinct from auth.uid()::text then
+    raise exception '업로드 경로가 올바르지 않습니다.';
+  end if;
+  select (metadata->>'size')::bigint,coalesce(metadata->>'mimetype','application/octet-stream')
+    into bytes,mime from storage.objects where bucket_id='workspace-files' and name=p_path for update;
+  if not found or bytes is null or bytes<0 or bytes>52428800 then raise exception '업로드한 파일을 확인할 수 없습니다 (최대 50MB).'; end if;
+  select * into existing from public.file_versions where storage_path=p_path;
+  if found then
+    if p_file_id is not null and existing.file_id<>p_file_id then raise exception '다른 파일에 등록된 원본입니다.'; end if;
+    return jsonb_build_object('file_id',existing.file_id,'version_id',existing.id,'branched',not existing.current);
+  end if;
+  size_label := case when bytes>=1048576 then round(bytes/1048576.0,2)::text || ' MB' else round(bytes/1024.0,1)::text || ' KB' end;
+  if p_file_id is null then
+    if p_base_version_id is not null then raise exception '새 파일에는 기준 버전이 없어야 합니다.'; end if;
+    if p_folder_id is not null and not exists(select 1 from public.folders where id=p_folder_id and project_id=p_project_id) then
+      raise exception '프로젝트의 폴더가 아닙니다.';
+    end if;
+    insert into public.files(project_id,name,type,uploader,avatar,date,size,tag,folder_id)
+      values(p_project_id,p_name,p_type,actor.name,actor.avatar,current_date,size_label,'기타',p_folder_id) returning * into f;
+  else
+    select * into f from public.files where id=p_file_id and project_id=p_project_id for update;
+    if not found then raise exception '프로젝트의 파일이 아닙니다.'; end if;
+  end if;
+  select id into head_id from public.file_versions where file_id=f.id and current;
+  if p_base_version_id is not null and not exists(select 1 from public.file_versions where id=p_base_version_id and file_id=f.id) then
+    raise exception '이 파일의 기준 버전이 아닙니다.';
+  end if;
+  if head_id is not null and p_base_version_id is null then raise exception '기준 버전을 선택해 주세요.'; end if;
+  make_current := head_id is not distinct from p_base_version_id;
+  select count(*)+1 into n from public.file_versions where file_id=f.id;
+  if make_current then update public.file_versions set current=false where file_id=f.id and current; end if;
+  insert into public.file_versions(file_id,version,uploaded_by,date,size,note,current,parent_version_id,storage_path,original_name,mime_type,byte_size,file_type)
+    values(f.id,'v'||n,actor.name,current_date,size_label,coalesce(p_note,''),make_current,p_base_version_id,p_path,p_name,mime,bytes,p_type)
+    returning id into new_id;
+  if make_current then
+    update public.files set type=p_type,uploader=actor.name,avatar=actor.avatar,date=current_date,size=size_label where id=f.id;
+  end if;
+  return jsonb_build_object('file_id',f.id,'version_id',new_id,'branched',not make_current);
+end $$;
+
+create or replace function public.promote_workspace_version(p_file_id bigint,p_version_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare project_id_value text; v public.file_versions%rowtype;
+begin
+  select project_id into project_id_value from public.files where id=p_file_id;
+  perform id from public.projects where id=project_id_value and status='active' for update;
+  if not found or not public.is_project_member(project_id_value) then raise exception '진행 중인 프로젝트의 참여자만 버전을 변경할 수 있습니다.'; end if;
+  perform id from public.files where id=p_file_id for update;
+  select * into v from public.file_versions where id=p_version_id and file_id=p_file_id;
+  if not found or v.storage_path is null then raise exception '원본 파일이 있는 버전을 선택해 주세요.'; end if;
+  update public.file_versions set current=false where file_id=p_file_id and current;
+  update public.file_versions set current=true where id=v.id;
+  update public.files set size=v.size,uploader=v.uploaded_by,date=v.date,type=coalesce(v.file_type,type) where id=p_file_id;
+end $$;
+
+create or replace function public.pin_workspace_version(p_file_id bigint,p_version_id bigint,p_pinned boolean)
+returns void language plpgsql security definer set search_path=public as $$
+declare project_id_value text;
+begin
+  select project_id into project_id_value from public.files where id=p_file_id;
+  perform id from public.projects where id=project_id_value and status='active' for update;
+  if not found or not public.is_project_member(project_id_value) then raise exception '진행 중인 프로젝트의 참여자만 핀을 변경할 수 있습니다.'; end if;
+  update public.file_versions set pinned=p_pinned where file_id=p_file_id and id=p_version_id;
+  if not found then raise exception '버전을 찾을 수 없습니다.'; end if;
+end $$;
+
+revoke all on function public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text) from public,anon;
+revoke all on function public.promote_workspace_version(bigint,bigint) from public,anon;
+revoke all on function public.pin_workspace_version(bigint,bigint,boolean) from public,anon;
+grant execute on function public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text) to authenticated;
+grant execute on function public.promote_workspace_version(bigint,bigint) to authenticated;
+grant execute on function public.pin_workspace_version(bigint,bigint,boolean) to authenticated;
+
+drop policy if exists workspace_binary_read on storage.objects;
+drop policy if exists workspace_binary_insert on storage.objects;
+drop policy if exists workspace_binary_cleanup on storage.objects;
+create policy workspace_binary_read on storage.objects for select to authenticated using (
+  bucket_id='workspace-files' and public.is_project_member(public.workspace_storage_project(objects.name))
+);
+create policy workspace_binary_insert on storage.objects for insert to authenticated with check (
+  bucket_id='workspace-files' and public.workspace_storage_owner(objects.name)=auth.uid()::text
+  and public.is_project_member(public.workspace_storage_project(objects.name))
+  and exists(select 1 from public.projects p where p.id=public.workspace_storage_project(objects.name) and p.status='active')
+);
+-- Linked objects are immutable: no update policy, no deletion of stored versions.
+create policy workspace_binary_cleanup on storage.objects for delete to authenticated using (
+  bucket_id='workspace-files' and public.workspace_storage_owner(objects.name)=auth.uid()::text
+  and public.is_project_member(public.workspace_storage_project(objects.name))
+  and not exists(select 1 from public.file_versions v where v.storage_path=objects.name)
+);
+commit;
+
+-- Apply after workspace versioning and path-policy migrations.
+begin;
+alter table public.files add column if not exists tags text[] not null default '{}';
+update public.files set tags=array[tag] where cardinality(tags)=0 and trim(coalesce(tag,'')) not in ('','기타');
+create or replace function public.normalize_workspace_tags(p_tags text[])
+returns text[] language plpgsql immutable set search_path=public as $$
+declare result text[];
+begin
+  select coalesce(array_agg(tag order by first_position),array[]::text[]) into result
+  from (select btrim(value) tag,min(position) first_position from unnest(p_tags) with ordinality as t(value,position)
+    where nullif(btrim(value),'') is not null group by btrim(value)) cleaned;
+  if cardinality(result)>10 or exists(select 1 from unnest(result) tag where char_length(tag)>30) then
+    raise exception '태그는 최대 10개, 각각 30자까지 입력할 수 있습니다.';
+  end if;
+  return result;
+end $$;
+drop function if exists public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text);
+create or replace function public.register_workspace_version(
+  p_project_id text,p_file_id bigint,p_base_version_id bigint,p_folder_id bigint,
+  p_name text,p_type text,p_path text,p_note text,p_tags text[] default null
+) returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  actor public.members%rowtype;
+  f public.files%rowtype;
+  existing public.file_versions%rowtype;
+  head_id bigint;
+  new_id bigint;
+  n integer;
+  bytes bigint;
+  mime text;
+  size_label text;
+  make_current boolean;
+  normalized_tags text[];
+begin
+  -- Same lock used by project completion: no upload can commit after closure.
+  perform id from public.projects where id=p_project_id and status='active' for update;
+  if not found then raise exception '진행 중인 프로젝트에만 업로드할 수 있습니다.'; end if;
+  select * into actor from public.members where project_id=p_project_id and user_id=auth.uid();
+  if not found then raise exception '프로젝트 참여자만 업로드할 수 있습니다.'; end if;
+  if p_name is null or length(trim(p_name))=0 or length(p_name)>255 or length(coalesce(p_note,''))>2000 then
+    raise exception '파일 이름 또는 메모가 올바르지 않습니다.';
+  end if;
+  if p_type is null or p_type not in ('pdf','doc','img','ppt','xls','zip') then raise exception '잘못된 파일 유형입니다.'; end if;
+  if p_path is null or public.workspace_storage_project(p_path) is distinct from p_project_id or public.workspace_storage_owner(p_path) is distinct from auth.uid()::text then
+    raise exception '업로드 경로가 올바르지 않습니다.';
+  end if;
+  select (metadata->>'size')::bigint,coalesce(metadata->>'mimetype','application/octet-stream')
+    into bytes,mime from storage.objects where bucket_id='workspace-files' and name=p_path for update;
+  if not found or bytes is null or bytes<0 or bytes>52428800 then raise exception '업로드한 파일을 확인할 수 없습니다 (최대 50MB).'; end if;
+  select * into existing from public.file_versions where storage_path=p_path;
+  if found then
+    if p_file_id is not null and existing.file_id<>p_file_id then raise exception '다른 파일에 등록된 원본입니다.'; end if;
+    return jsonb_build_object('file_id',existing.file_id,'version_id',existing.id,'branched',not existing.current);
+  end if;
+  if p_file_id is not null then
+    select * into f from public.files where id=p_file_id and project_id=p_project_id for update;
+    if not found then raise exception '프로젝트의 파일이 아닙니다.'; end if;
+  end if;
+  normalized_tags := public.normalize_workspace_tags(coalesce(p_tags,f.tags,array[]::text[]));
+  if (p_type='img' or mime like 'image/%' or lower(p_name) ~ '\.(png|jpe?g|gif|webp|svg|avif|bmp|heic|tiff?|ico)$'
+    or f.type='img' or exists(select 1 from public.file_versions where file_id=p_file_id and (file_type='img' or mime_type like 'image/%')))
+    and cardinality(normalized_tags)=0 then raise exception '이미지에는 태그를 하나 이상 입력해 주세요.'; end if;
+  size_label := case when bytes>=1048576 then round(bytes/1048576.0,2)::text || ' MB' else round(bytes/1024.0,1)::text || ' KB' end;
+  if p_file_id is null then
+    if p_base_version_id is not null then raise exception '새 파일에는 기준 버전이 없어야 합니다.'; end if;
+    if p_folder_id is not null and not exists(select 1 from public.folders where id=p_folder_id and project_id=p_project_id) then
+      raise exception '프로젝트의 폴더가 아닙니다.';
+    end if;
+    insert into public.files(project_id,name,type,uploader,avatar,date,size,tag,folder_id)
+      values(p_project_id,p_name,p_type,actor.name,actor.avatar,current_date,size_label,'기타',p_folder_id) returning * into f;
+  else
+    select * into f from public.files where id=p_file_id and project_id=p_project_id for update;
+    if not found then raise exception '프로젝트의 파일이 아닙니다.'; end if;
+  end if;
+  update public.files set tags=normalized_tags,tag=coalesce(normalized_tags[1],'기타') where id=f.id;
+  select id into head_id from public.file_versions where file_id=f.id and current;
+  if p_base_version_id is not null and not exists(select 1 from public.file_versions where id=p_base_version_id and file_id=f.id) then
+    raise exception '이 파일의 기준 버전이 아닙니다.';
+  end if;
+  if head_id is not null and p_base_version_id is null then raise exception '기준 버전을 선택해 주세요.'; end if;
+  make_current := head_id is not distinct from p_base_version_id;
+  select count(*)+1 into n from public.file_versions where file_id=f.id;
+  if make_current then update public.file_versions set current=false where file_id=f.id and current; end if;
+  insert into public.file_versions(file_id,version,uploaded_by,date,size,note,current,parent_version_id,storage_path,original_name,mime_type,byte_size,file_type)
+    values(f.id,'v'||n,actor.name,current_date,size_label,coalesce(p_note,''),make_current,p_base_version_id,p_path,p_name,mime,bytes,p_type)
+    returning id into new_id;
+  if make_current then
+    update public.files set type=p_type,uploader=actor.name,avatar=actor.avatar,date=current_date,size=size_label where id=f.id;
+  end if;
+  return jsonb_build_object('file_id',f.id,'version_id',new_id,'branched',not make_current);
+end $$;
+
+
+revoke all on function public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text,text[]) from public,anon;
+grant execute on function public.register_workspace_version(text,bigint,bigint,bigint,text,text,text,text,text[]) to authenticated;
+create or replace function public.set_workspace_file_tags(p_file_id bigint,p_tags text[])
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.files%rowtype; normalized_tags text[];
+begin
+  select project_id into pid from public.files where id=p_file_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 태그를 수정할 수 있습니다.'; end if;
+  select * into f from public.files where id=p_file_id for update;
+  normalized_tags := public.normalize_workspace_tags(p_tags);
+  if (f.type='img' or exists(select 1 from public.file_versions where file_id=p_file_id and (file_type='img' or mime_type like 'image/%')))
+    and cardinality(normalized_tags)=0 then raise exception '이미지에는 태그를 하나 이상 입력해 주세요.'; end if;
+  update public.files set tags=normalized_tags,tag=coalesce(normalized_tags[1],'기타') where id=p_file_id;
+end $$;
+revoke all on function public.set_workspace_file_tags(bigint,text[]) from public,anon;
+grant execute on function public.set_workspace_file_tags(bigint,text[]) to authenticated;
+commit;
+
+-- Existing date-only versions intentionally keep an unknown upload time.
+begin;
+alter table public.file_versions add column if not exists uploaded_at timestamptz;
+alter table public.file_versions alter column uploaded_at set default now();
+-- Server-owned timestamp: edits, pins and version promotion preserve it.
+create or replace function public.stamp_workspace_upload_time()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if TG_OP='INSERT' then new.uploaded_at:=now();
+  else new.uploaded_at:=old.uploaded_at; end if;
+  return new;
+end $$;
+drop trigger if exists workspace_upload_time on public.file_versions;
+create trigger workspace_upload_time before insert or update on public.file_versions
+for each row execute function public.stamp_workspace_upload_time();
+commit;
+
+-- Apply after workspace versioning, tags and upload-time migrations.
+begin;
+alter table public.files add column if not exists owner_user_id uuid;
+alter table public.folders add column if not exists owner_user_id uuid;
+-- Only recover an original uploader from the first version's verified storage path.
+-- Names are not reliable identities; legacy folders remain leader-only.
+update public.files f set owner_user_id=public.workspace_storage_owner(v.storage_path)::uuid
+from public.file_versions v
+where f.owner_user_id is null and v.file_id=f.id
+  and v.id=(select min(first.id) from public.file_versions first where first.file_id=f.id)
+  and public.workspace_storage_project(v.storage_path)=f.project_id
+  and public.workspace_storage_owner(v.storage_path) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+create or replace function public.stamp_workspace_owner()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if TG_OP='INSERT' then new.owner_user_id:=auth.uid();
+  else new.owner_user_id:=old.owner_user_id; end if;
+  return new;
+end $$;
+drop trigger if exists workspace_file_owner on public.files;
+create trigger workspace_file_owner before insert or update on public.files
+for each row execute function public.stamp_workspace_owner();
+drop trigger if exists workspace_folder_owner on public.folders;
+create trigger workspace_folder_owner before insert or update on public.folders
+for each row execute function public.stamp_workspace_owner();
+-- Folder mutation must not bypass the RPC's ownership and nonempty checks.
+revoke update,delete on public.folders from anon,authenticated;
+drop policy if exists folders_all on public.folders;
+drop policy if exists workspace_folders_read on public.folders;
+drop policy if exists workspace_folders_insert on public.folders;
+create policy workspace_folders_read on public.folders for select to authenticated using(public.is_project_member(project_id));
+create policy workspace_folders_insert on public.folders for insert to authenticated with check(
+  public.is_project_member(project_id) and exists(select 1 from public.projects p where p.id=folders.project_id and p.status='active')
+);
+
+-- Metadata deletion is atomic. Binary cleanup uses Storage's API, never SQL DELETE
+-- on storage.objects. Keep a durable retry list if the network/API fails.
+create table if not exists public.workspace_delete_queue (
+  storage_path text primary key,
+  project_id text not null references public.projects(id) on delete cascade,
+  deleted_by uuid not null,
+  deleted_at timestamptz not null default now()
+);
+alter table public.workspace_delete_queue enable row level security;
+revoke all on public.workspace_delete_queue from anon,authenticated;
+grant select on public.workspace_delete_queue to authenticated;
+drop policy if exists workspace_cleanup_read on public.workspace_delete_queue;
+create policy workspace_cleanup_read on public.workspace_delete_queue for select to authenticated using(
+  public.is_project_member(project_id) and (deleted_by=auth.uid() or public.is_project_leader(project_id))
+);
+drop policy if exists workspace_deleted_binary_cleanup on storage.objects;
+create policy workspace_deleted_binary_cleanup on storage.objects for delete to authenticated using(
+  bucket_id='workspace-files'
+  and exists(select 1 from public.workspace_delete_queue q where q.storage_path=objects.name)
+  and not exists(select 1 from public.file_versions v where v.storage_path=objects.name)
+);
+create or replace function public.prevent_deleted_workspace_reuse()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if exists(select 1 from public.workspace_delete_queue where storage_path=new.storage_path) then
+    raise exception '삭제 중인 원본은 다시 등록할 수 없습니다.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists workspace_prevent_deleted_reuse on public.file_versions;
+create trigger workspace_prevent_deleted_reuse before insert on public.file_versions
+for each row execute function public.prevent_deleted_workspace_reuse();
+
+create or replace function public.delete_workspace_file(p_file_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.files%rowtype;
+begin
+  select project_id into pid from public.files where id=p_file_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.files where id=p_file_id for update;
+  if not found then raise exception '파일이 존재하지 않습니다.'; end if;
+  if not public.is_project_leader(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장 또는 최초 업로더만 파일을 삭제할 수 있습니다.';
+  end if;
+  insert into public.workspace_delete_queue(storage_path,project_id,deleted_by)
+    select storage_path,pid,auth.uid() from public.file_versions where file_id=p_file_id and storage_path is not null
+    on conflict(storage_path) do nothing;
+  delete from public.files where id=p_file_id;
+end $$;
+create or replace function public.delete_workspace_folder(p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.folders%rowtype;
+begin
+  select project_id into pid from public.folders where id=p_folder_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.folders where id=p_folder_id for update;
+  if not found then raise exception '폴더가 존재하지 않습니다.'; end if;
+  if not public.is_project_leader(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장 또는 생성자만 폴더를 삭제할 수 있습니다.';
+  end if;
+  if exists(select 1 from public.files where folder_id=p_folder_id) then
+    raise exception '파일이 있는 폴더는 삭제할 수 없습니다. 파일을 먼저 삭제해 주세요.';
+  end if;
+  delete from public.folders where id=p_folder_id;
+end $$;
+create or replace function public.finish_workspace_cleanup(p_project_id text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 정리할 수 있습니다.'; end if;
+  delete from public.workspace_delete_queue q where q.project_id=p_project_id
+    and (q.deleted_by=auth.uid() or public.is_project_leader(p_project_id))
+    and not exists(select 1 from storage.objects o where o.bucket_id='workspace-files' and o.name=q.storage_path);
+end $$;
+revoke all on function public.delete_workspace_file(bigint), public.delete_workspace_folder(bigint), public.finish_workspace_cleanup(text) from public,anon;
+grant execute on function public.delete_workspace_file(bigint), public.delete_workspace_folder(bigint), public.finish_workspace_cleanup(text) to authenticated;
+commit;
+
+begin;
+alter table public.file_comments add column if not exists member_id uuid references public.members(id) on delete set null;
+alter table public.file_comments add column if not exists version_id bigint references public.file_versions(id) on delete set null;
+-- Names cannot safely identify legacy authors. Preserve their original initials.
+create or replace function public.stamp_file_comment_author()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare actor public.members%rowtype; pid text;
+begin
+  select project_id into pid from public.files where id=new.file_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found then raise exception '진행 중인 프로젝트에만 댓글을 작성할 수 있습니다.'; end if;
+  select * into actor from public.members where project_id=pid and user_id=auth.uid();
+  if not found then raise exception '프로젝트 참여자만 댓글을 작성할 수 있습니다.'; end if;
+  -- 버전에 남기는 댓글은 같은 파일의 버전이어야 한다.
+  if new.version_id is not null and not exists (select 1 from public.file_versions v where v.id=new.version_id and v.file_id=new.file_id) then
+    raise exception '이 파일의 버전이 아닙니다.';
+  end if;
+  new.member_id:=actor.id; new.author:=actor.name; new.avatar:=actor.avatar;
+  return new;
+end $$;
+drop trigger if exists file_comment_author on public.file_comments;
+create trigger file_comment_author before insert on public.file_comments for each row execute function public.stamp_file_comment_author();
+-- Comments have no direct edit/delete UI; prohibit identity spoofing after insert.
+revoke update,delete on public.file_comments from anon,authenticated;
+-- Emoji input and reactions for task-board comments.
+-- Run this after the task comment migrations. Safe to run repeatedly.
+
+create table if not exists file_comment_reactions (
+  comment_id bigint not null references file_comments(id) on delete cascade,
+  member_id uuid not null references members(id) on delete cascade,
+  emoji text not null check (emoji in ('👍', '❤️', '😂', '🎉', '👀', '✅')),
+  created_at timestamptz not null default now(),
+  primary key (comment_id, member_id, emoji)
+);
+create index if not exists file_comment_reactions_comment_idx on file_comment_reactions (comment_id);
+
+create or replace function public.can_access_file_comment(p_comment_id bigint)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1
+    from public.file_comments c
+    join public.files t on t.id = c.file_id
+    join public.members mine on mine.project_id = t.project_id
+    where c.id = p_comment_id and mine.user_id = (select auth.uid())
+  );
+$$;
+revoke all on function public.can_access_file_comment(bigint) from public;
+grant execute on function public.can_access_file_comment(bigint) to authenticated;
+
+-- Any project member can react to a comment, including someone else's
+-- comment; p_member_id must still be the authenticated user's own row.
+create or replace function public.can_react_to_file_comment(p_comment_id bigint, p_member_id uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1
+    from public.file_comments c
+    join public.files t on t.id = c.file_id
+    join public.members reactor on reactor.id = p_member_id and reactor.project_id = t.project_id
+    where c.id = p_comment_id and reactor.user_id = (select auth.uid())
+      and exists(select 1 from public.projects p where p.id=t.project_id and p.status='active')
+  );
+$$;
+revoke all on function public.can_react_to_file_comment(bigint, uuid) from public;
+grant execute on function public.can_react_to_file_comment(bigint, uuid) to authenticated;
+
+alter table file_comment_reactions enable row level security;
+drop policy if exists file_comment_reactions_select on file_comment_reactions;
+drop policy if exists file_comment_reactions_insert on file_comment_reactions;
+drop policy if exists file_comment_reactions_delete on file_comment_reactions;
+create policy file_comment_reactions_select on file_comment_reactions for select to authenticated
+  using (public.can_access_file_comment(comment_id));
+create policy file_comment_reactions_insert on file_comment_reactions for insert to authenticated
+  with check (
+    public.can_react_to_file_comment(comment_id, member_id)
+  );
+create policy file_comment_reactions_delete on file_comment_reactions for delete to authenticated
+  using (
+    public.can_react_to_file_comment(comment_id, member_id)
+  );
+
+
+revoke all on table public.file_comment_reactions from anon,authenticated;
+grant select,insert,delete on table public.file_comment_reactions to authenticated;
+commit;
+
+begin;
+alter table public.file_versions add column if not exists search_text text not null default '';
+alter table public.file_versions add column if not exists search_status text not null default 'pending';
+create or replace function public.set_workspace_version_text(p_version_id bigint,p_text text,p_status text)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text;
+begin
+  select f.project_id into pid from public.file_versions v join public.files f on f.id=v.file_id where v.id=p_version_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 본문을 저장할 수 있습니다.'; end if;
+  if p_text is null or char_length(p_text)>200000 or p_status is null or p_status not in ('ready','partial','unsupported','failed') then raise exception '검색 본문이 올바르지 않습니다.'; end if;
+  update public.file_versions set search_text=p_text,search_status=p_status where id=p_version_id;
+end $$;
+create or replace function public.register_workspace_search_version(
+  p_project_id text,p_file_id bigint,p_base_version_id bigint,p_folder_id bigint,
+  p_name text,p_type text,p_path text,p_note text,p_tags text[],p_search_text text,p_search_status text
+) returns jsonb language plpgsql security definer set search_path=public as $$
+declare result jsonb;
+begin
+  result := public.register_workspace_version(p_project_id,p_file_id,p_base_version_id,p_folder_id,p_name,p_type,p_path,p_note,p_tags);
+  perform public.set_workspace_version_text((result->>'version_id')::bigint,p_search_text,p_search_status);
+  return result;
+end $$;
+revoke all on function public.set_workspace_version_text(bigint,text,text),public.register_workspace_search_version(text,bigint,bigint,bigint,text,text,text,text,text[],text,text) from public,anon;
+grant execute on function public.set_workspace_version_text(bigint,text,text),public.register_workspace_search_version(text,bigint,bigint,bigint,text,text,text,text,text[],text,text) to authenticated;
+commit;
+
+-- Consolidated administrator governance integration.
+-- Apply after the current main schema/migrations. Repeatable; no automatic deletion job is installed.
+begin;
+alter table public.profiles add column if not exists is_admin boolean not null default false;
+alter table public.profiles add column if not exists org text;
+alter table public.profiles add column if not exists email text;
+alter table public.projects add column if not exists approval_status text not null default 'approved';
+alter table public.projects add column if not exists requested_admin_id uuid references auth.users(id) on delete set null;
+alter table public.projects add column if not exists completed_at timestamptz;
+update public.profiles p set email=u.email from auth.users u where p.id=u.id and p.email is null;
+
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path=public as $$
+ select coalesce((select is_admin from public.profiles where id=auth.uid()),false)
+$$;
+revoke all on function public.is_admin() from public,anon;
+grant execute on function public.is_admin() to authenticated;
+
+-- Account type is never accepted from editable signup metadata.
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ insert into public.profiles(id,display_name,avatar_initial,is_admin,org,email)
+ values(new.id,coalesce(new.raw_user_meta_data->>'display_name','사용자'),
+ left(coalesce(new.raw_user_meta_data->>'display_name','사용자'),1),false,
+ nullif(new.raw_user_meta_data->>'org',''),new.email);
+ return new;
+end $$;
+create or replace function public.prevent_profile_privilege_escalation()
+returns trigger language plpgsql set search_path=public as $$
+begin
+ if current_user in ('authenticated','anon') then
+  if tg_op='INSERT' then new.is_admin:=false;
+  elsif new.is_admin is distinct from old.is_admin then
+   raise exception '관리자 권한은 운영자만 변경할 수 있습니다.';
+  end if;
+ end if;
+ return new;
+end $$;
+drop trigger if exists prevent_profile_privilege_escalation_trigger on public.profiles;
+create trigger prevent_profile_privilege_escalation_trigger before insert or update on public.profiles
+for each row execute function public.prevent_profile_privilege_escalation();
+
+create or replace function public.set_project_approval_status()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ if auth.uid() is not null then
+  if new.start_date is null or new.end_date is null or new.end_date<new.start_date then
+   raise exception '올바른 시작일과 종료일을 입력해 주세요.';
+  end if;
+  if not public.is_admin() and (new.requested_admin_id is null or not exists
+   (select 1 from public.profiles where id=new.requested_admin_id and is_admin)) then
+   raise exception '승인을 요청할 관리자를 선택해 주세요.';
+  end if;
+  new.approval_status:=case when public.is_admin() then 'approved' else 'pending' end;
+  new.status:='active'; new.completed_at:=null;
+ end if;
+ return new;
+end $$;
+drop trigger if exists set_project_approval_status_trigger on public.projects;
+create trigger set_project_approval_status_trigger before insert on public.projects
+for each row execute function public.set_project_approval_status();
+
+-- Direct REST updates cannot self-approve, change the reviewer or bypass the completion RPC.
+create or replace function public.guard_project_governance()
+returns trigger language plpgsql set search_path=public as $$
+begin
+ if current_user in ('authenticated','anon') and
+  (new.id is distinct from old.id or new.approval_status is distinct from old.approval_status
+   or new.requested_admin_id is distinct from old.requested_admin_id
+   or new.status is distinct from old.status or new.completed_at is distinct from old.completed_at) then
+  raise exception '승인과 종료 상태는 전용 기능으로만 변경할 수 있습니다.';
+ end if;
+ if (new.start_date is distinct from old.start_date or new.end_date is distinct from old.end_date)
+  and (new.start_date is null or new.end_date is null or new.end_date<new.start_date) then
+  raise exception '올바른 시작일과 종료일을 입력해 주세요.';
+ end if;
+ return new;
+end $$;
+drop trigger if exists project_governance_guard on public.projects;
+create trigger project_governance_guard before update on public.projects
+for each row execute function public.guard_project_governance();
+drop policy if exists projects_update on public.projects;
+create policy projects_update on public.projects for update to authenticated
+using(public.is_project_leader(id) or public.is_admin())
+with check(public.is_project_leader(id) or public.is_admin());
+drop policy if exists projects_delete on public.projects;
+create policy projects_delete on public.projects for delete to authenticated using(public.is_admin());
+drop policy if exists profiles_select_own on public.profiles;
+create policy profiles_select_own on public.profiles for select to authenticated
+using(id=auth.uid() or public.shares_project_with(id) or public.is_admin());
+drop policy if exists teams_select on public.teams;
+create policy teams_select on public.teams for select to authenticated
+using(public.is_project_member(project_id) or public.is_admin());
+drop policy if exists members_select on public.members;
+create policy members_select on public.members for select to authenticated
+using(user_id=auth.uid() or public.is_project_member(project_id) or public.is_admin());
+-- Preserve main's column-level evaluation privacy grants; do not GRANT SELECT *.
+revoke select on public.members from public,anon,authenticated;
+do $$ declare cols text; begin
+ select string_agg(quote_ident(attname),',') into cols from pg_attribute
+ where attrelid='public.members'::regclass and attnum>0 and not attisdropped
+ and attname not in ('score','eval_count','criteria_role','criteria_deadline','criteria_communication','criteria_collaboration','criteria_quality');
+ execute 'grant select ('||cols||') on public.members to authenticated';
+end $$;
+revoke select(score,eval_count,criteria_role,criteria_deadline,criteria_communication,criteria_collaboration,criteria_quality)
+on public.members from public,anon,authenticated;
+drop policy if exists members_update on public.members;
+drop policy if exists members_delete on public.members;
+revoke update,delete on public.members from authenticated;
+
+create or replace function public.search_admin_profiles(q text)
+returns table(id uuid,display_name text,org text,email text)
+language sql stable security definer set search_path=public as $$
+ select p.id,p.display_name,p.org,p.email from public.profiles p
+ where auth.uid() is not null and p.is_admin and length(btrim(q)) between 1 and 100
+ and (p.display_name ilike '%'||btrim(q)||'%' or p.org ilike '%'||btrim(q)||'%' or p.email ilike '%'||btrim(q)||'%')
+ order by p.display_name,p.id limit 10
+$$;
+revoke all on function public.search_admin_profiles(text) from public,anon;
+grant execute on function public.search_admin_profiles(text) to authenticated;
+
+create or replace function public.review_project(p_project_id text,p_status text)
+returns void language plpgsql security definer set search_path=public as $$
+declare p public.projects;
+begin
+ if auth.uid() is null or not public.is_admin() then raise exception '관리자만 승인할 수 있습니다.'; end if;
+ if p_status is null or p_status not in ('approved','rejected') then raise exception '잘못된 승인 상태입니다.'; end if;
+ select * into p from public.projects where id=p_project_id for update;
+ if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+ if p.requested_admin_id is not null and p.requested_admin_id<>auth.uid() then raise exception '지정된 관리자만 처리할 수 있습니다.'; end if;
+ if p.approval_status<>'pending' then raise exception '이미 처리된 승인 요청입니다.'; end if;
+ update public.projects set approval_status=p_status where id=p_project_id;
+end $$;
+revoke all on function public.review_project(text,text) from public,anon;
+grant execute on function public.review_project(text,text) to authenticated;
+
+create or replace function public.complete_evaluation_project(p_project_id text)
+returns void language plpgsql security definer set search_path=public as $$
+declare p public.projects;
+begin
+ select * into p from public.projects where id=p_project_id for update;
+ if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+ if auth.uid() is null or not (public.is_project_leader(p_project_id) or public.is_admin()) then
+  raise exception '팀장 또는 관리자만 프로젝트를 종료할 수 있습니다.';
+ end if;
+ if p.approval_status<>'approved' then raise exception '승인된 프로젝트만 종료할 수 있습니다.'; end if;
+ update public.projects set status='done',completed_at=coalesce(completed_at,now()) where id=p_project_id and status='active';
+ if not exists(select 1 from public.projects where id=p_project_id and status='done') then
+  raise exception '프로젝트 종료 상태가 저장되지 않았습니다. 프로젝트 트리거를 확인해 주세요.';
+ end if;
+end $$;
+revoke all on function public.complete_evaluation_project(text) from public,anon;
+grant execute on function public.complete_evaluation_project(text) to authenticated;
+
+create or replace function public.kick_project_member(p_member_id uuid)
+returns void language plpgsql security definer set search_path=public as $$
+declare m public.members; pid text;
+begin
+ select project_id into pid from public.members where id=p_member_id;
+ perform id from public.projects where id=pid and status='active' and approval_status='approved' for update;
+ if not found then raise exception '진행 중인 승인된 프로젝트에서만 팀원을 제외할 수 있습니다.'; end if;
+ select * into m from public.members where id=p_member_id for update;
+ if not found then raise exception '팀원을 찾을 수 없습니다.'; end if;
+ if auth.uid() is null or not(public.is_admin() or public.is_project_leader(pid)) then raise exception '팀장 또는 관리자만 팀원을 제외할 수 있습니다.'; end if;
+ if m.is_leader or m.user_id=auth.uid() then raise exception '팀장 또는 본인은 제외할 수 없습니다.'; end if;
+ -- Deleting evaluation participants would change other members' scores and anonymity thresholds.
+ if exists(select 1 from public.peer_evaluations where evaluator_id=m.id or recipient_id=m.id)
+ or exists(select 1 from public.peer_evaluation_submissions where evaluator_id=m.id) then
+  raise exception '평가 기록이 있는 팀원은 평가 보존을 위해 제외할 수 없습니다.';
+ end if;
+ delete from public.members where id=m.id;
+end $$;
+revoke all on function public.kick_project_member(uuid) from public,anon;
+grant execute on function public.kick_project_member(uuid) to authenticated;
+
+-- Admin roster access is deliberately separate from the existing private evaluation RPC.
+create or replace function public.admin_project_members(p_project_id text)
+returns setof public.members language plpgsql stable security definer set search_path=public as $$
+declare m public.members;
+begin
+ if auth.uid() is null or not public.is_admin() then raise exception '관리자만 조회할 수 있습니다.'; end if;
+ for m in select * from public.members where project_id=p_project_id order by is_leader desc,name loop
+  m.score:=0; m.eval_count:=0; m.criteria_role:=0; m.criteria_deadline:=0;
+  m.criteria_communication:=0; m.criteria_collaboration:=0; m.criteria_quality:=0;
+  return next m;
+ end loop;
+end $$;
+revoke all on function public.admin_project_members(text) from public,anon;
+grant execute on function public.admin_project_members(text) to authenticated;
+
+-- Also secure installations that previously applied coffe's unguarded cleanup functions.
+do $$ begin
+ if to_regprocedure('public.archive_and_cleanup_project(text)') is not null then
+  revoke all on function public.archive_and_cleanup_project(text) from public,anon,authenticated;
+ end if;
+ if to_regprocedure('public.cleanup_completed_projects()') is not null then
+  revoke all on function public.cleanup_completed_projects() from public,anon,authenticated;
+ end if;
+end $$;
+-- Guard writes even when they arrive through existing SECURITY DEFINER RPCs.
+create or replace function public.guard_approved_project_write()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare row_data jsonb; pid text;
+begin
+ if auth.uid() is null or public.is_admin() then
+  if tg_op='DELETE' then return old; else return new; end if;
+ end if;
+ if tg_op='DELETE' then row_data:=to_jsonb(old); else row_data:=to_jsonb(new); end if;
+ pid:=row_data->>'project_id';
+ if pid is null and row_data ? 'file_id' then
+  select project_id into pid from public.files where id=(row_data->>'file_id')::bigint;
+ elsif pid is null and row_data ? 'task_id' then
+  select project_id into pid from public.tasks where id=(row_data->>'task_id')::bigint;
+ elsif pid is null and tg_table_name='file_comment_reactions' then
+  select f.project_id into pid from public.files f join public.file_comments c on c.file_id=f.id where c.id=(row_data->>'comment_id')::bigint;
+ elsif pid is null and tg_table_name='task_comment_reactions' then
+  select t.project_id into pid from public.tasks t join public.task_comments c on c.task_id=t.id where c.id=(row_data->>'comment_id')::bigint;
+ end if;
+ if exists(select 1 from public.projects where id=pid and approval_status<>'approved') then
+  raise exception '관리자 승인 후 사용할 수 있습니다.';
+ end if;
+ if tg_op='DELETE' then return old; else return new; end if;
+end $$;
+do $$ declare t text; begin
+ foreach t in array array['folders','files','file_versions','file_comments','file_comment_reactions',
+ 'tasks','task_assignees','task_checklist_items','task_comments','task_comment_reactions',
+ 'schedule_events','chat_messages','message_reads','message_reactions','peer_evaluations','peer_evaluation_submissions'] loop
+  execute format('drop trigger if exists approved_project_write on public.%I',t);
+  execute format('create trigger approved_project_write before insert or update or delete on public.%I for each row execute function public.guard_approved_project_write()',t);
+ end loop;
+end $$;
+drop policy if exists workspace_approval_write on storage.objects;
+create policy workspace_approval_write on storage.objects as restrictive for insert to authenticated
+with check(bucket_id<>'workspace-files' or exists(select 1 from public.projects p
+where p.id=public.workspace_storage_project(objects.name) and p.approval_status='approved'));
+
+create or replace function public.guard_schedule_update()
+returns trigger language plpgsql set search_path=public as $$
+begin
+ if exists(select 1 from public.projects where id=old.project_id and status='done') then
+  raise exception '종료된 프로젝트의 일정은 변경할 수 없습니다.';
+ end if;
+ if tg_op='UPDATE' and (new.project_id is distinct from old.project_id
+ or new.scope is distinct from old.scope or new.owner_member_id is distinct from old.owner_member_id) then
+  raise exception '일정 소유자와 범위는 변경할 수 없습니다.';
+ end if;
+ if tg_op='DELETE' then return old; else return new; end if;
+end $$;
+drop trigger if exists schedule_update_guard on public.schedule_events;
+create trigger schedule_update_guard before update or delete on public.schedule_events
+for each row execute function public.guard_schedule_update();
+
+-- Keep original-file cleanup entries after their project is deleted.
+alter table public.workspace_delete_queue drop constraint if exists workspace_delete_queue_project_id_fkey;
+drop policy if exists workspace_cleanup_read on public.workspace_delete_queue;
+create policy workspace_cleanup_read on public.workspace_delete_queue for select to authenticated
+using(public.is_admin() or (public.is_project_member(project_id) and (deleted_by=auth.uid() or public.is_project_leader(project_id))));
+-- Storage DELETE also needs SELECT visibility after project membership has disappeared.
+drop policy if exists workspace_pending_cleanup_read on storage.objects;
+create policy workspace_pending_cleanup_read on storage.objects for select to authenticated
+using(bucket_id='workspace-files'
+ and exists(select 1 from public.workspace_delete_queue q where q.storage_path=objects.name)
+ and not exists(select 1 from public.file_versions v where v.storage_path=objects.name));
+create or replace function public.finish_workspace_cleanup(p_project_id text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+ if not(public.is_admin() or public.is_project_member(p_project_id)) then raise exception '정리 권한이 없습니다.'; end if;
+ delete from public.workspace_delete_queue q where q.project_id=p_project_id
+ and (public.is_admin() or q.deleted_by=auth.uid() or public.is_project_leader(p_project_id))
+ and not exists(select 1 from storage.objects o where o.bucket_id='workspace-files' and o.name=q.storage_path);
+end $$;
+create or replace function public.queue_deleted_project_files()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+ if auth.uid() is not null then
+  insert into public.workspace_delete_queue(storage_path,project_id,deleted_by)
+  select v.storage_path,old.id,auth.uid() from public.file_versions v join public.files f on f.id=v.file_id
+  where f.project_id=old.id and v.storage_path is not null on conflict(storage_path) do nothing;
+ end if;
+ return old;
+end $$;
+drop trigger if exists queue_deleted_project_files on public.projects;
+create trigger queue_deleted_project_files before delete on public.projects
+for each row execute function public.queue_deleted_project_files();
+create or replace function public.delete_managed_project(p_project_id text)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+ if auth.uid() is null or not public.is_admin() then raise exception '관리자만 프로젝트를 삭제할 수 있습니다.'; end if;
+ delete from public.projects where id=p_project_id;
+ if not found then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+end $$;
+revoke all on function public.delete_managed_project(text) from public,anon;
+grant execute on function public.delete_managed_project(text) to authenticated;
+
+-- Global app-wide flags. Single row per key today (just the evaluation
+-- prototype/test toggle) — see evaluation_prototype_enabled() near the top
+-- of this file, which reads from here.
+create table if not exists public.app_settings (
+  key text primary key,
+  value boolean not null
+);
+alter table public.app_settings enable row level security;
+insert into public.app_settings (key, value)
+  values ('evaluation_prototype_enabled', true)
+  on conflict (key) do nothing;
+drop policy if exists app_settings_select on public.app_settings;
+create policy app_settings_select on public.app_settings for select to authenticated using (true);
+revoke insert, update, delete on public.app_settings from authenticated;
+
+create or replace function public.set_evaluation_prototype_enabled(p_enabled boolean)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+ if auth.uid() is null or not public.is_admin() then raise exception '관리자만 변경할 수 있습니다.'; end if;
+ insert into public.app_settings (key, value) values ('evaluation_prototype_enabled', p_enabled)
+   on conflict (key) do update set value = excluded.value;
+end $$;
+revoke all on function public.set_evaluation_prototype_enabled(boolean) from public,anon;
+grant execute on function public.set_evaluation_prototype_enabled(boolean) to authenticated;
+
+notify pgrst,'reload schema';
+commit;
+
+begin;
+-- 과제 보드/일정/워크스페이스에 새로 등록된 내용이 있으면 좌측 메뉴에 알림
+-- 배지로 표시하기 위한 "마지막으로 본 시각" 저장 컬럼. default now()라서
+-- 신규 멤버 행(가입 시점)과 이 마이그레이션 적용 시점의 기존 멤버 행 모두
+-- 가입/적용 이전 콘텐츠까지 전부 "새 항목"으로 뜨는 걸 방지한다.
+alter table public.members add column if not exists tasks_viewed_at timestamptz not null default now();
+alter table public.members add column if not exists schedule_viewed_at timestamptz not null default now();
+alter table public.members add column if not exists workspace_viewed_at timestamptz not null default now();
+alter table public.tasks add column if not exists created_at timestamptz not null default now();
+
+create or replace function public.mark_section_viewed(p_project_id text, p_section text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if p_section not in ('tasks','schedule','workspace') then raise exception '잘못된 섹션입니다.'; end if;
+  if p_section = 'tasks' then
+    update public.members set tasks_viewed_at = now() where project_id = p_project_id and user_id = auth.uid();
+  elsif p_section = 'schedule' then
+    update public.members set schedule_viewed_at = now() where project_id = p_project_id and user_id = auth.uid();
+  else
+    update public.members set workspace_viewed_at = now() where project_id = p_project_id and user_id = auth.uid();
+  end if;
+end $$;
+revoke all on function public.mark_section_viewed(text,text) from public,anon;
+grant execute on function public.mark_section_viewed(text,text) to authenticated;
+
+-- visible_evaluation_members/admin_project_members return whole `members` rows
+-- (returns setof public.members), so the three *_viewed_at columns above would
+-- otherwise leak every teammate's last-viewed timestamps to everyone else who
+-- calls these RPCs. Keep them visible only to the row's own owner.
+create or replace function public.visible_evaluation_members(p_project_id text default null)
+returns setof public.members language plpgsql stable security definer set search_path=public as $$
+declare m public.members; a jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_project_id is not null and not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ for m in select * from members where (p_project_id is null and user_id=auth.uid()) or (p_project_id is not null and project_id=p_project_id) loop
+  m.score:=0; m.eval_count:=0; m.criteria_role:=0; m.criteria_deadline:=0; m.criteria_communication:=0; m.criteria_collaboration:=0; m.criteria_quality:=0;
+  if p_project_id is not null then
+   a := public.member_evaluation_average(m.project_id, m.id, 'final');
+   if (a->>'available')::boolean then
+    m.score:=(a->>'score')::numeric; m.eval_count:=(a->>'count')::integer;
+    m.criteria_role:=(a->'criteria'->>'role')::numeric; m.criteria_deadline:=(a->'criteria'->>'deadline')::numeric;
+    m.criteria_communication:=(a->'criteria'->>'communication')::numeric; m.criteria_collaboration:=(a->'criteria'->>'collaboration')::numeric; m.criteria_quality:=(a->'criteria'->>'quality')::numeric;
+   end if;
+  elsif m.user_id=auth.uid() then
+   a:=public.my_evaluation_average(m.project_id,'final');
+   if (a->>'available')::boolean then
+    m.score:=(a->>'score')::numeric; m.eval_count:=(a->>'count')::integer;
+    m.criteria_role:=(a->'criteria'->>'role')::numeric; m.criteria_deadline:=(a->'criteria'->>'deadline')::numeric;
+    m.criteria_communication:=(a->'criteria'->>'communication')::numeric; m.criteria_collaboration:=(a->'criteria'->>'collaboration')::numeric; m.criteria_quality:=(a->'criteria'->>'quality')::numeric;
+   end if;
+  end if;
+  if m.user_id is distinct from auth.uid() then
+   m.tasks_viewed_at:=null; m.schedule_viewed_at:=null; m.workspace_viewed_at:=null;
+  end if;
+  return next m;
+ end loop;
+end $$;
+revoke all on function public.visible_evaluation_members(text) from public,anon;
+grant execute on function public.visible_evaluation_members(text) to authenticated;
+
+create or replace function public.admin_project_members(p_project_id text)
+returns setof public.members language plpgsql stable security definer set search_path=public as $$
+declare m public.members;
+begin
+ if auth.uid() is null or not public.is_admin() then raise exception '관리자만 조회할 수 있습니다.'; end if;
+ for m in select * from public.members where project_id=p_project_id order by is_leader desc,name loop
+  m.score:=0; m.eval_count:=0; m.criteria_role:=0; m.criteria_deadline:=0;
+  m.criteria_communication:=0; m.criteria_collaboration:=0; m.criteria_quality:=0;
+  m.tasks_viewed_at:=null; m.schedule_viewed_at:=null; m.workspace_viewed_at:=null;
+  return next m;
+ end loop;
+end $$;
+revoke all on function public.admin_project_members(text) from public,anon;
+grant execute on function public.admin_project_members(text) to authenticated;
+
+-- Cross-project participation counts (프로젝트 참여 횟수/함께한 동료 수) for a
+-- member other than yourself — shown on their profile card alongside the
+-- current-project-only score from visible_evaluation_members. Counts only,
+-- no scores from projects the viewer isn't part of, using the same "shares
+-- at least one project with the viewer" visibility rule as profiles_select_own.
+create or replace function public.member_participation_stats(p_user_id uuid)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare v_project_count integer; v_collaborator_count integer;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if p_user_id is distinct from auth.uid() and not public.shares_project_with(p_user_id) then
+    raise exception '조회할 수 없는 사용자입니다.';
+  end if;
+  -- 종료(done)된 프로젝트만 결산에 반영한다. 진행 중인 프로젝트는 종료 시점에 +1.
+  select count(distinct m.project_id) into v_project_count
+  from public.members m join public.projects p on p.id = m.project_id
+  where m.user_id = p_user_id and p.status = 'done';
+  -- 함께한 동료: 종료된 프로젝트들에서 만난 서로 다른 사람 수(중복 제외).
+  select count(distinct coalesce(m.user_id::text, 'row:' || m.id::text)) into v_collaborator_count
+  from public.members m join public.projects p on p.id = m.project_id
+  where p.status = 'done'
+    and m.project_id in (select project_id from public.members where user_id = p_user_id)
+    and m.user_id is distinct from p_user_id;
+  return jsonb_build_object('projectCount', coalesce(v_project_count, 0), 'collaboratorCount', coalesce(v_collaborator_count, 0));
+end $$;
+revoke all on function public.member_participation_stats(uuid) from public,anon;
+grant execute on function public.member_participation_stats(uuid) to authenticated;
+
+notify pgrst,'reload schema';
+commit;
+
+-- 메인 화면 게시판(공지/자유/팀원모집) — 프로젝트에 속하지 않는, 로그인한
+-- 모든 사용자가 함께 보는 전역 커뮤니티 게시판. feature/board 브랜치의
+-- localStorage 기반 프로토타입을 실제 Supabase 테이블로 재구현.
+begin;
+
+create table if not exists public.board_posts (
+  id bigint generated always as identity primary key,
+  category text not null check (category in ('notice','free','recruit')),
+  title text not null check (length(trim(title)) > 0 and length(title) <= 200),
+  content text not null check (length(content) <= 50000),
+  author_user_id uuid not null references auth.users(id) on delete cascade,
+  pinned boolean not null default false,
+  views integer not null default 0,
+  likes_count integer not null default 0,
+  comments_count integer not null default 0,
+  tags text[] not null default '{}',
+  -- [{id,name,size,kind:'image'|'file',url,mimeType}] — url은 board-attachments
+  -- 버킷의 실제 업로드 경로. base64는 절대 저장하지 않는다.
+  attachments jsonb not null default '[]',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+create index if not exists board_posts_list_idx on public.board_posts (pinned desc, created_at desc);
+
+create table if not exists public.board_comments (
+  id bigint generated always as identity primary key,
+  post_id bigint not null references public.board_posts(id) on delete cascade,
+  -- null이면 게시글에 바로 달린 댓글, 값이 있으면 그 댓글에 대한 대댓글(1단계만 지원).
+  parent_comment_id bigint references public.board_comments(id) on delete cascade,
+  author_user_id uuid not null references auth.users(id) on delete cascade,
+  content text not null check (length(trim(content)) > 0 and length(content) <= 2000),
+  created_at timestamptz not null default now()
+);
+create index if not exists board_comments_post_idx on public.board_comments (post_id, created_at);
+
+create table if not exists public.board_likes (
+  post_id bigint not null references public.board_posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+
+alter table public.board_posts enable row level security;
+alter table public.board_comments enable row level security;
+alter table public.board_likes enable row level security;
+
+drop policy if exists board_posts_select on public.board_posts;
+create policy board_posts_select on public.board_posts for select to authenticated using (true);
+drop policy if exists board_posts_insert on public.board_posts;
+create policy board_posts_insert on public.board_posts for insert to authenticated
+  with check (author_user_id = auth.uid() and (category <> 'notice' or public.is_admin()));
+drop policy if exists board_posts_update on public.board_posts;
+create policy board_posts_update on public.board_posts for update to authenticated
+  using (author_user_id = auth.uid() or public.is_admin())
+  with check (author_user_id = auth.uid() and (category <> 'notice' or public.is_admin()));
+drop policy if exists board_posts_delete on public.board_posts;
+create policy board_posts_delete on public.board_posts for delete to authenticated
+  using (author_user_id = auth.uid() or public.is_admin());
+-- 조회수/좋아요/댓글수는 트리거와 RPC로만 바뀐다 — 작성자 본인도 직접 수정 불가.
+revoke update (views, likes_count, comments_count, author_user_id) on public.board_posts from authenticated;
+
+drop policy if exists board_comments_select on public.board_comments;
+create policy board_comments_select on public.board_comments for select to authenticated using (true);
+drop policy if exists board_comments_insert on public.board_comments;
+create policy board_comments_insert on public.board_comments for insert to authenticated
+  with check (
+    author_user_id = auth.uid()
+    -- 공지사항 게시글에는 댓글(대댓글 포함)을 달 수 없다.
+    and exists (select 1 from public.board_posts p where p.id = board_comments.post_id and p.category <> 'notice')
+    and (
+      board_comments.parent_comment_id is null
+      or exists (
+        select 1 from public.board_comments parent
+        where parent.id = board_comments.parent_comment_id
+          and parent.post_id = board_comments.post_id
+          and parent.parent_comment_id is null
+      )
+    )
+  );
+drop policy if exists board_comments_delete on public.board_comments;
+create policy board_comments_delete on public.board_comments for delete to authenticated
+  using (author_user_id = auth.uid() or public.is_admin());
+
+drop policy if exists board_likes_select on public.board_likes;
+create policy board_likes_select on public.board_likes for select to authenticated using (true);
+drop policy if exists board_likes_insert on public.board_likes;
+create policy board_likes_insert on public.board_likes for insert to authenticated
+  with check (user_id = auth.uid());
+drop policy if exists board_likes_delete on public.board_likes;
+create policy board_likes_delete on public.board_likes for delete to authenticated
+  using (user_id = auth.uid());
+
+create or replace function public.sync_board_post_likes_count()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if TG_OP = 'INSERT' then
+    update public.board_posts set likes_count = likes_count + 1 where id = new.post_id;
+    return new;
+  else
+    update public.board_posts set likes_count = greatest(0, likes_count - 1) where id = old.post_id;
+    return old;
+  end if;
+end $$;
+drop trigger if exists board_likes_sync on public.board_likes;
+create trigger board_likes_sync after insert or delete on public.board_likes
+for each row execute function public.sync_board_post_likes_count();
+
+create or replace function public.sync_board_post_comments_count()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if TG_OP = 'INSERT' then
+    update public.board_posts set comments_count = comments_count + 1 where id = new.post_id;
+    return new;
+  else
+    update public.board_posts set comments_count = greatest(0, comments_count - 1) where id = old.post_id;
+    return old;
+  end if;
+end $$;
+drop trigger if exists board_comments_sync on public.board_comments;
+create trigger board_comments_sync after insert or delete on public.board_comments
+for each row execute function public.sync_board_post_comments_count();
+
+create or replace function public.increment_board_post_views(p_post_id bigint)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  update public.board_posts set views = views + 1 where id = p_post_id;
+end $$;
+revoke all on function public.increment_board_post_views(bigint) from public,anon;
+grant execute on function public.increment_board_post_views(bigint) to authenticated;
+
+-- 게시판 첨부/본문 삽입 이미지 저장용 버킷. avatars와 동일하게 공개 읽기 —
+-- 게시판 콘텐츠는 민감 정보가 아니고, 서명 URL 없이 바로 렌더링되어야 함.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('board-attachments', 'board-attachments', true, 20971520)
+on conflict (id) do update set public = true, file_size_limit = 20971520;
+
+drop policy if exists board_attachments_public_read on storage.objects;
+drop policy if exists board_attachments_own_write on storage.objects;
+drop policy if exists board_attachments_own_delete on storage.objects;
+create policy board_attachments_public_read on storage.objects for select
+  using (bucket_id = 'board-attachments');
+create policy board_attachments_own_write on storage.objects for insert
+  with check (bucket_id = 'board-attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy board_attachments_own_delete on storage.objects for delete
+  using (bucket_id = 'board-attachments' and (storage.foldername(name))[1] = auth.uid()::text);
+
+notify pgrst,'reload schema';
+commit;
+
+-- 과제 보드/일정/워크스페이스 변경사항을 실시간으로 반영. 채팅이 쓰는
+-- private 채널 + realtime.messages 인증 패턴을 그대로 재사용한다.
+begin;
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tasks') then
+    alter publication supabase_realtime add table tasks;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='schedule_events') then
+    alter publication supabase_realtime add table schedule_events;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='files') then
+    alter publication supabase_realtime add table files;
+  end if;
+end $$;
+
+-- Private Realtime authorization. Do not call the app's generic
+-- is_project_member() helper from realtime.messages policies: Realtime runs
+-- its authorization check with a different schema context. This function
+-- explicitly qualifies public.members and fixes its search_path instead.
+create or replace function public.can_access_project_realtime_topic(p_topic text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select
+    exists (
+      select 1
+      from public.members m
+      where (
+          p_topic ~ '^(presence|collab_presence|chat_messages|message_reads|task_comment_reactions|tasks|schedule_events|files):[^:]+$'
+          or p_topic ~ '^collab_doc:[^:]+:[0-9]+:[0-9]+:(main|pin)$'
+        )
+        and m.project_id = split_part(p_topic, ':', 2)
+        and m.user_id = auth.uid()
+    );
+$$;
+revoke all on function public.can_access_project_realtime_topic(text) from public;
+grant execute on function public.can_access_project_realtime_topic(text) to authenticated;
+
+drop policy if exists project_members_receive_presence on realtime.messages;
+drop policy if exists project_members_receive_project_realtime on realtime.messages;
+drop policy if exists project_members_track_presence on realtime.messages;
+
+create policy project_members_receive_project_realtime
+on realtime.messages
+for select
+to authenticated
+using (
+  public.can_access_project_realtime_topic(realtime.topic())
+);
+
+create policy project_members_track_presence
+on realtime.messages
+for insert
+to authenticated
+with check (
+  realtime.messages.extension = 'presence'
+  and public.can_access_project_realtime_topic(realtime.topic())
+);
+
+drop policy if exists project_members_broadcast_collab on realtime.messages;
+create policy project_members_broadcast_collab
+on realtime.messages
+for insert
+to authenticated
+with check (
+  realtime.messages.extension = 'broadcast'
+  and realtime.topic() like 'collab_doc:%'
+  and public.can_access_project_realtime_topic(realtime.topic())
+);
+
+commit;
+
+-- 일정에 기간(종료일) 지정 기능 추가 — null이면 기존처럼 하루짜리 일정.
+begin;
+alter table public.schedule_events add column if not exists end_date date;
+do $$ begin
+  alter table public.schedule_events
+    add constraint schedule_events_end_date_after_start check (end_date is null or end_date >= date);
+exception when duplicate_object then null;
+end $$;
+commit;
+
+-- ===== 부팀장(vice leader) 역할: migrations/2609211700_add_vice_leader_role.sql 과 동일 =====
+-- 부팀장(vice leader) 역할.
+-- 부팀장은 팀장과 같은 일상 운영 권한(과제, 팀 일정, 워크스페이스 파일·폴더 정리)을 갖는다.
+-- 팀원 제외, 프로젝트 종료, 팀장 위임은 계속 팀장 전용이고,
+-- 부팀장 임명·해임은 해당 프로젝트의 팀장 또는 관리자만 할 수 있다.
+begin;
+
+alter table public.members add column if not exists is_vice_leader boolean not null default false;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'members_leader_not_vice' and conrelid = 'public.members'::regclass) then
+    alter table public.members add constraint members_leader_not_vice check (not (is_leader and is_vice_leader));
+  end if;
+end $$;
+-- members SELECT 권한은 평가 점수 컬럼을 제외하고 컬럼 단위로 부여되므로 새 컬럼도 따로 열어 준다.
+grant select (is_vice_leader) on public.members to authenticated;
+
+-- 팀장 또는 부팀장. is_project_leader()는 팀장 전용 권한(종료·제외 등)을 위해 그대로 둔다.
+create or replace function public.is_project_manager(p_project_id text)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from public.members m
+    where m.project_id = p_project_id and m.user_id = auth.uid() and (m.is_leader or m.is_vice_leader)
+  );
+$$;
+
+create or replace function public.is_task_project_manager(p_task_id bigint)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from public.tasks t
+    join public.members m on m.project_id = t.project_id
+    where t.id = p_task_id and m.user_id = auth.uid() and (m.is_leader or m.is_vice_leader)
+  );
+$$;
+
+-- 가입 시 클라이언트가 보낸 is_vice_leader는 항상 무시한다.
+create or replace function public.set_member_user_id()
+returns trigger language plpgsql as $$
+begin
+  new.user_id := auth.uid();
+  -- 프로젝트에 이미 리더가 있으면 is_leader를 false로 강제
+  -- (createProject는 첫 번째 멤버라 리더 없음 → true 통과,
+  --  joinProject는 리더 이미 있음 → 클라이언트가 true 보내도 false로 교정)
+  if new.is_leader and exists (
+    select 1 from public.members where project_id = new.project_id and is_leader
+  ) then
+    new.is_leader := false;
+  end if;
+  new.is_vice_leader := false;
+  return new;
+end;
+$$;
+
+-- is_vice_leader 직접 UPDATE 차단: set_vice_leader / transfer_leadership RPC만 허용
+create or replace function public.prevent_is_vice_leader_direct_update()
+returns trigger language plpgsql as $$
+begin
+  if new.is_vice_leader is distinct from old.is_vice_leader
+     and current_setting('app.allow_vice_leader_change', true) is distinct from 'true'
+  then
+    raise exception 'is_vice_leader 변경은 set_vice_leader() 함수를 통해서만 가능합니다';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_is_vice_leader_direct_update on public.members;
+create trigger prevent_is_vice_leader_direct_update
+  before update on public.members
+  for each row execute function public.prevent_is_vice_leader_direct_update();
+
+-- 팀장 위임: 부팀장에게 위임하면 부팀장 표시는 자동으로 해제된다.
+create or replace function public.transfer_leadership(p_project_id text, p_target_name text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_caller_id uuid;
+  v_caller_role text;
+  v_target_id uuid;
+  v_target_role text;
+begin
+  select id, role into v_caller_id, v_caller_role
+    from members
+    where project_id = p_project_id and user_id = auth.uid() and is_leader;
+  if v_caller_id is null then
+    raise exception '팀장만 권한을 이전할 수 있습니다';
+  end if;
+
+  select id, role into v_target_id, v_target_role
+    from members
+    where project_id = p_project_id and name = p_target_name and not is_leader;
+  if v_target_id is null then
+    raise exception '대상 멤버를 찾을 수 없거나 이미 팀장입니다';
+  end if;
+
+  perform set_config('app.allow_leader_change', 'true', true);
+  perform set_config('app.allow_vice_leader_change', 'true', true);
+
+  -- is_leader와 함께 role 표시 문구도 동기화 (커스텀 역할 문구는 그대로 둠)
+  update members set is_leader = false,
+    role = case when v_caller_role = '팀장' then '팀원' else v_caller_role end
+    where id = v_caller_id;
+  update members set is_leader = true, is_vice_leader = false,
+    role = case when v_target_role in ('참여자', '팀원', '부팀장') then '팀장' else v_target_role end
+    where id = v_target_id;
+end;
+$$;
+
+-- 부팀장 임명·해임: 해당 프로젝트의 팀장 또는 관리자만, 진행 중인 승인된 프로젝트에서만.
+create or replace function public.set_vice_leader(p_member_id uuid, p_enabled boolean)
+returns void language plpgsql security definer set search_path = public as $$
+declare m public.members; pid text;
+begin
+  select project_id into pid from public.members where id = p_member_id;
+  if pid is null then raise exception '팀원을 찾을 수 없습니다.'; end if;
+  if auth.uid() is null or not (public.is_admin() or public.is_project_leader(pid)) then
+    raise exception '팀장 또는 관리자만 부팀장을 지정할 수 있습니다.';
+  end if;
+  perform id from public.projects where id = pid and status = 'active' and approval_status = 'approved' for update;
+  if not found then raise exception '진행 중인 승인된 프로젝트에서만 부팀장을 지정할 수 있습니다.'; end if;
+  select * into m from public.members where id = p_member_id for update;
+  if not found then raise exception '팀원을 찾을 수 없습니다.'; end if;
+  if m.is_leader then raise exception '팀장은 부팀장으로 지정할 수 없습니다.'; end if;
+  if m.is_vice_leader is not distinct from coalesce(p_enabled, false) then return; end if;
+
+  perform set_config('app.allow_vice_leader_change', 'true', true);
+  -- is_vice_leader와 함께 role 표시 문구도 동기화 (커스텀 역할 문구는 그대로 둠)
+  update public.members set is_vice_leader = coalesce(p_enabled, false),
+    role = case
+      when coalesce(p_enabled, false) and role in ('참여자', '팀원') then '부팀장'
+      when not coalesce(p_enabled, false) and role = '부팀장' then '팀원'
+      else role
+    end
+    where id = m.id;
+end $$;
+revoke all on function public.set_vice_leader(uuid, boolean) from public, anon;
+grant execute on function public.set_vice_leader(uuid, boolean) to authenticated;
+
+-- 과제: 팀장·부팀장이 만들고 고치고 지운다. 담당자는 기존처럼 자기 과제를 수정할 수 있다.
+drop policy if exists tasks_insert on public.tasks;
+drop policy if exists tasks_update on public.tasks;
+drop policy if exists tasks_delete on public.tasks;
+create policy tasks_insert on public.tasks for insert with check (public.is_project_manager(project_id));
+create policy tasks_update on public.tasks for update using (public.is_project_manager(project_id) or public.is_task_assignee(id));
+create policy tasks_delete on public.tasks for delete using (public.is_project_manager(project_id));
+
+drop policy if exists task_assignees_write on public.task_assignees;
+create policy task_assignees_write on public.task_assignees for all
+  using (public.is_task_project_manager(task_id)) with check (public.is_task_project_manager(task_id));
+
+-- 팀 일정: 팀장·부팀장이 관리한다. 개인 일정은 기존처럼 본인만.
+drop policy if exists schedule_events_insert on public.schedule_events;
+drop policy if exists schedule_events_update on public.schedule_events;
+drop policy if exists schedule_events_delete on public.schedule_events;
+create policy schedule_events_insert on public.schedule_events for insert with check (
+  public.is_project_member(project_id)
+  and (
+    (scope = 'team' and public.is_project_manager(project_id))
+    or
+    (scope = 'personal' and exists (
+      select 1 from public.members m
+      where m.id = owner_member_id and m.project_id = project_id and m.user_id = auth.uid()
+    ))
+  )
+);
+create policy schedule_events_update on public.schedule_events for update using (
+  (scope = 'team' and public.is_project_manager(project_id))
+  or
+  (scope = 'personal' and exists (
+    select 1 from public.members m
+    where m.id = owner_member_id and m.project_id = project_id and m.user_id = auth.uid()
+  ))
+);
+create policy schedule_events_delete on public.schedule_events for delete using (
+  (scope = 'team' and public.is_project_manager(project_id))
+  or
+  (scope = 'personal' and exists (
+    select 1 from public.members m
+    where m.id = owner_member_id and m.project_id = project_id and m.user_id = auth.uid()
+  ))
+);
+
+-- 워크스페이스: 팀장·부팀장은 남의 파일·폴더도 삭제할 수 있다.
+create or replace function public.delete_workspace_file(p_file_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.files%rowtype;
+begin
+  select project_id into pid from public.files where id=p_file_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.files where id=p_file_id for update;
+  if not found then raise exception '파일이 존재하지 않습니다.'; end if;
+  if not public.is_project_manager(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장, 부팀장 또는 최초 업로더만 파일을 삭제할 수 있습니다.';
+  end if;
+  insert into public.workspace_delete_queue(storage_path,project_id,deleted_by)
+    select storage_path,pid,auth.uid() from public.file_versions where file_id=p_file_id and storage_path is not null
+    on conflict(storage_path) do nothing;
+  delete from public.files where id=p_file_id;
+end $$;
+create or replace function public.delete_workspace_folder(p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.folders%rowtype;
+begin
+  select project_id into pid from public.folders where id=p_folder_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.folders where id=p_folder_id for update;
+  if not found then raise exception '폴더가 존재하지 않습니다.'; end if;
+  if not public.is_project_manager(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장, 부팀장 또는 생성자만 폴더를 삭제할 수 있습니다.';
+  end if;
+  if exists(select 1 from public.files where folder_id=p_folder_id) then
+    raise exception '파일이 있는 폴더는 삭제할 수 없습니다. 파일을 먼저 삭제해 주세요.';
+  end if;
+  delete from public.folders where id=p_folder_id;
+end $$;
+revoke all on function public.delete_workspace_file(bigint), public.delete_workspace_folder(bigint) from public, anon;
+grant execute on function public.delete_workspace_file(bigint), public.delete_workspace_folder(bigint) to authenticated;
+
+commit;
+
+-- ===== 관리자 가입 신청·운영자 승인: migrations/2609211800_admin_applications.sql 과 동일 =====
+-- 관리자 가입 신청과 운영자 승인.
+-- 관리자(교수·교원 등)는 증명서 PDF와 함께 신청하고, 운영자가 직접 확인해 승인해야 관리자가 된다.
+-- 가입 정보(메타데이터)로는 어떤 권한도 얻을 수 없고, 승격은 review_admin_application() 하나로만 일어난다.
+-- 운영자(is_operator) 지정은 DB 소유자가 SQL Editor에서만 한다. 예:
+--   update public.profiles set is_operator = true, is_admin = true where id = '<운영자 계정 UUID>';
+begin;
+
+-- 1) 운영자 역할
+alter table public.profiles add column if not exists is_operator boolean not null default false;
+
+create or replace function public.is_operator()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select is_operator from public.profiles where id = auth.uid()), false)
+$$;
+revoke all on function public.is_operator() from public, anon;
+grant execute on function public.is_operator() to authenticated;
+
+-- 앱(authenticated/anon)에서는 is_admin, is_operator를 바꿀 수 없다. SECURITY DEFINER 함수와 SQL Editor는 통과한다.
+create or replace function public.prevent_profile_privilege_escalation()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if tg_op = 'INSERT' then
+      new.is_admin := false;
+      new.is_operator := false;
+    else
+      if new.is_admin is distinct from old.is_admin then
+        raise exception '관리자 권한은 운영자만 변경할 수 있습니다.';
+      end if;
+      if new.is_operator is distinct from old.is_operator then
+        raise exception '운영자 권한은 DB 관리자만 변경할 수 있습니다.';
+      end if;
+    end if;
+  end if;
+  return new;
+end $$;
+
+-- 2) 신청서와 처리 기록
+create table if not exists public.admin_applications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  applicant_type text not null default 'faculty' check (applicant_type in ('faculty')),
+  org text not null check (char_length(btrim(org)) between 1 and 100),
+  job_title text not null check (char_length(btrim(job_title)) between 1 and 60),
+  contact text not null check (char_length(btrim(contact)) between 3 and 60),
+  doc_type text not null check (doc_type in ('employment', 'faculty_id', 'appointment', 'other')),
+  -- 처리 후 원본 PDF를 지우면 null이 된다(기록에는 "확인함"만 남는다).
+  doc_path text,
+  doc_name text not null check (char_length(btrim(doc_name)) between 1 and 200),
+  doc_size bigint not null check (doc_size between 1 and 10485760),
+  consent_at timestamptz not null,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  submitted_at timestamptz not null default now(),
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  review_note text check (review_note is null or char_length(review_note) <= 500),
+  doc_deleted_at timestamptz
+);
+create unique index if not exists admin_applications_one_pending on public.admin_applications (user_id) where status = 'pending';
+create unique index if not exists admin_applications_doc_path_unique on public.admin_applications (doc_path) where doc_path is not null;
+create index if not exists admin_applications_status_idx on public.admin_applications (status, submitted_at);
+
+alter table public.admin_applications enable row level security;
+revoke all on table public.admin_applications from anon, authenticated;
+grant select on table public.admin_applications to authenticated;
+drop policy if exists admin_applications_select on public.admin_applications;
+create policy admin_applications_select on public.admin_applications for select to authenticated
+  using (user_id = auth.uid() or public.is_operator());
+
+create table if not exists public.admin_audit_log (
+  id bigint generated always as identity primary key,
+  actor_id uuid references auth.users(id) on delete set null,
+  target_id uuid references auth.users(id) on delete set null,
+  action text not null check (action in ('application_approved', 'application_rejected', 'admin_revoked')),
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table public.admin_audit_log enable row level security;
+revoke all on table public.admin_audit_log from anon, authenticated;
+grant select on table public.admin_audit_log to authenticated;
+drop policy if exists admin_audit_log_select on public.admin_audit_log;
+create policy admin_audit_log_select on public.admin_audit_log for select to authenticated using (public.is_operator());
+
+-- 3) 증명서 PDF 저장소(비공개). 본인 폴더에만 올리고, 조회는 본인과 운영자만 한다.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('admin-verification', 'admin-verification', false, 10485760, array['application/pdf'])
+on conflict (id) do update
+  set public = false, file_size_limit = 10485760, allowed_mime_types = array['application/pdf'];
+
+-- 정책 안에서 storage.objects를 다시 조회하면 "정책 무한 재귀" 오류가 나므로, RLS를 우회하는 함수로 개수를 센다.
+create or replace function public.admin_verification_file_count(p_user_id uuid)
+returns integer language sql stable security definer set search_path = public as $$
+  select count(*)::integer from storage.objects o
+  where o.bucket_id = 'admin-verification' and (storage.foldername(o.name))[1] = p_user_id::text
+$$;
+revoke all on function public.admin_verification_file_count(uuid) from public, anon;
+grant execute on function public.admin_verification_file_count(uuid) to authenticated;
+
+drop policy if exists admin_verification_insert on storage.objects;
+drop policy if exists admin_verification_select on storage.objects;
+drop policy if exists admin_verification_delete_own on storage.objects;
+drop policy if exists admin_verification_delete_operator on storage.objects;
+create policy admin_verification_insert on storage.objects for insert to authenticated with check (
+  bucket_id = 'admin-verification'
+  and (storage.foldername(name))[1] = auth.uid()::text
+  and name ~ ('^' || auth.uid()::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$')
+  and not public.is_admin()
+  and public.admin_verification_file_count(auth.uid()) < 5
+);
+create policy admin_verification_select on storage.objects for select to authenticated using (
+  bucket_id = 'admin-verification'
+  and ((storage.foldername(name))[1] = auth.uid()::text or public.is_operator())
+);
+-- 신청서에 연결되지 않은 내 파일(업로드 실패 후 정리 등)만 지울 수 있다.
+create policy admin_verification_delete_own on storage.objects for delete to authenticated using (
+  bucket_id = 'admin-verification'
+  and (storage.foldername(name))[1] = auth.uid()::text
+  and not exists (select 1 from public.admin_applications a where a.doc_path = objects.name)
+);
+-- 운영자는 처리가 끝난 신청의 증명서만 지울 수 있다(검토 중인 자료는 지울 수 없다).
+create policy admin_verification_delete_operator on storage.objects for delete to authenticated using (
+  bucket_id = 'admin-verification'
+  and public.is_operator()
+  and exists (select 1 from public.admin_applications a where a.doc_path = objects.name and a.status <> 'pending')
+);
+
+-- 4) 신청 제출: 파일이 실제로 저장소에 있는지, PDF인지, 크기가 맞는지 서버에서 확인한다.
+create or replace function public.submit_admin_application(
+  p_org text, p_job_title text, p_contact text, p_doc_type text, p_doc_path text, p_doc_name text, p_consent boolean
+) returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  v_org text := btrim(coalesce(p_org, ''));
+  v_title text := btrim(coalesce(p_job_title, ''));
+  v_contact text := btrim(coalesce(p_contact, ''));
+  v_name text := btrim(coalesce(p_doc_name, ''));
+  v_size bigint;
+  v_mime text;
+  v_id uuid;
+begin
+  if uid is null then raise exception '로그인이 필요합니다.'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('admin_application:' || uid::text, 0));
+  if public.is_admin() then raise exception '이미 관리자 계정입니다.'; end if;
+  if p_consent is not true then raise exception '개인정보 수집·이용에 동의해 주세요.'; end if;
+  if char_length(v_org) not between 1 and 100 then raise exception '소속을 1~100자로 입력해 주세요.'; end if;
+  if char_length(v_title) not between 1 and 60 then raise exception '직위를 1~60자로 입력해 주세요.'; end if;
+  if char_length(v_contact) not between 3 and 60 then raise exception '연락처를 입력해 주세요.'; end if;
+  if char_length(v_name) not between 1 and 200 then raise exception '파일 이름이 올바르지 않습니다.'; end if;
+  if p_doc_type is null or p_doc_type not in ('employment', 'faculty_id', 'appointment', 'other') then
+    raise exception '증명서 종류를 선택해 주세요.';
+  end if;
+  if p_doc_path is null or p_doc_path !~ ('^' || uid::text || '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$') then
+    raise exception '업로드 경로가 올바르지 않습니다.';
+  end if;
+  select (metadata->>'size')::bigint, coalesce(metadata->>'mimetype', 'application/octet-stream')
+    into v_size, v_mime from storage.objects where bucket_id = 'admin-verification' and name = p_doc_path;
+  if not found then raise exception '업로드한 증명서를 확인할 수 없습니다.'; end if;
+  if v_mime is distinct from 'application/pdf' then raise exception 'PDF 파일만 제출할 수 있습니다.'; end if;
+  if v_size is null or v_size < 1 or v_size > 10485760 then raise exception '증명서는 10MB 이하의 PDF여야 합니다.'; end if;
+  if exists (select 1 from public.admin_applications where user_id = uid and status = 'pending') then
+    raise exception '이미 검토 중인 신청이 있습니다.';
+  end if;
+  if exists (select 1 from public.admin_applications
+             where user_id = uid and status = 'rejected' and reviewed_at > now() - interval '24 hours') then
+    raise exception '반려된 뒤 24시간이 지나야 다시 신청할 수 있습니다.';
+  end if;
+  insert into public.admin_applications(user_id, org, job_title, contact, doc_type, doc_path, doc_name, doc_size, consent_at)
+    values (uid, v_org, v_title, v_contact, p_doc_type, p_doc_path, v_name, v_size, now())
+    returning id into v_id;
+  return v_id;
+end $$;
+revoke all on function public.submit_admin_application(text, text, text, text, text, text, boolean) from public, anon;
+grant execute on function public.submit_admin_application(text, text, text, text, text, text, boolean) to authenticated;
+
+-- 5) 승인·반려: 운영자만. 승인하면 그때 관리자가 된다.
+create or replace function public.review_admin_application(p_id uuid, p_approve boolean, p_note text default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  a public.admin_applications;
+  v_note text := nullif(btrim(coalesce(p_note, '')), '');
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 신청을 처리할 수 있습니다.'; end if;
+  if p_approve is null then raise exception '승인 또는 반려를 선택해 주세요.'; end if;
+  select * into a from public.admin_applications where id = p_id for update;
+  if not found then raise exception '신청을 찾을 수 없습니다.'; end if;
+  if a.user_id = auth.uid() then raise exception '본인 신청은 처리할 수 없습니다.'; end if;
+  if a.status <> 'pending' then raise exception '이미 처리된 신청입니다.'; end if;
+  if v_note is not null and char_length(v_note) > 500 then raise exception '사유는 500자 이하로 입력해 주세요.'; end if;
+  if not p_approve and v_note is null then raise exception '반려 사유를 입력해 주세요.'; end if;
+
+  update public.admin_applications
+    set status = case when p_approve then 'approved' else 'rejected' end,
+        reviewed_by = auth.uid(), reviewed_at = now(), review_note = v_note
+    where id = a.id;
+  if p_approve then
+    update public.profiles set is_admin = true, org = a.org where id = a.user_id;
+    if not found then raise exception '신청자의 프로필을 찾을 수 없습니다.'; end if;
+  end if;
+  insert into public.admin_audit_log(actor_id, target_id, action, note)
+    values (auth.uid(), a.user_id, case when p_approve then 'application_approved' else 'application_rejected' end, v_note);
+end $$;
+revoke all on function public.review_admin_application(uuid, boolean, text) from public, anon;
+grant execute on function public.review_admin_application(uuid, boolean, text) to authenticated;
+
+-- 6) 처리 끝난 증명서 삭제 확인: 실제 파일은 앱이 Storage API로 지우고, 지워진 뒤에 이 함수로 기록한다.
+create or replace function public.mark_admin_document_deleted(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare a public.admin_applications;
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 처리할 수 있습니다.'; end if;
+  select * into a from public.admin_applications where id = p_id for update;
+  if not found then raise exception '신청을 찾을 수 없습니다.'; end if;
+  if a.status = 'pending' then raise exception '검토 중인 신청의 증명서는 삭제할 수 없습니다.'; end if;
+  if a.doc_path is null then return; end if;
+  if exists (select 1 from storage.objects where bucket_id = 'admin-verification' and name = a.doc_path) then
+    raise exception '증명서 파일이 아직 삭제되지 않았습니다.';
+  end if;
+  update public.admin_applications set doc_path = null, doc_deleted_at = now() where id = a.id;
+end $$;
+revoke all on function public.mark_admin_document_deleted(uuid) from public, anon;
+grant execute on function public.mark_admin_document_deleted(uuid) to authenticated;
+
+-- 7) 운영자용 조회
+create or replace function public.list_admin_applications(p_status text default null)
+returns table (
+  id uuid, user_id uuid, display_name text, email text, email_confirmed boolean, org text, job_title text, contact text,
+  doc_type text, doc_name text, doc_size bigint, doc_path text, doc_deleted_at timestamptz, status text,
+  submitted_at timestamptz, reviewed_at timestamptz, review_note text, reviewed_by_name text
+) language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 조회할 수 있습니다.'; end if;
+  return query
+    select a.id, a.user_id, p.display_name, coalesce(p.email, u.email::text), (u.email_confirmed_at is not null),
+           a.org, a.job_title, a.contact, a.doc_type, a.doc_name, a.doc_size, a.doc_path, a.doc_deleted_at, a.status,
+           a.submitted_at, a.reviewed_at, a.review_note, rp.display_name
+      from public.admin_applications a
+      left join public.profiles p on p.id = a.user_id
+      left join auth.users u on u.id = a.user_id
+      left join public.profiles rp on rp.id = a.reviewed_by
+     where p_status is null or a.status = p_status
+     order by (a.status = 'pending') desc, coalesce(a.reviewed_at, a.submitted_at) desc;
+end $$;
+revoke all on function public.list_admin_applications(text) from public, anon;
+grant execute on function public.list_admin_applications(text) to authenticated;
+
+create or replace function public.list_admins()
+returns table (user_id uuid, display_name text, email text, org text, is_operator boolean, pending_projects integer)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 조회할 수 있습니다.'; end if;
+  return query
+    select p.id, p.display_name, p.email, p.org, p.is_operator,
+           (select count(*)::integer from public.projects pr where pr.requested_admin_id = p.id and pr.approval_status = 'pending')
+      from public.profiles p
+     where p.is_admin
+     order by p.is_operator desc, p.display_name;
+end $$;
+revoke all on function public.list_admins() from public, anon;
+grant execute on function public.list_admins() to authenticated;
+
+-- 8) 관리자 해제: 운영자만. 승인 대기 프로젝트를 맡은 관리자는 해제할 수 없다(처리할 사람이 없어지므로).
+create or replace function public.revoke_admin(p_user_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare t public.profiles;
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 관리자를 해제할 수 있습니다.'; end if;
+  if p_user_id = auth.uid() then raise exception '본인의 권한은 해제할 수 없습니다.'; end if;
+  select * into t from public.profiles where id = p_user_id for update;
+  if not found or not t.is_admin then raise exception '관리자 계정이 아닙니다.'; end if;
+  if t.is_operator then raise exception '운영자는 앱에서 해제할 수 없습니다.'; end if;
+  if exists (select 1 from public.projects where requested_admin_id = p_user_id and approval_status = 'pending') then
+    raise exception '승인 대기 중인 프로젝트가 있는 관리자는 해제할 수 없습니다. 먼저 처리해 주세요.';
+  end if;
+  update public.profiles set is_admin = false where id = p_user_id;
+  insert into public.admin_audit_log(actor_id, target_id, action) values (auth.uid(), p_user_id, 'admin_revoked');
+end $$;
+revoke all on function public.revoke_admin(uuid) from public, anon;
+grant execute on function public.revoke_admin(uuid) to authenticated;
+
+-- 게시판 투표 (Poll)
+create table if not exists public.board_polls (
+  id bigint generated always as identity primary key,
+  post_id bigint not null references public.board_posts(id) on delete cascade unique,
+  question text not null check (length(trim(question)) > 0 and length(question) <= 200),
+  allow_multiple boolean not null default false,
+  is_anonymous boolean not null default false,
+  closed boolean not null default false,
+  closes_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists board_polls_post_idx on public.board_polls (post_id);
+
+create table if not exists public.board_poll_options (
+  id bigint generated always as identity primary key,
+  poll_id bigint not null references public.board_polls(id) on delete cascade,
+  text text not null check (length(trim(text)) > 0 and length(text) <= 100),
+  votes_count integer not null default 0,
+  sort_order integer not null default 0
+);
+create index if not exists board_poll_options_poll_idx on public.board_poll_options (poll_id, sort_order);
+
+create table if not exists public.board_poll_votes (
+  id bigint generated always as identity primary key,
+  poll_id bigint not null references public.board_polls(id) on delete cascade,
+  option_id bigint not null references public.board_poll_options(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (poll_id, option_id, user_id)
+);
+create index if not exists board_poll_votes_poll_user_idx on public.board_poll_votes (poll_id, user_id);
+
+alter table public.board_polls enable row level security;
+alter table public.board_poll_options enable row level security;
+alter table public.board_poll_votes enable row level security;
+
+drop policy if exists board_polls_select on public.board_polls;
+create policy board_polls_select on public.board_polls for select to authenticated using (true);
+drop policy if exists board_polls_insert on public.board_polls;
+create policy board_polls_insert on public.board_polls for insert to authenticated
+  with check (exists (select 1 from public.board_posts p where p.id = post_id and (p.author_user_id = auth.uid() or public.is_admin())));
+drop policy if exists board_polls_update on public.board_polls;
+create policy board_polls_update on public.board_polls for update to authenticated
+  using (exists (select 1 from public.board_posts p where p.id = post_id and (p.author_user_id = auth.uid() or public.is_admin())));
+drop policy if exists board_polls_delete on public.board_polls;
+create policy board_polls_delete on public.board_polls for delete to authenticated
+  using (exists (select 1 from public.board_posts p where p.id = post_id and (p.author_user_id = auth.uid() or public.is_admin())));
+
+drop policy if exists board_poll_options_select on public.board_poll_options;
+create policy board_poll_options_select on public.board_poll_options for select to authenticated using (true);
+drop policy if exists board_poll_options_insert on public.board_poll_options;
+create policy board_poll_options_insert on public.board_poll_options for insert to authenticated
+  with check (exists (select 1 from public.board_polls bp join public.board_posts p on p.id = bp.post_id where bp.id = poll_id and (p.author_user_id = auth.uid() or public.is_admin())));
+drop policy if exists board_poll_options_update on public.board_poll_options;
+create policy board_poll_options_update on public.board_poll_options for update to authenticated
+  using (exists (select 1 from public.board_polls bp join public.board_posts p on p.id = bp.post_id where bp.id = poll_id and (p.author_user_id = auth.uid() or public.is_admin())));
+drop policy if exists board_poll_options_delete on public.board_poll_options;
+create policy board_poll_options_delete on public.board_poll_options for delete to authenticated
+  using (exists (select 1 from public.board_polls bp join public.board_posts p on p.id = bp.post_id where bp.id = poll_id and (p.author_user_id = auth.uid() or public.is_admin())));
+
+drop policy if exists board_poll_votes_select on public.board_poll_votes;
+create policy board_poll_votes_select on public.board_poll_votes for select to authenticated using (true);
+drop policy if exists board_poll_votes_insert on public.board_poll_votes;
+create policy board_poll_votes_insert on public.board_poll_votes for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists board_poll_votes_delete on public.board_poll_votes;
+create policy board_poll_votes_delete on public.board_poll_votes for delete to authenticated using (user_id = auth.uid());
+
+create or replace function public.cast_board_poll_vote(p_poll_id bigint, p_option_ids bigint[])
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_poll public.board_polls;
+  v_opt_id bigint;
+begin
+  if v_uid is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into v_poll from public.board_polls where id = p_poll_id;
+  if not found then raise exception '투표를 찾을 수 없습니다.'; end if;
+  if v_poll.closed then raise exception '이미 마감된 투표입니다.'; end if;
+  if v_poll.closes_at is not null and v_poll.closes_at <= now() then raise exception '마감 기한이 지난 투표입니다.'; end if;
+  if p_option_ids is null or array_length(p_option_ids, 1) = 0 then
+    delete from public.board_poll_votes where poll_id = p_poll_id and user_id = v_uid;
+    return;
+  end if;
+  if not v_poll.allow_multiple and array_length(p_option_ids, 1) > 1 then
+    raise exception '복수 선택이 허용되지 않은 투표입니다.';
+  end if;
+  if exists (
+    select 1 from unnest(p_option_ids) as opt_id
+    where not exists (select 1 from public.board_poll_options o where o.id = opt_id and o.poll_id = p_poll_id)
+  ) then
+    raise exception '올바르지 않은 투표 항목이 포함되어 있습니다.';
+  end if;
+  delete from public.board_poll_votes where poll_id = p_poll_id and user_id = v_uid;
+  foreach v_opt_id in array p_option_ids loop
+    insert into public.board_poll_votes (poll_id, option_id, user_id) values (p_poll_id, v_opt_id, v_uid);
+  end loop;
+end $$;
+revoke all on function public.cast_board_poll_vote(bigint, bigint[]) from public, anon;
+grant execute on function public.cast_board_poll_vote(bigint, bigint[]) to authenticated;
+
+create or replace function public.close_board_poll(p_poll_id bigint)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_poll public.board_polls;
+  v_post public.board_posts;
+begin
+  if v_uid is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into v_poll from public.board_polls where id = p_poll_id for update;
+  if not found then raise exception '투표를 찾을 수 없습니다.'; end if;
+  select * into v_post from public.board_posts where id = v_poll.post_id;
+  if not found then raise exception '게시글을 찾을 수 없습니다.'; end if;
+  if v_post.author_user_id <> v_uid and not public.is_admin() then
+    raise exception '작성자 또는 관리자만 투표를 마감할 수 있습니다.';
+  end if;
+  update public.board_polls set closed = true where id = p_poll_id;
+end $$;
+revoke all on function public.close_board_poll(bigint) from public, anon;
+grant execute on function public.close_board_poll(bigint) to authenticated;
+
+commit;
+
+-- ===== 채팅 도구 서버 처리 (migrations/2609242100_chat_tools_server.sql 과 동일) =====
+-- 채팅 도구(제비뽑기·사다리타기·룰렛)의 결과를 서버가 정한다.
+--  * 제비뽑기 정답은 chat_tool_secrets(일반 조회 불가)에만 두고, 카드를 열 때 서버가 결과를 알려준다.
+--  * 사다리 가로선/매칭, 룰렛 당첨은 서버 random()으로 정한다.
+--  * 결과는 chat_tool_events에만 기록되고(RPC로만 쓰기), 화면은 이 테이블을 읽는다 — 채팅 로그에 위조 메시지를
+--    넣어도 결과가 바뀌지 않는다. 투표는 정답이 없어 기존 방식(실제 발신자 기준)을 유지한다.
+-- 도구 메시지 본문은 '[TALJU_CHAT_TOOL]:{"type":..,"server":true,"data":{공개 정보}}' 형식이며,
+-- 클라이언트가 메시지를 올린 뒤 chat_tool_init()으로 정답을 만든다.
+
+create table if not exists public.chat_tool_secrets (
+  message_id bigint primary key references public.chat_messages(id) on delete cascade,
+  project_id text not null,
+  secret jsonb not null
+);
+alter table public.chat_tool_secrets enable row level security;
+revoke all on table public.chat_tool_secrets from anon, authenticated;
+
+create table if not exists public.chat_tool_events (
+  id bigint generated always as identity primary key,
+  message_id bigint not null references public.chat_messages(id) on delete cascade,
+  project_id text not null,
+  kind text not null check (kind in ('draw', 'ladder', 'roulette')),
+  event text not null check (event in ('init', 'draw_pick', 'draw_reveal_all', 'ladder_reveal', 'roulette_spin')),
+  actor_member_id uuid references public.members(id) on delete set null,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists chat_tool_events_project_idx on public.chat_tool_events (project_id, id);
+create unique index if not exists chat_tool_events_once
+  on public.chat_tool_events (message_id, event) where event in ('init', 'draw_reveal_all', 'ladder_reveal', 'roulette_spin');
+create unique index if not exists chat_tool_events_pick_once
+  on public.chat_tool_events (message_id, (data->>'itemId')) where event = 'draw_pick';
+
+alter table public.chat_tool_events enable row level security;
+revoke all on table public.chat_tool_events from anon, authenticated;
+grant select on table public.chat_tool_events to authenticated;
+drop policy if exists chat_tool_events_select on public.chat_tool_events;
+create policy chat_tool_events_select on public.chat_tool_events for select to authenticated
+  using (exists (
+    select 1 from public.chat_messages c
+    where c.id = message_id and c.project_id = chat_tool_events.project_id and public.can_access_chat_channel(c.project_id, c.channel_id)
+  ));
+
+-- 호출자 검증: 메시지가 있고, 그 채널에 접근할 수 있는 프로젝트 참여자이며, 프로젝트가 진행 중일 것.
+create or replace function public.chat_tool_load(p_message_id bigint)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare msg public.chat_messages%rowtype; actor public.members%rowtype; body jsonb; prefix constant text := '[TALJU_CHAT_TOOL]:';
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into msg from public.chat_messages where id = p_message_id;
+  if not found or not public.can_access_chat_channel(msg.project_id, msg.channel_id) then
+    raise exception '도구 메시지를 찾을 수 없습니다.';
+  end if;
+  select * into actor from public.members where project_id = msg.project_id and user_id = auth.uid();
+  if not found then raise exception '프로젝트 참여자만 사용할 수 있습니다.'; end if;
+  perform 1 from public.projects where id = msg.project_id and status = 'active';
+  if not found then raise exception '진행 중인 프로젝트에서만 사용할 수 있습니다.'; end if;
+  if left(msg.text, length(prefix)) <> prefix then raise exception '도구 메시지가 아닙니다.'; end if;
+  begin
+    body := substr(msg.text, length(prefix) + 1)::jsonb;
+  exception when others then
+    raise exception '도구 메시지를 읽을 수 없습니다.';
+  end;
+  if coalesce(body->>'server', '') <> 'true' or (body->>'type') not in ('draw', 'ladder', 'roulette') then
+    raise exception '서버 처리 도구가 아닙니다.';
+  end if;
+  return jsonb_build_object('projectId', msg.project_id, 'senderId', msg.sender_id, 'actorId', actor.id, 'payload', body);
+end $$;
+revoke all on function public.chat_tool_load(bigint) from public, anon, authenticated;
+
+create or replace function public.chat_tool_event_json(e public.chat_tool_events)
+returns jsonb language sql immutable as $$
+  select jsonb_build_object('id', e.id, 'messageId', e.message_id, 'kind', e.kind, 'event', e.event,
+    'actorMemberId', e.actor_member_id, 'data', e.data, 'createdAt', e.created_at)
+$$;
+revoke all on function public.chat_tool_event_json(public.chat_tool_events) from public, anon, authenticated;
+
+-- 사다리: 선(step, fromCol)을 따라 각 참가자가 도착하는 결과를 계산한다.
+create or replace function public.chat_ladder_matches(p_ls int[], p_lc int[], p_steps int, p_participants jsonb, p_results jsonb)
+returns jsonb language plpgsql immutable set search_path = public as $$
+declare n int := jsonb_array_length(p_participants); i int; s int; j int; cur int; moved boolean; matches jsonb := '[]'::jsonb;
+begin
+  for i in 0 .. n - 1 loop
+    cur := i;
+    for s in 0 .. p_steps - 1 loop
+      moved := false;
+      for j in 1 .. coalesce(array_length(p_ls, 1), 0) loop
+        if p_ls[j] = s and p_lc[j] = cur then cur := cur + 1; moved := true; exit; end if;
+      end loop;
+      if not moved then
+        for j in 1 .. coalesce(array_length(p_ls, 1), 0) loop
+          if p_ls[j] = s and p_lc[j] = cur - 1 then cur := cur - 1; exit; end if;
+        end loop;
+      end if;
+    end loop;
+    matches := matches || jsonb_build_object(
+      'participantId', p_participants->i->>'id',
+      'participantName', p_participants->i->>'name',
+      'resultText', coalesce(p_results->>cur, '결과 ' || (cur + 1)),
+      'endCol', cur);
+  end loop;
+  return matches;
+end $$;
+
+create or replace function public.chat_ladder_generate(p_participants jsonb, p_results jsonb)
+returns jsonb language plpgsql volatile set search_path = public as $$
+declare
+  n int := jsonb_array_length(p_participants);
+  total_steps int;
+  attempt int; s int; c int; i int; j int;
+  ls int[]; lc int[]; colcount int[];
+  has_left boolean; had_prev boolean; ok boolean; straight int; prob double precision;
+  matches jsonb; best_ls int[] := '{}'; best_lc int[] := '{}'; best_matches jsonb := null;
+begin
+  if n < 2 or n > 20 then raise exception '사다리 참가자는 2~20명이어야 합니다.'; end if;
+  total_steps := greatest(n * 2 + 2, 8);
+  for attempt in 1 .. 100 loop
+    ls := '{}'; lc := '{}'; colcount := array_fill(0, array[n - 1]);
+    for s in 0 .. total_steps - 1 loop
+      for c in 0 .. n - 2 loop
+        has_left := false; had_prev := false;
+        for j in 1 .. coalesce(array_length(ls, 1), 0) loop
+          if ls[j] = s and lc[j] = c - 1 then has_left := true; end if;
+          if ls[j] = s - 1 and lc[j] = c then had_prev := true; end if;
+        end loop;
+        continue when has_left or had_prev;
+        prob := 0.4;
+        if colcount[c + 1] < 2 then prob := 0.75; end if;
+        if random() < prob then
+          ls := ls || s; lc := lc || c; colcount[c + 1] := colcount[c + 1] + 1;
+        end if;
+      end loop;
+    end loop;
+    if n = 2 then
+      ok := coalesce(array_length(ls, 1), 0) % 2 = 1;
+    else
+      ok := true;
+      for i in 1 .. n - 1 loop if colcount[i] < 1 then ok := false; end if; end loop;
+    end if;
+    continue when not ok;
+    matches := public.chat_ladder_matches(ls, lc, total_steps, p_participants, p_results);
+    straight := 0;
+    for i in 0 .. n - 1 loop if (matches->i->>'endCol')::int = i then straight := straight + 1; end if; end loop;
+    best_ls := ls; best_lc := lc; best_matches := matches;
+    exit when straight < n; -- 모두가 제자리로 떨어지는 사다리는 다시 뽑는다
+  end loop;
+  if best_matches is null then -- 안전한 기본값
+    best_ls := '{}'; best_lc := '{}';
+    for c in 0 .. n - 2 loop best_ls := best_ls || (c * 2); best_lc := best_lc || c; end loop;
+    best_matches := public.chat_ladder_matches(best_ls, best_lc, total_steps, p_participants, p_results);
+  end if;
+  return jsonb_build_object(
+    'numSteps', total_steps,
+    'lines', (select coalesce(jsonb_agg(jsonb_build_object('step', a, 'fromCol', b)), '[]'::jsonb) from unnest(best_ls, best_lc) as t(a, b)),
+    'matches', (select jsonb_agg(m - 'endCol') from jsonb_array_elements(best_matches) m));
+end $$;
+revoke all on function public.chat_ladder_matches(int[], int[], int, jsonb, jsonb) from public, anon, authenticated;
+revoke all on function public.chat_ladder_generate(jsonb, jsonb) from public, anon, authenticated;
+
+-- 도구 준비: 만든 사람이 메시지를 올린 직후 한 번 호출한다. 정답/사다리 선을 서버가 만든다.
+create or replace function public.chat_tool_init(p_message_id bigint, p_config jsonb default '{}'::jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare ctx jsonb := public.chat_tool_load(p_message_id); payload jsonb; kind text; ev public.chat_tool_events%rowtype;
+  items jsonb; n int; shuffled jsonb; gen jsonb; opts jsonb;
+begin
+  if (ctx->>'senderId') <> (ctx->>'actorId') then raise exception '도구를 만든 사람만 준비할 수 있습니다.'; end if;
+  payload := ctx->'payload'; kind := payload->>'type';
+  if exists (select 1 from public.chat_tool_events where message_id = p_message_id and event = 'init') then
+    raise exception '이미 준비된 도구입니다.';
+  end if;
+
+  if kind = 'draw' then
+    items := p_config->'items';
+    if jsonb_typeof(items) <> 'array' or jsonb_array_length(items) not between 2 and 50 then
+      raise exception '제비는 2~50개여야 합니다.';
+    end if;
+    select jsonb_agg(jsonb_build_object('id', rn, 'label', label, 'isWinner', win) order by rn) into shuffled
+    from (
+      select row_number() over (order by random()) as rn, left(coalesce(v->>'label', ''), 40) as label,
+             coalesce((v->>'isWinner')::boolean, false) as win
+      from jsonb_array_elements(items) v
+    ) t;
+    n := jsonb_array_length(shuffled);
+    insert into public.chat_tool_secrets (message_id, project_id, secret)
+    values (p_message_id, ctx->>'projectId', jsonb_build_object('items', shuffled));
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'draw', 'init', (ctx->>'actorId')::uuid,
+      jsonb_build_object('total', n, 'winnerCount', (select count(*) from jsonb_array_elements(shuffled) e where (e->>'isWinner')::boolean)))
+    returning * into ev;
+  elsif kind = 'ladder' then
+    gen := public.chat_ladder_generate(payload->'data'->'participants', coalesce(payload->'data'->'results', '[]'::jsonb));
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'ladder', 'init', (ctx->>'actorId')::uuid, gen) returning * into ev;
+  else
+    opts := payload->'data'->'options';
+    if jsonb_typeof(opts) <> 'array' or jsonb_array_length(opts) not between 2 and 20 then
+      raise exception '룰렛 항목은 2~20개여야 합니다.';
+    end if;
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'roulette', 'init', (ctx->>'actorId')::uuid, '{}'::jsonb) returning * into ev;
+  end if;
+  return public.chat_tool_event_json(ev);
+end $$;
+
+-- 도구 행동: 결과는 서버가 정해 chat_tool_events에 기록하고 그 이벤트를 돌려준다.
+create or replace function public.chat_tool_act(p_message_id bigint, p_action text, p_args jsonb default '{}'::jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare ctx jsonb := public.chat_tool_load(p_message_id); payload jsonb; kind text; actor uuid := (ctx->>'actorId')::uuid;
+  ev public.chat_tool_events%rowtype; sec jsonb; item jsonb; item_id int; opts jsonb; winner jsonb;
+begin
+  payload := ctx->'payload'; kind := payload->>'type';
+  perform pg_advisory_xact_lock(p_message_id);
+  if not exists (select 1 from public.chat_tool_events where message_id = p_message_id and event = 'init') then
+    raise exception '아직 준비되지 않은 도구입니다.';
+  end if;
+
+  if p_action = 'draw_pick' and kind = 'draw' then
+    item_id := (p_args->>'itemId')::int;
+    select secret into sec from public.chat_tool_secrets where message_id = p_message_id;
+    select e into item from jsonb_array_elements(sec->'items') e where (e->>'id')::int = item_id;
+    if item is null then raise exception '없는 제비입니다.'; end if;
+    if exists (select 1 from public.chat_tool_events where message_id = p_message_id and event = 'draw_reveal_all') then
+      raise exception '이미 전체 공개된 제비뽑기입니다.';
+    end if;
+    begin
+      insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+      values (p_message_id, ctx->>'projectId', 'draw', 'draw_pick', actor,
+        jsonb_build_object('itemId', item_id, 'label', item->>'label', 'isWinner', (item->>'isWinner')::boolean))
+      returning * into ev;
+    exception when unique_violation then
+      raise exception '이미 열린 제비입니다.';
+    end;
+  elsif p_action = 'draw_reveal_all' and kind = 'draw' then
+    if (ctx->>'senderId') <> (ctx->>'actorId') then raise exception '만든 사람만 전체 공개할 수 있습니다.'; end if;
+    select secret into sec from public.chat_tool_secrets where message_id = p_message_id;
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'draw', 'draw_reveal_all', actor, jsonb_build_object('items', sec->'items'))
+    on conflict (message_id, event) where event in ('init', 'draw_reveal_all', 'ladder_reveal', 'roulette_spin') do nothing
+    returning * into ev;
+  elsif p_action = 'ladder_reveal' and kind = 'ladder' then
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'ladder', 'ladder_reveal', actor, '{}'::jsonb)
+    on conflict (message_id, event) where event in ('init', 'draw_reveal_all', 'ladder_reveal', 'roulette_spin') do nothing
+    returning * into ev;
+  elsif p_action = 'roulette_spin' and kind = 'roulette' then
+    opts := payload->'data'->'options';
+    winner := opts->(floor(random() * jsonb_array_length(opts))::int);
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'roulette', 'roulette_spin', actor, jsonb_build_object('winnerOptionId', winner->>'id'))
+    on conflict (message_id, event) where event in ('init', 'draw_reveal_all', 'ladder_reveal', 'roulette_spin') do nothing
+    returning * into ev;
+  else
+    raise exception '지원하지 않는 동작입니다.';
+  end if;
+
+  if ev.id is null then -- 이미 처리된 동작(멱등): 기존 이벤트를 돌려준다
+    select * into ev from public.chat_tool_events
+    where message_id = p_message_id and event = p_action order by id limit 1;
+  end if;
+  return public.chat_tool_event_json(ev);
+end $$;
+
+revoke all on function public.chat_tool_init(bigint, jsonb) from public, anon;
+revoke all on function public.chat_tool_act(bigint, text, jsonb) from public, anon;
+grant execute on function public.chat_tool_init(bigint, jsonb) to authenticated;
+grant execute on function public.chat_tool_act(bigint, text, jsonb) to authenticated;
+
+-- Realtime: 결과 이벤트를 프로젝트 참여자에게 실시간 전달.
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_tool_events') then
+    alter publication supabase_realtime add table public.chat_tool_events;
+  end if;
+end $$;
+
+create or replace function public.can_access_project_realtime_topic(p_topic text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select
+    exists (
+      select 1
+      from public.members m
+      where (
+          p_topic ~ '^(presence|collab_presence|chat_messages|chat_tool_events|message_reads|task_comment_reactions|tasks|schedule_events|files):[^:]+$'
+          or p_topic ~ '^collab_doc:[^:]+:[0-9]+:[0-9]+:(main|pin)$'
+        )
+        and m.project_id = split_part(p_topic, ':', 2)
+        and m.user_id = auth.uid()
+    );
+$$;
+revoke all on function public.can_access_project_realtime_topic(text) from public;
+grant execute on function public.can_access_project_realtime_topic(text) to authenticated;
+
+-- ===== 게시판 투표 보안 보완 (migrations/2609242200_board_poll_hardening.sql 과 동일) =====
+-- 게시판 투표 보안 보완 (2609242150_board_poll.sql 이후에 실행)
+--  * 투표 기록(board_poll_votes)은 본인 것만 직접 조회할 수 있다. 익명 투표는 누가 골랐는지 서버가 아예 내려주지 않는다.
+--  * 투표·마감·투표 생성은 RPC로만 한다(테이블 직접 쓰기 차단) — 마감/단일선택/항목 검증을 우회할 수 없다.
+--  * 결과 조회는 board_poll_votes_view()로만 한다.
+
+-- 1) 직접 쓰기 차단
+revoke insert, update, delete on table public.board_poll_votes from anon, authenticated;
+revoke insert, update on table public.board_polls from anon, authenticated;
+revoke insert, update, delete on table public.board_poll_options from anon, authenticated;
+drop policy if exists board_poll_votes_insert on public.board_poll_votes;
+drop policy if exists board_poll_votes_delete on public.board_poll_votes;
+drop policy if exists board_polls_insert on public.board_polls;
+drop policy if exists board_polls_update on public.board_polls;
+drop policy if exists board_poll_options_insert on public.board_poll_options;
+drop policy if exists board_poll_options_update on public.board_poll_options;
+drop policy if exists board_poll_options_delete on public.board_poll_options;
+
+-- 2) 투표 기록은 본인 것만 직접 조회
+drop policy if exists board_poll_votes_select on public.board_poll_votes;
+create policy board_poll_votes_select on public.board_poll_votes for select to authenticated
+  using (user_id = auth.uid());
+
+-- 3) 결과 조회: 기명 투표만 투표자(user_id)를 내려주고, 익명 투표는 본인 표만 user_id를 준다.
+--    voter_ref는 투표 안에서 같은 사람을 구분하는 번호일 뿐 신원이 아니다(총 참여 인원 계산용).
+create or replace function public.board_poll_votes_view(p_poll_ids bigint[])
+returns table (poll_id bigint, option_id bigint, user_id uuid, voter_ref integer)
+language sql stable security definer set search_path = public as $$
+  select v.poll_id, v.option_id,
+         case when not p.is_anonymous or v.user_id = auth.uid() then v.user_id else null end,
+         (dense_rank() over (partition by v.poll_id order by md5(v.user_id::text || v.poll_id::text)))::integer
+  from public.board_poll_votes v
+  join public.board_polls p on p.id = v.poll_id
+  where auth.uid() is not null and v.poll_id = any(p_poll_ids)
+$$;
+revoke all on function public.board_poll_votes_view(bigint[]) from public, anon;
+grant execute on function public.board_poll_votes_view(bigint[]) to authenticated;
+
+-- 4) 투표 생성: 게시글 작성자(또는 관리자)만, 항목 2~10개, 마감은 미래 시각. 투표+항목을 한 번에.
+create or replace function public.create_board_poll(
+  p_post_id bigint, p_question text, p_options text[],
+  p_allow_multiple boolean default false, p_is_anonymous boolean default false, p_closes_at timestamptz default null
+) returns bigint language plpgsql security definer set search_path = public as $$
+declare v_uid uuid := auth.uid(); v_post public.board_posts; v_poll_id bigint; v_opts text[]; i int;
+begin
+  if v_uid is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into v_post from public.board_posts where id = p_post_id;
+  if not found then raise exception '게시글을 찾을 수 없습니다.'; end if;
+  if v_post.author_user_id <> v_uid and not public.is_admin() then
+    raise exception '게시글 작성자만 투표를 만들 수 있습니다.';
+  end if;
+  if exists (select 1 from public.board_polls where post_id = p_post_id) then
+    raise exception '이미 투표가 있는 게시글입니다.';
+  end if;
+  select coalesce(array_agg(trim(o)) filter (where trim(o) <> ''), '{}') into v_opts from unnest(coalesce(p_options, '{}')) o;
+  if coalesce(array_length(v_opts, 1), 0) not between 2 and 10 then raise exception '투표 항목은 2~10개여야 합니다.'; end if;
+  if p_closes_at is not null and p_closes_at <= now() then raise exception '마감일은 현재 시간 이후여야 합니다.'; end if;
+  insert into public.board_polls (post_id, question, allow_multiple, is_anonymous, closes_at)
+  values (p_post_id, trim(p_question), coalesce(p_allow_multiple, false), coalesce(p_is_anonymous, false), p_closes_at)
+  returning id into v_poll_id;
+  for i in 1 .. array_length(v_opts, 1) loop
+    insert into public.board_poll_options (poll_id, text, sort_order) values (v_poll_id, v_opts[i], i - 1);
+  end loop;
+  return v_poll_id;
+end $$;
+revoke all on function public.create_board_poll(bigint, text, text[], boolean, boolean, timestamptz) from public, anon;
+grant execute on function public.create_board_poll(bigint, text, text[], boolean, boolean, timestamptz) to authenticated;
+
+-- 5) 투표: 같은 옵션 중복 선택 제거, 동시 투표는 투표 행 잠금으로 직렬화
+create or replace function public.cast_board_poll_vote(p_poll_id bigint, p_option_ids bigint[])
+returns void language plpgsql security definer set search_path = public as $$
+declare v_uid uuid := auth.uid(); v_poll public.board_polls; v_opt_id bigint; v_ids bigint[];
+begin
+  if v_uid is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into v_poll from public.board_polls where id = p_poll_id for share;
+  if not found then raise exception '투표를 찾을 수 없습니다.'; end if;
+  if v_poll.closed then raise exception '이미 마감된 투표입니다.'; end if;
+  if v_poll.closes_at is not null and v_poll.closes_at <= now() then raise exception '마감 기한이 지난 투표입니다.'; end if;
+  select coalesce(array_agg(distinct o), '{}') into v_ids from unnest(coalesce(p_option_ids, '{}')) o;
+  if coalesce(array_length(v_ids, 1), 0) = 0 then
+    delete from public.board_poll_votes where poll_id = p_poll_id and user_id = v_uid;
+    return;
+  end if;
+  if not v_poll.allow_multiple and array_length(v_ids, 1) > 1 then raise exception '복수 선택이 허용되지 않은 투표입니다.'; end if;
+  if exists (select 1 from unnest(v_ids) o where not exists (select 1 from public.board_poll_options b where b.id = o and b.poll_id = p_poll_id)) then
+    raise exception '올바르지 않은 투표 항목이 포함되어 있습니다.';
+  end if;
+  delete from public.board_poll_votes where poll_id = p_poll_id and user_id = v_uid;
+  foreach v_opt_id in array v_ids loop
+    insert into public.board_poll_votes (poll_id, option_id, user_id) values (p_poll_id, v_opt_id, v_uid);
+  end loop;
+end $$;
+
+-- ===== 게시글 신고 (migrations/2609242300_board_post_reports.sql 과 동일) =====
+-- 게시글 신고: 로그인한 사용자가 남의 게시글을 신고하고, 관리자가 검토(처리 완료/기각)한다.
+--  * 신고는 게시글당 1인 1회, 본인 글은 신고할 수 없고, 하루 20건까지.
+--  * 신고 내용은 신고자 본인과 관리자만 볼 수 있다. 쓰기는 RPC로만 한다.
+
+create table if not exists public.board_post_reports (
+  id bigint generated always as identity primary key,
+  -- 게시글이 삭제돼도 신고 기록은 남긴다(post_id만 비고, 제목·내용 앞부분은 신고 시점 스냅샷).
+  post_id bigint references public.board_posts(id) on delete set null,
+  post_title text not null default '',
+  post_excerpt text not null default '',
+  post_author_user_id uuid references auth.users(id) on delete set null,
+  reporter_user_id uuid not null references auth.users(id) on delete cascade,
+  reason text not null check (reason in ('spam', 'abuse', 'sexual', 'privacy', 'other')),
+  detail text not null default '' check (length(detail) <= 500),
+  status text not null default 'open' check (status in ('open', 'resolved', 'dismissed')),
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (post_id, reporter_user_id)
+);
+create index if not exists board_post_reports_post_idx on public.board_post_reports (post_id, created_at);
+create index if not exists board_post_reports_open_idx on public.board_post_reports (status, created_at);
+
+alter table public.board_post_reports enable row level security;
+revoke all on table public.board_post_reports from anon, authenticated;
+grant select on table public.board_post_reports to authenticated;
+drop policy if exists board_post_reports_select on public.board_post_reports;
+create policy board_post_reports_select on public.board_post_reports for select to authenticated
+  using (reporter_user_id = auth.uid() or public.is_admin());
+
+create or replace function public.report_board_post(p_post_id bigint, p_reason text, p_detail text default '')
+returns bigint language plpgsql security definer set search_path = public as $$
+declare v_uid uuid := auth.uid(); v_post public.board_posts; v_id bigint;
+begin
+  if v_uid is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into v_post from public.board_posts where id = p_post_id;
+  if not found then raise exception '게시글을 찾을 수 없습니다.'; end if;
+  if v_post.author_user_id = v_uid then raise exception '본인 게시글은 신고할 수 없습니다.'; end if;
+  if p_reason is null or p_reason not in ('spam', 'abuse', 'sexual', 'privacy', 'other') then
+    raise exception '신고 사유를 선택해 주세요.';
+  end if;
+  if length(coalesce(p_detail, '')) > 500 then raise exception '상세 내용은 500자 이하로 입력해 주세요.'; end if;
+  if (select count(*) from public.board_post_reports where reporter_user_id = v_uid and created_at > now() - interval '1 day') >= 20 then
+    raise exception '하루에 신고할 수 있는 횟수를 넘었습니다.';
+  end if;
+  begin
+    insert into public.board_post_reports (post_id, post_title, post_excerpt, post_author_user_id, reporter_user_id, reason, detail)
+    values (p_post_id, left(v_post.title, 200), left(v_post.content, 300), v_post.author_user_id, v_uid, p_reason, trim(coalesce(p_detail, ''))) returning id into v_id;
+  exception when unique_violation then
+    raise exception '이미 신고한 게시글입니다.';
+  end;
+  return v_id;
+end $$;
+revoke all on function public.report_board_post(bigint, text, text) from public, anon;
+grant execute on function public.report_board_post(bigint, text, text) to authenticated;
+
+create or replace function public.review_board_report(p_report_id bigint, p_status text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_admin() then raise exception '관리자만 신고를 처리할 수 있습니다.'; end if;
+  if p_status not in ('resolved', 'dismissed') then raise exception '올바르지 않은 처리 상태입니다.'; end if;
+  update public.board_post_reports set status = p_status, reviewed_by = auth.uid(), reviewed_at = now() where id = p_report_id;
+  if not found then raise exception '신고를 찾을 수 없습니다.'; end if;
+end $$;
+revoke all on function public.review_board_report(bigint, text) from public, anon;
+grant execute on function public.review_board_report(bigint, text) to authenticated;
+
+-- ===== 신고 조회·처리 운영자 전용 (migrations/2609242330_board_reports_operator_only.sql 과 동일) =====
+-- 게시글 신고 조회·처리를 운영자(is_operator)만 할 수 있게 한다(일반 관리자 제외).
+-- 신고자 본인은 계속 자기 신고를 볼 수 있다.
+
+drop policy if exists board_post_reports_select on public.board_post_reports;
+create policy board_post_reports_select on public.board_post_reports for select to authenticated
+  using (reporter_user_id = auth.uid() or public.is_operator());
+
+create or replace function public.review_board_report(p_report_id bigint, p_status text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 신고를 처리할 수 있습니다.'; end if;
+  if p_status not in ('resolved', 'dismissed') then raise exception '올바르지 않은 처리 상태입니다.'; end if;
+  update public.board_post_reports set status = p_status, reviewed_by = auth.uid(), reviewed_at = now() where id = p_report_id;
+  if not found then raise exception '신고를 찾을 수 없습니다.'; end if;
+end $$;
+revoke all on function public.review_board_report(bigint, text) from public, anon;
+grant execute on function public.review_board_report(bigint, text) to authenticated;
+
+-- ===== 프로필 링크·게시글 첨부 주소 검증 (migrations/2609250000_validate_link_urls.sql 과 동일) =====
+-- 사용자가 저장하는 주소를 서버에서 검증한다(화면 검증은 API 직접 호출로 우회할 수 있다).
+--  * 프로필 링크(profiles.links): 배열이고 각 url은 http(s) 주소
+--  * 게시글 첨부(board_posts.attachments): 배열이고 각 url은 우리 Storage의 board-attachments 공개 주소
+-- 이미 저장된 행은 검사하지 않고(not valid) 새로 쓰거나 고치는 행부터 적용한다.
+-- 기존 위반 행 확인: select id from profiles where not public.jsonb_urls_ok(links, false);
+--
+-- 두 테이블을 한 트랜잭션에서 잠그면, 앱이 두 테이블을 반대 순서로 읽는 순간과 겹쳐 교착 상태(40P01 deadlock)가
+-- 난다. 그래서 테이블마다 별도 트랜잭션(begin/commit)으로 나눴다(SQL 에디터는 여러 문장을 한 트랜잭션으로
+-- 실행하므로 명시적으로 나눠야 한다). 잠금은 5초까지만 기다리고, 시간 초과가 나면 잠시 뒤 그대로 다시 실행하면 된다.
+-- 전체를 다시 실행해도 안전하다.
+
+create or replace function public.jsonb_urls_ok(p_items jsonb, p_board_attachment boolean)
+returns boolean language sql immutable set search_path = public as $$
+  select jsonb_typeof(p_items) = 'array'
+     and jsonb_array_length(p_items) <= 30
+     and not exists (
+       select 1 from jsonb_array_elements(p_items) e
+       where jsonb_typeof(e) <> 'object'
+          or jsonb_typeof(e->'url') <> 'string'
+          or length(e->>'url') > 2048
+          or (e->>'url') ~ '[\s"<>]'
+          or case when p_board_attachment
+               then (e->>'url') !~ '^https://[a-z0-9.-]+/storage/v1/object/public/board-attachments/'
+               else (e->>'url') !~* '^https?://[^/]'
+             end
+     )
+$$;
+
+begin;
+set local lock_timeout = '5s';
+alter table public.profiles
+  drop constraint if exists profiles_links_urls_ok,
+  add constraint profiles_links_urls_ok check (public.jsonb_urls_ok(links, false)) not valid;
+commit;
+
+begin;
+set local lock_timeout = '5s';
+alter table public.board_posts
+  drop constraint if exists board_posts_attachment_urls_ok,
+  add constraint board_posts_attachment_urls_ok check (public.jsonb_urls_ok(attachments, true)) not valid;
+commit;
+
+-- ===== 투표 잠금·첨부 도메인 고정 (migrations/2609250100_poll_lock_and_attachment_host.sql 과 동일, storage_host 값은 프로젝트마다 직접 넣는다) =====
+-- 코드 리뷰 지적 사항 수정
+--  1) 게시판 투표: 투표 행을 for share로 잠가서 같은 사용자의 동시 요청(더블클릭·탭 두 개)이 서로를 막지 못해
+--     단일 선택 투표에 두 표가 들어갈 수 있었다. for update로 잠가 같은 투표에 대한 요청을 한 줄로 세운다.
+--  2) 첨부 주소 검증: 경로 모양만 보고 도메인을 보지 않아 다른 서버 주소도 통과했다.
+--     우리 Supabase 도메인을 app_text_settings.storage_host에 두고 정확히 그 도메인만 허용한다.
+--     (값이 없으면 *.supabase.co 형식만 확인 — 새 프로젝트는 아래 insert의 도메인을 자기 것으로 바꿔 실행)
+
+-- 1) 투표 직렬화
+create or replace function public.cast_board_poll_vote(p_poll_id bigint, p_option_ids bigint[])
+returns void language plpgsql security definer set search_path = public as $$
+declare v_uid uuid := auth.uid(); v_poll public.board_polls; v_opt_id bigint; v_ids bigint[];
+begin
+  if v_uid is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into v_poll from public.board_polls where id = p_poll_id for update;
+  if not found then raise exception '투표를 찾을 수 없습니다.'; end if;
+  if v_poll.closed then raise exception '이미 마감된 투표입니다.'; end if;
+  if v_poll.closes_at is not null and v_poll.closes_at <= now() then raise exception '마감 기한이 지난 투표입니다.'; end if;
+  select coalesce(array_agg(distinct o), '{}') into v_ids from unnest(coalesce(p_option_ids, '{}')) o;
+  if coalesce(array_length(v_ids, 1), 0) = 0 then
+    delete from public.board_poll_votes where poll_id = p_poll_id and user_id = v_uid;
+    return;
+  end if;
+  if not v_poll.allow_multiple and array_length(v_ids, 1) > 1 then raise exception '복수 선택이 허용되지 않은 투표입니다.'; end if;
+  if exists (select 1 from unnest(v_ids) o where not exists (select 1 from public.board_poll_options b where b.id = o and b.poll_id = p_poll_id)) then
+    raise exception '올바르지 않은 투표 항목이 포함되어 있습니다.';
+  end if;
+  delete from public.board_poll_votes where poll_id = p_poll_id and user_id = v_uid;
+  foreach v_opt_id in array v_ids loop
+    insert into public.board_poll_votes (poll_id, option_id, user_id) values (p_poll_id, v_opt_id, v_uid);
+  end loop;
+end $$;
+
+-- 2) 문자열 설정 저장소(읽기는 로그인 사용자, 쓰기는 SQL 에디터에서만)
+create table if not exists public.app_text_settings (
+  key text primary key,
+  value text not null
+);
+alter table public.app_text_settings enable row level security;
+revoke all on table public.app_text_settings from anon, authenticated;
+grant select on table public.app_text_settings to authenticated;
+drop policy if exists app_text_settings_select on public.app_text_settings;
+create policy app_text_settings_select on public.app_text_settings for select to authenticated using (true);
+
+create or replace function public.jsonb_urls_ok(p_items jsonb, p_board_attachment boolean)
+returns boolean language sql stable security definer set search_path = public as $$
+  select jsonb_typeof(p_items) = 'array'
+     and jsonb_array_length(p_items) <= 30
+     and not exists (
+       select 1 from jsonb_array_elements(p_items) e
+       where jsonb_typeof(e) <> 'object'
+          or jsonb_typeof(e->'url') is distinct from 'string'
+          or length(e->>'url') > 2048
+          or (e->>'url') ~ '[\s"<>]'
+          or case when p_board_attachment
+               then (e->>'url') not like 'https://' || coalesce(
+                      (select value from public.app_text_settings where key = 'storage_host'),
+                      substring(e->>'url' from '^https://([a-z0-9]{20}\.supabase\.co)/'),
+                      ''  -- 도메인을 못 찾으면 어떤 주소와도 맞지 않게 해 거절한다(NULL이면 검사가 통과돼 버림)
+                    ) || '/storage/v1/object/public/board-attachments/%'
+                    or (e->>'url') ~ '\.\./'
+               else (e->>'url') !~* '^https?://[^/]'
+             end
+     )
+$$;
+-- 새 프로젝트: insert into public.app_text_settings (key, value) values ('storage_host', '<프로젝트 ref>.supabase.co');
+
+-- ===== 채팅 도구 생성 원자화·입력 검증 (migrations/2609250200_chat_tool_create_atomic.sql 과 동일) =====
+-- 코드 리뷰 지적 사항 수정(채팅 도구)
+--  * 도구 메시지를 올린 뒤 준비(chat_tool_init)를 따로 부르다 보니, 준비가 실패하면 메시지만 남고 카드가 영구히
+--    동작하지 않았다. chat_tool_create()가 메시지 등록과 준비를 한 트랜잭션에서 처리한다(실패하면 메시지도 남지 않음).
+--    security invoker라 메시지 등록은 기존 chat_messages RLS(채널 접근, 본인 멤버)를 그대로 거친다.
+--  * 항목 목록이 없거나 배열이 아니면 검사가 NULL이 되어 통과하던 문제(제비·룰렛·사다리)를 거절로 바꾼다.
+
+create or replace function public.chat_ladder_generate(p_participants jsonb, p_results jsonb)
+returns jsonb language plpgsql volatile set search_path = public as $$
+declare
+  n int := case when jsonb_typeof(p_participants) = 'array' then jsonb_array_length(p_participants) else 0 end;
+  total_steps int;
+  attempt int; s int; c int; i int; j int;
+  ls int[]; lc int[]; colcount int[];
+  has_left boolean; had_prev boolean; ok boolean; straight int; prob double precision;
+  matches jsonb; best_ls int[] := '{}'; best_lc int[] := '{}'; best_matches jsonb := null;
+begin
+  if n < 2 or n > 20 then raise exception '사다리 참가자는 2~20명이어야 합니다.'; end if;
+  total_steps := greatest(n * 2 + 2, 8);
+  for attempt in 1 .. 100 loop
+    ls := '{}'; lc := '{}'; colcount := array_fill(0, array[n - 1]);
+    for s in 0 .. total_steps - 1 loop
+      for c in 0 .. n - 2 loop
+        has_left := false; had_prev := false;
+        for j in 1 .. coalesce(array_length(ls, 1), 0) loop
+          if ls[j] = s and lc[j] = c - 1 then has_left := true; end if;
+          if ls[j] = s - 1 and lc[j] = c then had_prev := true; end if;
+        end loop;
+        continue when has_left or had_prev;
+        prob := 0.4;
+        if colcount[c + 1] < 2 then prob := 0.75; end if;
+        if random() < prob then
+          ls := ls || s; lc := lc || c; colcount[c + 1] := colcount[c + 1] + 1;
+        end if;
+      end loop;
+    end loop;
+    if n = 2 then
+      ok := coalesce(array_length(ls, 1), 0) % 2 = 1;
+    else
+      ok := true;
+      for i in 1 .. n - 1 loop if colcount[i] < 1 then ok := false; end if; end loop;
+    end if;
+    continue when not ok;
+    matches := public.chat_ladder_matches(ls, lc, total_steps, p_participants, p_results);
+    straight := 0;
+    for i in 0 .. n - 1 loop if (matches->i->>'endCol')::int = i then straight := straight + 1; end if; end loop;
+    best_ls := ls; best_lc := lc; best_matches := matches;
+    exit when straight < n; -- 모두가 제자리로 떨어지는 사다리는 다시 뽑는다
+  end loop;
+  if best_matches is null then -- 안전한 기본값
+    best_ls := '{}'; best_lc := '{}';
+    for c in 0 .. n - 2 loop best_ls := best_ls || (c * 2); best_lc := best_lc || c; end loop;
+    best_matches := public.chat_ladder_matches(best_ls, best_lc, total_steps, p_participants, p_results);
+  end if;
+  return jsonb_build_object(
+    'numSteps', total_steps,
+    'lines', (select coalesce(jsonb_agg(jsonb_build_object('step', a, 'fromCol', b)), '[]'::jsonb) from unnest(best_ls, best_lc) as t(a, b)),
+    'matches', (select jsonb_agg(m - 'endCol') from jsonb_array_elements(best_matches) m));
+end $$;
+revoke all on function public.chat_ladder_generate(jsonb, jsonb) from public, anon, authenticated;
+
+create or replace function public.chat_tool_init(p_message_id bigint, p_config jsonb default '{}'::jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare ctx jsonb := public.chat_tool_load(p_message_id); payload jsonb; kind text; ev public.chat_tool_events%rowtype;
+  items jsonb; n int; shuffled jsonb; gen jsonb; opts jsonb;
+begin
+  if (ctx->>'senderId') <> (ctx->>'actorId') then raise exception '도구를 만든 사람만 준비할 수 있습니다.'; end if;
+  payload := ctx->'payload'; kind := payload->>'type';
+  if exists (select 1 from public.chat_tool_events where message_id = p_message_id and event = 'init') then
+    raise exception '이미 준비된 도구입니다.';
+  end if;
+
+  if kind = 'draw' then
+    items := p_config->'items';
+    if jsonb_typeof(items) is distinct from 'array' or jsonb_array_length(items) not between 2 and 50 then
+      raise exception '제비는 2~50개여야 합니다.';
+    end if;
+    select jsonb_agg(jsonb_build_object('id', rn, 'label', label, 'isWinner', win) order by rn) into shuffled
+    from (
+      select row_number() over (order by random()) as rn, left(coalesce(v->>'label', ''), 40) as label,
+             coalesce((v->>'isWinner')::boolean, false) as win
+      from jsonb_array_elements(items) v
+    ) t;
+    n := jsonb_array_length(shuffled);
+    insert into public.chat_tool_secrets (message_id, project_id, secret)
+    values (p_message_id, ctx->>'projectId', jsonb_build_object('items', shuffled));
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'draw', 'init', (ctx->>'actorId')::uuid,
+      jsonb_build_object('total', n, 'winnerCount', (select count(*) from jsonb_array_elements(shuffled) e where (e->>'isWinner')::boolean)))
+    returning * into ev;
+  elsif kind = 'ladder' then
+    gen := public.chat_ladder_generate(payload->'data'->'participants', coalesce(payload->'data'->'results', '[]'::jsonb));
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'ladder', 'init', (ctx->>'actorId')::uuid, gen) returning * into ev;
+  else
+    opts := payload->'data'->'options';
+    if jsonb_typeof(opts) is distinct from 'array' or jsonb_array_length(opts) not between 2 and 20 then
+      raise exception '룰렛 항목은 2~20개여야 합니다.';
+    end if;
+    insert into public.chat_tool_events (message_id, project_id, kind, event, actor_member_id, data)
+    values (p_message_id, ctx->>'projectId', 'roulette', 'init', (ctx->>'actorId')::uuid, '{}'::jsonb) returning * into ev;
+  end if;
+  return public.chat_tool_event_json(ev);
+end $$;
+
+create or replace function public.chat_tool_create(p_project_id text, p_channel_id text, p_text text, p_config jsonb default '{}'::jsonb)
+returns jsonb language plpgsql security invoker set search_path = public as $$
+declare v_msg public.chat_messages%rowtype; v_sender uuid; v_event jsonb;
+begin
+  select id into v_sender from public.members where project_id = p_project_id and user_id = auth.uid();
+  if v_sender is null then raise exception '프로젝트 참여자만 사용할 수 있습니다.'; end if;
+  insert into public.chat_messages (project_id, channel_id, sender_id, text)
+  values (p_project_id, p_channel_id, v_sender, p_text)
+  returning * into v_msg;
+  v_event := public.chat_tool_init(v_msg.id, p_config);
+  return jsonb_build_object('message', to_jsonb(v_msg), 'event', v_event);
+end $$;
+revoke all on function public.chat_tool_create(text, text, text, jsonb) from public, anon;
+grant execute on function public.chat_tool_create(text, text, text, jsonb) to authenticated;
+
+-- 팀원의 마지막 접속 시각(members.last_seen_at). 온라인 여부는 Realtime Presence가, 오프라인 팀원의
+-- "마지막 접속"은 이 값이 알려준다. 본인 행만 touch_member_presence()로 갱신한다.
+--
+-- 컬럼 추가와 기본값을 한 문장(add column ... default now())으로 쓰면 PostgreSQL이 이미 있는 행을 모두
+-- 실행 시각으로 채워, 오래 안 들어온 팀원도 "마지막 접속: 방금"으로 보인다. 기존 행은 비워 두고(접속 기록 없음)
+-- 새로 합류하는 팀원부터 기본값을 쓴다.
+begin;
+set local lock_timeout = '5s'; -- 앱이 members를 쓰는 중이면 오래 기다리지 않는다(시간 초과 시 잠시 뒤 다시 실행)
+alter table public.members add column if not exists last_seen_at timestamptz;
+alter table public.members alter column last_seen_at set default now();
+commit;
+
+-- 본인 멤버 행의 마지막 접속 시각만 갱신(다른 사람 id를 넘기면 아무것도 바뀌지 않음)
+create or replace function public.touch_member_presence(p_member_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then
+    return;
+  end if;
+
+  update public.members
+  set last_seen_at = now()
+  where id = p_member_id and user_id = auth.uid();
+end;
+$$;
+
+revoke all on function public.touch_member_presence(uuid) from public, anon;
+grant execute on function public.touch_member_presence(uuid) to authenticated;
+
+-- ===== 워크스페이스 파일 이동 (migrations/2609261200_move_workspace_file.sql 과 동일) =====
+-- 워크스페이스 파일을 다른 폴더(또는 워크스페이스 루트)로 옮긴다.
+-- files 표는 앱에서 직접 수정할 수 없으므로(버전·검색 무결성) 이동도 서버 함수로만 한다.
+--  * 진행 중인 프로젝트의 참여자라면 누구나 옮길 수 있다(업로드와 같은 기준, 삭제보다 약한 동작).
+--  * 대상 폴더는 같은 프로젝트의 폴더여야 한다. null = 워크스페이스 루트.
+--  * 옮기는 것은 내용 수정이 아니므로 대시보드 "최근 활동"의 수정 시각(updated_at)을 바꾸지 않는다.
+
+-- 수정 시각 기록 트리거: 이 트랜잭션이 "이동만"이라고 표시하면 updated_at을 그대로 둔다.
+create or replace function public.stamp_dashboard_activity() returns trigger
+language plpgsql set search_path=public as $$
+begin
+ if TG_OP='INSERT' then new.created_at:=now(); new.updated_at:=null;
+ elsif coalesce(current_setting('app.move_only', true), '') = 'on' then new.created_at:=old.created_at; new.updated_at:=old.updated_at;
+ else new.created_at:=old.created_at; new.updated_at:=now(); end if;
+ return new;
+end $$;
+
+create or replace function public.move_workspace_file(p_file_id bigint, p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; cur bigint;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  select project_id, folder_id into pid, cur from public.files where id=p_file_id;
+  if pid is null then raise exception '파일이 존재하지 않습니다.'; end if;
+  perform id from public.projects where id=pid and status='active' for share;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 파일을 옮길 수 있습니다.'; end if;
+  if p_folder_id is not null and not exists(select 1 from public.folders where id=p_folder_id and project_id=pid) then
+    raise exception '옮길 폴더를 찾을 수 없습니다.';
+  end if;
+  if cur is not distinct from p_folder_id then return; end if;
+  perform set_config('app.move_only', 'on', true);
+  update public.files set folder_id=p_folder_id where id=p_file_id;
+  perform set_config('app.move_only', '', true);
+end $$;
+revoke all on function public.move_workspace_file(bigint, bigint) from public, anon;
+grant execute on function public.move_workspace_file(bigint, bigint) to authenticated;
+
+-- ===== 워크스페이스 하위 폴더 (migrations/2609262000_nested_folders.sql 과 동일) =====
+-- 워크스페이스 폴더 안에 폴더(하위 폴더)를 만들 수 있게 한다.
+--  * parent_id null = 워크스페이스 루트의 폴더.
+--  * 상위 폴더는 같은 프로젝트의 폴더여야 한다(복합 외래키). 하위 폴더가 있는 폴더는 지울 수 없다.
+--  * 깊이는 최대 10단계(루트 폴더가 1단계). 순환·끝없는 사슬로 인한 부하를 막는다.
+--  * 폴더 자체의 이동(parent_id 변경)은 아직 없다. folders 표는 앱에서 직접 수정할 수 없고(update 권한 회수),
+--    이동 기능을 만들 때는 서버 함수에서 순환과 "옮긴 뒤 하위 트리 전체의 깊이"를 함께 검사해야 한다.
+
+alter table public.folders add column if not exists parent_id bigint;
+create unique index if not exists folders_project_id_id_key on public.folders(project_id, id);
+create index if not exists folders_parent_idx on public.folders(parent_id);
+do $$ begin
+  if not exists(select 1 from pg_constraint where conname='folders_parent_fk') then
+    -- no action(기본값): 프로젝트 삭제로 폴더가 한꺼번에 지워질 때는 문장 끝에 검사하므로 통과한다.
+    alter table public.folders add constraint folders_parent_fk
+      foreign key (project_id, parent_id) references public.folders(project_id, id);
+  end if;
+end $$;
+
+create or replace function public.check_folder_depth()
+returns trigger language plpgsql set search_path=public as $$
+declare cur bigint := new.parent_id; depth int := 1;
+begin
+  while cur is not null loop
+    depth := depth + 1;
+    if depth > 10 then raise exception '폴더는 최대 10단계까지만 만들 수 있습니다.'; end if;
+    select parent_id into cur from public.folders where id=cur;
+  end loop;
+  return new;
+end $$;
+drop trigger if exists workspace_folder_depth on public.folders;
+create trigger workspace_folder_depth before insert on public.folders
+for each row execute function public.check_folder_depth();
+
+create or replace function public.delete_workspace_folder(p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; f public.folders%rowtype;
+begin
+  select project_id into pid from public.folders where id=p_folder_id;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 삭제할 수 있습니다.'; end if;
+  select * into f from public.folders where id=p_folder_id for update;
+  if not found then raise exception '폴더가 존재하지 않습니다.'; end if;
+  if not public.is_project_manager(pid) and f.owner_user_id is distinct from auth.uid() then
+    raise exception '팀장, 부팀장 또는 생성자만 폴더를 삭제할 수 있습니다.';
+  end if;
+  if exists(select 1 from public.folders where parent_id=p_folder_id) then
+    raise exception '하위 폴더가 있는 폴더는 삭제할 수 없습니다. 하위 폴더를 먼저 삭제해 주세요.';
+  end if;
+  if exists(select 1 from public.files where folder_id=p_folder_id) then
+    raise exception '파일이 있는 폴더는 삭제할 수 없습니다. 파일을 먼저 삭제해 주세요.';
+  end if;
+  delete from public.folders where id=p_folder_id;
+end $$;
+revoke all on function public.delete_workspace_folder(bigint) from public, anon;
+grant execute on function public.delete_workspace_folder(bigint) to authenticated;
+
+
+-- ===== 단체 채팅방 (migrations/2609262100_chat_groups.sql 과 동일) =====
+-- 단체 채팅방: 팀장·부팀장이 팀원을 골라 만드는 채팅방. 채널 id는 'grp:<그룹 uuid>'.
+--  * 방과 참여자 목록은 그 방의 참여자만 읽을 수 있다. 앱에서 직접 쓰지 못하고 create_chat_group 으로만 만든다.
+--  * 메시지·읽음·반응·채팅 도구의 권한은 모두 can_access_chat_channel 하나를 거치므로 거기에 'grp:' 분기만 더한다.
+--  * 방을 만들면 만든 사람 이름으로 첫 메시지를 남긴다. 초대받은 사람 화면에 실시간으로 방이 나타나게 하는 신호다.
+
+create table if not exists public.chat_groups (
+  id uuid primary key default gen_random_uuid(),
+  project_id text not null references public.projects(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 30),
+  created_by uuid references public.members(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.chat_group_members (
+  group_id uuid not null references public.chat_groups(id) on delete cascade,
+  member_id uuid not null references public.members(id) on delete cascade,
+  project_id text not null references public.projects(id) on delete cascade,
+  primary key (group_id, member_id)
+);
+create index if not exists chat_group_members_member_idx on public.chat_group_members(member_id);
+create index if not exists chat_groups_project_idx on public.chat_groups(project_id);
+
+-- 내 member id가 이 방의 참여자인가. RLS 정책 안에서 자기 표를 다시 읽지 않도록 security definer.
+create or replace function public.is_chat_group_member(p_group_id uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from public.chat_group_members gm
+    join public.members mine on mine.id = gm.member_id
+    where gm.group_id = p_group_id and mine.user_id = (select auth.uid())
+  );
+$$;
+revoke all on function public.is_chat_group_member(uuid) from public, anon;
+grant execute on function public.is_chat_group_member(uuid) to authenticated;
+
+alter table public.chat_groups enable row level security;
+alter table public.chat_group_members enable row level security;
+revoke insert, update, delete on public.chat_groups, public.chat_group_members from anon, authenticated;
+drop policy if exists chat_groups_read on public.chat_groups;
+create policy chat_groups_read on public.chat_groups for select to authenticated using (public.is_chat_group_member(id));
+drop policy if exists chat_group_members_read on public.chat_group_members;
+create policy chat_group_members_read on public.chat_group_members for select to authenticated using (public.is_chat_group_member(group_id));
+
+create or replace function public.can_access_chat_channel(p_project_id text, p_channel_id text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select case
+    when p_channel_id = 'all' then exists (
+      select 1 from public.members mine
+      where mine.project_id = p_project_id and mine.user_id = (select auth.uid())
+    )
+    when p_channel_id ~ '^dm:[0-9a-f-]{36}:[0-9a-f-]{36}$'
+      and split_part(p_channel_id, ':', 2) <> split_part(p_channel_id, ':', 3)
+    then exists (
+      select 1
+      from public.members mine
+      where mine.project_id = p_project_id
+        and mine.user_id = (select auth.uid())
+        and mine.id::text in (split_part(p_channel_id, ':', 2), split_part(p_channel_id, ':', 3))
+        and exists (
+          select 1 from public.members first_member
+          where first_member.project_id = p_project_id and first_member.id::text = split_part(p_channel_id, ':', 2)
+        )
+        and exists (
+          select 1 from public.members second_member
+          where second_member.project_id = p_project_id and second_member.id::text = split_part(p_channel_id, ':', 3)
+        )
+    )
+    when p_channel_id ~ '^grp:[0-9a-f-]{36}$' then exists (
+      select 1 from public.chat_group_members gm
+      join public.members mine on mine.id = gm.member_id
+      where gm.group_id::text = substr(p_channel_id, 5)
+        and gm.project_id = p_project_id
+        and mine.project_id = p_project_id
+        and mine.user_id = (select auth.uid())
+    )
+    else false
+  end;
+$$;
+revoke all on function public.can_access_chat_channel(text, text) from public;
+grant execute on function public.can_access_chat_channel(text, text) to authenticated;
+
+-- 팀장·부팀장만. 나를 포함해 3명 이상(2명이면 1:1 채팅), 모두 이 프로젝트의 팀원이어야 한다.
+-- ponytail: 방은 프로젝트당 50개까지. 이름 변경·나가기·삭제는 아직 없다.
+create or replace function public.create_chat_group(p_project_id text, p_name text, p_member_ids uuid[])
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_me uuid;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_ids uuid[];
+  v_group uuid;
+begin
+  perform id from public.projects where id = p_project_id and status = 'active' for update;
+  if not found then raise exception '진행 중인 프로젝트에서만 채팅방을 만들 수 있습니다.'; end if;
+  select id into v_me from public.members
+    where project_id = p_project_id and user_id = auth.uid() and (is_leader or is_vice_leader);
+  if v_me is null then raise exception '팀장 또는 부팀장만 단체 채팅방을 만들 수 있습니다.'; end if;
+  if char_length(v_name) not between 1 and 30 then raise exception '채팅방 이름은 1~30자로 입력해 주세요.'; end if;
+  select array_agg(distinct x) into v_ids from unnest(coalesce(p_member_ids, '{}') || v_me) x;
+  if cardinality(v_ids) < 3 then raise exception '나를 제외하고 2명 이상 선택해 주세요.'; end if;
+  if (select count(*) from public.members where project_id = p_project_id and id = any(v_ids)) <> cardinality(v_ids) then
+    raise exception '이 프로젝트의 팀원만 초대할 수 있습니다.';
+  end if;
+  if (select count(*) from public.chat_groups where project_id = p_project_id) >= 50 then
+    raise exception '채팅방은 프로젝트당 50개까지 만들 수 있습니다.';
+  end if;
+  insert into public.chat_groups(project_id, name, created_by) values (p_project_id, v_name, v_me) returning id into v_group;
+  insert into public.chat_group_members(group_id, member_id, project_id) select v_group, x, p_project_id from unnest(v_ids) x;
+  insert into public.chat_messages(project_id, channel_id, sender_id, text)
+    values (p_project_id, 'grp:' || v_group, v_me, format('“%s” 단체 채팅방을 만들었습니다.', v_name));
+  return v_group;
+end $$;
+revoke all on function public.create_chat_group(text, text, uuid[]) from public, anon;
+grant execute on function public.create_chat_group(text, text, uuid[]) to authenticated;
+
+
+-- ===== 단체 채팅방 초대 (migrations/2609262200_chat_group_invite.sql 과 동일) =====
+-- 단체 채팅방에 팀원 추가: 그 방에 참여 중인 팀장·부팀장만.
+--  * 추가할 사람은 같은 프로젝트 팀원이어야 한다. 이미 참여 중인 사람은 건너뛴다.
+--  * 초대한 사람 이름으로 안내 메시지를 남긴다. 새로 들어온 사람 화면에 방이 나타나고,
+--    기존 참여자 화면의 인원 수가 갱신되는 신호다(앱은 "…초대했습니다." 메시지를 받으면 방 목록을 다시 받는다).
+--  * 새 참여자도 방의 지난 대화를 모두 볼 수 있다(권한은 채널 단위).
+
+create or replace function public.add_chat_group_members(p_group_id uuid, p_member_ids uuid[])
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  g public.chat_groups%rowtype;
+  v_me uuid;
+  v_new uuid[];
+begin
+  select * into g from public.chat_groups where id = p_group_id for update;
+  if not found then raise exception '채팅방을 찾을 수 없습니다.'; end if;
+  perform id from public.projects where id = g.project_id and status = 'active';
+  if not found then raise exception '진행 중인 프로젝트에서만 초대할 수 있습니다.'; end if;
+  select m.id into v_me from public.members m
+    join public.chat_group_members gm on gm.member_id = m.id and gm.group_id = p_group_id
+    where m.project_id = g.project_id and m.user_id = auth.uid() and (m.is_leader or m.is_vice_leader);
+  if v_me is null then raise exception '이 방에 참여 중인 팀장 또는 부팀장만 초대할 수 있습니다.'; end if;
+  if (select count(*) from public.members where project_id = g.project_id and id = any(coalesce(p_member_ids, '{}')))
+     <> (select count(distinct x) from unnest(coalesce(p_member_ids, '{}')) x) then
+    raise exception '이 프로젝트의 팀원만 초대할 수 있습니다.';
+  end if;
+  select array_agg(distinct x) into v_new from unnest(coalesce(p_member_ids, '{}')) x
+    where not exists (select 1 from public.chat_group_members gm where gm.group_id = p_group_id and gm.member_id = x);
+  if v_new is null then raise exception '새로 초대할 팀원을 선택해 주세요.'; end if;
+  insert into public.chat_group_members(group_id, member_id, project_id) select p_group_id, x, g.project_id from unnest(v_new) x;
+  insert into public.chat_messages(project_id, channel_id, sender_id, text)
+    values (g.project_id, 'grp:' || p_group_id, v_me,
+      (select string_agg(name || '님', ', ' order by name) from public.members where id = any(v_new)) || '을 초대했습니다.');
+end $$;
+revoke all on function public.add_chat_group_members(uuid, uuid[]) from public, anon;
+grant execute on function public.add_chat_group_members(uuid, uuid[]) to authenticated;
+
+
+-- ===== 단체 채팅방 참여자 실시간 (migrations/2609262300_chat_group_members_realtime.sql 과 동일) =====
+-- 단체 채팅방 참여자 변경을 실시간으로 알린다.
+-- 이전에는 앱이 "…을 초대했습니다."로 끝나는 메시지를 보고 방 목록을 다시 받았는데, 이 문구는 누구나 직접 입력할 수 있었다.
+-- 이제는 chat_group_members 에 행이 추가된 사실(서버 함수만 쓸 수 있음)을 postgres_changes 로 받는다.
+-- 구독자에게는 읽기 권한(chat_group_members_read: 그 방의 참여자만)이 적용되므로 다른 방의 참여자 정보는 전달되지 않는다.
+
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_group_members') then
+    alter publication supabase_realtime add table public.chat_group_members;
+  end if;
+end $$;
+
+create or replace function public.can_access_project_realtime_topic(p_topic text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select
+    exists (
+      select 1
+      from public.members m
+      where (
+          p_topic ~ '^(presence|collab_presence|chat_messages|chat_tool_events|chat_group_members|message_reads|task_comment_reactions|tasks|schedule_events|files):[^:]+$'
+          or p_topic ~ '^collab_doc:[^:]+:[0-9]+:[0-9]+:(main|pin)$'
+        )
+        and m.project_id = split_part(p_topic, ':', 2)
+        and m.user_id = auth.uid()
+    );
+$$;
+revoke all on function public.can_access_project_realtime_topic(text) from public;
+grant execute on function public.can_access_project_realtime_topic(text) to authenticated;
+
+
+-- ===== 메인 화면 프로젝트 알림 (migrations/2609270000_my_project_alerts.sql 과 동일) =====
+-- 메인 화면 프로젝트 목록의 알림 점: 내가 참여한 프로젝트마다 "확인하지 않은 것이 있는가".
+-- 앱의 알림 기준과 같다(ProjectContext의 chatUnread·tasksUnread·scheduleUnread·workspaceUnread).
+--  * 채팅: 내가 볼 수 있는 채널의 남이 보낸 메시지 중 내가 읽지 않은 것(채팅 도구의 행동 메시지 제외)
+--  * 과제·일정·워크스페이스: 그 화면을 마지막으로 본 뒤(members.*_viewed_at) 새로 만들어진 것
+-- security invoker: 각 표의 읽기 권한(RLS)이 그대로 적용되므로 화면에서 볼 수 없는 것은 세지 않는다.
+-- ponytail: 프로젝트마다 exists 네 번. 메시지가 아주 많아져 느려지면 프로젝트별 안 읽음 카운터 표로 바꾼다.
+
+-- members의 *_viewed_at 칼럼은 앱에 직접 읽기 권한이 없다(칼럼 단위 권한). 내 행만 돌려주는 좁은 창구.
+create or replace function public.my_member_views()
+returns table (member_id uuid, project_id text, tasks_viewed_at timestamptz, schedule_viewed_at timestamptz, workspace_viewed_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select id, project_id, tasks_viewed_at, schedule_viewed_at, workspace_viewed_at
+  from public.members where user_id = auth.uid();
+$$;
+revoke all on function public.my_member_views() from public, anon;
+grant execute on function public.my_member_views() to authenticated;
+
+create or replace function public.my_project_alerts()
+returns table (project_id text, has_alert boolean)
+language sql stable security invoker set search_path = public as $$
+  select m.project_id,
+    exists (
+      select 1 from public.chat_messages c
+      where c.project_id = m.project_id and c.sender_id <> m.member_id
+        and not starts_with(c.text, '[TALJU_CHAT_TOOL_ACTION]:')
+        and not exists (select 1 from public.message_reads r where r.message_id = c.id and r.member_id = m.member_id)
+    )
+    or exists (select 1 from public.tasks t where t.project_id = m.project_id and t.created_at > m.tasks_viewed_at)
+    or exists (select 1 from public.schedule_events e where e.project_id = m.project_id and e.created_at > m.schedule_viewed_at)
+    or exists (select 1 from public.files f where f.project_id = m.project_id and f.created_at > m.workspace_viewed_at)
+  from public.my_member_views() m;
+$$;
+revoke all on function public.my_project_alerts() from public, anon;
+grant execute on function public.my_project_alerts() to authenticated;
+
+-- migrations/2609270400_chat_unique_retry.sql
+-- Keep the chat identity constraint and allow applying this block again.
+do $$ begin
+  alter table public.chat_messages add constraint chat_messages_id_project_unique unique (id, project_id);
+exception when duplicate_object or duplicate_table then null;
+end $$;
+
+-- ===== 캠퍼스 소식(공모전·취업) 캐시 및 스크랩 테이블 =====
+-- 대학교 홈페이지 및 공모전 사이트에서 크롤링한 소식 캐시
+create table if not exists public.campus_notices_cache (
+  id uuid primary key default gen_random_uuid(),
+  school_code text not null,
+  school_name text not null,
+  category text not null, -- 'contest' | 'job' | 'general' | 'internship'
+  title text not null,
+  author text,
+  post_date text,
+  link text not null,
+  views integer default 0,
+  thumbnail text,
+  is_pinned boolean default false,
+  crawled_at timestamptz default now()
+);
+
+create unique index if not exists campus_notices_school_link_idx on public.campus_notices_cache (school_code, link);
+create index if not exists campus_notices_lookup_idx on public.campus_notices_cache (school_code, category, post_date desc);
+
+-- 사용자가 관심 있는 공모전/취업 공지를 스크랩(북마크) 보관하는 테이블
+create table if not exists public.campus_scrapped_notices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  school_code text not null,
+  school_name text not null,
+  category text not null,
+  title text not null,
+  author text,
+  post_date text,
+  link text not null,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists campus_scrapped_user_link_idx on public.campus_scrapped_notices (user_id, link);
+
+alter table public.campus_notices_cache enable row level security;
+alter table public.campus_scrapped_notices enable row level security;
+
+-- 캐시 조회: 누구나 조회 가능
+drop policy if exists "campus_notices_cache_read" on public.campus_notices_cache;
+create policy "campus_notices_cache_read" on public.campus_notices_cache
+  for select using (true);
+
+-- 캐시 갱신은 서버만(서비스 롤은 RLS를 거치지 않음). 사용자가 쓰면 모두에게 보이는 가짜 링크를 넣을 수 있으므로 쓰기 규칙은 두지 않는다.
+drop policy if exists "campus_notices_cache_write" on public.campus_notices_cache;
+
+-- 스크랩: 본인의 스크랩 목록만 조회 및 관리
+drop policy if exists "campus_scrapped_notices_select" on public.campus_scrapped_notices;
+create policy "campus_scrapped_notices_select" on public.campus_scrapped_notices
+  for select to authenticated using (auth.uid() = user_id);
+
+drop policy if exists "campus_scrapped_notices_insert" on public.campus_scrapped_notices;
+create policy "campus_scrapped_notices_insert" on public.campus_scrapped_notices
+  for insert to authenticated with check (auth.uid() = user_id);
+
+drop policy if exists "campus_scrapped_notices_delete" on public.campus_scrapped_notices;
+create policy "campus_scrapped_notices_delete" on public.campus_scrapped_notices
+  for delete to authenticated using (auth.uid() = user_id);
+
+
+-- ===== 평가 점수 상위 % (서비스 전체 사용자 기준) =====
+-- 비교 집단: 최종 평가가 공개된 모든 사용자. 사람마다 전체 프로젝트의 최종 평가 평균(평가 건수 가중,
+-- 화면의 "내 평가 요약"과 같은 방식). 공개 조건은 member_evaluation_average와 같다(동료 2명 이상이 모두 제출, 또는 테스트 모드).
+-- 사용자별 평균은 돌려주지 않는 내부 함수로만 계산하고, 밖으로는 순위 비율(상위 N%)만 낸다.
+create or replace function public.evaluation_user_averages()
+returns table(user_id uuid, score numeric, role numeric, deadline numeric, communication numeric, collaboration numeric, quality numeric)
+language sql stable security definer set search_path = public as $$
+  with published as (
+    select m.id, m.project_id, m.user_id
+    from members m
+    cross join lateral (
+      select count(*) as expected from members o where o.project_id = m.project_id and o.id <> m.id and o.user_id is not null
+    ) x
+    where m.user_id is not null
+      and (public.evaluation_prototype_enabled()
+        or (x.expected >= 2
+          and (select count(*) from peer_evaluations e where e.project_id = m.project_id and e.phase = 'final' and e.recipient_id = m.id) >= x.expected))
+  )
+  select p.user_id,
+    avg((e.role + e.deadline + e.communication + e.collaboration + e.quality)::numeric / 5),
+    avg(e.role), avg(e.deadline), avg(e.communication), avg(e.collaboration), avg(e.quality)
+  from published p
+  join peer_evaluations e on e.project_id = p.project_id and e.phase = 'final' and e.recipient_id = p.id
+  group by p.user_id
+$$;
+revoke all on function public.evaluation_user_averages() from public, anon, authenticated;
+
+-- 상위 N%: 나보다 점수가 높은 사람 수 + 1을 비교 인원으로 나눈 비율(올림, 1~100). 같은 점수는 같은 순위.
+-- 인자 없음: 내 전체 평균의 위치.
+-- (프로젝트, 팀원): 그 프로젝트에서 공개된 그 팀원 점수(프로필에 보이는 값)의 위치. 참여자만 조회할 수 있고,
+--   보는 사람이 함께하지 않은 프로젝트의 점수는 쓰지 않는다.
+-- 비교 인원이 10명 미만이면 순위가 사실상 점수를 드러내므로 available=false.
+-- ponytail: 호출마다 전체 사용자 평균을 다시 계산한다. 사용자가 많아지면 결산 시점에 캐시 표로 옮긴다.
+create or replace function public.evaluation_percentiles(p_project_id text default null, p_member_id uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  a jsonb;
+  t_score numeric; t_role numeric; t_deadline numeric; t_communication numeric; t_collaboration numeric; t_quality numeric;
+  population integer;
+  c_score integer; c_role integer; c_deadline integer; c_communication integer; c_collaboration integer; c_quality integer;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if (p_project_id is null) <> (p_member_id is null) then raise exception '잘못된 요청입니다.'; end if;
+
+  if p_project_id is null then
+    select u.score, u.role, u.deadline, u.communication, u.collaboration, u.quality
+      into t_score, t_role, t_deadline, t_communication, t_collaboration, t_quality
+      from public.evaluation_user_averages() u where u.user_id = auth.uid();
+  else
+    a := public.member_evaluation_average(p_project_id, p_member_id, 'final'); -- 참여자 확인·공개 조건 포함
+    if (a->>'available')::boolean and a->>'score' is not null then
+      t_score := (a->>'score')::numeric;
+      t_role := (a->'criteria'->>'role')::numeric; t_deadline := (a->'criteria'->>'deadline')::numeric;
+      t_communication := (a->'criteria'->>'communication')::numeric; t_collaboration := (a->'criteria'->>'collaboration')::numeric;
+      t_quality := (a->'criteria'->>'quality')::numeric;
+    end if;
+  end if;
+
+  select count(*),
+    count(*) filter (where u.score > t_score), count(*) filter (where u.role > t_role),
+    count(*) filter (where u.deadline > t_deadline), count(*) filter (where u.communication > t_communication),
+    count(*) filter (where u.collaboration > t_collaboration), count(*) filter (where u.quality > t_quality)
+  into population, c_score, c_role, c_deadline, c_communication, c_collaboration, c_quality
+  from public.evaluation_user_averages() u;
+
+  if population < 10 or t_score is null then
+    return jsonb_build_object('available', false, 'population', population);
+  end if;
+  return jsonb_build_object(
+    'available', true,
+    'population', population,
+    'overall', least(100, greatest(1, ceil(100.0 * (c_score + 1) / population)))::int,
+    'criteria', jsonb_build_object(
+      'role', least(100, greatest(1, ceil(100.0 * (c_role + 1) / population)))::int,
+      'deadline', least(100, greatest(1, ceil(100.0 * (c_deadline + 1) / population)))::int,
+      'communication', least(100, greatest(1, ceil(100.0 * (c_communication + 1) / population)))::int,
+      'collaboration', least(100, greatest(1, ceil(100.0 * (c_collaboration + 1) / population)))::int,
+      'quality', least(100, greatest(1, ceil(100.0 * (c_quality + 1) / population)))::int));
+end $$;
+revoke all on function public.evaluation_percentiles(text, uuid) from public, anon;
+grant execute on function public.evaluation_percentiles(text, uuid) to authenticated;
+
+-- ===== 웹 푸시: 브라우저를 닫아도 새 과제·일정·파일·채팅 알림 =====
+-- 흐름: 새 행 insert → 트리거가 받을 사람(볼 권한이 있는 팀원, 작성자 제외)의 구독을 모아
+--       pg_net으로 Vercel 함수(/api/push)에 전달 → 함수가 브라우저 푸시 서비스로 암호화해 보낸다.
+-- 알림 실패는 원래 저장을 절대 막지 않는다(트리거 안에서 오류를 삼킨다).
+
+-- pg_net: Supabase에서 제공하는 비동기 HTTP 확장. 없는 환경(테스트 등)에서는 건너뛴다.
+do $$ begin
+  create extension if not exists pg_net;
+exception when others then
+  raise notice 'pg_net을 켤 수 없습니다(웹 푸시 전송 비활성): %', sqlerrm;
+end $$;
+
+-- 브라우저(기기)별 푸시 구독. 주소(endpoint)는 브라우저 푸시 서비스가 발급한 값.
+create table if not exists public.push_subscriptions (
+  endpoint text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions(user_id);
+alter table public.push_subscriptions enable row level security;
+revoke all on public.push_subscriptions from public, anon, authenticated;
+-- 본인 구독만 읽기(설정 화면 확인용). 쓰기는 아래 함수로만.
+grant select on public.push_subscriptions to authenticated;
+drop policy if exists push_subscriptions_select_own on public.push_subscriptions;
+create policy push_subscriptions_select_own on public.push_subscriptions for select to authenticated using (user_id = auth.uid());
+
+-- 보낼 곳(Vercel 함수 주소)과 공유 비밀값. 한 줄만 있고, 사용자는 읽을 수 없다(아래 함수들만 사용).
+-- 설정(예: 따옴표 안에 값만, 꺾쇠·공백 없이): insert into public.push_config(endpoint, secret) values ('https://taljuhajima.vercel.app/api/push', 'Vercel의 PUSH_WEBHOOK_SECRET과 같은 64글자')
+--       on conflict (id) do update set endpoint = excluded.endpoint, secret = excluded.secret;
+create table if not exists public.push_config (
+  id boolean primary key default true check (id),
+  endpoint text not null check (endpoint ~ '^https://'),
+  secret text not null check (char_length(secret) >= 32)
+);
+alter table public.push_config enable row level security;
+revoke all on public.push_config from public, anon, authenticated;
+
+-- 구독 저장. 같은 브라우저에서 다른 계정으로 로그인했으면 그 계정으로 옮긴다.
+-- 주소는 알려진 브라우저 푸시 서비스만 받는다(보내는 함수가 아무 주소로나 요청하지 않도록).
+create or replace function public.save_push_subscription(p_endpoint text, p_p256dh text, p_auth text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if p_endpoint is null or char_length(p_endpoint) > 1000
+     or p_endpoint !~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|[a-z0-9.-]+\.push\.apple\.com|[a-z0-9.-]+\.notify\.windows\.com)/' then
+    raise exception '지원하지 않는 푸시 주소입니다.';
+  end if;
+  if p_p256dh is null or p_p256dh !~ '^[A-Za-z0-9_-]{40,200}={0,2}$' or p_auth is null or p_auth !~ '^[A-Za-z0-9_-]{10,100}={0,2}$' then
+    raise exception '푸시 키 형식이 올바르지 않습니다.';
+  end if;
+  insert into public.push_subscriptions(endpoint, user_id, p256dh, auth) values (p_endpoint, auth.uid(), p_p256dh, p_auth)
+  on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, created_at = now();
+end $$;
+revoke all on function public.save_push_subscription(text, text, text) from public, anon;
+grant execute on function public.save_push_subscription(text, text, text) to authenticated;
+
+create or replace function public.delete_push_subscription(p_endpoint text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  delete from public.push_subscriptions where endpoint = p_endpoint and user_id = auth.uid();
+end $$;
+revoke all on function public.delete_push_subscription(text) from public, anon;
+grant execute on function public.delete_push_subscription(text) to authenticated;
+
+-- 푸시 서비스가 "더 이상 없는 구독"이라고 답한 주소 정리. 보내는 함수만 부른다(공유 비밀값 확인).
+create or replace function public.prune_push_subscriptions(p_secret text, p_endpoints text[])
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.push_config where secret = p_secret) then raise exception '권한이 없습니다.'; end if;
+  delete from public.push_subscriptions where endpoint = any(p_endpoints);
+end $$;
+revoke all on function public.prune_push_subscriptions(text, text[]) from public;
+grant execute on function public.prune_push_subscriptions(text, text[]) to anon, authenticated;
+
+-- 받을 사람의 구독을 모아 전송 요청. p_members가 null이면 프로젝트 전원, 아니면 그 팀원들만. 보낸 사람(p_exclude_user)은 제외.
+create or replace function public.push_to_members(p_project_id text, p_members uuid[], p_exclude_user uuid, p_title text, p_body text, p_url text, p_tag text)
+returns void language plpgsql security definer set search_path = public as $$
+declare cfg public.push_config; subs jsonb; project_name text;
+begin
+  select * into cfg from public.push_config where id;
+  if cfg.endpoint is null then return; end if;
+  select jsonb_agg(jsonb_build_object('endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth)) into subs
+  from public.push_subscriptions s
+  where s.user_id in (
+    select m.user_id from public.members m
+    where m.project_id = p_project_id and m.user_id is not null and m.user_id is distinct from p_exclude_user
+      and (p_members is null or m.id = any(p_members)));
+  if subs is null then return; end if;
+  select name into project_name from public.projects where id = p_project_id;
+  perform net.http_post(
+    url := cfg.endpoint,
+    body := jsonb_build_object('subscriptions', subs, 'notification', jsonb_build_object(
+      'title', '[' || coalesce(project_name, '프로젝트') || '] ' || p_title,
+      'body', left(coalesce(p_body, ''), 200),
+      'url', p_url,
+      'tag', p_tag)),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-push-secret', cfg.secret));
+exception when others then
+  raise warning '웹 푸시 전송 요청 실패: %', sqlerrm; -- 알림 실패로 원래 저장이 막히면 안 된다
+end $$;
+revoke all on function public.push_to_members(text, uuid[], uuid, text, text, text, text) from public, anon, authenticated;
+
+create or replace function public.push_on_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare recipients uuid[]; sender_name text; link text;
+begin
+  link := '?project=' || new.project_id;
+  if tg_table_name = 'tasks' then
+    perform public.push_to_members(new.project_id, null, auth.uid(), '새 과제', new.title, '/tasks/' || new.id || link, 'tasks:' || new.project_id);
+  elsif tg_table_name = 'schedule_events' then
+    -- 나만 보기 개인 일정은 알리지 않는다. 제목 숨김이면 "바쁨"으로.
+    if new.scope = 'personal' and new.visibility = 'private' then return new; end if;
+    perform public.push_to_members(new.project_id, null, auth.uid(), '새 일정',
+      case when new.hide_title then '바쁨 (' || to_char(new.date, 'MM/DD') || ')' else new.title || ' (' || to_char(new.date, 'MM/DD') || ')' end,
+      '/schedule/' || new.id || link, 'schedule:' || new.project_id);
+  elsif tg_table_name = 'files' then
+    perform public.push_to_members(new.project_id, null, auth.uid(), '새 파일', new.name, '/workspace' || link, 'files:' || new.project_id);
+  elsif tg_table_name = 'chat_messages' then
+    -- 채널을 볼 수 있는 사람만: 전체방=전원, 1:1=두 사람, 단체방=방 참여자.
+    if new.channel_id = 'all' then
+      recipients := null;
+    elsif new.channel_id ~ '^dm:[0-9a-f-]{36}:[0-9a-f-]{36}$' then
+      recipients := array[split_part(new.channel_id, ':', 2)::uuid, split_part(new.channel_id, ':', 3)::uuid];
+    elsif new.channel_id ~ '^grp:[0-9a-f-]{36}$' then
+      select coalesce(array_agg(gm.member_id), '{}') into recipients from public.chat_group_members gm
+      where gm.group_id = substring(new.channel_id from 5)::uuid and gm.project_id = new.project_id;
+    else
+      return new;
+    end if;
+    select m.name into sender_name from public.members m where m.id = new.sender_id;
+    perform public.push_to_members(new.project_id, recipients,
+      (select m.user_id from public.members m where m.id = new.sender_id),
+      coalesce(sender_name, '팀원'),
+      case when btrim(new.text) = '' and new.file_id is not null then '파일을 보냈습니다.' else new.text end,
+      '/chat/' || new.channel_id || link || '&messageId=' || new.id, 'chat:' || new.project_id || ':' || new.channel_id);
+  end if;
+  return new;
+exception when others then
+  raise warning '웹 푸시 트리거 실패: %', sqlerrm;
+  return new;
+end $$;
+revoke all on function public.push_on_insert() from public, anon, authenticated;
+
+drop trigger if exists push_on_insert_tasks on public.tasks;
+create trigger push_on_insert_tasks after insert on public.tasks for each row execute function public.push_on_insert();
+drop trigger if exists push_on_insert_schedule_events on public.schedule_events;
+create trigger push_on_insert_schedule_events after insert on public.schedule_events for each row execute function public.push_on_insert();
+drop trigger if exists push_on_insert_files on public.files;
+create trigger push_on_insert_files after insert on public.files for each row execute function public.push_on_insert();
+drop trigger if exists push_on_insert_chat_messages on public.chat_messages;
+create trigger push_on_insert_chat_messages after insert on public.chat_messages for each row execute function public.push_on_insert();
+
+-- ===== 프로젝트 참여 코드 (migrations/2610012200_join_codes.sql 과 동일) =====
+
+-- 코드는 projects와 따로 둔다: projects는 모든 로그인 사용자가 읽으므로 칸으로 두면 코드가 그대로 보인다.
+create table if not exists public.project_join_codes (
+  project_id text primary key references public.projects(id) on delete cascade,
+  code text not null,
+  generated_at timestamptz not null default now(),
+  expires_at timestamptz not null
+);
+create unique index if not exists project_join_codes_code_idx on public.project_join_codes (lower(code));
+alter table public.project_join_codes enable row level security;
+-- 읽기·쓰기 모두 아래 함수로만(정책 없음).
+revoke all on public.project_join_codes from public, anon, authenticated;
+
+-- 코드: 프로젝트 이름 앞부분(최대 12자, 알아보기 쉽게) + 임의 6자(헷갈리는 0/O/1/I 제외 32자).
+-- 임의 부분은 gen_random_uuid()의 난수 바이트에서 뽑는다(random()은 예측 가능). 32는 256의 약수라 치우침 없음.
+create or replace function public.new_project_join_code(p_name text)
+returns text language plpgsql volatile security definer set search_path = public as $$
+declare
+  chars constant text := '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  slug text := regexp_replace(lower(btrim(coalesce(p_name, ''))), '[^a-z0-9가-힣]+', '-', 'g');
+  bytes bytea;
+  random_part text;
+  candidate text;
+begin
+  slug := left(regexp_replace(slug, '(^-+|-+$)', '', 'g'), 12);
+  slug := regexp_replace(slug, '-+$', '');
+  if slug = '' then slug := 'project'; end if;
+  loop
+    bytes := uuid_send(gen_random_uuid());
+    random_part := '';
+    for i in 0..5 loop -- 0~5번째 바이트는 버전 비트가 없는 순수 난수
+      random_part := random_part || substr(chars, get_byte(bytes, i) % 32 + 1, 1);
+    end loop;
+    candidate := slug || '-' || random_part;
+    exit when not exists (select 1 from public.project_join_codes where lower(code) = lower(candidate));
+  end loop;
+  return candidate;
+end $$;
+revoke all on function public.new_project_join_code(text) from public, anon, authenticated;
+
+-- 새 코드로 바꾸고(없으면 만들고) 돌려준다. 권한 검사는 부르는 함수가 한다.
+create or replace function public.reset_project_join_code(p_project_id text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare row public.project_join_codes;
+begin
+  insert into public.project_join_codes(project_id, code, generated_at, expires_at)
+  select p.id, public.new_project_join_code(p.name), now(), now() + interval '6 hours' from public.projects p where p.id = p_project_id
+  on conflict (project_id) do update set code = excluded.code, generated_at = excluded.generated_at, expires_at = excluded.expires_at
+  returning * into row;
+  if row.project_id is null then raise exception '프로젝트를 찾을 수 없습니다.'; end if;
+  return jsonb_build_object('joinCode', row.code, 'joinCodeExpiresAt', row.expires_at);
+end $$;
+revoke all on function public.reset_project_join_code(text) from public, anon, authenticated;
+
+-- 팀원(또는 관리자)이 지금 쓸 수 있는 코드를 본다. 6시간이 지났으면 이때 새로 만든다.
+create or replace function public.get_or_rotate_join_code(p_project_id text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare row public.project_join_codes;
+begin
+  if not (exists (select 1 from public.members m where m.project_id = p_project_id and m.user_id = auth.uid()) or public.is_admin()) then
+    raise exception '프로젝트 참여자만 참여 코드를 확인할 수 있습니다.' using errcode = '42501';
+  end if;
+  select * into row from public.project_join_codes where project_id = p_project_id for update;
+  if row.project_id is null or row.expires_at <= now() then
+    return public.reset_project_join_code(p_project_id);
+  end if;
+  return jsonb_build_object('joinCode', row.code, 'joinCodeExpiresAt', row.expires_at);
+end $$;
+revoke all on function public.get_or_rotate_join_code(text) from public, anon;
+grant execute on function public.get_or_rotate_join_code(text) to authenticated;
+
+-- 팀장·부팀장(또는 관리자)이 지금 바로 새 코드로 바꾼다(이전 코드는 즉시 무효).
+create or replace function public.rotate_project_join_code(p_project_id text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+begin
+  if not (public.is_project_manager(p_project_id) or public.is_admin()) then
+    raise exception '팀장 또는 부팀장만 참여 코드를 갱신할 수 있습니다.' using errcode = '42501';
+  end if;
+  return public.reset_project_join_code(p_project_id);
+end $$;
+revoke all on function public.rotate_project_join_code(text) from public, anon;
+grant execute on function public.rotate_project_join_code(text) to authenticated;
+
+-- 유효한 코드의 프로젝트 정보(참여 전 확인 화면용). 없으면 null, 만료됐으면 안내 오류. 프로젝트 id로는 찾지 않는다.
+create or replace function public.lookup_project_by_join_code(p_code text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare c public.project_join_codes; p public.projects;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into c from public.project_join_codes where lower(code) = lower(btrim(coalesce(p_code, '')));
+  if c.project_id is null then return null; end if;
+  if c.expires_at <= now() then
+    raise exception '참여 코드가 만료되었습니다(유효시간 6시간). 팀장에게 새 참여 코드를 요청하세요.';
+  end if;
+  select * into p from public.projects where id = c.project_id;
+  return jsonb_build_object('id', p.id, 'name', p.name, 'org', p.org, 'period', p.period, 'status', p.status,
+    'start_date', p.start_date, 'end_date', p.end_date, 'approval_status', p.approval_status);
+end $$;
+revoke all on function public.lookup_project_by_join_code(text) from public, anon;
+grant execute on function public.lookup_project_by_join_code(text) to authenticated;
+
+-- 첫 팀원(프로젝트를 만든 사람) 말고는 팀원 행을 직접 넣지 못한다 — 참여는 아래 함수로만.
+create or replace function public.project_has_members(p_project_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.members where project_id = p_project_id)
+$$;
+revoke all on function public.project_has_members(text) from public, anon;
+grant execute on function public.project_has_members(text) to authenticated;
+
+drop policy if exists members_insert on public.members;
+create policy members_insert on public.members for insert to authenticated
+  with check (not public.project_has_members(project_id));
+
+-- 코드로 참여. 이름·아바타는 내 계정 프로필에서, 색은 참여 순서로 정한다. 참여한 프로젝트 id를 돌려준다.
+create or replace function public.join_project_with_code(p_code text, p_major text, p_student text)
+returns text language plpgsql volatile security definer set search_path = public as $$
+declare
+  c public.project_join_codes;
+  prof public.profiles;
+  member_count integer;
+  colors constant text[] := array['#2563eb', '#f59e0b', '#22c55e', '#8b5cf6', '#ef4444', '#06b6d4'];
+  display text;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  select * into c from public.project_join_codes where lower(code) = lower(btrim(coalesce(p_code, ''))) for share;
+  if c.project_id is null then raise exception '해당 참여 코드의 프로젝트를 찾을 수 없어요.'; end if;
+  if c.expires_at <= now() then
+    raise exception '참여 코드가 만료되었습니다(유효시간 6시간). 팀장에게 새 참여 코드를 요청하세요.';
+  end if;
+  if exists (select 1 from public.members where project_id = c.project_id and user_id = auth.uid()) then
+    raise exception '이미 참여한 프로젝트입니다.';
+  end if;
+  select * into prof from public.profiles where id = auth.uid();
+  display := coalesce(nullif(btrim(prof.display_name), ''), '사용자');
+  select count(*) into member_count from public.members where project_id = c.project_id;
+  insert into public.members(project_id, name, role, major, student, avatar, tasks_done, tasks_total, activities, score, eval_count,
+    online, responsibilities, color, criteria_role, criteria_deadline, criteria_communication, criteria_collaboration, criteria_quality, is_leader)
+  values (c.project_id, display, '팀원', coalesce(nullif(btrim(left(p_major, 100)), ''), '전공 미지정'), coalesce(nullif(btrim(left(p_student, 50)), ''), '-'),
+    coalesce(nullif(btrim(prof.avatar_initial), ''), left(display, 1)), 0, 0, 0, 0, 0, true, '{}', colors[member_count % 6 + 1], 0, 0, 0, 0, 0, false);
+  return c.project_id;
+end $$;
+revoke all on function public.join_project_with_code(text, text, text) from public, anon;
+grant execute on function public.join_project_with_code(text, text, text) to authenticated;
+
+-- ===== 일정 작성자 (migrations/2610012300_schedule_creator.sql 과 동일) =====
+-- 팀 일정에는 누가 만들었는지 기록이 없었다. 새 일정부터 만든 사람(그 프로젝트의 내 팀원 행)을 남긴다.
+-- 값은 화면이 보내는 것이 아니라 트리거가 로그인한 사용자로 정하고, 수정으로 바꿀 수 없다.
+alter table public.schedule_events add column if not exists created_by_member_id uuid references public.members(id) on delete set null;
+
+-- 개인 일정은 소유자가 곧 만든 사람이다(기존 일정도 채운다). 기존 팀 일정은 알 수 없으므로 비워 둔다.
+-- app.move_only: 수정 시각(updated_at)을 건드리지 않게(stamp_dashboard_activity) — 채우기만 하고 "수정됨"으로 보이지 않도록.
+select set_config('app.move_only', 'on', false);
+update public.schedule_events set created_by_member_id = owner_member_id
+where created_by_member_id is null and scope = 'personal' and owner_member_id is not null;
+select set_config('app.move_only', '', false);
+
+create or replace function public.set_schedule_creator()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_by_member_id := (select m.id from public.members m where m.project_id = new.project_id and m.user_id = auth.uid() limit 1);
+    if new.created_by_member_id is null and new.scope = 'personal' then new.created_by_member_id := new.owner_member_id; end if;
+  else
+    new.created_by_member_id := old.created_by_member_id;
+  end if;
+  return new;
+end $$;
+revoke all on function public.set_schedule_creator() from public, anon, authenticated;
+
+drop trigger if exists schedule_set_creator on public.schedule_events;
+create trigger schedule_set_creator before insert or update on public.schedule_events
+for each row execute function public.set_schedule_creator();
+
+-- ===== 팀장 위임: 대상을 팀원 id로 찾는다 =====
+-- 기존 transfer_leadership(p_project_id, p_target_name)은 참여 당시 이름(members.name)으로 찾는데,
+-- 팀 화면은 팀원 id를 보내고 있어 위임이 항상 실패했다(이름을 바꾼 팀원도 찾을 수 없었다).
+-- 이름 대신 id로 찾는 함수를 추가한다. 검사·교체 방식은 기존 함수와 같다(기존 함수는 그대로 둔다).
+create or replace function public.transfer_leadership_to_member(p_project_id text, p_target_member_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_caller_id uuid;
+  v_caller_role text;
+  v_target_id uuid;
+  v_target_role text;
+begin
+  select id, role into v_caller_id, v_caller_role
+    from members
+    where project_id = p_project_id and user_id = auth.uid() and is_leader;
+  if v_caller_id is null then
+    raise exception '팀장만 권한을 이전할 수 있습니다';
+  end if;
+
+  select id, role into v_target_id, v_target_role
+    from members
+    where project_id = p_project_id and id = p_target_member_id and not is_leader;
+  if v_target_id is null then
+    raise exception '대상 멤버를 찾을 수 없거나 이미 팀장입니다';
+  end if;
+
+  perform set_config('app.allow_leader_change', 'true', true);
+  perform set_config('app.allow_vice_leader_change', 'true', true);
+
+  -- is_leader와 함께 role 표시 문구도 동기화 (커스텀 역할 문구는 그대로 둠)
+  update members set is_leader = false,
+    role = case when v_caller_role = '팀장' then '팀원' else v_caller_role end
+    where id = v_caller_id;
+  update members set is_leader = true, is_vice_leader = false,
+    role = case when v_target_role in ('참여자', '팀원', '부팀장') then '팀장' else v_target_role end
+    where id = v_target_id;
+end;
+$$;
+revoke all on function public.transfer_leadership_to_member(text, uuid) from public, anon;
+grant execute on function public.transfer_leadership_to_member(text, uuid) to authenticated;
+
+-- ===== 게시판 작성자 이름·사진 =====
+-- 프로필은 본인·같은 프로젝트 팀원·관리자만 읽을 수 있어(profiles_select_own), 전역 게시판에서
+-- 프로젝트를 함께하지 않는 사람의 글·댓글 작성자가 "탈퇴한 사용자"로 보였다.
+-- 게시판에 글·댓글을 쓰거나 공개 투표에 참여한 사람에 한해 이름·사진만 돌려준다(나머지 프로필은 계속 비공개).
+-- 원래 읽을 수 있는 프로필(본인·팀원·관리자)은 그대로 돌려준다.
+create or replace function public.board_profiles(p_user_ids uuid[])
+returns table (id uuid, display_name text, avatar_url text)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.display_name, p.avatar_url
+  from public.profiles p
+  where auth.uid() is not null
+    and p.id = any(p_user_ids)
+    and (
+      p.id = auth.uid() or public.shares_project_with(p.id) or public.is_admin()
+      or exists (select 1 from public.board_posts b where b.author_user_id = p.id)
+      or exists (select 1 from public.board_comments c where c.author_user_id = p.id)
+      or exists (select 1 from public.board_poll_votes v join public.board_polls l on l.id = v.poll_id
+                 where v.user_id = p.id and not l.is_anonymous)
+    );
+$$;
+revoke all on function public.board_profiles(uuid[]) from public, anon;
+grant execute on function public.board_profiles(uuid[]) to authenticated;
+
+
+-- ===== 워크스페이스 폴더 이동·직접 정렬 (migrations/2610041400_workspace_folder_move_and_order.sql 과 동일) =====
+-- 폴더를 다른 폴더 안이나 상위로 옮기고, 폴더·파일의 순서를 끌어서 바꿀 수 있게 한다.
+--  * 진행 중인 프로젝트의 참여자라면 누구나 옮기고 순서를 바꿀 수 있다(파일 이동과 같은 기준).
+--  * 폴더 이동: 같은 프로젝트의 폴더 안(또는 루트, null)으로만. 자기 자신·하위 폴더 안으로는 못 옮기고,
+--    옮긴 뒤 하위 트리 전체가 10단계를 넘으면 막는다. 같은 프로젝트의 폴더 이동은 프로젝트 행을 잠가 한 번에 하나씩
+--    처리한다(두 사람이 동시에 서로의 안으로 옮겨 순환이 생기는 것을 막는다). 옮긴 폴더는 새 위치의 맨 뒤로 간다
+--    (새 위치의 폴더들에 지금 보이는 순서대로 번호를 매긴 뒤 그 다음 번호). 옮긴 파일은 순서가 비워져 "직접 정렬"의 맨 위에 보인다.
+--  * 순서(sort_order): 같은 상위 폴더의 폴더들, 같은 폴더의 파일들끼리만. 화면이 보낸 id 순서대로 1, 2, 3…을 매기고,
+--    보내지 않은 같은 폴더의 항목은 그 뒤에 이어 매긴다.
+--    순서가 없는(null) 폴더는 순서가 있는 폴더 뒤에 만든 순서대로, 파일은 화면에서 "직접 정렬"일 때 맨 위에 최신순으로 보인다.
+--  * 순서 바꾸기는 내용 수정이 아니므로 대시보드 "최근 활동"의 수정 시각(updated_at)을 바꾸지 않는다.
+
+alter table public.folders add column if not exists sort_order integer;
+alter table public.files add column if not exists sort_order integer;
+
+create or replace function public.move_workspace_folder(p_folder_id bigint, p_parent_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; cur bigint; anc bigint; above int := 0; height int;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  select project_id, parent_id into pid, cur from public.folders where id=p_folder_id;
+  if pid is null then raise exception '폴더가 존재하지 않습니다.'; end if;
+  perform id from public.projects where id=pid and status='active' for update;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 폴더를 옮길 수 있습니다.'; end if;
+  if p_parent_id is not null and not exists(select 1 from public.folders where id=p_parent_id and project_id=pid) then
+    raise exception '옮길 폴더를 찾을 수 없습니다.';
+  end if;
+  if cur is not distinct from p_parent_id then return; end if;
+  -- 새 상위 폴더에서 루트까지 올라가며 자기 자신을 만나면 순환이다. 올라간 단계 수 = 새 상위 폴더의 깊이.
+  anc := p_parent_id;
+  while anc is not null loop
+    if anc = p_folder_id then raise exception '폴더를 자기 자신이나 하위 폴더 안으로 옮길 수 없습니다.'; end if;
+    above := above + 1;
+    if above > 10 then raise exception '폴더는 최대 10단계까지만 만들 수 있습니다.'; end if;
+    select parent_id into anc from public.folders where id=anc;
+  end loop;
+  -- 옮기는 폴더부터 가장 깊은 하위 폴더까지의 단계 수(자기 포함).
+  with recursive tree(id, lvl) as (
+    select p_folder_id, 1
+    union all
+    select f.id, tree.lvl + 1 from public.folders f join tree on f.parent_id = tree.id where tree.lvl < 11
+  )
+  select max(lvl) into height from tree;
+  if above + height > 10 then raise exception '폴더는 최대 10단계까지만 만들 수 있습니다.'; end if;
+  -- 새 위치의 폴더들에 지금 보이는 순서대로 번호를 매기고, 옮긴 폴더는 그 맨 뒤에 둔다.
+  update public.folders f set sort_order = o.rn
+  from (select id, row_number() over (order by sort_order nulls last, id) as rn
+        from public.folders where project_id=pid and parent_id is not distinct from p_parent_id and id<>p_folder_id) o
+  where f.id = o.id;
+  update public.folders set parent_id=p_parent_id,
+    sort_order=(select count(*) + 1 from public.folders where project_id=pid and parent_id is not distinct from p_parent_id and id<>p_folder_id)
+  where id=p_folder_id;
+end $$;
+revoke all on function public.move_workspace_folder(bigint, bigint) from public, anon;
+grant execute on function public.move_workspace_folder(bigint, bigint) to authenticated;
+
+-- 파일을 옮기면 새 폴더의 순서에는 아직 자리가 없다(null → 직접 정렬에서 맨 위). 나머지는 기존 정의와 같다.
+create or replace function public.move_workspace_file(p_file_id bigint, p_folder_id bigint)
+returns void language plpgsql security definer set search_path=public as $$
+declare pid text; cur bigint;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  select project_id, folder_id into pid, cur from public.files where id=p_file_id;
+  if pid is null then raise exception '파일이 존재하지 않습니다.'; end if;
+  perform id from public.projects where id=pid and status='active' for share;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 파일을 옮길 수 있습니다.'; end if;
+  if p_folder_id is not null and not exists(select 1 from public.folders where id=p_folder_id and project_id=pid) then
+    raise exception '옮길 폴더를 찾을 수 없습니다.';
+  end if;
+  if cur is not distinct from p_folder_id then return; end if;
+  perform set_config('app.move_only', 'on', true);
+  update public.files set folder_id=p_folder_id, sort_order=null where id=p_file_id;
+  perform set_config('app.move_only', '', true);
+end $$;
+revoke all on function public.move_workspace_file(bigint, bigint) from public, anon;
+grant execute on function public.move_workspace_file(bigint, bigint) to authenticated;
+
+-- p_kind: 'folder' 또는 'file'. p_ids는 모두 같은 프로젝트·같은 상위 폴더(파일은 같은 폴더)에 있어야 한다.
+create or replace function public.reorder_workspace_items(p_kind text, p_ids bigint[])
+returns void language plpgsql security definer set search_path=public as $$
+declare n int := coalesce(array_length(p_ids, 1), 0); found_rows int; projects int; parents int; pid text; parent bigint;
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if p_kind not in ('folder', 'file') then raise exception '순서를 바꿀 수 없는 종류입니다.'; end if;
+  if n = 0 then return; end if;
+  if n > 2000 then raise exception '한 번에 2000개까지만 순서를 바꿀 수 있습니다.'; end if;
+  if (select count(distinct x) from unnest(p_ids) x) <> n then raise exception '같은 항목이 두 번 들어 있습니다.'; end if;
+  if p_kind = 'folder' then
+    select count(*), count(distinct project_id), count(distinct coalesce(parent_id, -1)), min(project_id), min(parent_id)
+      into found_rows, projects, parents, pid, parent from public.folders where id = any(p_ids);
+  else
+    select count(*), count(distinct project_id), count(distinct coalesce(folder_id, -1)), min(project_id), min(folder_id)
+      into found_rows, projects, parents, pid, parent from public.files where id = any(p_ids);
+  end if;
+  if found_rows <> n or projects <> 1 then raise exception '순서를 바꿀 항목을 찾을 수 없습니다.'; end if;
+  if parents <> 1 then raise exception '같은 폴더 안의 항목끼리만 순서를 바꿀 수 있습니다.'; end if;
+  perform id from public.projects where id=pid and status='active' for share;
+  if not found or not public.is_project_member(pid) then raise exception '진행 중인 프로젝트의 참여자만 순서를 바꿀 수 있습니다.'; end if;
+  -- 보낸 항목은 1..n, 보내지 않은 같은 폴더의 항목(그사이 팀원이 새로 만든 것 등)은 그 뒤에 지금 순서대로 이어 매긴다(번호가 겹치지 않게).
+  if p_kind = 'folder' then
+    update public.folders f set sort_order = o.ord from unnest(p_ids) with ordinality o(id, ord) where f.id = o.id;
+    update public.folders f set sort_order = n + o.rn
+    from (select id, row_number() over (order by sort_order nulls last, id) as rn from public.folders
+          where project_id = pid and parent_id is not distinct from parent and id <> all(p_ids)) o
+    where f.id = o.id;
+  else
+    perform set_config('app.move_only', 'on', true);
+    update public.files f set sort_order = o.ord from unnest(p_ids) with ordinality o(id, ord) where f.id = o.id;
+    update public.files f set sort_order = n + o.rn
+    from (select id, row_number() over (order by sort_order nulls last, id) as rn from public.files
+          where project_id = pid and folder_id is not distinct from parent and id <> all(p_ids)) o
+    where f.id = o.id;
+    perform set_config('app.move_only', '', true);
+  end if;
+end $$;
+revoke all on function public.reorder_workspace_items(text, bigint[]) from public, anon;
+grant execute on function public.reorder_workspace_items(text, bigint[]) to authenticated;
+
+-- ===== 팀장 전공·학번 예시 값 정리 (migrations/2610041800_fix_sample_leader_major.sql 과 동일) =====
+-- 프로젝트를 만들 때 서버가 팀장 행에 예시 값('역사문화학과 3학년', '2021123456')을 그대로 넣던 문제(서버 코드는 고침).
+-- 그 값이 남은 팀원 행을 계정 프로필의 전공·학번으로, 프로필에도 없으면 참여할 때와 같은 기본값('전공 미지정', '-')으로 바꾼다.
+-- 두 값이 함께 예시 값과 똑같은 행만 고치므로 여러 번 실행해도 안전하다.
+update public.members m
+set major = coalesce(nullif(btrim(left(p.major, 100)), ''), '전공 미지정'),
+    student = coalesce(nullif(btrim(left(p.student, 50)), ''), '-')
+from (select m2.id, pr.major, pr.student from public.members m2 left join public.profiles pr on pr.id = m2.user_id) p
+where p.id = m.id and m.major = '역사문화학과 3학년' and m.student = '2021123456';
+
+-- ===== 동료 평가 점수 방식 미리보기: CCA(성향 보정 합의 평균) =====
+-- 저장된 원점수는 그대로 두고, 화면에서 "현재 방식 / CCA"를 바꿔 볼 수 있도록 내 평균만 CCA로 계산해 돌려준다.
+-- 참여자 확인·공개 조건·코멘트는 my_evaluation_average를 그대로 쓰고, 점수(score·criteria)만 바꾼다.
+-- 다른 사람의 점수는 돌려주지 않는다(계산에는 팀의 모든 평가가 필요해서 security definer).
+--
+-- CCA (점수 = 5개 항목 평균 X, 항목별 점수도 같은 식):
+--   보정 점수 C = X − (그 평가자가 준 점수들의 평균) + (팀에서 오간 모든 점수의 평균)
+--   나를 평가한 사람이 3명 이상이면, 각 C를 "나를 평가한 다른 사람들 C의 중앙값 ± p_limit" 안으로 제한
+--   최종 = 제한한 C들의 평균, 마지막에 0~10으로 자름
+-- 미리보기는 관리자가 켜야 쓸 수 있다(기본 꺼짐). 원점수와 CCA를 함께 보면 작은 팀에서 다른 팀원끼리 준 점수의 합을
+-- 역산할 수 있어서, 비교·검토할 때만 켠다. 꺼져 있으면 화면에 토글이 없고 DB도 계산을 거절한다.
+insert into public.app_settings (key, value) values ('evaluation_method_preview_enabled', false)
+  on conflict (key) do nothing;
+
+create or replace function public.evaluation_method_preview_enabled()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select value from public.app_settings where key = 'evaluation_method_preview_enabled'), false)
+$$;
+revoke all on function public.evaluation_method_preview_enabled() from public, anon;
+grant execute on function public.evaluation_method_preview_enabled() to authenticated;
+
+create or replace function public.set_evaluation_method_preview_enabled(p_enabled boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_admin() then raise exception '관리자만 변경할 수 있습니다.'; end if;
+  insert into public.app_settings (key, value) values ('evaluation_method_preview_enabled', p_enabled)
+    on conflict (key) do update set value = excluded.value;
+end $$;
+revoke all on function public.set_evaluation_method_preview_enabled(boolean) from public, anon;
+grant execute on function public.set_evaluation_method_preview_enabled(boolean) to authenticated;
+
+create or replace function public.cca_evaluation_average(p_project_id text, p_phase text, p_limit numeric default 3)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  base jsonb;
+  actor uuid;
+  scores jsonb;
+begin
+  if not public.evaluation_method_preview_enabled() then raise exception '점수 방식 미리보기가 꺼져 있습니다.'; end if;
+  base := public.my_evaluation_average(p_project_id, p_phase); -- 로그인·참여자·평가 유형 확인과 공개 조건을 여기서 함께
+  if not coalesce((base->>'available')::boolean, false) or coalesce((base->>'count')::int, 0) = 0 then
+    return base || jsonb_build_object('method', 'cca');
+  end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+
+  with ev as (
+    select evaluator_id as e, recipient_id as r,
+      (role + deadline + communication + collaboration + quality)::numeric / 5 as total,
+      role::numeric as role, deadline::numeric as deadline, communication::numeric as communication,
+      collaboration::numeric as collaboration, quality::numeric as quality
+    from public.peer_evaluations where project_id = p_project_id and phase = p_phase
+  ),
+  long as ( -- (평가자, 받은 사람, 항목) 한 줄씩. total = 5개 항목 평균
+    select e, r, k, v from ev cross join lateral (values
+      ('total', total), ('role', role), ('deadline', deadline), ('communication', communication),
+      ('collaboration', collaboration), ('quality', quality)) as t(k, v)
+  ),
+  centered as ( -- C = X − 평가자 평균 + 팀 평균 (항목마다)
+    select e, r, k, v - avg(v) over (partition by e, k) + avg(v) over (partition by k) as c from long
+  ),
+  mine as (select e, k, c from centered where r = actor),
+  limited as (
+    select m.k,
+      case when (select count(*) from mine o where o.k = m.k) >= 3 then
+        least(greatest(m.c, med - p_limit), med + p_limit)
+      else m.c end as c
+    from mine m
+    cross join lateral (
+      select (percentile_cont(0.5) within group (order by o.c))::numeric as med from mine o where o.k = m.k and o.e <> m.e
+    ) x
+  )
+  select jsonb_object_agg(k, least(10, greatest(0, avg_c))) into scores
+  from (select k, avg(c) as avg_c from limited group by k) s;
+
+  return base || jsonb_build_object('method', 'cca', 'score', scores->'total', 'criteria', scores - 'total');
+end $$;
+revoke all on function public.cca_evaluation_average(text, text, numeric) from public, anon;
+grant execute on function public.cca_evaluation_average(text, text, numeric) to authenticated;
+
+-- ===== 동료 평가 공식 점수 방식: 원점수 평균 / CCA (관리자가 전체 적용) ===== (migrations/2610111200_evaluation_score_method.sql 과 동일)
+-- 관리자가 "공식 점수 방식: CCA"를 켜면 내 평균(my_evaluation_average), 팀원 평균(member_evaluation_average),
+-- 그리고 이 둘을 쓰는 프로필·대시보드·업적(visible_evaluation_members)과 상위 %(evaluation_user_averages)가 모두 CCA로 계산된다.
+-- 저장된 원점수(peer_evaluations)는 그대로이고, 끄면 바로 원점수 평균으로 돌아간다.
+-- 점수 계산은 evaluation_scores_by_method 한곳에서 한다(권한 확인 없음, 밖에서 직접 부를 수 없음).
+insert into public.app_settings (key, value) values ('evaluation_score_cca', false)
+  on conflict (key) do nothing;
+
+create or replace function public.evaluation_score_cca_enabled()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((select value from public.app_settings where key = 'evaluation_score_cca'), false)
+$$;
+revoke all on function public.evaluation_score_cca_enabled() from public, anon;
+grant execute on function public.evaluation_score_cca_enabled() to authenticated;
+
+create or replace function public.set_evaluation_score_cca_enabled(p_enabled boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_admin() then raise exception '관리자만 변경할 수 있습니다.'; end if;
+  insert into public.app_settings (key, value) values ('evaluation_score_cca', p_enabled)
+    on conflict (key) do update set value = excluded.value;
+end $$;
+revoke all on function public.set_evaluation_score_cca_enabled(boolean) from public, anon;
+grant execute on function public.set_evaluation_score_cca_enabled(boolean) to authenticated;
+
+create or replace function public.evaluation_official_method()
+returns text language sql stable security definer set search_path = public as $$
+  select case when public.evaluation_score_cca_enabled() then 'cca' else 'raw' end
+$$;
+revoke all on function public.evaluation_official_method() from public, anon, authenticated;
+
+-- 한 팀원이 받은 점수 {score, criteria}. raw = 받은 점수 평균, cca = 성향 보정 합의 평균
+-- (계산식은 2610101200_evaluation_cca_preview.sql 설명과 같다). 받은 평가가 없으면 score는 null.
+create or replace function public.evaluation_scores_by_method(p_project_id text, p_member_id uuid, p_phase text, p_method text, p_limit numeric default 3)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare scores jsonb;
+begin
+  if p_method = 'cca' then
+    with ev as (
+      select evaluator_id as e, recipient_id as r,
+        (role + deadline + communication + collaboration + quality)::numeric / 5 as total,
+        role::numeric as role, deadline::numeric as deadline, communication::numeric as communication,
+        collaboration::numeric as collaboration, quality::numeric as quality
+      from public.peer_evaluations where project_id = p_project_id and phase = p_phase
+    ),
+    long as (
+      select e, r, k, v from ev cross join lateral (values
+        ('total', total), ('role', role), ('deadline', deadline), ('communication', communication),
+        ('collaboration', collaboration), ('quality', quality)) as t(k, v)
+    ),
+    centered as (
+      select e, r, k, v - avg(v) over (partition by e, k) + avg(v) over (partition by k) as c from long
+    ),
+    mine as (select e, k, c from centered where r = p_member_id),
+    limited as (
+      select m.k,
+        case when (select count(*) from mine o where o.k = m.k) >= 3 then
+          least(greatest(m.c, med - p_limit), med + p_limit)
+        else m.c end as c
+      from mine m
+      cross join lateral (
+        select (percentile_cont(0.5) within group (order by o.c))::numeric as med from mine o where o.k = m.k and o.e <> m.e
+      ) x
+    )
+    select jsonb_object_agg(k, least(10, greatest(0, avg_c))) into scores
+    from (select k, avg(c) as avg_c from limited group by k) s;
+    if scores is null then
+      return jsonb_build_object('method', 'cca', 'score', null, 'criteria', jsonb_build_object('role', null, 'deadline', null, 'communication', null, 'collaboration', null, 'quality', null));
+    end if;
+    return jsonb_build_object('method', 'cca', 'score', scores->'total', 'criteria', scores - 'total');
+  end if;
+  select jsonb_build_object('method', 'raw',
+    'score', avg((role + deadline + communication + collaboration + quality)::numeric / 5),
+    'criteria', jsonb_build_object('role', avg(role), 'deadline', avg(deadline), 'communication', avg(communication), 'collaboration', avg(collaboration), 'quality', avg(quality)))
+    into scores
+  from public.peer_evaluations where project_id = p_project_id and phase = p_phase and recipient_id = p_member_id;
+  return scores;
+end $$;
+revoke all on function public.evaluation_scores_by_method(text, uuid, text, text, numeric) from public, anon, authenticated;
+
+create or replace function public.my_evaluation_average(p_project_id text, p_phase text)
+returns jsonb language plpgsql stable security definer set search_path=public as $$
+declare actor uuid; expected integer; received integer; result jsonb;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형'; end if;
+ select id into actor from members where project_id=p_project_id and user_id=auth.uid();
+ if actor is null then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ select count(*) into expected from members where project_id=p_project_id and id<>actor and user_id is not null;
+ select count(*) into received from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
+ if not public.evaluation_prototype_enabled() and (expected<2 or received<expected) then
+   return jsonb_build_object('count',0,'score',null,'criteria',null,'comments','[]'::jsonb,'available',false,'method',public.evaluation_official_method());
+ end if;
+ select jsonb_build_object('count',count(*),'available',true,
+ 'comments',case when p_phase='midterm' then coalesce(jsonb_agg(comment) filter (where btrim(comment)<>''),'[]'::jsonb) else '[]'::jsonb end)
+ into result from peer_evaluations where project_id=p_project_id and phase=p_phase and recipient_id=actor;
+ return result || public.evaluation_scores_by_method(p_project_id, actor, p_phase, public.evaluation_official_method());
+end $$;
+revoke all on function public.my_evaluation_average(text,text) from public, anon;
+grant execute on function public.my_evaluation_average(text,text) to authenticated;
+
+create or replace function public.member_evaluation_average(p_project_id text, p_member_id uuid, p_phase text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare expected integer; received integer;
+begin
+ if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+ if p_phase is null or p_phase not in ('midterm','final') then raise exception '잘못된 평가 유형'; end if;
+ if not public.is_project_member(p_project_id) then raise exception '프로젝트 참여자만 조회할 수 있습니다.'; end if;
+ if not exists (select 1 from members where id = p_member_id and project_id = p_project_id) then
+   raise exception '멤버를 찾을 수 없습니다.';
+ end if;
+ select count(*) into expected from members where project_id = p_project_id and id <> p_member_id and user_id is not null;
+ select count(*) into received from peer_evaluations where project_id = p_project_id and phase = p_phase and recipient_id = p_member_id;
+ if not public.evaluation_prototype_enabled() and (expected < 2 or received < expected) then
+   return jsonb_build_object('count', 0, 'score', null, 'criteria', null, 'comments', '[]'::jsonb, 'available', false, 'method', public.evaluation_official_method());
+ end if;
+ return jsonb_build_object('count', received, 'available', true, 'comments', '[]'::jsonb)
+   || public.evaluation_scores_by_method(p_project_id, p_member_id, p_phase, public.evaluation_official_method());
+end $$;
+revoke all on function public.member_evaluation_average(text,uuid,text) from public, anon;
+grant execute on function public.member_evaluation_average(text,uuid,text) to authenticated;
+
+-- 상위 %의 비교 집단: 사람마다 프로젝트별 공식 점수를 받은 평가 수로 가중 평균(원점수일 때는 예전 계산과 같다).
+-- ponytail: CCA일 때는 프로젝트마다 팀 전체 점수를 다시 계산한다. 사용자가 많아지면 결산 시점에 캐시 표로 옮긴다.
+create or replace function public.evaluation_user_averages()
+returns table(user_id uuid, score numeric, role numeric, deadline numeric, communication numeric, collaboration numeric, quality numeric)
+language sql stable security definer set search_path = public as $$
+  with published as (
+    select m.id, m.project_id, m.user_id
+    from members m
+    cross join lateral (
+      select count(*) as expected from members o where o.project_id = m.project_id and o.id <> m.id and o.user_id is not null
+    ) x
+    where m.user_id is not null
+      and (public.evaluation_prototype_enabled()
+        or (x.expected >= 2
+          and (select count(*) from peer_evaluations e where e.project_id = m.project_id and e.phase = 'final' and e.recipient_id = m.id) >= x.expected))
+  ),
+  per_project as (
+    select p.user_id, n.n, public.evaluation_scores_by_method(p.project_id, p.id, 'final', public.evaluation_official_method()) as s
+    from published p
+    cross join lateral (select count(*)::numeric as n from peer_evaluations e where e.project_id = p.project_id and e.phase = 'final' and e.recipient_id = p.id) n
+    where n.n > 0
+  )
+  select user_id,
+    sum((s->>'score')::numeric * n) / sum(n),
+    sum((s->'criteria'->>'role')::numeric * n) / sum(n),
+    sum((s->'criteria'->>'deadline')::numeric * n) / sum(n),
+    sum((s->'criteria'->>'communication')::numeric * n) / sum(n),
+    sum((s->'criteria'->>'collaboration')::numeric * n) / sum(n),
+    sum((s->'criteria'->>'quality')::numeric * n) / sum(n)
+  from per_project
+  group by user_id
+$$;
+revoke all on function public.evaluation_user_averages() from public, anon, authenticated;
+
+-- 점수 방식 비교(미리보기): 공식 방식과 관계없이 고른 방식으로 내 평균을 계산한다. 미리보기가 켜져 있을 때만.
+create or replace function public.evaluation_average_preview(p_project_id text, p_phase text, p_method text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare base jsonb; actor uuid;
+begin
+  if not public.evaluation_method_preview_enabled() then raise exception '점수 방식 미리보기가 꺼져 있습니다.'; end if;
+  if p_method is null or p_method not in ('raw', 'cca') then raise exception '점수 방식은 raw 또는 cca 이어야 합니다.'; end if;
+  base := public.my_evaluation_average(p_project_id, p_phase); -- 로그인·참여자·평가 유형 확인과 공개 조건
+  if not coalesce((base->>'available')::boolean, false) or coalesce((base->>'count')::int, 0) = 0 then
+    return base || jsonb_build_object('method', p_method);
+  end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+  return base || public.evaluation_scores_by_method(p_project_id, actor, p_phase, p_method);
+end $$;
+revoke all on function public.evaluation_average_preview(text, text, text) from public, anon;
+grant execute on function public.evaluation_average_preview(text, text, text) to authenticated;
+
+create or replace function public.cca_evaluation_average(p_project_id text, p_phase text, p_limit numeric default 3)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare base jsonb; actor uuid;
+begin
+  if not public.evaluation_method_preview_enabled() then raise exception '점수 방식 미리보기가 꺼져 있습니다.'; end if;
+  base := public.my_evaluation_average(p_project_id, p_phase);
+  if not coalesce((base->>'available')::boolean, false) or coalesce((base->>'count')::int, 0) = 0 then
+    return base || jsonb_build_object('method', 'cca');
+  end if;
+  select id into actor from public.members where project_id = p_project_id and user_id = auth.uid();
+  return base || public.evaluation_scores_by_method(p_project_id, actor, p_phase, 'cca', p_limit);
+end $$;
+revoke all on function public.cca_evaluation_average(text, text, numeric) from public, anon;
+grant execute on function public.cca_evaluation_average(text, text, numeric) to authenticated;

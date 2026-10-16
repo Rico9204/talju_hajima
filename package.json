@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node --test \"tests/*.test.mjs\"",
     "format": "oxfmt"
   },
   "dependencies": {
@@ -20,22 +21,26 @@
     "@tiptap/starter-kit": "^3.31.3",
     "@tiptap/y-tiptap": "^3.0.9",
     "axios": "^1.20.0",
+    "cheerio": "^1.2.0",
     "docx": "^9.7.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.2",
     "mammoth": "^1.12.3",
-    "pdfjs-dist": "^6.3.289",
+    "officeparser": "^8.0.0",
+    "pdfjs-dist": "6.3.289",
     "pptxgenjs": "^4.0.1",
     "prismjs": "^1.30.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.18.3",
     "xlsx": "^0.18.5",
+    "y-protocols": "^1.0.7",
     "y-websocket": "^3.1.0",
-    "yjs": "^13.6.32"
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/prismjs": "^1.26.6",
