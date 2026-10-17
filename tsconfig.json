@@ -19,10 +19,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "vite.config.ts"],
-  // nestDataRepository.ts는 main의 DataRepository 인터페이스(uploadFile/moveWorkspaceFile/
-  // promoteFileVersion/setMessageReaction 등으로 재구성됨)와 더 이상 모양이 맞지 않고, 지금은
-  // src/api/index.ts가 RestDataRepository만 쓰고 있어 어디서도 참조되지 않는다. backend/(NestJS)를
-  // 합성 레포지토리에 다시 연결하는 작업(통합 계획 5단계)에서 이 인터페이스에 맞춰 다시 작성할 예정
-  // — 그 전까지는 빌드를 막지 않도록 제외해둔다. evaluations.ts도 같은 이유로 같이 제외.
-  "exclude": ["src/api/backend/nestDataRepository.ts", "src/api/backend/evaluations.ts"]
+  // evaluations.ts는 main의 새 DataRepository 인터페이스(EvaluationAverage 등)와 아직 모양이 안
+  // 맞고, 지금은 어디서도 참조되지 않는다(평가 기능은 다음 포팅 대상) — 그 전까지는 제외해둔다.
+  "exclude": ["src/api/backend/evaluations.ts"]
 }

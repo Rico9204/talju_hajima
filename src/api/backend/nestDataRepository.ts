@@ -70,6 +70,25 @@ const EXT_TYPE: Record<string, WorkspaceFile["type"]> = {
   gif: "img",
   svg: "img",
 };
+const UPLOAD_BINARY_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "hwp", "hwpx", "zip",
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico",
+]);
+
+// uploadFile이 받는 브라우저 File 객체를 저장용 문자열로 읽는다 — 텍스트 확장자는 그대로
+// 텍스트로, 이미지/문서/압축 등은 원본 바이트가 안 깨지게 data: URL(base64)로 읽는다
+// (Workspace.tsx의 readFileForUpload와 같은 방식 — 거긴 로컬 비공개 함수라 여기 따로 둠).
+function readFileContentForUpload(file: File): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!UPLOAD_BINARY_EXTENSIONS.has(ext)) return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function fileType(path: string): WorkspaceFile["type"] {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return EXT_TYPE[ext] ?? "doc";
@@ -237,6 +256,11 @@ function folderNameForId(id: number): string | null {
   if (!key) return null;
   return key.slice(key.indexOf(" ") + 1);
 }
+function folderProjectIdForId(id: number): string | null {
+  const key = folderIdToKey.get(id);
+  if (!key) return null;
+  return key.slice(0, key.indexOf(" "));
+}
 
 interface FileMeta {
   uuid: string;
@@ -254,6 +278,25 @@ function registerFile(raw: RawProjectFile): number {
     fileUuidToId.set(raw.id, id);
   }
   fileMetaById.set(id, { uuid: raw.id, projectId: raw.projectId, path: raw.path, currentVersionId: raw.currentVersionId });
+  return id;
+}
+
+// 버전도 파일과 마찬가지로 UUID <-> 숫자 id 양방향 매핑이 필요하다(promoteFileVersion/
+// pinFileVersion/downloadFileVersion이 숫자 id를 받아서 실제 백엔드 UUID로 다시 호출해야 함).
+interface VersionMeta {
+  uuid: string;
+  fileId: number;
+}
+let nextVersionId = 1;
+const versionUuidToId = new Map<string, number>();
+const versionMetaById = new Map<number, VersionMeta>();
+function registerVersion(uuid: string, fileId: number): number {
+  let id = versionUuidToId.get(uuid);
+  if (id === undefined) {
+    id = nextVersionId++;
+    versionUuidToId.set(uuid, id);
+  }
+  versionMetaById.set(id, { uuid, fileId });
   return id;
 }
 
@@ -435,8 +478,17 @@ function toMessage(raw: RawChatMessage, members: Map<string, RawMember>, channel
   };
 }
 
-async function buildFileVersions(projectId: string, file: RawProjectFile, names: Map<string, { name: string; avatar: string }>): Promise<FileVersion[]> {
-  const { data: versions } = await apiClient.get<RawFileVersion[]>(`/projects/${projectId}/files/${file.id}/versions`);
+async function buildFileVersions(
+  projectId: string,
+  file: RawProjectFile,
+  numericFileId: number,
+  names: Map<string, { name: string; avatar: string }>,
+): Promise<FileVersion[]> {
+  const [{ data: versions }, { data: pins }] = await Promise.all([
+    apiClient.get<RawFileVersion[]>(`/projects/${projectId}/files/${file.id}/versions`),
+    apiClient.get<{ versionId: string }[]>(`/projects/${projectId}/files/${file.id}/pins`),
+  ]);
+  const pinnedVersionIds = new Set(pins.map((p) => p.versionId));
   const byId = new Map(versions.map((v) => [v.id, v]));
   // 분기(형제 버전)까지는 이 앱의 선형 버전 목록 UI가 표현할 수 없어서, "현재" 버전에서
   // parentVersionId를 거슬러 올라간 메인 라인만 보여준다 (분기 자체는 조용히 생략됨).
@@ -457,7 +509,7 @@ async function buildFileVersions(projectId: string, file: RawProjectFile, names:
   if (chain.length === 0) {
     return [
       {
-        id: hashId(file.id),
+        id: registerVersion(file.id, numericFileId),
         parentVersionId: null,
         storagePath: null,
         originalName: null,
@@ -477,13 +529,13 @@ async function buildFileVersions(projectId: string, file: RawProjectFile, names:
   const withLabels = chain.map((v, i) => ({ v, label: `v${i + 1}` }));
   withLabels.reverse(); // 최신이 0번
   return withLabels.map(({ v, label }) => ({
-    id: hashId(v.id),
-    parentVersionId: v.parentVersionId ? hashId(v.parentVersionId) : null,
+    id: registerVersion(v.id, numericFileId),
+    parentVersionId: v.parentVersionId ? registerVersion(v.parentVersionId, numericFileId) : null,
     storagePath: null,
     originalName: null,
     mimeType: "text/plain",
     byteSize: null,
-    pinned: false,
+    pinned: pinnedVersionIds.has(v.id),
     version: label,
     uploadedBy: names.get(v.authorId)?.name ?? "알 수 없음",
     date: formatDate(v.createdAt),
@@ -495,8 +547,9 @@ async function buildFileVersions(projectId: string, file: RawProjectFile, names:
 
 async function toWorkspaceFile(projectId: string, raw: RawProjectFile, names: Map<string, { name: string; avatar: string }>): Promise<WorkspaceFile> {
   const { folderName, fileName } = splitPath(raw.path);
+  const numericFileId = registerFile(raw);
   const [versions, commentsRes] = await Promise.all([
-    buildFileVersions(projectId, raw, names),
+    buildFileVersions(projectId, raw, numericFileId, names),
     apiClient.get<RawFileComment[]>(`/projects/${projectId}/files/${raw.id}/comments`),
   ]);
   const comments: FileComment[] = commentsRes.data.map((c) => ({
@@ -510,7 +563,7 @@ async function toWorkspaceFile(projectId: string, raw: RawProjectFile, names: Ma
     text: c.content,
   }));
   return {
-    id: registerFile(raw),
+    id: numericFileId,
     name: fileName,
     type: fileType(fileName),
     uploader: names.get(raw.lastEditorId ?? "")?.name ?? "알 수 없음",
@@ -557,7 +610,7 @@ export const nestDataRepository: DataRepository = {
   // "참여 코드" = 초대 토큰. lookupProject(확인 버튼)에서 바로 수락까지 해버리는데, 우리 백엔드는
   // "가입 안 하고 미리보기"를 지원하지 않기 때문(멤버여야 프로젝트 조회 가능) — 코드가 유효하면
   // 이 시점에 실제로 참여가 완료된다. 자세한 이유는 이식기록 문서 참고.
-  async joinProject(projectId, _actorName, _actorAvatar, input) {
+  async joinProject(projectId, _code, input) {
     if (input.school?.trim() || input.major?.trim() || input.student?.trim()) {
       await apiClient.patch("/users/me", {
         school: input.school?.trim() || undefined,
@@ -624,15 +677,18 @@ export const nestDataRepository: DataRepository = {
         color: colorForName(name),
         createdBy: info.createdBy,
         date: formatDate(info.earliestCreatedAt),
+        parentId: null,
       });
     }
     return result;
   },
 
-  async createFolder(projectId, name) {
+  // parentId(중첩 폴더)는 백엔드가 지원하지 않는다(폴더는 경로 접두사로만 존재) — 항상 최상위
+  // 폴더로 만든다. actorName도 백엔드가 createdBy를 따로 안 받아서(최초 업로드한 사람 기준) 쓰지 않음.
+  async createFolder(projectId, name, _actorName, _parentId) {
     const path = `${name}/${KEEP_FILE}`;
     await apiClient.post(`/projects/${projectId}/files/sync`, { files: [{ path, content: "" }] });
-    return { id: numericFolderId(projectId, name), name, color: colorForName(name), createdBy: "", date: formatDate(new Date().toISOString()) };
+    return { id: numericFolderId(projectId, name), name, color: colorForName(name), createdBy: "", date: formatDate(new Date().toISOString()), parentId: null };
   },
 
   async listFiles(projectId) {
@@ -644,45 +700,168 @@ export const nestDataRepository: DataRepository = {
     return Promise.all(real.map((f) => toWorkspaceFile(projectId, f, names)));
   },
 
-  // Workspace.tsx가 실제 File 내용을 읽어 `input.content`로 넘겨준다 (원래 인터페이스는 name+size만
-  // 받았는데, 진짜 버전 관리를 하려면 내용이 꼭 필요해서 시그니처를 확장함 — dataRepository.ts 참고).
-  async createFile(projectId, input, actorName) {
-    const folderName = input.folderId !== null ? folderNameForId(input.folderId) : null;
-    const path = folderName ? `${folderName}/${input.name}` : input.name;
+  // main의 uploadFile은 File 객체 하나로 "새 파일 만들기"와 "기존 파일의 새 버전 올리기"를 함께
+  // 처리한다(input.fileId가 있으면 후자). branched는 우리 백엔드가 분기 발생 여부를 안 알려줘서
+  // 항상 false로 둔다(실제로 분기가 생겼어도 화면엔 "바로 반영됨"으로 보임 — 추후 개선 여지).
+  async uploadFile(projectId, input) {
+    const content = await readFileContentForUpload(input.file);
+    let path: string;
+    let baseVersionId: string | undefined;
+    if (input.fileId !== undefined) {
+      const info = fileMetaById.get(input.fileId);
+      if (!info) throw new Error("알 수 없는 파일입니다.");
+      path = info.path;
+      baseVersionId = info.currentVersionId ?? undefined;
+    } else {
+      const folderName = input.folderId !== null ? folderNameForId(input.folderId) : null;
+      path = folderName ? `${folderName}/${input.file.name}` : input.file.name;
+    }
     await apiClient.post(`/projects/${projectId}/files/sync`, {
-      files: [{ path, content: input.content, note: input.note }],
+      files: [{ path, content, baseVersionId, note: input.note }],
     });
-    const [{ data: files }, names] = await Promise.all([
-      apiClient.get<RawProjectFile[]>(`/projects/${projectId}/files`),
-      memberNameMap(projectId),
-    ]);
-    const created = files.find((f) => f.path === path);
-    if (!created) throw new Error("파일 생성에 실패했습니다.");
-    void actorName;
-    return toWorkspaceFile(projectId, created, names);
+    const { data: files } = await apiClient.get<RawProjectFile[]>(`/projects/${projectId}/files`);
+    const saved = files.find((f) => f.path === path);
+    if (!saved) throw new Error("업로드에 실패했습니다.");
+    const fileId = registerFile(saved);
+    const versionId = saved.currentVersionId ? registerVersion(saved.currentVersionId, fileId) : fileId;
+    return { fileId, versionId, branched: false };
   },
 
-  // 마찬가지로 실제 새 내용(`content`)이 필요해서 시그니처 확장됨
-  async addFileVersion(fileId, _actorName, note, content) {
-    const info = fileMetaById.get(fileId);
-    if (!info || content === undefined) throw new Error("알 수 없는 파일이거나 내용이 없습니다.");
-    await apiClient.post(`/projects/${info.projectId}/files/sync`, {
-      files: [{ path: info.path, content, baseVersionId: info.currentVersionId ?? undefined, note }],
-    });
+  async promoteFileVersion(fileId, versionId) {
+    const fileInfo = fileMetaById.get(fileId);
+    const versionInfo = versionMetaById.get(versionId);
+    if (!fileInfo || !versionInfo) throw new Error("알 수 없는 파일/버전입니다.");
+    await apiClient.post(`/projects/${fileInfo.projectId}/files/${fileInfo.uuid}/versions/${versionInfo.uuid}/promote`);
   },
 
-  async addFileComment(fileId, _actorName, _actorAvatar, text) {
+  // 파일 전문 검색 인덱싱 기능 — 백엔드가 지원하지 않아 조용히 무시한다.
+  async setFileVersionText() {},
+
+  // 백엔드는 파일당 태그 하나만 지원한다(main은 여러 개) — 첫 번째 태그만 반영.
+  async setFileTags(fileId, tags) {
     const info = fileMetaById.get(fileId);
     if (!info) throw new Error("알 수 없는 파일입니다.");
-    const { data } = await apiClient.post<RawFileComment>(`/projects/${info.projectId}/files/${info.uuid}/comments`, { content: text });
+    await apiClient.patch(`/projects/${info.projectId}/files/${info.uuid}/tag`, { tag: tags[0] ?? "" });
+  },
+
+  async pinFileVersion(fileId, versionId, pinned) {
+    const fileInfo = fileMetaById.get(fileId);
+    const versionInfo = versionMetaById.get(versionId);
+    if (!fileInfo || !versionInfo) throw new Error("알 수 없는 파일/버전입니다.");
+    if (pinned) {
+      await apiClient.post(`/projects/${fileInfo.projectId}/files/${fileInfo.uuid}/pins`, { versionId: versionInfo.uuid });
+    } else {
+      const { data: pins } = await apiClient.get<{ id: string; versionId: string }[]>(`/projects/${fileInfo.projectId}/files/${fileInfo.uuid}/pins`);
+      const pin = pins.find((p) => p.versionId === versionInfo.uuid);
+      if (pin) await apiClient.delete(`/projects/${fileInfo.projectId}/files/${fileInfo.uuid}/pins/${pin.id}`);
+    }
+  },
+
+  async downloadFileVersion(versionId) {
+    const versionInfo = versionMetaById.get(versionId);
+    if (!versionInfo) throw new Error("알 수 없는 버전입니다.");
+    const fileInfo = fileMetaById.get(versionInfo.fileId);
+    if (!fileInfo) throw new Error("알 수 없는 파일입니다.");
+    const { data: versions } = await apiClient.get<RawFileVersion[]>(`/projects/${fileInfo.projectId}/files/${fileInfo.uuid}/versions`);
+    const version = versions.find((v) => v.id === versionInfo.uuid);
+    if (!version) throw new Error("버전을 찾을 수 없습니다.");
+    if (version.content.startsWith("data:")) {
+      const res = await fetch(version.content);
+      return res.blob();
+    }
+    return new Blob([version.content], { type: "text/plain;charset=utf-8" });
+  },
+
+  // 댓글 반응(이모지) — 백엔드가 지원하지 않아 조용히 무시한다.
+  async setFileCommentReaction() {},
+
+  async addFileComment(fileId, _actorName, _actorAvatar, text, versionId) {
+    const info = fileMetaById.get(fileId);
+    if (!info) throw new Error("알 수 없는 파일입니다.");
+    const versionUuid = versionId != null ? versionMetaById.get(versionId)?.uuid : undefined;
+    const { data } = await apiClient.post<RawFileComment>(`/projects/${info.projectId}/files/${info.uuid}/comments`, { content: text, versionId: versionUuid });
     const names = await memberNameMap(info.projectId);
     return {
       id: hashId(data.id),
+      memberId: null,
+      versionId: versionId ?? null,
+      reactions: [],
       author: names.get(data.authorId)?.name ?? "알 수 없음",
       avatar: names.get(data.authorId)?.avatar ?? "?",
       date: formatDate(data.createdAt),
       text: data.content,
     };
+  },
+
+  async deleteWorkspaceFile(fileId) {
+    // 백엔드에 파일 삭제 API가 없다 — 지금은 빈 내용으로 덮어써서 "사실상 비움" 처리만 한다
+    // (완전 삭제가 필요하면 backend/files 모듈에 DELETE 엔드포인트 추가 필요).
+    const info = fileMetaById.get(fileId);
+    if (!info) return;
+    await apiClient.post(`/projects/${info.projectId}/files/sync`, {
+      files: [{ path: info.path, content: "", baseVersionId: info.currentVersionId ?? undefined }],
+    });
+  },
+
+  async moveWorkspaceFile(fileId, folderId) {
+    const info = fileMetaById.get(fileId);
+    if (!info) throw new Error("알 수 없는 파일입니다.");
+    const baseName = info.path.split("/").pop();
+    const folderName = folderId !== null ? folderNameForId(folderId) : null;
+    const newPath = folderName ? `${folderName}/${baseName}` : baseName ?? info.path;
+    await apiClient.patch(`/projects/${info.projectId}/files/${info.uuid}/move`, { path: newPath });
+  },
+
+  // 폴더 자체를 옮기는 API가 없어서, 그 폴더 밑 파일을 하나씩 새 경로로 옮긴다.
+  async moveWorkspaceFolder(folderId, parentId) {
+    const folderName = folderNameForId(folderId);
+    const projectId = folderProjectIdForId(folderId);
+    if (!folderName || !projectId) return;
+    const newParentName = parentId !== null ? folderNameForId(parentId) : null;
+    const { data: files } = await apiClient.get<RawProjectFile[]>(`/projects/${projectId}/files`);
+    const prefix = `${folderName}/`;
+    for (const f of files) {
+      if (!f.path.startsWith(prefix)) continue;
+      const rest = f.path.slice(prefix.length);
+      const newPath = newParentName ? `${newParentName}/${folderName}/${rest}` : `${folderName}/${rest}`;
+      if (newPath === f.path) continue;
+      await apiClient.patch(`/projects/${projectId}/files/${f.id}/move`, { path: newPath });
+    }
+  },
+
+  // 직접 순서 지정 — 백엔드에 순서 컬럼이 없다. Workspace.tsx 자체 드래그 순서는 이 메서드를
+  // 거치지 않고 브라우저 로컬 저장으로 따로 동작하므로(이 세션에서 만든 기능), 여기는 무시해도 된다.
+  async reorderWorkspaceItems() {},
+
+  async deleteWorkspaceFolder(folderId) {
+    const folderName = folderNameForId(folderId);
+    const projectId = folderProjectIdForId(folderId);
+    if (!folderName || !projectId) return;
+    const { data: files } = await apiClient.get<RawProjectFile[]>(`/projects/${projectId}/files`);
+    const prefix = `${folderName}/`;
+    for (const f of files) {
+      if (!f.path.startsWith(prefix)) continue;
+      await apiClient.post(`/projects/${projectId}/files/sync`, {
+        files: [{ path: f.path, content: "", baseVersionId: f.currentVersionId ?? undefined }],
+      });
+    }
+  },
+
+  // 실시간 구독 — 백엔드에 이 범용 pub/sub이 없다. 호출한 쪽은 구독 해제 함수만 받으면 되므로
+  // 아무 일도 안 하는 구독을 돌려준다(화면은 수동 새로고침/폴링에 의존하게 됨).
+  subscribeToFiles() {
+    return () => {};
+  },
+
+  async getOfficeEditorStatus() {
+    return { enabled: true };
+  },
+
+  async getOfficeEditorConfig(fileId) {
+    const info = fileMetaById.get(fileId);
+    if (!info) throw new Error("알 수 없는 파일입니다.");
+    const { data } = await apiClient.get(`/projects/${info.projectId}/files/${info.uuid}/onlyoffice/config`);
+    return data as Record<string, unknown>;
   },
 
   async listTasks(projectId) {
@@ -768,7 +947,8 @@ export const nestDataRepository: DataRepository = {
     };
   },
 
-  async toggleTaskCommentReaction(commentId, emoji) {
+  // active는 백엔드가 토글만 지원해서 별도로 반영하지 않는다(눌렀다 떼면 다시 토글되는 정도).
+  async setTaskCommentReaction(commentId, _memberId, emoji) {
     const uuid = taskCommentIds.toUuid(commentId);
     if (!uuid) return;
     await apiClient.post(`/tasks/comments/${uuid}/reactions`, { emoji });
@@ -791,6 +971,7 @@ export const nestDataRepository: DataRepository = {
         id: scheduleEventIds.toNumber(e.id),
         title: e.title,
         date: e.date.slice(0, 10),
+        endDate: null,
         type: (e.refType ?? "other") as ScheduleEventType,
         scope: "team",
         ownerMemberId: null,
@@ -810,6 +991,7 @@ export const nestDataRepository: DataRepository = {
       id: scheduleEventIds.toNumber(data.id),
       title: data.title,
       date: data.date.slice(0, 10),
+      endDate: input.endDate ?? null,
       type: input.type,
       scope: "team",
       ownerMemberId: null,
@@ -864,7 +1046,8 @@ export const nestDataRepository: DataRepository = {
     await apiClient.post(`/projects/${projectId}/chat/${backendChannelId}/read`);
   },
 
-  async toggleMessageReaction(projectId, messageId, emoji) {
+  // active는 백엔드가 토글만 지원해서 별도로 반영하지 않는다.
+  async setMessageReaction(projectId, messageId, _memberId, emoji) {
     const uuid = messageIds.toUuid(messageId);
     if (!uuid) return;
     await apiClient.post(`/projects/${projectId}/chat/messages/${uuid}/reactions`, { emoji });
@@ -908,6 +1091,115 @@ export const nestDataRepository: DataRepository = {
   subscribeToReads() {
     return () => {};
   },
+
+  // ==========================================================================
+  // 아래는 main에서 가져왔지만 backend/(NestJS)가 아직 지원하지 않는 기능들 —
+  // 관리자 승인 워크플로우, 동료 평가, 게시판, 채팅 그룹/AI 도구, 캠퍼스 공지 크롤링, 푸시 알림,
+  // 범용 실시간 구독(작업/일정/프레즌스). 화면이 깨지지 않도록 "비어있음/지원 안 함"으로 채워두고,
+  // 통합 계획의 다음 단계에서 하나씩 backend/에 포팅하며 실제 구현으로 바꿀 예정.
+  // ==========================================================================
+
+  async isCurrentUserAdmin() { return false; },
+  async listWorkspaceCleanupProjects() { return []; },
+  async getMyEvaluationSummary() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
+  async getEvaluationMode() { return false; },
+  async setEvaluationMode() {},
+  async getEvaluationMethodPreview() { return false; },
+  async setEvaluationMethodPreview() {},
+  async getEvaluationScoreCca() { return false; },
+  async setEvaluationScoreCca() {},
+  async getEvaluations() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
+  async submitEvaluations() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
+  async completeProject(projectId) {
+    const current = await this.getProjectById(projectId);
+    if (!current) throw new Error("프로젝트를 찾을 수 없습니다.");
+    return current;
+  },
+
+  // "참여 코드" = 우리 백엔드의 초대 토큰(createInviteToken). 만료 시각은 백엔드가 안 알려줘서
+  // 넉넉하게 24시간 뒤로 표시만 해둔다(실제 만료 여부는 수락 시점에 서버가 판단).
+  async getJoinCode(projectId) {
+    const token = await createInviteToken(projectId);
+    return { joinCode: token, joinCodeExpiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() };
+  },
+  async rotateJoinCode(projectId) {
+    const token = await createInviteToken(projectId);
+    return { joinCode: token, joinCodeExpiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() };
+  },
+  // "코드 확인만" 미리보기는 우리 백엔드가 지원하지 않는다(멤버여야 조회 가능 — joinProject 주석
+  // 참고). null을 돌려주면 화면은 "참여하기"를 바로 누르도록 유도한다.
+  async lookupProjectByJoinCode() { return null; },
+  async approveProject() {},
+  async rejectProject() {},
+  async kickMember() { throw new Error("멤버 제외 기능은 아직 지원하지 않습니다."); },
+  async setViceLeader() {},
+  async searchAdmins() { return []; },
+  async isCurrentUserOperator() { return false; },
+  async getMyAdminApplication() { return null; },
+  async submitAdminApplication() { throw new Error("관리자 신청 기능은 아직 지원하지 않습니다."); },
+  async listAdminApplications() { return []; },
+  async getAdminApplicationDocumentUrl() { throw new Error("지원하지 않는 기능입니다."); },
+  async reviewAdminApplication() {},
+  async cleanupAdminDocument() {},
+  async listAdminAccounts() { return []; },
+  async revokeAdmin() {},
+
+  async getMemberParticipationStats() { return { projectCount: 0, collaboratorCount: 0 }; },
+  async getEvaluationPercentiles() { return { available: false, population: 0 }; },
+
+  async savePushSubscription() {},
+  async deletePushSubscription() {},
+
+  async uploadBannerImage() { throw new Error("이 서버 백엔드는 아직 배너 이미지 업로드를 지원하지 않습니다."); },
+  async uploadBackgroundImage() { throw new Error("이 서버 백엔드는 아직 배경 이미지 업로드를 지원하지 않습니다."); },
+
+  async pendingWorkspaceCleanup() { return []; },
+  async cleanupWorkspaceFiles() {},
+
+  subscribeToTaskCommentReactions() { return () => {}; },
+  subscribeToTasks() { return () => {}; },
+  subscribeToScheduleEvents() { return () => {}; },
+
+  async listUpcomingEvents() { return []; },
+
+  async listChatGroups() { return []; },
+  async getMyProjectAlerts() { return []; },
+  async createChatGroup() { throw new Error("채팅 그룹 기능은 아직 지원하지 않습니다."); },
+  async addChatGroupMembers() {},
+  subscribeToChatGroupMembers() { return () => {}; },
+
+  async markSectionViewed() {},
+
+  async chatToolCreate() { throw new Error("채팅 AI 도구 기능은 아직 지원하지 않습니다."); },
+  async chatToolAct() { throw new Error("채팅 AI 도구 기능은 아직 지원하지 않습니다."); },
+  async listChatToolEvents() { return []; },
+  subscribeToChatToolEvents() { return () => {}; },
+
+  subscribeToPresence() { return () => {}; },
+  async updatePresenceStatus() {},
+  async touchMemberPresence() {},
+
+  async listBoardPosts() { return []; },
+  async createBoardPost() { throw new Error("게시판 기능은 아직 지원하지 않습니다."); },
+  async updateBoardPost() { throw new Error("게시판 기능은 아직 지원하지 않습니다."); },
+  async deleteBoardPost() {},
+  async incrementBoardPostViews() {},
+  async setBoardPostLike() {},
+  async getBoardPostComments() { return []; },
+  async addBoardComment() { throw new Error("게시판 기능은 아직 지원하지 않습니다."); },
+  async deleteBoardComment() {},
+  async uploadBoardAttachment() { throw new Error("게시판 첨부파일 기능은 아직 지원하지 않습니다."); },
+  async castBoardPollVote() { throw new Error("게시판 투표 기능은 아직 지원하지 않습니다."); },
+  async closeBoardPoll() {},
+  async reportBoardPost() {},
+  async listBoardPostReports() { return []; },
+  async listAllBoardReports() { return []; },
+  async getBoardPostContent() { return null; },
+  async reviewBoardReport() {},
+
+  async fetchCampusNotices() { return []; },
+  async listScrappedNotices() { return []; },
+  async toggleScrapNotice() { return false; },
 };
 
 // Sidebar의 "참여 코드" 표시/복사에서 쓰는, DataRepository 인터페이스 밖의 talju 전용 헬퍼.
