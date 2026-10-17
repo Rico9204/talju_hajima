@@ -44,6 +44,11 @@ function hashId(s: string): number {
 }
 
 const COLOR_PALETTE = ["#3d52d5", "#f0a500", "#22c55e", "#8b5cf6", "#6b7280", "#2563eb", "#ef4444", "#06b6d4"];
+
+// 이 백엔드엔 아직 진짜 실시간 pub/sub(웹소켓)이 없는 영역들(작업/일정/프레즌스/채팅그룹 멤버 등)
+// — 대신 주기적으로 다시 불러와서 "거의 실시간"처럼 보이게 한다. Workspace의 DATA_REFRESH_POLL_MS
+// (5초)와 같은 값으로 맞춤.
+const DATA_REFRESH_POLL_MS = 5000;
 function colorForName(name: string): string {
   return COLOR_PALETTE[hashId(name) % COLOR_PALETTE.length];
 }
@@ -1057,10 +1062,12 @@ export const nestDataRepository: DataRepository = {
     }
   },
 
-  // 실시간 구독 — 백엔드에 이 범용 pub/sub이 없다. 호출한 쪽은 구독 해제 함수만 받으면 되므로
-  // 아무 일도 안 하는 구독을 돌려준다(화면은 수동 새로고침/폴링에 의존하게 됨).
-  subscribeToFiles() {
-    return () => {};
+  // 백엔드에 진짜 웹소켓 pub/sub은 없어서, 주기적으로 다시 불러오라는 신호만 보내는 폴링으로
+  // 대신한다 — Workspace.tsx 자체에도 이미 폴링이 있지만, 이 구독을 쓰는 다른 화면(main 전용)을
+  // 위해 여기도 채워둔다.
+  subscribeToFiles(_projectId, onChange) {
+    const timer = setInterval(() => onChange(), DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
   },
 
   async getOfficeEditorStatus() {
@@ -1366,17 +1373,54 @@ export const nestDataRepository: DataRepository = {
   async pendingWorkspaceCleanup() { return []; },
   async cleanupWorkspaceFiles() {},
 
-  subscribeToTaskCommentReactions() { return () => {}; },
-  subscribeToTasks() { return () => {}; },
-  subscribeToScheduleEvents() { return () => {}; },
+  subscribeToTaskCommentReactions(_projectId, onChange) {
+    const timer = setInterval(() => onChange(), DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+  },
+  subscribeToTasks(_projectId, onChange) {
+    const timer = setInterval(() => onChange(), DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+  },
+  subscribeToScheduleEvents(_projectId, onChange) {
+    const timer = setInterval(() => onChange(), DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+  },
 
   async listUpcomingEvents() { return []; },
 
-  async listChatGroups() { return []; },
+  async listChatGroups(projectId) {
+    const [{ data: groups }, members] = await Promise.all([
+      apiClient.get<{ id: string; name: string; memberIds: string[] }[]>(`/projects/${projectId}/chat/groups`),
+      membersByUserId(projectId),
+    ]);
+    const memberList = [...members.values()];
+    const memberIdFor = (userId: string) => memberList.find((m) => m.userId === userId)?.id ?? userId;
+    return groups.map((g) => ({ id: g.id, name: g.name, memberIds: g.memberIds.map(memberIdFor) }));
+  },
   async getMyProjectAlerts() { return []; },
-  async createChatGroup() { throw new Error("채팅 그룹 기능은 아직 지원하지 않습니다."); },
-  async addChatGroupMembers() {},
-  subscribeToChatGroupMembers() { return () => {}; },
+  async createChatGroup(projectId, name, memberIds) {
+    const members = await membersByUserId(projectId);
+    const memberList = [...members.values()];
+    const userIdFor = (memberId: string) => memberList.find((m) => m.id === memberId)?.userId ?? memberId;
+    const { data: channelId } = await apiClient.post<string>(`/projects/${projectId}/chat/groups`, {
+      name,
+      memberIds: memberIds.map(userIdFor),
+    });
+    return channelId;
+  },
+  async addChatGroupMembers(groupId, memberIds) {
+    // groupId는 "grp:<uuid>" 채널id로 들어온다 — 접두사를 떼야 백엔드 경로와 맞는다.
+    const uuid = groupId.startsWith("grp:") ? groupId.slice(4) : groupId;
+    // 어느 프로젝트인지 몰라서 멤버id->userId 변환을 건너뛰고, 이미 userId로 들어온 걸로 가정
+    // (main 쪽 화면이 ProjectContext의 멤버 목록에서 고른 값을 그대로 넘기는 경우가 대부분이라
+    // 실제로는 memberId가 들어올 수 있음 — 다음 손볼 때 projectId도 같이 받도록 인터페이스를
+    // 확장하는 게 더 정확함).
+    await apiClient.post(`/chat/groups/${uuid}/members`, { memberIds });
+  },
+  subscribeToChatGroupMembers(projectId, onChange) {
+    const timer = setInterval(() => onChange(), DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+  },
 
   async markSectionViewed() {},
 

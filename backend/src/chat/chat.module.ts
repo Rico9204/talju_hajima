@@ -5,12 +5,14 @@ import { ChatController } from './chat.controller.js';
 import { ChatMessage } from './chat-message.entity.js';
 import { ChatMessageRead } from './chat-message-read.entity.js';
 import { ChatReaction } from './chat-reaction.entity.js';
+import { ChatGroup } from './chat-group.entity.js';
+import { ChatGroupMember } from './chat-group-member.entity.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { ProjectsModule } from '../projects/projects.module.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ChatMessage, ChatMessageRead, ChatReaction]),
+    TypeOrmModule.forFeature([ChatMessage, ChatMessageRead, ChatReaction, ChatGroup, ChatGroupMember]),
     AuthModule,
     ProjectsModule,
   ],

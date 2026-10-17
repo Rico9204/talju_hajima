@@ -16,6 +16,26 @@ export class ChatController {
     return this.chatService.listUnreadCounts(projectId, user.sub);
   }
 
+  @Get('groups')
+  listGroups(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string) {
+    return this.chatService.listGroups(projectId, user.sub);
+  }
+
+  @Post('groups')
+  createGroup(@CurrentUser() user: JwtPayload, @Param('projectId') projectId: string, @Body() body: { name: string; memberIds: string[] }) {
+    return this.chatService.createGroup(projectId, user.sub, body.name, body.memberIds ?? []);
+  }
+
+  @Post('groups/:groupId/members')
+  async addGroupMembers(
+    @CurrentUser() user: JwtPayload,
+    @Param('groupId') groupId: string,
+    @Body('memberIds') memberIds: string[],
+  ) {
+    await this.chatService.addGroupMembers(groupId, user.sub, memberIds ?? []);
+    return { ok: true };
+  }
+
   @Get(':channelId/messages')
   listMessages(
     @CurrentUser() user: JwtPayload,

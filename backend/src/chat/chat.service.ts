@@ -1,10 +1,16 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ProjectsService } from '../projects/projects.service.js';
 import { ChatMessage } from './chat-message.entity.js';
 import { ChatMessageRead } from './chat-message-read.entity.js';
 import { ChatReaction } from './chat-reaction.entity.js';
+import { ChatGroup } from './chat-group.entity.js';
+import { ChatGroupMember } from './chat-group-member.entity.js';
+
+function groupIdFromChannel(channelId: string): string | null {
+  return channelId.startsWith('grp:') ? channelId.slice(4) : null;
+}
 
 const TEAM_CHANNEL_ID = 'all';
 
@@ -35,15 +41,62 @@ export class ChatService {
     private readonly readsRepository: Repository<ChatMessageRead>,
     @InjectRepository(ChatReaction)
     private readonly reactionsRepository: Repository<ChatReaction>,
+    @InjectRepository(ChatGroup)
+    private readonly groupsRepository: Repository<ChatGroup>,
+    @InjectRepository(ChatGroupMember)
+    private readonly groupMembersRepository: Repository<ChatGroupMember>,
     private readonly projectsService: ProjectsService,
   ) {}
 
-  // 프로젝트 멤버인지 + (DM이면) 그 대화의 당사자인지 확인한다.
+  // 프로젝트 멤버인지 + (DM이면 그 당사자인지, 그룹 채팅이면 그 그룹의 멤버인지) 확인한다.
   private async assertChannelAccess(projectId: string, channelId: string, userId: string): Promise<void> {
     await this.projectsService.assertMembership(projectId, userId);
     const dm = dmParticipants(channelId);
     if (dm && !dm.includes(userId)) {
       throw new ForbiddenException('이 대화에 접근할 수 없습니다.');
+    }
+    const groupId = groupIdFromChannel(channelId);
+    if (groupId) {
+      const membership = await this.groupMembersRepository.findOne({ where: { groupId, userId } });
+      if (!membership) throw new ForbiddenException('이 단체 채팅방의 멤버가 아닙니다.');
+    }
+  }
+
+  async listGroups(projectId: string, userId: string): Promise<{ id: string; name: string; memberIds: string[] }[]> {
+    await this.projectsService.assertMembership(projectId, userId);
+    const myGroups = await this.groupMembersRepository.find({ where: { userId } });
+    const myGroupIds = new Set(myGroups.map((m) => m.groupId));
+    const groups = await this.groupsRepository.find({ where: { projectId }, order: { createdAt: 'ASC' } });
+    const relevant = groups.filter((g) => myGroupIds.has(g.id));
+    const allMembers = await this.groupMembersRepository.find({ where: { groupId: In(relevant.map((g) => g.id)) } });
+    return relevant.map((g) => ({
+      id: `grp:${g.id}`,
+      name: g.name,
+      memberIds: allMembers.filter((m) => m.groupId === g.id).map((m) => m.userId),
+    }));
+  }
+
+  async createGroup(projectId: string, userId: string, name: string, memberIds: string[]): Promise<string> {
+    await this.projectsService.assertMembership(projectId, userId);
+    const group = await this.groupsRepository.save(this.groupsRepository.create({ projectId, name, createdById: userId }));
+    const allMemberIds = new Set([userId, ...memberIds]);
+    await this.groupMembersRepository.save(
+      [...allMemberIds].map((id) => this.groupMembersRepository.create({ groupId: group.id, userId: id })),
+    );
+    return `grp:${group.id}`;
+  }
+
+  async addGroupMembers(groupId: string, userId: string, memberIds: string[]): Promise<void> {
+    const group = await this.groupsRepository.findOne({ where: { id: groupId } });
+    if (!group) throw new NotFoundException('채팅 그룹을 찾을 수 없습니다.');
+    const myMembership = await this.groupMembersRepository.findOne({ where: { groupId, userId } });
+    if (!myMembership) throw new ForbiddenException('이 단체 채팅방의 멤버가 아닙니다.');
+    if (memberIds.length === 0) throw new BadRequestException('추가할 멤버가 없습니다.');
+    const existing = await this.groupMembersRepository.find({ where: { groupId, userId: In(memberIds) } });
+    const existingIds = new Set(existing.map((m) => m.userId));
+    const toAdd = memberIds.filter((id) => !existingIds.has(id));
+    if (toAdd.length > 0) {
+      await this.groupMembersRepository.save(toAdd.map((id) => this.groupMembersRepository.create({ groupId, userId: id })));
     }
   }
 
