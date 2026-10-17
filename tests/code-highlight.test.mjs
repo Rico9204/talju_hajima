@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { codeLanguageOf, tokenizeCode, tokenLines } from '../src/lib/codeHighlight.ts';
-import { CODE_EXTENSIONS, isEditableTextFile } from '../src/lib/workspaceFiles.ts';
+import { CODE_EXTENSIONS, codeBadgeLabel, isEditableTextFile } from '../src/lib/workspaceFiles.ts';
 
 const kinds = (tokens) => tokens.filter((t) => t.kind).map((t) => [t.kind, t.text]);
 const joined = (tokens) => tokens.map((t) => t.text).join('');
@@ -56,4 +56,12 @@ test('줄 나누기: 여러 줄 주석도 줄마다 나뉘고 빈 줄이 유지�
   assert.equal(lines.length, 4);
   assert.deepEqual(lines.map((l) => l.map((t) => t.text).join('')), ['/* a', 'b */', '', 'x']);
   assert.equal(lines[1][0].kind, 'comment');
+});
+
+test('코드 파일 배지는 확장자 이름, 다른 파일은 null', () => {
+  assert.equal(codeBadgeLabel('Main.java'), 'JAVA');
+  assert.equal(codeBadgeLabel('app.PY'), 'PY');
+  assert.equal(codeBadgeLabel('gradle.properties'), 'PROP');
+  assert.equal(codeBadgeLabel('보고서.docx'), null);
+  assert.equal(codeBadgeLabel('notes.txt'), null);
 });
