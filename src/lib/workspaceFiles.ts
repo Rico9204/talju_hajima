@@ -146,11 +146,14 @@ export const CODE_EXTENSIONS = [
 ];
 // 바로 수정(동시 편집)이 가능한 텍스트 파일 — 원본 텍스트를 그대로 다루고 크기 제한을 둔다.
 export const EDITABLE_TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml", "yaml", "yml", ...CODE_EXTENSIONS];
-// 코드 파일 배지에 쓸 확장자 이름(JAVA, PY, CPP …). 코드 파일이 아니면 null — 그때는 파일 종류(DOC 등) 배지를 쓴다.
-const CODE_BADGE_SHORT: Record<string, string> = { properties: "PROP", gradle: "GRDL" };
-export function codeBadgeLabel(name: string): string | null {
+// 텍스트·코드 파일 배지에 쓸 확장자 이름(TXT, MD, CSV, JAVA, PY …). 해당하지 않으면 null — 그때는 파일 종류(DOC 등) 배지를 쓴다.
+const TEXT_BADGE_SHORT: Record<string, string> = { properties: "PROP", gradle: "GRDL" };
+export function textBadgeLabel(name: string): string | null {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return CODE_EXTENSIONS.includes(ext) ? CODE_BADGE_SHORT[ext] ?? ext.toUpperCase() : null;
+  return EDITABLE_TEXT_EXTENSIONS.includes(ext) ? TEXT_BADGE_SHORT[ext] ?? ext.toUpperCase() : null;
+}
+export function isCodeFile(name: string): boolean {
+  return CODE_EXTENSIONS.includes(name.split(".").pop()?.toLowerCase() ?? "");
 }
 export const MAX_EDITABLE_BYTES = 200_000;
 export function isEditableTextFile(name: string, byteSize: number | null): boolean {
