@@ -16,9 +16,10 @@ export function workspaceStoragePath(projectId: string, userId: string, objectId
   return `v2/${encoded}/${userId}/${objectId}`;
 }
 
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "heic", "tif", "tiff", "ico"];
 export function workspaceFileType(name: string): WorkspaceFile["type"] {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "heic", "tif", "tiff", "ico"].includes(ext)) return "img";
+  if (IMAGE_EXTENSIONS.includes(ext)) return "img";
   if (["ppt", "pptx", "odp"].includes(ext)) return "ppt";
   if (["xls", "xlsx", "xlsm", "csv", "ods"].includes(ext)) return "xls";
   if (["zip", "7z", "rar", "gz"].includes(ext)) return "zip";
@@ -146,11 +147,11 @@ export const CODE_EXTENSIONS = [
 ];
 // 바로 수정(동시 편집)이 가능한 텍스트 파일 — 원본 텍스트를 그대로 다루고 크기 제한을 둔다.
 export const EDITABLE_TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml", "yaml", "yml", ...CODE_EXTENSIONS];
-// 텍스트·코드 파일 배지에 쓸 확장자 이름(TXT, MD, CSV, JAVA, PY …). 해당하지 않으면 null — 그때는 파일 종류(DOC 등) 배지를 쓴다.
-const TEXT_BADGE_SHORT: Record<string, string> = { properties: "PROP", gradle: "GRDL" };
-export function textBadgeLabel(name: string): string | null {
+// 텍스트·코드·이미지 파일 배지에 쓸 확장자 이름(TXT, MD, CSV, JAVA, PNG …). 해당하지 않으면 null — 그때는 파일 종류(DOC 등) 배지를 쓴다.
+const EXT_BADGE_SHORT: Record<string, string> = { properties: "PROP", gradle: "GRDL" };
+export function extBadgeLabel(name: string): string | null {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return EDITABLE_TEXT_EXTENSIONS.includes(ext) ? TEXT_BADGE_SHORT[ext] ?? ext.toUpperCase() : null;
+  return EDITABLE_TEXT_EXTENSIONS.includes(ext) || IMAGE_EXTENSIONS.includes(ext) ? EXT_BADGE_SHORT[ext] ?? ext.toUpperCase() : null;
 }
 export function isCodeFile(name: string): boolean {
   return CODE_EXTENSIONS.includes(name.split(".").pop()?.toLowerCase() ?? "");

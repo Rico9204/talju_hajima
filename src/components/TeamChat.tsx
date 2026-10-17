@@ -36,7 +36,7 @@ import {
   type ChatToolPayload,
   type ChatToolActionPayload,
 } from "../lib/chatTools"
-import { textBadgeLabel } from "../lib/workspaceFiles"
+import { extBadgeLabel } from "../lib/workspaceFiles"
 
 interface FileRef {
   id: number
@@ -1461,7 +1461,7 @@ export default function TeamChat({
                                   borderRadius: "6px",
                                 }}
                               >
-                                {textBadgeLabel(fileRef.name) ?? (fileTypeLabel[fileRef.type] || "FILE")}
+                                {extBadgeLabel(fileRef.name) ?? (fileTypeLabel[fileRef.type] || "FILE")}
                               </span>
                               <div className="min-w-0">
                                 <div
@@ -1781,7 +1781,7 @@ export default function TeamChat({
                         borderRadius: "6px",
                       }}
                     >
-                      {textBadgeLabel(f.name) ?? (fileTypeLabel[f.type] || "FILE")}
+                      {extBadgeLabel(f.name) ?? (fileTypeLabel[f.type] || "FILE")}
                     </span>
                     <div className="min-w-0">
                       <div className="text-xs font-700 truncate">{f.name}</div>
@@ -1820,7 +1820,7 @@ export default function TeamChat({
                     borderRadius: "6px",
                   }}
                 >
-                  {textBadgeLabel(pendingFile.name) ?? (fileTypeLabel[pendingFile.type] || "FILE")}
+                  {extBadgeLabel(pendingFile.name) ?? (fileTypeLabel[pendingFile.type] || "FILE")}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-700 truncate">

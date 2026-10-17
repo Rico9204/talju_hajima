@@ -2,7 +2,7 @@ import SearchHighlight from "./SearchHighlight";
 import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/workspaceSearch";
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
-import { folderSubtree, isCodeFile, latestFileUploadTime, reorderIds, sortFolders, sortWorkspaceFiles, textBadgeLabel, type FileSortOption } from "../lib/workspaceFiles";
+import { folderSubtree, isCodeFile, latestFileUploadTime, reorderIds, sortFolders, sortWorkspaceFiles, extBadgeLabel, type FileSortOption } from "../lib/workspaceFiles";
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
@@ -29,11 +29,11 @@ const typeColors: Record<string, { bg: string; color: string; label: string }> =
   code: { bg: "#0d948818", color: "#0d9488", label: "CODE" },
   text: { bg: "#64748b18", color: "#64748b", label: "TXT" },
 };
-// 텍스트·코드 파일은 DOC 대신 확장자 이름(TXT, MD, CSV, JAVA …)으로 표시한다. 색은 코드 / CSV(표) / 그 밖의 글로 나눈다.
+// 텍스트·코드·이미지 파일은 DOC·IMG 대신 확장자 이름(TXT, CSV, JAVA, PNG …)으로 표시한다. 색은 코드 / CSV(표) / 이미지 / 그 밖의 글로 나눈다.
 function fileBadge(f: { name: string; type: string }) {
-  const label = textBadgeLabel(f.name);
+  const label = extBadgeLabel(f.name);
   if (!label) return typeColors[f.type] || typeColors.doc;
-  const tone = isCodeFile(f.name) ? typeColors.code : f.type === "xls" ? typeColors.xls : typeColors.text;
+  const tone = isCodeFile(f.name) ? typeColors.code : f.type === "xls" || f.type === "img" ? typeColors[f.type] : typeColors.text;
   return { ...tone, label };
 }
 
