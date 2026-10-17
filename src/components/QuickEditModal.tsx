@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
+import CodeHighlight from "./CodeHighlight";
+import { codeLanguageOf } from "../lib/codeHighlight";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta, type RemoteCursor } from "../lib/collab";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
@@ -38,6 +40,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const [cursors, setCursors] = useState<RemoteCursor[]>([]);
   const [scrollTop, setScrollTop] = useState(0);
   const [box, setBox] = useState({ width: 0, height: 0 });
+  const language = codeLanguageOf(file.name); // 코드 파일이면 글자는 투명하게 두고 위에 색칠한 글을 겹쳐 그린다
 
   const refreshDirty = () => {
     const doc = docRef.current;
@@ -220,14 +223,25 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           aria-label="파일 내용"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); } }}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); }
+            // 코드 파일에서는 Tab이 다음 칸으로 넘어가지 않고 탭 문자를 넣는다(입력 이벤트로 들어가 되돌리기·동시 편집에 그대로 반영).
+            else if (language && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && composing.current === null) { e.preventDefault(); document.execCommand("insertText", false, "\t"); }
+          }}
           onCompositionStart={() => { composing.current = valueRef.current; remoteWhileComposing.current = []; }}
           onCompositionEnd={(e) => onCompositionEnd(e.currentTarget)}
           onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
           spellCheck={false}
           className="block w-full h-full p-3 text-sm resize-none outline-none border"
-          style={{ fontFamily: "var(--font-jetbrains)", background: "var(--muted)", borderColor: "var(--border)", borderRadius: 10 }}
+          style={{ fontFamily: "var(--font-jetbrains)", background: "var(--muted)", borderColor: "var(--border)", borderRadius: 10, tabSize: 4, ...(language ? { color: "transparent", caretColor: "var(--foreground)" } : {}) }}
         />
+        {language && (
+          <div aria-hidden="true" className="absolute pointer-events-none overflow-hidden" style={{ top: 1, left: 1, width: box.width, height: box.height, borderRadius: 9 }}>
+            <div className="p-3 text-sm" style={{ fontFamily: "var(--font-jetbrains)", color: "var(--foreground)", whiteSpace: "pre-wrap", overflowWrap: "break-word", tabSize: 4, transform: `translateY(${-scrollTop}px)` }}>
+              <CodeHighlight text={value} language={language} />{"\u200b"}
+            </div>
+          </div>
+        )}
         {cursors.length > 0 && <RemoteCursors value={value} cursors={cursors} scrollTop={scrollTop} width={box.width} height={box.height} />}
         </div>
       </section>
@@ -259,7 +273,7 @@ function RemoteCursors({ value, cursors, scrollTop, width, height }: { value: st
   });
   return (
     <div aria-hidden="true" className="absolute pointer-events-none overflow-hidden" style={{ top: 1, left: 1, width, height, borderRadius: 9 }}>
-      <div className="p-3 text-sm" style={{ fontFamily: "var(--font-jetbrains)", color: "transparent", whiteSpace: "pre-wrap", overflowWrap: "break-word", transform: `translateY(${-scrollTop}px)` }}>
+      <div className="p-3 text-sm" style={{ fontFamily: "var(--font-jetbrains)", color: "transparent", whiteSpace: "pre-wrap", overflowWrap: "break-word", tabSize: 4, transform: `translateY(${-scrollTop}px)` }}>
         {parts}{"​"}
       </div>
     </div>

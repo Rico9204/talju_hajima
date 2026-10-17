@@ -1,4 +1,6 @@
 import SearchHighlight from "./SearchHighlight";
+import CodeHighlight from "./CodeHighlight";
+import { codeLanguageOf } from "../lib/codeHighlight";
 import { lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
@@ -125,7 +127,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       setPreview({ url, kind: ext === "pdf" ? "pdf" : "image", name });
     } else if (isRichDocName(name) || isSlidesName(name)) {
       setPreview({ text: v.searchText || "(내용 없음)", kind: "text", name });
-    } else if (["txt", "md", "csv", "json", "log", "xml", "yaml", "yml"].includes(ext ?? "")) {
+    } else if (EDITABLE_TEXT_EXTENSIONS.includes(ext ?? "")) {
       const text = await blob.slice(0, 200_000).text();
       if (mounted.current) setPreview({ text: text + (blob.size > 200_000 ? "\n… 미리보기는 앞부분만 표시합니다." : ""), kind: "text", name });
     } else if (["docx", "xlsx", "xlsm", "pptx"].includes(ext ?? "")) {
@@ -263,7 +265,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
               {preview.entries.map((entry) => <li key={entry.path} className="flex justify-between gap-3 py-1.5"><span className="break-all" style={{ fontFamily: "var(--font-jetbrains)" }}><SearchHighlight text={entry.path} query={searchQuery} /></span><span className="shrink-0" style={{ color: "var(--muted-foreground)" }}>{formatZipSize(entry.size)}</span></li>)}
             </ul> : <p className="text-xs">빈 압축 파일입니다.</p>}
           </div>}
-          {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-[72vh] overflow-auto p-4" style={{ background: "var(--muted)", transform: `scale(${previewZoom})`, transformOrigin: "top left" }}><SearchHighlight text={preview.text ?? ""} query={searchQuery} /></pre>}
+          {preview.kind === "text" && <pre className="text-xs whitespace-pre-wrap break-all max-h-[72vh] overflow-auto p-4" style={{ background: "var(--muted)", transform: `scale(${previewZoom})`, transformOrigin: "top left" }}>{!searchQuery.trim() && codeLanguageOf(preview.name) ? <CodeHighlight text={preview.text ?? ""} language={codeLanguageOf(preview.name)!} /> : <SearchHighlight text={preview.text ?? ""} query={searchQuery} />}</pre>}
           {preview.kind === "office" && <iframe title={`${preview.name} 문서 미리보기`} sandbox="" srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;min-height:100%;background:#fff}body{zoom:${previewZoom};width:calc(100% / ${previewZoom});box-sizing:border-box;padding:24px;font:14px system-ui,sans-serif;color:#1f2937;line-height:1.6}table{border-collapse:collapse;max-width:none;overflow:auto}td,th{border:1px solid #d1d5db;padding:6px 10px;text-align:left}h1,h2,h3{margin-top:1.2em}img{max-width:100%;height:auto}mark{background:#facc15;color:#422006;border-radius:2px;padding:0 2px}</style></head><body>${highlightOfficeHtml(preview.html ?? "", searchQuery)}</body></html>`} className="w-full border" style={{ height: "100%", minHeight: "520px", borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "#fff" }} />}
         </div>
       </section>

@@ -138,8 +138,14 @@ export function folderSubtree(folders: { id: number; parentId: number | null }[]
   return result;
 }
 
+// 바로 수정·미리보기·검색이 되는 소스 코드 파일(문법 색칠은 lib/codeHighlight.ts가 확장자로 언어를 고른다).
+export const CODE_EXTENSIONS = [
+  "c", "h", "cpp", "cc", "cxx", "hpp", "hh", "java", "kt", "kts", "cs", "js", "jsx", "mjs", "cjs", "ts", "tsx",
+  "py", "go", "rs", "swift", "php", "rb", "sh", "bash", "sql", "css", "scss", "html", "htm", "vue",
+  "dart", "scala", "lua", "r", "ini", "toml", "properties", "gradle", "bat",
+];
 // 바로 수정(동시 편집)이 가능한 텍스트 파일 — 원본 텍스트를 그대로 다루고 크기 제한을 둔다.
-export const EDITABLE_TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml", "yaml", "yml"];
+export const EDITABLE_TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml", "yaml", "yml", ...CODE_EXTENSIONS];
 export const MAX_EDITABLE_BYTES = 200_000;
 export function isEditableTextFile(name: string, byteSize: number | null): boolean {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";

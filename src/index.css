@@ -808,3 +808,21 @@ html, body, #root {
   -webkit-user-select: none;
 }
 
+
+/* 코드 문법 색칠 (워크스페이스 바로 수정·미리보기, components/CodeHighlight.tsx). 바로 수정에서는 투명한 입력칸 위에 겹쳐 그리므로 글자 폭이 바뀌는 굵게·기울임은 쓰지 않는다. */
+.code-comment { color: #6b7280; }
+.code-string { color: #15803d; }
+.code-number { color: #c2410c; }
+.code-keyword { color: #7c3aed; }
+.code-type { color: #0e7490; }
+.code-meta { color: #be185d; }
+.code-tag { color: #2563eb; }
+.code-attr { color: #b45309; }
+:root[data-theme="dark"] .code-comment, .dark .code-comment { color: #8b95a7; }
+:root[data-theme="dark"] .code-string, .dark .code-string { color: #86efac; }
+:root[data-theme="dark"] .code-number, .dark .code-number { color: #fdba74; }
+:root[data-theme="dark"] .code-keyword, .dark .code-keyword { color: #c4b5fd; }
+:root[data-theme="dark"] .code-type, .dark .code-type { color: #67e8f9; }
+:root[data-theme="dark"] .code-meta, .dark .code-meta { color: #f9a8d4; }
+:root[data-theme="dark"] .code-tag, .dark .code-tag { color: #93c5fd; }
+:root[data-theme="dark"] .code-attr, .dark .code-attr { color: #fcd34d; }
