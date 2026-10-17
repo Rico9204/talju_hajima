@@ -478,7 +478,7 @@ export default function ProfileModal() {
                   {isSelfProfile && myTier && (
                     <HoverTip
                       label={`${myTier.label} 등급`}
-                      detail={myScore !== null ? `평가 평균 ${myScore.toFixed(1)} / 10 기준` : "최종 평가 평균이 공개되면 등급이 매겨져요"}
+                      detail={myScore !== null ? `평가 평균 ${myScore.toFixed(2)} / 10 기준` : "최종 평가 평균이 공개되면 등급이 매겨져요"}
                     >
                       <span className="mb-1.5 flex"><MedalIcon shape={myTier.shape} colors={myTier.colors} size={26} /></span>
                     </HoverTip>
@@ -653,7 +653,7 @@ export default function ProfileModal() {
                   {viewedMember.evalCount > 0 ? (
                     <>
                       <div className="flex items-baseline gap-1.5 mb-1 flex-wrap">
-                        <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
+                        <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(2)}</strong>
                         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10</span>
                         {scoreCca && <CcaBadge />}
                         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>· {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>

@@ -205,7 +205,7 @@ export default function PentagonChart({
               {d.label}
             </text>
             <text x={p.x} y={p.y + valueDy} textAnchor="middle" fontSize={10} fontWeight={700} fill={valueColor} fontFamily="var(--font-jetbrains)">
-              {d.display ?? displayValues[i].toFixed(1)}
+              {d.display ?? displayValues[i].toFixed(2)}
               {d.note && <tspan fontFamily="inherit" fontWeight={600} fill={labelColor} fillOpacity={0.65}>{" · " + d.note}</tspan>}
             </text>
           </g>

@@ -384,7 +384,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                   </div>
                   <div className="flex items-baseline gap-2 justify-center flex-wrap text-center">
                     <span className="text-4xl font-800" style={{ fontFamily: "var(--font-outfit)" }}>
-                      {average?.score?.toFixed(1)}
+                      {average?.score?.toFixed(2)}
                     </span>
                     <span style={{ color: "rgba(255,255,255,0.7)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "이 프로젝트 중간 피드백 평균"}</span>
                     {data?.average?.method === "cca" && <CcaBadge light />}
@@ -518,7 +518,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                       className="text-xs px-2.5 py-1 font-700 shrink-0"
                       style={{ background: active ? "rgba(255,255,255,0.2)" : peerDone ? "var(--muted)" : "#f59e0b22", color: active ? "#fff" : peerDone ? "var(--muted-foreground)" : "#b45309", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
                     >
-                      {peerDone ? `평균 ${peerAverage.toFixed(1)}점` : `${values.length}/${criteria.length} 입력`}
+                      {peerDone ? `평균 ${peerAverage.toFixed(2)}점` : `${values.length}/${criteria.length} 입력`}
                     </span>
                   </button>
                 );

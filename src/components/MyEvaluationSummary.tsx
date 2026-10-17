@@ -39,7 +39,7 @@ export default function MyEvaluationSummary({ chart = false }: { chart?: boolean
       : <>
         <div className={`grid grid-cols-2 ${chart ? "gap-2" : "gap-4"}`}>
           <div><div className={labelSize}>내 협업 신뢰도</div>
-            <strong className={`${valueSize} inline-flex items-center gap-1.5`} style={{ color: "var(--primary)" }}>{result.score === null ? "공개 대기" : result.score.toFixed(1) + " / 10"}{result.score !== null && scoreCca && <CcaBadge />}</strong>
+            <strong className={`${valueSize} inline-flex items-center gap-1.5`} style={{ color: "var(--primary)" }}>{result.score === null ? "공개 대기" : result.score.toFixed(2) + " / 10"}{result.score !== null && scoreCca && <CcaBadge />}</strong>
             {result.score !== null && <p className={labelSize}>{trust?.label} · {trust?.evidence}</p>}
             {caption && <p className={`${labelSize} font-700`} style={{ color: percentiles?.available ? "var(--primary)" : "var(--muted-foreground)" }}>{caption}</p>}</div>
           <div><div className={labelSize}>프로젝트 참여 횟수</div><strong className={valueSize}>{result.projectCount}회</strong></div>

@@ -260,7 +260,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               {m.id === currentMember?.id && m.evalCount > 0 ? (
                 <div className="flex items-center gap-1 mt-1.5">
                   <span className="text-xs">★</span>
-                  <span className="text-xs font-700">{m.score.toFixed(1)}</span>
+                  <span className="text-xs font-700">{m.score.toFixed(2)}</span>
                 </div>
               ) : (
                 <div className="text-xs mt-1.5" style={{ color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted-foreground)" }}>
@@ -452,7 +452,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                 <>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl font-800" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
-                      {sel.score.toFixed(1)}
+                      {sel.score.toFixed(2)}
                     </span>
                     <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>
                     {scoreCca && <CcaBadge />}
