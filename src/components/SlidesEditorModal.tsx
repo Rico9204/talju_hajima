@@ -336,7 +336,15 @@ function TextBoxEditor({ doc, ytext, onBlur }: { doc: Y.Doc; ytext: Y.Text; onBl
         setValue(e.target.value);
       }}
       onCompositionStart={() => { composing.current = true; }}
-      onCompositionEnd={() => { composing.current = false; valueRef.current = ytext.toString(); setValue(valueRef.current); }}
+      onCompositionEnd={(e) => {
+        composing.current = false;
+        // 조합 종료 시 ytext와 DOM 값이 다른 경우(조합 중 원격 변경 등)에만 갱신
+        const next = ytext.toString();
+        if (next !== e.currentTarget.value) {
+          valueRef.current = next;
+          setValue(next);
+        }
+      }}
       onBlur={onBlur}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}

@@ -164,13 +164,20 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
     composing.current = null;
     remoteWhileComposing.current = [];
     docRef.current?.edit(base, el.value, remote);
-    // 커서도 조합 중 들어온 원격 변경만큼 옮긴다(안 옮기면 내용이 바뀌면서 커서가 엉뚱한 곳으로 간다).
     let [selStart, selEnd] = [el.selectionStart, el.selectionEnd];
     for (const delta of remote) { selStart = transformIndex(selStart, delta); selEnd = transformIndex(selEnd, delta); }
-    pendingSel.current = [selStart, selEnd];
-    const merged = docRef.current?.text() ?? el.value;
-    valueRef.current = merged;
-    setValue(merged);
+    // 조합 중 원격 변경이 들어온 경우에만 머지된 텍스트로 갱신하고 커서 위치를 보정한다.
+    // 원격 변경이 없는데 무조건 setValue·pendingSel을 호출하면 리액트 리렌더링으로 인해
+    // 조합 종료 직후 들어오는 스페이스바(공백) 입력이 씹히는 문제가 생긴다.
+    if (remote.length > 0) {
+      pendingSel.current = [selStart, selEnd];
+      const merged = docRef.current?.text() ?? el.value;
+      valueRef.current = merged;
+      setValue(merged);
+    } else {
+      valueRef.current = el.value;
+      if (el.value !== value) setValue(el.value);
+    }
     refreshDirty();
     docRef.current?.setCursor(selStart, selEnd);
   }
