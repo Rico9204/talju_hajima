@@ -1,4 +1,28 @@
-import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class NewBoardPollDto {
+  @IsString()
+  @MinLength(1)
+  question: string;
+
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  options: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  allowMultiple?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isAnonymous?: boolean;
+
+  @IsOptional()
+  @IsString()
+  closesAt?: string | null;
+}
 
 export class CreatePostDto {
   @IsString()
@@ -20,4 +44,18 @@ export class CreatePostDto {
   @IsString({ each: true })
   @MaxLength(30, { each: true })
   tags?: string[];
+
+  @IsOptional()
+  @IsIn(['notice', 'free', 'recruit'])
+  category?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  attachmentIds?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => NewBoardPollDto)
+  poll?: NewBoardPollDto | null;
 }

@@ -38,6 +38,16 @@ export class BoardPost {
   @Column('text', { array: true, default: () => "'{}'" })
   tags: string[];
 
+  // main 쪽 게시판 화면이 쓰는 필드들 — 모집 공고(recruiting/projectId)와는 별개의 일반 게시판 기능.
+  @Column({ default: 'free' })
+  category: string;
+
+  @Column({ default: 0 })
+  views: number;
+
+  @Column({ default: false })
+  pinned: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

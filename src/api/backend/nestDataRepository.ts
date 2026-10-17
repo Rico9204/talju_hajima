@@ -22,6 +22,11 @@ import type {
   ChatMessage,
   ChatReaction,
   ProfileLink,
+  BoardPost,
+  BoardComment,
+  BoardAttachment,
+  BoardPoll,
+  BoardPostReport,
 } from "../types";
 
 // ============================================================================
@@ -341,6 +346,12 @@ const checklistItemIds = makeIdRegistry();
 const taskCommentIds = makeIdRegistry();
 const messageIds = makeIdRegistry();
 const scheduleEventIds = makeIdRegistry();
+const boardPostIds = makeIdRegistry();
+const boardCommentIds = makeIdRegistry();
+const boardPollIds = makeIdRegistry();
+const boardPollOptionIds = makeIdRegistry();
+const boardAttachmentIds = makeIdRegistry();
+const boardReportIds = makeIdRegistry();
 // updateScheduleEvent/removeScheduleEvent가 PATCH/DELETE 경로에 필요한 projectId를 다시
 // 안 물어봐도 되도록, listScheduleEvents/addScheduleEvent에서 매핑할 때 같이 기억해둔다.
 const scheduleEventProjectById = new Map<number, string>();
@@ -476,6 +487,205 @@ function toMessage(raw: RawChatMessage, members: Map<string, RawMember>, channel
     readBy: raw.readBy.map(memberIdFor),
     reactions: raw.reactions.map((r): ChatReaction => ({ messageId: id, memberId: memberIdFor(r.userId), emoji: r.emoji })),
   };
+}
+
+// ============================================================================
+// 게시판(board) — backend/src/board를 그대로 매핑. 글/댓글/투표 id는 전부 UUID라 다른 영역과
+// 같은 방식(makeIdRegistry)으로 숫자 id를 붙여서 main의 BoardPost 인터페이스(숫자 id 기준)에 맞춘다.
+// ============================================================================
+interface RawBoardPost {
+  id: string;
+  authorId: string;
+  author: { id: string; name: string } | null;
+  title: string;
+  content: string;
+  projectId: string | null;
+  project: { id: string; name: string } | null;
+  recruiting: boolean;
+  tags: string[];
+  category: string;
+  views: number;
+  pinned: boolean;
+  createdAt: string;
+}
+interface RawBoardStats {
+  likes: number;
+  likedByMe: boolean;
+  comments: number;
+}
+interface RawBoardAttachment {
+  id: string;
+  postId: string | null;
+  uploaderId: string;
+  name: string;
+  byteSize: number;
+  kind: "image" | "file";
+  mimeType: string | null;
+  data: string;
+  createdAt: string;
+}
+interface RawBoardPollOption {
+  id: string;
+  pollId: string;
+  text: string;
+  sortOrder: number;
+  votesCount: number;
+}
+interface RawBoardPollDetail {
+  id: string;
+  postId: string;
+  question: string;
+  allowMultiple: boolean;
+  isAnonymous: boolean;
+  closed: boolean;
+  closesAt: string | null;
+  createdAt: string;
+  options: RawBoardPollOption[];
+  totalVotes: number;
+  hasVoted: boolean;
+  myOptionIds: string[];
+}
+interface RawBoardComment {
+  id: string;
+  postId: string;
+  authorId: string;
+  author: { id: string; name: string } | null;
+  content: string;
+  parentCommentId: string | null;
+  createdAt: string;
+}
+interface RawBoardPostReport {
+  id: string;
+  postId: string | null;
+  postTitle: string;
+  postExcerpt: string;
+  postAuthorName: string;
+  reporterId: string;
+  reason: string;
+  detail: string;
+  status: "open" | "resolved" | "dismissed";
+  createdAt: string;
+}
+
+function toBoardAttachment(raw: RawBoardAttachment): BoardAttachment {
+  return {
+    id: boardAttachmentIds.toNumber(raw.id).toString(),
+    name: raw.name,
+    size: formatSize(raw.data),
+    kind: raw.kind,
+    url: raw.data,
+    mimeType: raw.mimeType ?? undefined,
+  };
+}
+
+function toBoardPollDetail(raw: RawBoardPollDetail): BoardPoll {
+  return {
+    id: boardPollIds.toNumber(raw.id),
+    postId: boardPostIds.toNumber(raw.postId),
+    question: raw.question,
+    allowMultiple: raw.allowMultiple,
+    isAnonymous: raw.isAnonymous,
+    closed: raw.closed,
+    closesAt: raw.closesAt,
+    createdAt: raw.createdAt,
+    totalVotes: raw.totalVotes,
+    hasVoted: raw.hasVoted,
+    myOptionIds: raw.myOptionIds.map((id) => boardPollOptionIds.toNumber(id)),
+    options: raw.options
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((o) => ({
+        id: boardPollOptionIds.toNumber(o.id),
+        pollId: boardPollIds.toNumber(o.pollId),
+        text: o.text,
+        votesCount: o.votesCount,
+        sortOrder: o.sortOrder,
+      })),
+  };
+}
+
+function toBoardPost(
+  raw: RawBoardPost,
+  stats: RawBoardStats,
+  attachments: RawBoardAttachment[],
+  comments: import("../types").BoardComment[],
+  poll: BoardPoll | null,
+): BoardPost {
+  return {
+    id: boardPostIds.toNumber(raw.id),
+    category: (raw.category as BoardPost["category"]) ?? "free",
+    title: raw.title,
+    content: raw.content,
+    authorUserId: raw.authorId,
+    author: raw.author?.name ?? "알 수 없음",
+    authorAvatarUrl: null,
+    createdAt: raw.createdAt,
+    views: raw.views,
+    likes: stats.likes,
+    likedByMe: stats.likedByMe,
+    pinned: raw.pinned,
+    tags: raw.tags,
+    attachments: attachments.map(toBoardAttachment),
+    commentsCount: stats.comments,
+    comments,
+    poll,
+  };
+}
+
+// listBoardPosts/createBoardPost가 공통으로 쓰는, 글 하나의 나머지 정보(통계/첨부/댓글/투표)를
+// 한 번에 모아오는 헬퍼.
+async function loadBoardPostExtras(postId: string): Promise<{ stats: RawBoardStats; attachments: RawBoardAttachment[]; comments: import("../types").BoardComment[]; poll: BoardPoll | null }> {
+  const [{ data: stats }, { data: attachments }, { data: rawComments }, { data: rawPoll }] = await Promise.all([
+    apiClient.get<RawBoardStats>(`/board/posts/${postId}/stats`),
+    apiClient.get<RawBoardAttachment[]>(`/board/posts/${postId}/attachments`),
+    apiClient.get<RawBoardComment[]>(`/board/posts/${postId}/comments`),
+    apiClient.get<RawBoardPollDetail | null>(`/board/posts/${postId}/poll`),
+  ]);
+  return {
+    stats,
+    attachments,
+    comments: nestBoardComments(rawComments),
+    poll: rawPoll ? toBoardPollDetail(rawPoll) : null,
+  };
+}
+
+function toBoardComment(raw: RawBoardComment): { id: number; authorUserId: string; author: string; authorAvatarUrl: string | null; createdAt: string; content: string; parentCommentId: string | null } {
+  return {
+    id: boardCommentIds.toNumber(raw.id),
+    authorUserId: raw.authorId,
+    author: raw.author?.name ?? "알 수 없음",
+    authorAvatarUrl: null,
+    createdAt: raw.createdAt,
+    content: raw.content,
+    parentCommentId: raw.parentCommentId,
+  };
+}
+
+// main의 BoardComment는 "최상위 댓글 + 그 밑에 달린 답글(replies)" 트리 모양이다 — 백엔드는
+// parentCommentId만 있는 평평한 목록을 주므로 여기서 한 단계만 묶어 트리로 바꾼다(답글의 답글은
+// 없는 걸로 가정 — main 쪽 BoardReply에도 더 깊은 중첩은 없음).
+function nestBoardComments(raw: RawBoardComment[]): import("../types").BoardComment[] {
+  const converted = raw.map(toBoardComment);
+  const topLevel = converted.filter((c) => c.parentCommentId === null);
+  const byParent = new Map<string, typeof converted>();
+  for (const c of converted) {
+    if (c.parentCommentId === null) continue;
+    const list = byParent.get(c.parentCommentId) ?? [];
+    list.push(c);
+    byParent.set(c.parentCommentId, list);
+  }
+  return topLevel.map((c) => {
+    const rawRow = raw.find((r) => toBoardComment(r).id === c.id)!;
+    const replies = (byParent.get(rawRow.id) ?? []).map((r) => ({
+      id: r.id,
+      authorUserId: r.authorUserId,
+      author: r.author,
+      authorAvatarUrl: r.authorAvatarUrl,
+      createdAt: r.createdAt,
+      content: r.content,
+    }));
+    return { id: c.id, authorUserId: c.authorUserId, author: c.author, authorAvatarUrl: c.authorAvatarUrl, createdAt: c.createdAt, content: c.content, replies };
+  });
 }
 
 async function buildFileVersions(
@@ -1179,23 +1389,163 @@ export const nestDataRepository: DataRepository = {
   async updatePresenceStatus() {},
   async touchMemberPresence() {},
 
-  async listBoardPosts() { return []; },
-  async createBoardPost() { throw new Error("게시판 기능은 아직 지원하지 않습니다."); },
-  async updateBoardPost() { throw new Error("게시판 기능은 아직 지원하지 않습니다."); },
-  async deleteBoardPost() {},
-  async incrementBoardPostViews() {},
-  async setBoardPostLike() {},
-  async getBoardPostComments() { return []; },
-  async addBoardComment() { throw new Error("게시판 기능은 아직 지원하지 않습니다."); },
-  async deleteBoardComment() {},
-  async uploadBoardAttachment() { throw new Error("게시판 첨부파일 기능은 아직 지원하지 않습니다."); },
-  async castBoardPollVote() { throw new Error("게시판 투표 기능은 아직 지원하지 않습니다."); },
-  async closeBoardPoll() {},
-  async reportBoardPost() {},
-  async listBoardPostReports() { return []; },
-  async listAllBoardReports() { return []; },
-  async getBoardPostContent() { return null; },
-  async reviewBoardReport() {},
+  async listBoardPosts() {
+    const { data: posts } = await apiClient.get<RawBoardPost[]>("/board/posts");
+    return Promise.all(
+      posts.map(async (p) => {
+        const { stats, attachments, comments, poll } = await loadBoardPostExtras(p.id);
+        return toBoardPost(p, stats, attachments, comments, poll);
+      }),
+    );
+  },
+
+  async createBoardPost(input) {
+    const attachmentIds = input.attachments.map((a) => boardAttachmentIds.toUuid(Number(a.id))).filter((v): v is string => !!v);
+    const { data } = await apiClient.post<RawBoardPost>("/board/posts", {
+      title: input.title,
+      content: input.content,
+      tags: input.tags,
+      category: input.category,
+      attachmentIds,
+      poll: input.poll
+        ? {
+            question: input.poll.question,
+            options: input.poll.options,
+            allowMultiple: input.poll.allowMultiple,
+            isAnonymous: input.poll.isAnonymous,
+            closesAt: input.poll.closesAt ?? null,
+          }
+        : undefined,
+    });
+    const { stats, attachments, comments, poll } = await loadBoardPostExtras(data.id);
+    return toBoardPost(data, stats, attachments, comments, poll);
+  },
+
+  async updateBoardPost(postId, patch) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return;
+    await apiClient.patch(`/board/posts/${uuid}`, { title: patch.title, content: patch.content, tags: patch.tags });
+  },
+
+  async deleteBoardPost(postId) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return;
+    await apiClient.delete(`/board/posts/${uuid}`);
+  },
+
+  async incrementBoardPostViews(postId) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return;
+    await apiClient.post(`/board/posts/${uuid}/view`);
+  },
+
+  async setBoardPostLike(postId, active) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return;
+    await apiClient.post(`/board/posts/${uuid}/like`, { active });
+  },
+
+  async getBoardPostComments(postId) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return [];
+    const { data } = await apiClient.get<RawBoardComment[]>(`/board/posts/${uuid}/comments`);
+    return nestBoardComments(data);
+  },
+
+  async addBoardComment(postId, content, parentCommentId) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return;
+    const parentUuid = parentCommentId != null ? boardCommentIds.toUuid(parentCommentId) : undefined;
+    await apiClient.post(`/board/posts/${uuid}/comments`, { content, parentCommentId: parentUuid });
+  },
+
+  async deleteBoardComment(commentId) {
+    const uuid = boardCommentIds.toUuid(commentId);
+    if (!uuid) return;
+    await apiClient.delete(`/board/comments/${uuid}`);
+  },
+
+  async uploadBoardAttachment(file) {
+    const data = await readFileContentForUpload(file);
+    const kind: "image" | "file" = file.type.startsWith("image/") ? "image" : "file";
+    const { data: raw } = await apiClient.post<RawBoardAttachment>("/board/attachments", {
+      name: file.name,
+      byteSize: file.size,
+      kind,
+      mimeType: file.type || undefined,
+      data,
+    });
+    return toBoardAttachment(raw);
+  },
+
+  async castBoardPollVote(pollId, optionIds) {
+    const uuid = boardPollIds.toUuid(pollId);
+    if (!uuid) throw new Error("알 수 없는 투표입니다.");
+    const optionUuids = optionIds.map((id) => boardPollOptionIds.toUuid(id)).filter((v): v is string => !!v);
+    const { data } = await apiClient.post<RawBoardPollDetail>(`/board/polls/${uuid}/vote`, { optionIds: optionUuids });
+    return toBoardPollDetail(data);
+  },
+
+  async closeBoardPoll(pollId) {
+    const uuid = boardPollIds.toUuid(pollId);
+    if (!uuid) return;
+    await apiClient.post(`/board/polls/${uuid}/close`);
+  },
+
+  async reportBoardPost(postId, reason, detail) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return;
+    await apiClient.post(`/board/posts/${uuid}/report`, { reason, detail });
+  },
+
+  async listBoardPostReports(postId) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return [];
+    const { data } = await apiClient.get<RawBoardPostReport[]>(`/board/posts/${uuid}/reports`);
+    return data.map((r): BoardPostReport => ({
+      id: boardReportIds.toNumber(r.id),
+      postId: r.postId ? boardPostIds.toNumber(r.postId) : null,
+      postTitle: r.postTitle,
+      postExcerpt: r.postExcerpt,
+      postAuthorName: r.postAuthorName,
+      reporterUserId: r.reporterId,
+      reporterName: "",
+      reason: r.reason as BoardPostReport["reason"],
+      detail: r.detail,
+      status: r.status,
+      createdAt: r.createdAt,
+    }));
+  },
+
+  async listAllBoardReports() {
+    const { data } = await apiClient.get<RawBoardPostReport[]>("/board/reports");
+    return data.map((r): BoardPostReport => ({
+      id: boardReportIds.toNumber(r.id),
+      postId: r.postId ? boardPostIds.toNumber(r.postId) : null,
+      postTitle: r.postTitle,
+      postExcerpt: r.postExcerpt,
+      postAuthorName: r.postAuthorName,
+      reporterUserId: r.reporterId,
+      reporterName: "",
+      reason: r.reason as BoardPostReport["reason"],
+      detail: r.detail,
+      status: r.status,
+      createdAt: r.createdAt,
+    }));
+  },
+
+  async getBoardPostContent(postId) {
+    const uuid = boardPostIds.toUuid(postId);
+    if (!uuid) return null;
+    const { data } = await apiClient.get<string | null>(`/board/posts/${uuid}/content`);
+    return data;
+  },
+
+  async reviewBoardReport(reportId, status) {
+    const uuid = boardReportIds.toUuid(reportId);
+    if (!uuid) return;
+    await apiClient.patch(`/board/reports/${uuid}`, { status });
+  },
 
   async fetchCampusNotices() { return []; },
   async listScrappedNotices() { return []; },
