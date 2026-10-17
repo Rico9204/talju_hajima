@@ -129,6 +129,62 @@ export class ProjectsService {
     return !!project && project.ownerId === userId;
   }
 
+  // 팀장 또는 부팀장인지 — 팀원 강퇴/설정 변경 등 일상 운영 권한 체크에 씀.
+  async isLeaderOrVice(projectId: string, userId: string): Promise<boolean> {
+    if (await this.isOwner(projectId, userId)) return true;
+    const member = await this.membersRepository.findOne({ where: { projectId, userId } });
+    return member?.role === ProjectRole.VICE_LEADER;
+  }
+
+  // memberId는 ProjectMember.id(멤버십 row id) — kickMember/setViceLeader는 main 쪽에서 이
+  // id로 부른다.
+  async kickMemberByMembershipId(memberId: string, actingUserId: string): Promise<void> {
+    const member = await this.membersRepository.findOne({ where: { id: memberId } });
+    if (!member) throw new NotFoundException('멤버를 찾을 수 없습니다.');
+    if (!(await this.isLeaderOrVice(member.projectId, actingUserId))) {
+      throw new ForbiddenException('팀장/부팀장만 팀원을 제외할 수 있습니다.');
+    }
+    const project = await this.projectsRepository.findOne({ where: { id: member.projectId } });
+    if (project?.ownerId === member.userId) throw new ForbiddenException('팀장은 제외할 수 없습니다.');
+    await this.membersRepository.delete(memberId);
+  }
+
+  async setViceLeaderByMembershipId(memberId: string, enabled: boolean, actingUserId: string): Promise<void> {
+    const member = await this.membersRepository.findOne({ where: { id: memberId } });
+    if (!member) throw new NotFoundException('멤버를 찾을 수 없습니다.');
+    if (!(await this.isOwner(member.projectId, actingUserId))) {
+      throw new ForbiddenException('팀장만 부팀장을 지정할 수 있습니다.');
+    }
+    member.role = enabled ? ProjectRole.VICE_LEADER : ProjectRole.MEMBER;
+    await this.membersRepository.save(member);
+  }
+
+  async transferLeadership(projectId: string, newOwnerMemberId: string, actingUserId: string): Promise<void> {
+    if (!(await this.isOwner(projectId, actingUserId))) throw new ForbiddenException('팀장만 팀장을 위임할 수 있습니다.');
+    const member = await this.membersRepository.findOne({ where: { id: newOwnerMemberId } });
+    if (!member || member.projectId !== projectId) throw new NotFoundException('멤버를 찾을 수 없습니다.');
+    await this.projectsRepository.update(projectId, { ownerId: member.userId });
+    member.role = ProjectRole.OWNER;
+    await this.membersRepository.save(member);
+    const prevOwnerMembership = await this.membersRepository.findOne({ where: { projectId, userId: actingUserId } });
+    if (prevOwnerMembership) {
+      prevOwnerMembership.role = ProjectRole.MEMBER;
+      await this.membersRepository.save(prevOwnerMembership);
+    }
+  }
+
+  async completeProject(projectId: string, userId: string): Promise<Project> {
+    if (!(await this.isOwner(projectId, userId))) throw new ForbiddenException('팀장만 프로젝트를 종료할 수 있습니다.');
+    await this.projectsRepository.update(projectId, { completedAt: new Date() });
+    const project = await this.projectsRepository.findOne({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('프로젝트를 찾을 수 없습니다.');
+    return project;
+  }
+
+  async setApprovalStatus(projectId: string, status: 'approved' | 'rejected'): Promise<void> {
+    await this.projectsRepository.update(projectId, { approvalStatus: status });
+  }
+
   async acceptInvitation(
     token: string,
     userId: string,

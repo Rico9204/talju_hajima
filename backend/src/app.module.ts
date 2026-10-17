@@ -16,6 +16,7 @@ import { EvaluationsModule } from './evaluations/evaluations.module.js';
 import { BoardModule } from './board/board.module.js';
 import { CollabModule } from './collab/collab.module.js';
 import { OnlyofficeModule } from './onlyoffice/onlyoffice.module.js';
+import { AdminModule } from './admin/admin.module.js';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { OnlyofficeModule } from './onlyoffice/onlyoffice.module.js';
     BoardModule,
     CollabModule,
     OnlyofficeModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

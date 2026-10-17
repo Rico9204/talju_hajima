@@ -27,6 +27,8 @@ import type {
   BoardAttachment,
   BoardPoll,
   BoardPostReport,
+  AdminDocType,
+  MyAdminApplication,
 } from "../types";
 
 // ============================================================================
@@ -133,8 +135,39 @@ interface RawProject {
   ownerId: string;
   name: string;
   description: string | null;
+  approvalStatus: "pending" | "approved" | "rejected";
+  completedAt: string | null;
   createdAt: string;
 }
+interface RawAdminApplication {
+  id: string;
+  userId: string;
+  org: string;
+  jobTitle: string;
+  contact: string;
+  docType: string;
+  docName: string;
+  docSize: number;
+  docDeleted: boolean;
+  status: "pending" | "approved" | "rejected";
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+function toMyAdminApplication(raw: RawAdminApplication): MyAdminApplication {
+  return {
+    id: raw.id,
+    status: raw.status,
+    org: raw.org,
+    jobTitle: raw.jobTitle,
+    docType: raw.docType as AdminDocType,
+    docName: raw.docName,
+    submittedAt: raw.createdAt,
+    reviewedAt: raw.reviewedAt,
+    reviewNote: raw.reviewNote,
+  };
+}
+
 function toProject(raw: RawProject): Project {
   const extras = decodeExtras(raw.description);
   return {
@@ -142,18 +175,18 @@ function toProject(raw: RawProject): Project {
     name: raw.name,
     org: extras.org,
     period: extras.period,
-    status: "active",
+    status: raw.completedAt ? "done" : "active",
     startDate: extras.startDate,
     endDate: extras.endDate,
-    // backend/(NestJS)에는 승인 절차 자체가 없어 늘 승인된 것으로 취급한다.
-    approvalStatus: "approved",
+    approvalStatus: raw.approvalStatus ?? "approved",
+    completedAt: raw.completedAt ?? undefined,
   };
 }
 
 interface RawMember {
   id: string;
   userId: string;
-  role: "owner" | "member";
+  role: "owner" | "vice_leader" | "member";
   user: {
     id: string;
     email: string;
@@ -174,7 +207,7 @@ function toMember(raw: RawMember): Member {
     id: raw.id,
     userId: raw.userId,
     name: raw.user.name,
-    role: raw.role === "owner" ? "팀장" : "팀원",
+    role: raw.role === "owner" ? "팀장" : raw.role === "vice_leader" ? "부팀장" : "팀원",
     school: raw.user.school ?? "",
     major: raw.user.major ?? "",
     student: raw.user.student ?? "",
@@ -202,7 +235,7 @@ function toMember(raw: RawMember): Member {
     backgroundImageUrl: null,
     glassOpacity: null,
     glassBlur: null,
-    isViceLeader: false,
+    isViceLeader: raw.role === "vice_leader",
     lastSeenAt: null,
     tasksViewedAt: null,
     scheduleViewedAt: null,
@@ -863,7 +896,9 @@ export const nestDataRepository: DataRepository = {
   async uploadAvatar() {
     throw new Error("이 서버 백엔드는 아직 프로필 이미지 업로드를 지원하지 않습니다.");
   },
-  async transferLeadership() {},
+  async transferLeadership(projectId, targetMemberId) {
+    await apiClient.post(`/projects/${projectId}/transfer-leadership`, { memberId: targetMemberId });
+  },
 
   async listFolders(projectId) {
     const { data: files } = await apiClient.get<RawProjectFile[]>(`/projects/${projectId}/files`);
@@ -1316,7 +1351,10 @@ export const nestDataRepository: DataRepository = {
   // 통합 계획의 다음 단계에서 하나씩 backend/에 포팅하며 실제 구현으로 바꿀 예정.
   // ==========================================================================
 
-  async isCurrentUserAdmin() { return false; },
+  async isCurrentUserAdmin() {
+    const { data } = await apiClient.get<{ isAdmin: boolean }>("/me/is-admin");
+    return data.isAdmin;
+  },
   async listWorkspaceCleanupProjects() { return []; },
   async getMyEvaluationSummary() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
   async getEvaluationMode() { return false; },
@@ -1328,9 +1366,8 @@ export const nestDataRepository: DataRepository = {
   async getEvaluations() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
   async submitEvaluations() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
   async completeProject(projectId) {
-    const current = await this.getProjectById(projectId);
-    if (!current) throw new Error("프로젝트를 찾을 수 없습니다.");
-    return current;
+    const { data } = await apiClient.post<RawProject>(`/projects/${projectId}/complete`);
+    return toProject(data);
   },
 
   // "참여 코드" = 우리 백엔드의 초대 토큰(createInviteToken). 만료 시각은 백엔드가 안 알려줘서
@@ -1346,20 +1383,82 @@ export const nestDataRepository: DataRepository = {
   // "코드 확인만" 미리보기는 우리 백엔드가 지원하지 않는다(멤버여야 조회 가능 — joinProject 주석
   // 참고). null을 돌려주면 화면은 "참여하기"를 바로 누르도록 유도한다.
   async lookupProjectByJoinCode() { return null; },
-  async approveProject() {},
-  async rejectProject() {},
-  async kickMember() { throw new Error("멤버 제외 기능은 아직 지원하지 않습니다."); },
-  async setViceLeader() {},
-  async searchAdmins() { return []; },
-  async isCurrentUserOperator() { return false; },
-  async getMyAdminApplication() { return null; },
-  async submitAdminApplication() { throw new Error("관리자 신청 기능은 아직 지원하지 않습니다."); },
-  async listAdminApplications() { return []; },
-  async getAdminApplicationDocumentUrl() { throw new Error("지원하지 않는 기능입니다."); },
-  async reviewAdminApplication() {},
-  async cleanupAdminDocument() {},
-  async listAdminAccounts() { return []; },
-  async revokeAdmin() {},
+  async approveProject(projectId) {
+    await apiClient.post(`/projects/${projectId}/approve`);
+  },
+  async rejectProject(projectId) {
+    await apiClient.post(`/projects/${projectId}/reject`);
+  },
+  async kickMember(memberId) {
+    await apiClient.post(`/projects/members/${memberId}/kick`);
+  },
+  async setViceLeader(memberId, enabled) {
+    await apiClient.post(`/projects/members/${memberId}/vice-leader`, { enabled });
+  },
+  async searchAdmins(query) {
+    const { data } = await apiClient.get<{ id: string; displayName: string; org: string | null; email: string | null }[]>("/admins/search", { params: { q: query } });
+    return data.map((a) => ({ id: a.id, displayName: a.displayName, org: a.org, email: a.email }));
+  },
+  async isCurrentUserOperator() {
+    const { data } = await apiClient.get<{ isOperator: boolean }>("/me/is-operator");
+    return data.isOperator;
+  },
+  async getMyAdminApplication() {
+    const { data } = await apiClient.get<RawAdminApplication | null>("/me/admin-application");
+    return data ? toMyAdminApplication(data) : null;
+  },
+  async submitAdminApplication(input) {
+    const data = await readFileContentForUpload(input.file);
+    await apiClient.post("/admin-applications", {
+      org: input.org,
+      jobTitle: input.jobTitle,
+      contact: input.contact,
+      docType: input.docType,
+      docName: input.file.name,
+      docSize: input.file.size,
+      docData: data,
+    });
+  },
+  async listAdminApplications() {
+    const { data } = await apiClient.get<(RawAdminApplication & { displayName: string; email: string })[]>("/admin-applications");
+    return data.map((a) => ({
+      id: a.id,
+      userId: a.userId,
+      displayName: a.displayName,
+      email: a.email,
+      emailConfirmed: true,
+      org: a.org,
+      jobTitle: a.jobTitle,
+      contact: a.contact,
+      docType: a.docType as AdminDocType,
+      docName: a.docName,
+      docSize: a.docSize,
+      docPath: a.docDeleted ? null : a.id,
+      docDeleted: a.docDeleted,
+      status: a.status,
+      submittedAt: a.createdAt,
+      reviewedAt: a.reviewedAt,
+      reviewNote: a.reviewNote,
+      reviewedByName: null,
+    }));
+  },
+  async getAdminApplicationDocumentUrl(path) {
+    const { data } = await apiClient.get<{ data: string }>(`/admin-applications/${path}/document`);
+    return data.data;
+  },
+  async reviewAdminApplication(id, approve, note) {
+    await apiClient.patch(`/admin-applications/${id}`, { approve, note });
+  },
+  async cleanupAdminDocument(id) {
+    await apiClient.post(`/admin-applications/${id}/cleanup-document`);
+  },
+  async listAdminAccounts() {
+    const { data } = await apiClient.get<{ userId: string; displayName: string; email: string; org: string | null; isOperator: boolean; pendingProjects: number }[]>("/admins");
+    return data;
+  },
+  async revokeAdmin(userId) {
+    await apiClient.post(`/admins/${userId}/revoke`);
+  },
 
   async getMemberParticipationStats() { return { projectCount: 0, collaboratorCount: 0 }; },
   async getEvaluationPercentiles() { return { available: false, population: 0 }; },

@@ -57,6 +57,19 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   lockedUntil: Date | null;
 
+  // 소속 학과/부서 admin(프로젝트 승인 권한) 여부. isOperator는 그 위의 최고 권한(admin 승인/
+  // 해제까지 가능) — 이 백엔드엔 아직 "첫 운영자를 어떻게 지정하는지"가 없어서, 당장은 DB에서
+  // 직접 true로 바꿔야 함(운영 전환 시 정리 필요).
+  @Column({ name: 'is_admin', default: false })
+  isAdmin: boolean;
+
+  @Column({ name: 'is_operator', default: false })
+  isOperator: boolean;
+
+  // admin 승인을 받을 때(소속 학과/부서) — 운영자 검색/목록 화면에서 씀.
+  @Column({ type: 'varchar', nullable: true })
+  org: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

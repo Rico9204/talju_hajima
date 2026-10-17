@@ -11,6 +11,8 @@ import { User } from '../users/user.entity.js';
 
 export enum ProjectRole {
   OWNER = 'owner',
+  // 팀장과 거의 같은 일상 운영 권한이 있지만 팀원 제외/프로젝트 종료/팀장 위임은 못 함.
+  VICE_LEADER = 'vice_leader',
   MEMBER = 'member',
 }
 
