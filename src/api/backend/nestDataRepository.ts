@@ -1595,6 +1595,10 @@ export const nestDataRepository: DataRepository = {
   async uploadBannerImage() { throw new Error("이 서버 백엔드는 아직 배너 이미지 업로드를 지원하지 않습니다."); },
   async uploadBackgroundImage() { throw new Error("이 서버 백엔드는 아직 배경 이미지 업로드를 지원하지 않습니다."); },
 
+  // main 쪽은 파일 원본을 별도 스토리지 버킷에 두고 DB에는 경로만 남기는 구조라 삭제 시
+  // 버킷 정리가 비동기 대기열(workspace_delete_queue)로 미뤄질 수 있다. 이 백엔드는 파일
+  // 내용을 ProjectFile/FileVersion row에 직접 저장하므로 행을 지우면 그걸로 끝 — 별도
+  // 정리 대기열 자체가 존재하지 않는다(= 항상 빈 배열/no-op이 올바른 구현).
   async pendingWorkspaceCleanup() { return []; },
   async cleanupWorkspaceFiles() {},
 
@@ -1611,7 +1615,23 @@ export const nestDataRepository: DataRepository = {
     return () => clearInterval(timer);
   },
 
-  async listUpcomingEvents() { return []; },
+  async listUpcomingEvents() {
+    const projectIds = await nestDataRepository.listMyProjectIds();
+    const today = new Date().toISOString().slice(0, 10);
+    const perProject = await Promise.all(
+      projectIds.map(async (projectId) => {
+        const [project, events] = await Promise.all([
+          nestDataRepository.getProjectById(projectId),
+          nestDataRepository.listScheduleEvents(projectId),
+        ]);
+        const projectName = project?.name ?? "";
+        return events
+          .filter((e) => e.date >= today || (e.endDate && e.endDate >= today))
+          .map((e) => ({ ...e, projectId, projectName }));
+      }),
+    );
+    return perProject.flat().sort((a, b) => a.date.localeCompare(b.date));
+  },
 
   async listChatGroups(projectId) {
     const [{ data: groups }, members] = await Promise.all([
@@ -1622,6 +1642,11 @@ export const nestDataRepository: DataRepository = {
     const memberIdFor = (userId: string) => memberList.find((m) => m.userId === userId)?.id ?? userId;
     return groups.map((g) => ({ id: g.id, name: g.name, memberIds: g.memberIds.map(memberIdFor) }));
   },
+  // 다른(지금 열지 않은) 프로젝트에 새 소식이 있는지 뱃지로 보여주는 기능 — main 쪽은 각
+  // 영역(채팅/작업/일정/워크스페이스)마다 "마지막으로 본 시각" 커서를 멤버 행에 기록해두고
+  // 그 이후 변경이 있으면 알림으로 친다. 이 백엔드/DataRepository 인터페이스 어디에도 그
+  // 커서를 쓰는 메서드가 없어서(Member.tasksViewedAt 등도 항상 null placeholder) 아직
+  // 포팅하지 않음 — 항상 빈 배열(뱃지 없음)로 두되, 틀린 값을 보여주진 않는다.
   async getMyProjectAlerts() { return []; },
   async createChatGroup(projectId, name, memberIds) {
     const members = await membersByUserId(projectId);
