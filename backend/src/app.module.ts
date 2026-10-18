@@ -17,6 +17,7 @@ import { BoardModule } from './board/board.module.js';
 import { CollabModule } from './collab/collab.module.js';
 import { OnlyofficeModule } from './onlyoffice/onlyoffice.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { ScrappedNoticesModule } from './scrapped-notices/scrapped-notices.module.js';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { AdminModule } from './admin/admin.module.js';
     CollabModule,
     OnlyofficeModule,
     AdminModule,
+    ScrappedNoticesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

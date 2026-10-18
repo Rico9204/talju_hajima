@@ -1812,9 +1812,43 @@ export const nestDataRepository: DataRepository = {
     await apiClient.patch(`/board/reports/${uuid}`, { status });
   },
 
-  async fetchCampusNotices() { return []; },
-  async listScrappedNotices() { return []; },
-  async toggleScrapNotice() { return false; },
+  // 공지 수집기는 브라우저에서 대학 게시판을 직접 긁어오는 순수 프론트 로직(lib/crawler) —
+  // 백엔드엔 캐싱용 /api/campus-notices 같은 엔드포인트가 없어서 항상 클라이언트 크롤러를 쓴다.
+  async fetchCampusNotices({ school = "전국", category = "all" } = {}) {
+    const { crawlNotices } = await import("../../lib/crawler/crawlerService");
+    return (await crawlNotices(school, category as import("../../lib/crawler/types").NoticeCategory)).notices;
+  },
+  async listScrappedNotices() {
+    const { data } = await apiClient.get<
+      { id: string; noticeId: string; schoolCode: string; schoolName: string; category: string; title: string; author: string; postDate: string; link: string; createdAt: string }[]
+    >("/me/scrapped-notices");
+    const { data: me } = await apiClient.get<{ id: string }>("/users/me");
+    return data.map((n) => ({
+      id: n.id,
+      userId: me.id,
+      schoolCode: n.schoolCode,
+      schoolName: n.schoolName,
+      category: n.category as import("../../lib/crawler/types").NoticeCategory,
+      title: n.title,
+      author: n.author,
+      postDate: n.postDate,
+      link: n.link,
+      createdAt: n.createdAt,
+    }));
+  },
+  async toggleScrapNotice(notice) {
+    const { data } = await apiClient.post<{ scrapped: boolean }>("/me/scrapped-notices/toggle", {
+      id: notice.id,
+      schoolCode: notice.schoolCode,
+      schoolName: notice.schoolName,
+      category: notice.category,
+      title: notice.title,
+      author: notice.author,
+      postDate: notice.postDate,
+      link: notice.link,
+    });
+    return data.scrapped;
+  },
 };
 
 // Sidebar의 "참여 코드" 표시/복사에서 쓰는, DataRepository 인터페이스 밖의 talju 전용 헬퍼.
