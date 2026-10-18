@@ -61,7 +61,13 @@ export class UsersService {
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<User> {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
-    Object.assign(user, dto);
+    // dto는 class-validator DTO라 보내지 않은 필드도 선언된 속성으로 undefined 값을 갖고
+    // 있을 수 있다 — Object.assign을 그대로 쓰면 그 undefined가 기존 값을 덮어써서, 예를
+    // 들어 avatarUrl만 바꾸는 PATCH가 bannerImageUrl을 null로 날려버린다. 실제로 값이
+    // 온 필드만 골라서 덮어쓴다.
+    for (const [key, value] of Object.entries(dto)) {
+      if (value !== undefined) (user as unknown as Record<string, unknown>)[key] = value;
+    }
     return this.usersRepository.save(user);
   }
 

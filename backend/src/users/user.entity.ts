@@ -43,11 +43,16 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   bannerColor: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  // 별도 스토리지가 없어서 base64 data: URL을 그대로 저장한다(board_attachments와 같은 방식) —
+  // varchar 길이 제한에 걸릴 수 있어 text로 둔다.
+  @Column({ type: 'text', nullable: true })
   bannerImageUrl: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'text', nullable: true })
   avatarUrl: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  backgroundImageUrl: string | null;
 
   // 로그인 횟수 제한 — 연속 실패 횟수가 임계치를 넘으면 lockedUntil까지 비밀번호가 맞아도
   // 로그인을 막는다(brute-force 방어). 성공하면 즉시 0/null로 초기화(users.service.ts 참고).

@@ -90,6 +90,9 @@ export class ProjectsService {
           bannerColor: true,
           bannerImageUrl: true,
           avatarUrl: true,
+          backgroundImageUrl: true,
+          org: true,
+          isAdmin: true,
         },
       },
     });

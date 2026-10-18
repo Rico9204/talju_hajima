@@ -206,6 +206,9 @@ interface RawMember {
     bannerColor: string | null;
     bannerImageUrl: string | null;
     avatarUrl: string | null;
+    backgroundImageUrl: string | null;
+    org: string | null;
+    isAdmin: boolean;
     links: ProfileLink[];
   };
 }
@@ -240,12 +243,14 @@ function toMember(raw: RawMember, finalAverage?: MemberFinalAverage): Member {
     color: colorForName(raw.user.name),
     criteriaScores: finalAverage?.criteria ?? { role: 0, deadline: 0, communication: 0, collaboration: 0, quality: 0 },
     isLeader: raw.role === "owner",
-    // 아래 필드들은 backend/(NestJS)가 아직 지원하지 않는, main 쪽에서 나중에 늘어난 항목들 —
-    // 타입만 맞춰두고 기본값으로 둔다(5단계: dataRepository 통합 때 실제 값 연결 예정).
-    org: null,
+    // admin(소속 학과/부서 승인 권한)인 사용자만 org가 채워진다 — TeamView에서 새 프로젝트
+    // 승인을 요청할 admin을 찾을 때 이걸로 검색한다.
+    org: raw.user.isAdmin ? raw.user.org : null,
+    // 프로필 테마 커스터마이징(배경색/그라디언트/유리질 효과)은 User 엔티티에 해당 컬럼이
+    // 없어서 아직 지원 안 함 — 배경 이미지만 uploadBackgroundImage로 저장/표시된다.
     backgroundColor: null,
     backgroundGradient: null,
-    backgroundImageUrl: null,
+    backgroundImageUrl: raw.user.backgroundImageUrl,
     glassOpacity: null,
     glassBlur: null,
     isViceLeader: raw.role === "vice_leader",
@@ -950,20 +955,28 @@ export const nestDataRepository: DataRepository = {
     return { teamLabel: "팀", teamSub: `${members.length}명 참여 중`, members };
   },
 
-  // 백엔드에 PATCH /users/me가 생겨서(school/major/student/name/avatarUrl) 실제로 반영됨.
-  // 다만 이미지 업로드 API는 여전히 없어서 아바타는 명시적으로 실패 알림.
+  // 백엔드에 PATCH /users/me가 있어서(school/major/student/name/avatarUrl/bannerImageUrl/
+  // backgroundImageUrl/bannerColor/contact) 반영된다. backgroundColor/backgroundGradient/
+  // glassOpacity/glassBlur/links는 아직 User 엔티티에 해당 컬럼이 없어서(프로필 테마 커스터마이징
+  // 자체가 이 백엔드엔 없는 기능) 조용히 무시한다 — main 쪽 화면은 기본값으로 동작.
   async updateMyProfile(patch) {
     const body: Record<string, string> = {};
     if (patch.name !== undefined) body.name = patch.name;
     if (patch.school !== undefined) body.school = patch.school;
     if (patch.major !== undefined) body.major = patch.major;
     if (patch.student !== undefined) body.student = patch.student;
+    if (patch.contact) body.contact = patch.contact;
     if (patch.avatarUrl) body.avatarUrl = patch.avatarUrl;
+    if (patch.bannerColor) body.bannerColor = patch.bannerColor;
+    if (patch.bannerImageUrl) body.bannerImageUrl = patch.bannerImageUrl;
+    if (patch.backgroundImageUrl) body.backgroundImageUrl = patch.backgroundImageUrl;
     if (Object.keys(body).length === 0) return;
     await apiClient.patch("/users/me", body);
   },
-  async uploadAvatar() {
-    throw new Error("이 서버 백엔드는 아직 프로필 이미지 업로드를 지원하지 않습니다.");
+  async uploadAvatar(file) {
+    const url = await readFileContentForUpload(file);
+    await apiClient.patch("/users/me", { avatarUrl: url });
+    return url;
   },
   async transferLeadership(projectId, targetMemberId) {
     await apiClient.post(`/projects/${projectId}/transfer-leadership`, { memberId: targetMemberId });
@@ -1592,8 +1605,16 @@ export const nestDataRepository: DataRepository = {
     await apiClient.post("/me/push-subscriptions/delete", { endpoint });
   },
 
-  async uploadBannerImage() { throw new Error("이 서버 백엔드는 아직 배너 이미지 업로드를 지원하지 않습니다."); },
-  async uploadBackgroundImage() { throw new Error("이 서버 백엔드는 아직 배경 이미지 업로드를 지원하지 않습니다."); },
+  async uploadBannerImage(file) {
+    const url = await readFileContentForUpload(file);
+    await apiClient.patch("/users/me", { bannerImageUrl: url });
+    return url;
+  },
+  async uploadBackgroundImage(file) {
+    const url = await readFileContentForUpload(file);
+    await apiClient.patch("/users/me", { backgroundImageUrl: url });
+    return url;
+  },
 
   // main 쪽은 파일 원본을 별도 스토리지 버킷에 두고 DB에는 경로만 남기는 구조라 삭제 시
   // 버킷 정리가 비동기 대기열(workspace_delete_queue)로 미뤄질 수 있다. 이 백엔드는 파일

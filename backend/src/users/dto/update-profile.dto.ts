@@ -1,4 +1,4 @@
-import { IsHexColor, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsHexColor, IsOptional, IsString } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -21,13 +21,19 @@ export class UpdateProfileDto {
   @IsHexColor()
   bannerColor?: string;
 
+  // http(s) URL 또는 data: URL(base64) 둘 다 허용 — 이미지 업로드가 별도 스토리지 없이
+  // base64를 그대로 저장하는 방식이라 @IsUrl()은 data: URL을 거부해서 쓸 수 없다.
   @IsOptional()
-  @IsUrl()
+  @IsString()
   bannerImageUrl?: string;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   avatarUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  backgroundImageUrl?: string;
 
   @IsOptional()
   @IsString()
