@@ -18,7 +18,7 @@ export class FileVersionPin {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => ProjectFile)
+  @ManyToOne(() => ProjectFile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'file_id' })
   file: ProjectFile;
 
@@ -28,7 +28,9 @@ export class FileVersionPin {
   @Column()
   label: string;
 
-  @ManyToOne(() => FileVersion)
+  // versionId는 null을 허용하지 않으므로, 가리키던 버전이 지워지면(파일 삭제 cascade) 핀도
+  // 같이 지운다.
+  @ManyToOne(() => FileVersion, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'version_id' })
   version: FileVersion;
 

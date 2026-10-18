@@ -16,7 +16,7 @@ export class FileVersion {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => ProjectFile)
+  @ManyToOne(() => ProjectFile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'file_id' })
   file: ProjectFile;
 

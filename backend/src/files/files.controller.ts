@@ -75,6 +75,26 @@ export class FilesController {
     return this.filesService.syncFiles(projectId, user.sub, dto.files);
   }
 
+  @Delete(':fileId')
+  async deleteFile(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    await this.filesService.deleteFile(projectId, fileId, user.sub);
+    return { ok: true };
+  }
+
+  @Post('folders/delete')
+  async deleteFolder(
+    @CurrentUser() user: JwtPayload,
+    @Param('projectId') projectId: string,
+    @Body('path') path: string,
+  ) {
+    await this.filesService.deleteByPathPrefix(projectId, path, user.sub);
+    return { ok: true };
+  }
+
   @Patch(':fileId/tag')
   setTag(
     @CurrentUser() user: JwtPayload,

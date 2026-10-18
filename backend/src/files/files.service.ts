@@ -64,6 +64,25 @@ export class FilesService {
     return file;
   }
 
+  // 완전 삭제 — 버전/댓글/핀은 FK onDelete: CASCADE로 같이 지워지고, 이 파일을 첨부했던 채팅
+  // 메시지는 onDelete: SET NULL로 첨부만 끊어진다(메시지 텍스트는 남음).
+  async deleteFile(projectId: string, fileId: string, userId: string): Promise<void> {
+    await this.getFile(projectId, fileId, userId);
+    await this.filesRepository.delete({ id: fileId, projectId });
+  }
+
+  // 폴더 완전 삭제 — 폴더는 별도 테이블이 없어 경로 접두사로만 존재하므로, 그 밑의 모든
+  // 파일(빈 폴더를 유지하는 .keep 파일 포함)을 한 번에 지운다.
+  async deleteByPathPrefix(projectId: string, folderPath: string, userId: string): Promise<void> {
+    await this.projectsService.assertMembership(projectId, userId);
+    await this.filesRepository
+      .createQueryBuilder()
+      .delete()
+      .where('project_id = :projectId', { projectId })
+      .andWhere('path LIKE :prefix', { prefix: `${folderPath}/%` })
+      .execute();
+  }
+
   async listVersions(projectId: string, fileId: string, userId: string): Promise<FileVersion[]> {
     await this.getFile(projectId, fileId, userId);
     return this.versionsRepository.find({ where: { fileId }, order: { createdAt: 'ASC' } });

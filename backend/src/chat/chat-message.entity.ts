@@ -37,7 +37,8 @@ export class ChatMessage {
   @Column({ type: 'text', nullable: true })
   text: string | null;
 
-  @ManyToOne(() => ProjectFile, { nullable: true })
+  // 첨부했던 파일이 지워져도 메시지 자체(텍스트)는 남고 첨부 연결만 끊는다.
+  @ManyToOne(() => ProjectFile, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'file_id' })
   file: ProjectFile | null;
 

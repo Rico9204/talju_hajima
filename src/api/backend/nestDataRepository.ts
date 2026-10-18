@@ -1126,13 +1126,9 @@ export const nestDataRepository: DataRepository = {
   },
 
   async deleteWorkspaceFile(fileId) {
-    // 백엔드에 파일 삭제 API가 없다 — 지금은 빈 내용으로 덮어써서 "사실상 비움" 처리만 한다
-    // (완전 삭제가 필요하면 backend/files 모듈에 DELETE 엔드포인트 추가 필요).
     const info = fileMetaById.get(fileId);
     if (!info) return;
-    await apiClient.post(`/projects/${info.projectId}/files/sync`, {
-      files: [{ path: info.path, content: "", baseVersionId: info.currentVersionId ?? undefined }],
-    });
+    await apiClient.delete(`/projects/${info.projectId}/files/${info.uuid}`);
   },
 
   async moveWorkspaceFile(fileId, folderId) {
@@ -1169,14 +1165,7 @@ export const nestDataRepository: DataRepository = {
     const folderName = folderNameForId(folderId);
     const projectId = folderProjectIdForId(folderId);
     if (!folderName || !projectId) return;
-    const { data: files } = await apiClient.get<RawProjectFile[]>(`/projects/${projectId}/files`);
-    const prefix = `${folderName}/`;
-    for (const f of files) {
-      if (!f.path.startsWith(prefix)) continue;
-      await apiClient.post(`/projects/${projectId}/files/sync`, {
-        files: [{ path: f.path, content: "", baseVersionId: f.currentVersionId ?? undefined }],
-      });
-    }
+    await apiClient.post(`/projects/${projectId}/files/folders/delete`, { path: folderName });
   },
 
   // 백엔드에 진짜 웹소켓 pub/sub은 없어서, 주기적으로 다시 불러오라는 신호만 보내는 폴링으로

@@ -15,7 +15,7 @@ export class FileComment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => ProjectFile)
+  @ManyToOne(() => ProjectFile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'file_id' })
   file: ProjectFile;
 
@@ -23,7 +23,8 @@ export class FileComment {
   fileId: string;
 
   // 특정 버전(페이지)에 남긴 댓글이면 그 버전을 가리킴 — null이면 파일 전체에 대한 일반 댓글.
-  @ManyToOne(() => FileVersion, { nullable: true })
+  // 버전이 지워지면(파일 삭제로 인한 cascade) 댓글 자체는 남기고 그 연결만 끊는다.
+  @ManyToOne(() => FileVersion, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'version_id' })
   version: FileVersion | null;
 
