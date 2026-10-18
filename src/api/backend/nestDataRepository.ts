@@ -1585,8 +1585,12 @@ export const nestDataRepository: DataRepository = {
     return data;
   },
 
-  async savePushSubscription() {},
-  async deletePushSubscription() {},
+  async savePushSubscription(subscription) {
+    await apiClient.post("/me/push-subscriptions", subscription);
+  },
+  async deletePushSubscription(endpoint) {
+    await apiClient.post("/me/push-subscriptions/delete", { endpoint });
+  },
 
   async uploadBannerImage() { throw new Error("이 서버 백엔드는 아직 배너 이미지 업로드를 지원하지 않습니다."); },
   async uploadBackgroundImage() { throw new Error("이 서버 백엔드는 아직 배경 이미지 업로드를 지원하지 않습니다."); },

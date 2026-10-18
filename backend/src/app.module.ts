@@ -18,6 +18,7 @@ import { CollabModule } from './collab/collab.module.js';
 import { OnlyofficeModule } from './onlyoffice/onlyoffice.module.js';
 import { AdminModule } from './admin/admin.module.js';
 import { ScrappedNoticesModule } from './scrapped-notices/scrapped-notices.module.js';
+import { PushSubscriptionsModule } from './push-subscriptions/push-subscriptions.module.js';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ScrappedNoticesModule } from './scrapped-notices/scrapped-notices.modul
     OnlyofficeModule,
     AdminModule,
     ScrappedNoticesModule,
+    PushSubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
