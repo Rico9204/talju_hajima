@@ -41,4 +41,9 @@ export class UsersController {
     await this.usersService.deleteLink(user.sub, linkId);
     return { ok: true };
   }
+
+  @Get(':userId/participation-stats')
+  participationStats(@Param('userId') userId: string) {
+    return this.usersService.participationStats(userId);
+  }
 }

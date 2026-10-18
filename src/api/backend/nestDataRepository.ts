@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import type { DataRepository } from "../dataRepository";
+import { summarizeEvaluations } from "../../lib/evaluationSummary";
 import type {
   Project,
   NewProjectInput,
@@ -29,6 +30,12 @@ import type {
   BoardPostReport,
   AdminDocType,
   MyAdminApplication,
+  EvaluationPhase,
+  EvaluationEntry,
+  PeerEvaluationRecord,
+  EvaluationData,
+  EvaluationScoreMethod,
+  EvaluationPercentiles,
 } from "../types";
 
 // ============================================================================
@@ -202,7 +209,14 @@ interface RawMember {
     links: ProfileLink[];
   };
 }
-function toMember(raw: RawMember): Member {
+// 최종 평가(phase=final) 평균 — 팀원 전원이 제출을 마쳐야 공개되므로, 아직 안 모였으면
+// undefined(= evalCount 0, "평가 대기" 표시)로 둔다.
+interface MemberFinalAverage {
+  score: number;
+  count: number;
+  criteria: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
+}
+function toMember(raw: RawMember, finalAverage?: MemberFinalAverage): Member {
   return {
     id: raw.id,
     userId: raw.userId,
@@ -219,13 +233,12 @@ function toMember(raw: RawMember): Member {
     avatarUrl: raw.user.avatarUrl,
     tasks: { done: 0, total: 0 },
     activities: 0,
-    score: raw.user.trustScore ?? 0,
-    // 신뢰도 산정 기준 자체가 아직 확정되지 않아서(설계 결정 2번) 항상 0 — "평가 대기" 표시로 이어짐
-    evalCount: 0,
+    score: finalAverage?.score ?? raw.user.trustScore ?? 0,
+    evalCount: finalAverage?.count ?? 0,
     online: false,
     responsibilities: [],
     color: colorForName(raw.user.name),
-    criteriaScores: { role: 0, deadline: 0, communication: 0, collaboration: 0, quality: 0 },
+    criteriaScores: finalAverage?.criteria ?? { role: 0, deadline: 0, communication: 0, collaboration: 0, quality: 0 },
     isLeader: raw.role === "owner",
     // 아래 필드들은 backend/(NestJS)가 아직 지원하지 않는, main 쪽에서 나중에 늘어난 항목들 —
     // 타입만 맞춰두고 기본값으로 둔다(5단계: dataRepository 통합 때 실제 값 연결 예정).
@@ -726,6 +739,40 @@ function nestBoardComments(raw: RawBoardComment[]): import("../types").BoardComm
   });
 }
 
+interface RawPeerEvaluation {
+  id: string;
+  evaluatorId: string;
+  recipientId: string;
+  phase: EvaluationPhase;
+  role: number;
+  deadline: number;
+  communication: number;
+  collaboration: number;
+  quality: number;
+  comment: string;
+  createdAt: string;
+}
+interface RawEvaluationsResponse {
+  records: RawPeerEvaluation[];
+  submitted: boolean;
+  average: EvaluationData["average"];
+}
+function toEvaluationRecord(raw: RawPeerEvaluation): PeerEvaluationRecord {
+  return {
+    id: raw.id,
+    evaluator_id: raw.evaluatorId,
+    recipient_id: raw.recipientId,
+    phase: raw.phase,
+    role: raw.role,
+    deadline: raw.deadline,
+    communication: raw.communication,
+    collaboration: raw.collaboration,
+    quality: raw.quality,
+    comment: raw.comment,
+    created_at: raw.createdAt,
+  };
+}
+
 async function buildFileVersions(
   projectId: string,
   file: RawProjectFile,
@@ -876,8 +923,30 @@ export const nestDataRepository: DataRepository = {
   },
 
   async getTeam(projectId) {
-    const { data } = await apiClient.get<RawMember[]>(`/projects/${projectId}/members`);
-    const members = data.map(toMember);
+    const [{ data }, { data: finalEvals }] = await Promise.all([
+      apiClient.get<RawMember[]>(`/projects/${projectId}/members`),
+      apiClient.get<RawEvaluationsResponse>(`/projects/${projectId}/evaluations/final`),
+    ]);
+    // 최종 평가는 전원 공개라, 여기서 받은 records를 recipientId별로 모아 평균 내면 서버가
+    // "내 평균"에 쓰는 것과 같은 완전성 규칙(팀원 전원 제출)을 모든 멤버에 대해 재현할 수 있다.
+    const byRecipient = new Map<string, RawPeerEvaluation[]>();
+    for (const row of finalEvals.records) {
+      const list = byRecipient.get(row.recipientId) ?? [];
+      list.push(row);
+      byRecipient.set(row.recipientId, list);
+    }
+    const expectedPerMember = data.length - 1;
+    const averages = new Map<string, MemberFinalAverage>();
+    if (expectedPerMember >= 2) {
+      for (const [recipientId, rows] of byRecipient) {
+        if (rows.length < expectedPerMember) continue;
+        const avg = (key: "role" | "deadline" | "communication" | "collaboration" | "quality") => rows.reduce((sum, r) => sum + r[key], 0) / rows.length;
+        const criteria = { role: avg("role"), deadline: avg("deadline"), communication: avg("communication"), collaboration: avg("collaboration"), quality: avg("quality") };
+        const score = (criteria.role + criteria.deadline + criteria.communication + criteria.collaboration + criteria.quality) / 5;
+        averages.set(recipientId, { score, count: rows.length, criteria });
+      }
+    }
+    const members = data.map((m) => toMember(m, averages.get(m.userId)));
     return { teamLabel: "팀", teamSub: `${members.length}명 참여 중`, members };
   },
 
@@ -1356,15 +1425,61 @@ export const nestDataRepository: DataRepository = {
     return data.isAdmin;
   },
   async listWorkspaceCleanupProjects() { return []; },
-  async getMyEvaluationSummary() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
-  async getEvaluationMode() { return false; },
-  async setEvaluationMode() {},
-  async getEvaluationMethodPreview() { return false; },
-  async setEvaluationMethodPreview() {},
-  async getEvaluationScoreCca() { return false; },
-  async setEvaluationScoreCca() {},
-  async getEvaluations() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
-  async submitEvaluations() { throw new Error("동료 평가 기능은 아직 지원하지 않습니다."); },
+  async getMyEvaluationSummary() {
+    const [{ data: me }, projectIds] = await Promise.all([
+      apiClient.get<{ id: string }>("/users/me"),
+      nestDataRepository.listMyProjectIds(),
+    ]);
+    const teams = await Promise.all(projectIds.map((id) => nestDataRepository.getTeam(id)));
+    const myRows: Pick<Member, "score" | "evalCount" | "criteriaScores">[] = [];
+    const collaboratorIds = new Set<string>();
+    for (const team of teams) {
+      const mine = team.members.find((m) => m.userId === me.id);
+      if (mine && mine.evalCount > 0) myRows.push(mine);
+      for (const m of team.members) {
+        if (m.userId && m.userId !== me.id) collaboratorIds.add(m.userId);
+      }
+    }
+    return summarizeEvaluations(myRows, projectIds.length, collaboratorIds.size);
+  },
+  async getEvaluationMode() {
+    const { data } = await apiClient.get<boolean>("/evaluation-mode");
+    return data;
+  },
+  async setEvaluationMode(enabled) {
+    await apiClient.put("/evaluation-mode", { enabled });
+  },
+  async getEvaluationMethodPreview() {
+    const { data } = await apiClient.get<boolean>("/evaluation-method-preview");
+    return data;
+  },
+  async setEvaluationMethodPreview(enabled) {
+    await apiClient.put("/evaluation-method-preview", { enabled });
+  },
+  async getEvaluationScoreCca() {
+    const { data } = await apiClient.get<boolean>("/evaluation-score-cca");
+    return data;
+  },
+  async setEvaluationScoreCca(enabled) {
+    await apiClient.put("/evaluation-score-cca", { enabled });
+  },
+  async getEvaluations(projectId: string, phase: EvaluationPhase, method?: EvaluationScoreMethod): Promise<EvaluationData> {
+    const { data } = await apiClient.get<RawEvaluationsResponse>(`/projects/${projectId}/evaluations/${phase}${method ? `?method=${method}` : ""}`);
+    return { records: data.records.map(toEvaluationRecord), submitted: data.submitted, average: data.average };
+  },
+  async submitEvaluations(projectId: string, phase: EvaluationPhase, entries: EvaluationEntry[]) {
+    await apiClient.post(`/projects/${projectId}/evaluations/${phase}`, {
+      entries: entries.map((e) => ({
+        recipientId: e.recipient_id,
+        role: e.role,
+        deadline: e.deadline,
+        communication: e.communication,
+        collaboration: e.collaboration,
+        quality: e.quality,
+        comment: e.comment,
+      })),
+    });
+  },
   async completeProject(projectId) {
     const { data } = await apiClient.post<RawProject>(`/projects/${projectId}/complete`);
     return toProject(data);
@@ -1460,8 +1575,15 @@ export const nestDataRepository: DataRepository = {
     await apiClient.post(`/admins/${userId}/revoke`);
   },
 
-  async getMemberParticipationStats() { return { projectCount: 0, collaboratorCount: 0 }; },
-  async getEvaluationPercentiles() { return { available: false, population: 0 }; },
+  async getMemberParticipationStats(userId) {
+    const { data } = await apiClient.get<{ projectCount: number; collaboratorCount: number }>(`/users/${userId}/participation-stats`);
+    return data;
+  },
+  async getEvaluationPercentiles(target?) {
+    const query = target ? `?projectId=${encodeURIComponent(target.projectId)}&memberId=${encodeURIComponent(target.memberId)}` : "";
+    const { data } = await apiClient.get<EvaluationPercentiles>(`/me/evaluation-percentiles${query}`);
+    return data;
+  },
 
   async savePushSubscription() {},
   async deletePushSubscription() {},

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { User } from './user.entity.js';
 import { ProfileLink } from './profile-link.entity.js';
+import { ProjectMember } from '../projects/project-member.entity.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { CreateLinkDto } from './dto/create-link.dto.js';
 
@@ -16,6 +17,8 @@ export class UsersService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(ProfileLink)
     private readonly linksRepository: Repository<ProfileLink>,
+    @InjectRepository(ProjectMember)
+    private readonly membersRepository: Repository<ProjectMember>,
   ) {}
 
   findByEmail(email: string): Promise<User | null> {
@@ -99,5 +102,18 @@ export class UsersService {
 
   async deleteLink(userId: string, linkId: string): Promise<void> {
     await this.linksRepository.delete({ id: linkId, userId });
+  }
+
+  // 이 사람이 전체적으로 몇 개 프로젝트에 참여했고(projectCount), 그 프로젝트들에서 함께한
+  // 서로 다른 팀원이 몇 명인지(collaboratorCount) — 프로필 모달에 "이 프로젝트만 기준" 점수
+  // 옆에 곁들이는 참고 정보. 본인을 collaboratorCount에서 제외한다.
+  async participationStats(userId: string): Promise<{ projectCount: number; collaboratorCount: number }> {
+    const myMemberships = await this.membersRepository.find({ where: { userId }, select: { projectId: true } });
+    const projectIds = myMemberships.map((m) => m.projectId);
+    if (projectIds.length === 0) return { projectCount: 0, collaboratorCount: 0 };
+
+    const coMembers = await this.membersRepository.find({ where: { projectId: In(projectIds) }, select: { userId: true } });
+    const collaboratorIds = new Set(coMembers.map((m) => m.userId).filter((id) => id !== userId));
+    return { projectCount: projectIds.length, collaboratorCount: collaboratorIds.size };
   }
 }

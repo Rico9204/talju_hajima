@@ -18,8 +18,5 @@
     "strict": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "vite.config.ts"],
-  // evaluations.ts는 main의 새 DataRepository 인터페이스(EvaluationAverage 등)와 아직 모양이 안
-  // 맞고, 지금은 어디서도 참조되지 않는다(평가 기능은 다음 포팅 대상) — 그 전까지는 제외해둔다.
-  "exclude": ["src/api/backend/evaluations.ts"]
+  "include": ["src", "vite.config.ts"]
 }
