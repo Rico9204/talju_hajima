@@ -247,4 +247,38 @@ export class ProjectsService {
     }
     return membership;
   }
+
+  // 자기 자신의 프레즌스만 바꿀 수 있다 — memberId(멤버십 id)가 호출자 본인 것이 아니면 거부.
+  private async assertOwnMembership(memberId: string, actingUserId: string): Promise<ProjectMember> {
+    const member = await this.membersRepository.findOne({ where: { id: memberId } });
+    if (!member) throw new NotFoundException('멤버를 찾을 수 없습니다.');
+    if (member.userId !== actingUserId) throw new ForbiddenException('본인의 접속 상태만 바꿀 수 있습니다.');
+    return member;
+  }
+
+  async touchPresence(memberId: string, actingUserId: string): Promise<void> {
+    const member = await this.assertOwnMembership(memberId, actingUserId);
+    await this.membersRepository.update(member.id, { lastActiveAt: new Date() });
+  }
+
+  async setPresenceStatus(memberId: string, status: 'active' | 'idle', actingUserId: string): Promise<void> {
+    const member = await this.assertOwnMembership(memberId, actingUserId);
+    await this.membersRepository.update(member.id, { presenceStatus: status, lastActiveAt: new Date() });
+  }
+
+  private static readonly ONLINE_THRESHOLD_MS = 3 * 60 * 1000;
+
+  async getPresence(projectId: string): Promise<{ onlineMemberIds: string[]; states: Record<string, { status: 'active' | 'idle'; lastActiveAt: string; onlineAt: string }> }> {
+    const members = await this.membersRepository.find({ where: { projectId } });
+    const now = Date.now();
+    const onlineMemberIds: string[] = [];
+    const states: Record<string, { status: 'active' | 'idle'; lastActiveAt: string; onlineAt: string }> = {};
+    for (const member of members) {
+      if (!member.lastActiveAt) continue;
+      if (now - member.lastActiveAt.getTime() > ProjectsService.ONLINE_THRESHOLD_MS) continue;
+      onlineMemberIds.push(member.id);
+      states[member.id] = { status: member.presenceStatus, lastActiveAt: member.lastActiveAt.toISOString(), onlineAt: member.lastActiveAt.toISOString() };
+    }
+    return { onlineMemberIds, states };
+  }
 }

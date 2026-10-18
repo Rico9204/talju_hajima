@@ -1654,9 +1654,29 @@ export const nestDataRepository: DataRepository = {
   async listChatToolEvents() { return []; },
   subscribeToChatToolEvents() { return () => {}; },
 
-  subscribeToPresence() { return () => {}; },
-  async updatePresenceStatus() {},
-  async touchMemberPresence() {},
+  subscribeToPresence(projectId, _memberId, onChange) {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { data } = await apiClient.get<{ onlineMemberIds: string[]; states: Record<string, { status: "active" | "idle"; lastActiveAt: string; onlineAt: string }> }>(`/projects/${projectId}/presence`);
+        if (!cancelled) onChange(new Set(data.onlineMemberIds), data.states);
+      } catch {
+        // 폴링 중 일시적 오류는 다음 주기에 다시 시도
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, DATA_REFRESH_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  },
+  async updatePresenceStatus(_projectId, memberId, status) {
+    await apiClient.post(`/projects/members/${memberId}/presence`, { status });
+  },
+  async touchMemberPresence(memberId) {
+    await apiClient.post(`/projects/members/${memberId}/presence/touch`);
+  },
 
   async listBoardPosts() {
     const { data: posts } = await apiClient.get<RawBoardPost[]>("/board/posts");

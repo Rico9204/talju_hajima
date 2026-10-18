@@ -81,4 +81,21 @@ export class ProjectsController {
     await this.projectsService.setApprovalStatus(id, 'rejected');
     return { ok: true };
   }
+
+  @Get(':id/presence')
+  getPresence(@Param('id') id: string) {
+    return this.projectsService.getPresence(id);
+  }
+
+  @Post('members/:memberId/presence/touch')
+  async touchPresence(@CurrentUser() user: JwtPayload, @Param('memberId') memberId: string) {
+    await this.projectsService.touchPresence(memberId, user.sub);
+    return { ok: true };
+  }
+
+  @Post('members/:memberId/presence')
+  async setPresence(@CurrentUser() user: JwtPayload, @Param('memberId') memberId: string, @Body('status') status: 'active' | 'idle') {
+    await this.projectsService.setPresenceStatus(memberId, status, user.sub);
+    return { ok: true };
+  }
 }
