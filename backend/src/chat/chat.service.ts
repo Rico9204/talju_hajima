@@ -49,7 +49,8 @@ export class ChatService {
   ) {}
 
   // 프로젝트 멤버인지 + (DM이면 그 당사자인지, 그룹 채팅이면 그 그룹의 멤버인지) 확인한다.
-  private async assertChannelAccess(projectId: string, channelId: string, userId: string): Promise<void> {
+  // ChatToolsService도 채팅 도구 메시지/행동에 같은 접근 검사를 재사용하므로 public.
+  async assertChannelAccess(projectId: string, channelId: string, userId: string): Promise<void> {
     await this.projectsService.assertMembership(projectId, userId);
     const dm = dmParticipants(channelId);
     if (dm && !dm.includes(userId)) {

@@ -545,6 +545,28 @@ function toMessage(raw: RawChatMessage, members: Map<string, RawMember>, channel
   };
 }
 
+interface RawChatToolEvent {
+  id: number;
+  messageId: string;
+  kind: "draw" | "ladder" | "roulette";
+  event: "init" | "draw_pick" | "draw_reveal_all" | "ladder_reveal" | "roulette_spin";
+  actorMemberId: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+  createdAt: string;
+}
+function toToolEvent(raw: RawChatToolEvent): import("../types").ChatToolEvent {
+  return {
+    id: raw.id,
+    messageId: messageIds.toNumber(raw.messageId),
+    kind: raw.kind,
+    event: raw.event,
+    actorMemberId: raw.actorMemberId,
+    data: raw.data,
+    createdAt: raw.createdAt,
+  };
+}
+
 // ============================================================================
 // 게시판(board) — backend/src/board를 그대로 매핑. 글/댓글/투표 id는 전부 UUID라 다른 영역과
 // 같은 방식(makeIdRegistry)으로 숫자 id를 붙여서 main의 BoardPost 인터페이스(숫자 id 기준)에 맞춘다.
@@ -1684,10 +1706,46 @@ export const nestDataRepository: DataRepository = {
 
   async markSectionViewed() {},
 
-  async chatToolCreate() { throw new Error("채팅 AI 도구 기능은 아직 지원하지 않습니다."); },
-  async chatToolAct() { throw new Error("채팅 AI 도구 기능은 아직 지원하지 않습니다."); },
-  async listChatToolEvents() { return []; },
-  subscribeToChatToolEvents() { return () => {}; },
+  async chatToolCreate(projectId, channelId, text, config) {
+    const { data } = await apiClient.post<{ message: RawChatMessage; event: RawChatToolEvent }>(
+      `/projects/${projectId}/chat/${channelId}/tools`,
+      { text, config },
+    );
+    const members = await membersByUserId(projectId);
+    return { message: toMessage(data.message, members, channelId), event: toToolEvent(data.event) };
+  },
+  async chatToolAct(messageId, action, args) {
+    const uuid = messageIds.toUuid(messageId);
+    if (!uuid) throw new Error("알 수 없는 메시지입니다.");
+    const { data } = await apiClient.post<RawChatToolEvent>(`/chat/messages/${uuid}/tool-actions`, { action, args });
+    return toToolEvent(data);
+  },
+  async listChatToolEvents(projectId) {
+    const { data } = await apiClient.get<RawChatToolEvent[]>(`/projects/${projectId}/chat-tool-events`);
+    return data.map(toToolEvent);
+  },
+  subscribeToChatToolEvents(projectId, onEvent) {
+    const seen = new Set<number>();
+    let primed = false;
+    const poll = async () => {
+      try {
+        const { data } = await apiClient.get<RawChatToolEvent[]>(`/projects/${projectId}/chat-tool-events`);
+        for (const raw of data) {
+          if (seen.has(raw.id)) continue;
+          seen.add(raw.id);
+          // 처음 불러올 때 쌓여있던 과거 이벤트까지 전부 "새 이벤트"로 쏘면 화면이 중복
+          // 처리해야 하므로, 첫 호출에서는 목록만 채우고 이후 폴링에서 생긴 것만 전달한다.
+          if (primed) onEvent(toToolEvent(raw));
+        }
+        primed = true;
+      } catch {
+        // 폴링 중 일시적 오류는 다음 주기에 다시 시도
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, DATA_REFRESH_POLL_MS);
+    return () => clearInterval(timer);
+  },
 
   subscribeToPresence(projectId, _memberId, onChange) {
     let cancelled = false;
