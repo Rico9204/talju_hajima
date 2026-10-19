@@ -77,6 +77,9 @@ export class ProjectsService {
         userId: true,
         role: true,
         joinedAt: true,
+        tasksViewedAt: true,
+        scheduleViewedAt: true,
+        workspaceViewedAt: true,
         user: {
           id: true,
           email: true,
@@ -267,6 +270,13 @@ export class ProjectsService {
   async setPresenceStatus(memberId: string, status: 'active' | 'idle', actingUserId: string): Promise<void> {
     const member = await this.assertOwnMembership(memberId, actingUserId);
     await this.membersRepository.update(member.id, { presenceStatus: status, lastActiveAt: new Date() });
+  }
+
+  // 과제/일정/워크스페이스 탭을 열 때 호출 — "마지막으로 본 시각"을 지금으로 갱신한다.
+  async markViewed(projectId: string, area: 'tasks' | 'schedule' | 'workspace', userId: string): Promise<void> {
+    const member = await this.assertMembership(projectId, userId);
+    const column = area === 'tasks' ? 'tasksViewedAt' : area === 'schedule' ? 'scheduleViewedAt' : 'workspaceViewedAt';
+    await this.membersRepository.update(member.id, { [column]: new Date() });
   }
 
   private static readonly ONLINE_THRESHOLD_MS = 3 * 60 * 1000;

@@ -98,4 +98,14 @@ export class ProjectsController {
     await this.projectsService.setPresenceStatus(memberId, status, user.sub);
     return { ok: true };
   }
+
+  @Post(':id/viewed/:area')
+  async markViewed(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Param('area') area: 'tasks' | 'schedule' | 'workspace',
+  ) {
+    await this.projectsService.markViewed(id, area, user.sub);
+    return { ok: true };
+  }
 }

@@ -49,4 +49,16 @@ export class ProjectMember {
 
   @Column({ name: 'last_active_at', type: 'timestamptz', nullable: true })
   lastActiveAt: Date | null;
+
+  // 각 영역(과제/일정/워크스페이스)을 마지막으로 본 시각 — getMyProjectAlerts가 이 시각
+  // 이후에 생긴 항목이 있는지로 "다른 프로젝트에 새 소식" 뱃지를 계산한다. null이면 한 번도
+  // 안 본 것으로 취급(그 영역의 모든 항목이 "새 것").
+  @Column({ name: 'tasks_viewed_at', type: 'timestamptz', nullable: true })
+  tasksViewedAt: Date | null;
+
+  @Column({ name: 'schedule_viewed_at', type: 'timestamptz', nullable: true })
+  scheduleViewedAt: Date | null;
+
+  @Column({ name: 'workspace_viewed_at', type: 'timestamptz', nullable: true })
+  workspaceViewedAt: Date | null;
 }

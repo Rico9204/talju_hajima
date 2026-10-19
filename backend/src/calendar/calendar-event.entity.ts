@@ -1,5 +1,6 @@
 import {
   Column,
+  CreateDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
@@ -57,4 +58,9 @@ export class CalendarEvent {
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
+
+  // "새 일정" 뱃지(getMyProjectAlerts) 계산용 — 일정의 날짜(date)와는 별개로 이 행이 실제로
+  // 생성된 시각이 필요하다(지난 날짜의 일정도 방금 등록됐으면 "새 소식"이어야 하므로).
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 }

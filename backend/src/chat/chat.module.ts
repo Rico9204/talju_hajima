@@ -23,6 +23,6 @@ import { ProjectsModule } from '../projects/projects.module.js';
   ],
   providers: [ChatService, ChatToolsService],
   controllers: [ChatController, ChatToolsController],
-  exports: [TypeOrmModule],
+  exports: [TypeOrmModule, ChatService],
 })
 export class ChatModule {}

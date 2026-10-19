@@ -194,6 +194,9 @@ interface RawMember {
   id: string;
   userId: string;
   role: "owner" | "vice_leader" | "member";
+  tasksViewedAt: string | null;
+  scheduleViewedAt: string | null;
+  workspaceViewedAt: string | null;
   user: {
     id: string;
     email: string;
@@ -255,9 +258,9 @@ function toMember(raw: RawMember, finalAverage?: MemberFinalAverage): Member {
     glassBlur: null,
     isViceLeader: raw.role === "vice_leader",
     lastSeenAt: null,
-    tasksViewedAt: null,
-    scheduleViewedAt: null,
-    workspaceViewedAt: null,
+    tasksViewedAt: raw.tasksViewedAt,
+    scheduleViewedAt: raw.scheduleViewedAt,
+    workspaceViewedAt: raw.workspaceViewedAt,
   };
 }
 
@@ -503,6 +506,7 @@ async function toTask(raw: RawTask, members: Map<string, RawMember>): Promise<Ta
     comments,
     teamScheduleEventId: raw.teamScheduleEventId ? scheduleEventIds.toNumber(raw.teamScheduleEventId) : null,
     personalScheduleEventId: raw.personalScheduleEventId ? scheduleEventIds.toNumber(raw.personalScheduleEventId) : null,
+    createdAt: raw.createdAt,
   };
 }
 
@@ -897,6 +901,7 @@ async function toWorkspaceFile(projectId: string, raw: RawProjectFile, names: Ma
     folderId: folderName ? numericFolderId(projectId, folderName) : null,
     versions,
     comments,
+    createdAt: raw.createdAt,
   };
 }
 
@@ -1307,7 +1312,7 @@ export const nestDataRepository: DataRepository = {
   },
 
   async listScheduleEvents(projectId) {
-    const { data } = await apiClient.get<{ id: string; title: string; date: string; refType: string | null }[]>(
+    const { data } = await apiClient.get<{ id: string; title: string; date: string; refType: string | null; createdAt?: string }[]>(
       `/projects/${projectId}/calendar`,
     );
     return data.map((e) => {
@@ -1322,6 +1327,7 @@ export const nestDataRepository: DataRepository = {
         ownerMemberId: null,
         visibility: null,
         hideTitle: false,
+        createdAt: e.createdAt ?? null,
       };
     });
   },
@@ -1674,12 +1680,13 @@ export const nestDataRepository: DataRepository = {
     const memberIdFor = (userId: string) => memberList.find((m) => m.userId === userId)?.id ?? userId;
     return groups.map((g) => ({ id: g.id, name: g.name, memberIds: g.memberIds.map(memberIdFor) }));
   },
-  // 다른(지금 열지 않은) 프로젝트에 새 소식이 있는지 뱃지로 보여주는 기능 — main 쪽은 각
-  // 영역(채팅/작업/일정/워크스페이스)마다 "마지막으로 본 시각" 커서를 멤버 행에 기록해두고
-  // 그 이후 변경이 있으면 알림으로 친다. 이 백엔드/DataRepository 인터페이스 어디에도 그
-  // 커서를 쓰는 메서드가 없어서(Member.tasksViewedAt 등도 항상 null placeholder) 아직
-  // 포팅하지 않음 — 항상 빈 배열(뱃지 없음)로 두되, 틀린 값을 보여주진 않는다.
-  async getMyProjectAlerts() { return []; },
+  // 다른(지금 열지 않은) 프로젝트에 새 소식(과제/일정/워크스페이스/채팅)이 있는지 — 백엔드가
+  // 각 영역의 "마지막으로 본 시각"(ProjectMember.tasksViewedAt 등)과 비교해 프로젝트 단위로
+  // 계산한 뒤 돌려준다(Home.tsx가 60초마다 폴링).
+  async getMyProjectAlerts() {
+    const { data } = await apiClient.get<string[]>("/me/project-alerts");
+    return data;
+  },
   async createChatGroup(projectId, name, memberIds) {
     const members = await membersByUserId(projectId);
     const memberList = [...members.values()];
@@ -1704,7 +1711,9 @@ export const nestDataRepository: DataRepository = {
     return () => clearInterval(timer);
   },
 
-  async markSectionViewed() {},
+  async markSectionViewed(projectId, section) {
+    await apiClient.post(`/projects/${projectId}/viewed/${section}`);
+  },
 
   async chatToolCreate(projectId, channelId, text, config) {
     const { data } = await apiClient.post<{ message: RawChatMessage; event: RawChatToolEvent }>(
