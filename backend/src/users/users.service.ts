@@ -58,6 +58,10 @@ export class UsersService {
     await this.usersRepository.update(userId, { failedLoginAttempts: 0, lockedUntil: null });
   }
 
+  async updatePasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.usersRepository.update(userId, { passwordHash });
+  }
+
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<User> {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다.');
