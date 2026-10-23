@@ -18,19 +18,33 @@ declare global {
 }
 
 let scriptLoadPromise: Promise<void> | null = null;
+// <script src="...">는 브라우저가 커스텀 헤더를 못 붙인다 — ngrok 무료 도메인은 이 헤더
+// (ngrok-skip-browser-warning) 없이 오는 요청을 전부 "방문 경고" HTML 페이지로 가로채므로,
+// script 태그로 바로 불러오면 그 경고 페이지가 JS인 척 로드되어 DocsAPI가 끝내 정의되지
+// 않는다(ngrok 쪽 트래픽 정책으로 헤더를 강제해봐도 그 경고 페이지 자체는 우회되지 않음 —
+// 무료 플랜 제한으로 보임). apiClient와 같은 방식으로 fetch에 헤더를 직접 실어 받은 뒤
+// 내용을 그대로 실행하면, 커스텀 헤더를 못 붙이는 제약을 피해갈 수 있다.
 function loadDocsApiScript(origin: string): Promise<void> {
   if (window.DocsAPI) return Promise.resolve();
   if (scriptLoadPromise) return scriptLoadPromise;
-  scriptLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = `${origin}/web-apps/apps/api/documents/api.js`;
-    script.onload = () => resolve();
-    script.onerror = () => {
+  scriptLoadPromise = (async () => {
+    const res = await fetch(`${origin}/web-apps/apps/api/documents/api.js`, {
+      headers: { "ngrok-skip-browser-warning": "true" },
+    });
+    const code = await res.text();
+    const looksLikeHtml = /^\s*<!doctype/i.test(code);
+    if (!res.ok || looksLikeHtml) {
       scriptLoadPromise = null;
-      reject(new Error("편집기 스크립트를 불러오지 못했습니다."));
-    };
+      throw new Error("편집기 스크립트를 불러오지 못했습니다.");
+    }
+    const script = document.createElement("script");
+    script.textContent = code;
     document.body.appendChild(script);
-  });
+    if (!window.DocsAPI) {
+      scriptLoadPromise = null;
+      throw new Error("편집기 스크립트를 불러오지 못했습니다.");
+    }
+  })();
   return scriptLoadPromise;
 }
 
