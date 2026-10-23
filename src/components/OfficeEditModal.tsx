@@ -37,6 +37,16 @@ function loadDocsApiScript(origin: string): Promise<void> {
       scriptLoadPromise = null;
       throw new Error("편집기 스크립트를 불러오지 못했습니다.");
     }
+    // api.js 안의 getBasePath()는 DOM에서 "...api/documents/api.js"로 끝나는 src를 가진
+    // <script> 태그를 찾아 그 경로를 자기 서버 주소로 쓴다(에디터 iframe이 그 주소 밑에서
+    // 열린다). 내용을 인라인으로 실행하면 이 태그엔 src가 없어 getBasePath()가 빈 문자열을
+    // 돌려주고, 에디터 iframe이 우리 앱 자신의 주소로 열려버린다(지금 재현된 버그 — 편집기
+    // 대신 우리 앱 화면이 모달 안에 떠 보임). type을 스크립트가 아닌 값으로 둬서 브라우저가
+    // 실행·재요청 없이 src 속성만 갖게 하는 "표지" 태그를 하나 더 둔다.
+    const marker = document.createElement("script");
+    marker.type = "application/json";
+    marker.src = `${origin}/web-apps/apps/api/documents/api.js`;
+    document.body.appendChild(marker);
     const script = document.createElement("script");
     script.textContent = code;
     document.body.appendChild(script);
