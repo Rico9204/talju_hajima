@@ -34,6 +34,10 @@ import { ProjectAlertsModule } from './project-alerts/project-alerts.module.js';
         password: config.get('DB_PASSWORD', 'postgres'),
         database: config.get('DB_NAME', 'collab_dev'),
         autoLoadEntities: true,
+        // DB(Docker)가 아직 안 떴거나 잠깐 끊겼을 때, 첫 연결 실패로 서버가 바로 죽지 않게 재시도한다.
+        retryAttempts: 40,
+        retryDelay: 3000,
+        extra: { max: 20, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, keepAlive: true },
         synchronize: config.get('NODE_ENV', 'development') !== 'production',
         // Supabase 등 외부 호스팅 Postgres는 SSL 연결이 필수 — 로컬 Docker Postgres는 지원하지
         // 않으므로 DB_SSL=true일 때만 켠다. rejectUnauthorized:false는 Supabase가 자체 서명한

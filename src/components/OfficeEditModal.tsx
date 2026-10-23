@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getOnlyofficeConfig, type OnlyofficeConfig } from "../api/backend/files";
 import { buildBackendHttpOrigin } from "../lib/quickEdit";
+import { isNgrokUrl } from "../api/backend/client";
 
 // 워드/엑셀/PPT를 브라우저 안에서 진짜로 열고 편집한다 — 우리 자체 Yjs 협업 인프라가 아니라
 // 백엔드에 붙여둔 OnlyOffice Document Server(도커)의 편집기를 iframe으로 그대로 띄운다.
@@ -18,17 +19,36 @@ declare global {
 }
 
 let scriptLoadPromise: Promise<void> | null = null;
-// <script src="...">는 브라우저가 커스텀 헤더를 못 붙인다 — ngrok 무료 도메인은 이 헤더
-// (ngrok-skip-browser-warning) 없이 오는 요청을 전부 "방문 경고" HTML 페이지로 가로채므로,
-// script 태그로 바로 불러오면 그 경고 페이지가 JS인 척 로드되어 DocsAPI가 끝내 정의되지
-// 않는다(ngrok 쪽 트래픽 정책으로 헤더를 강제해봐도 그 경고 페이지 자체는 우회되지 않음 —
-// 무료 플랜 제한으로 보임). apiClient와 같은 방식으로 fetch에 헤더를 직접 실어 받은 뒤
-// 내용을 그대로 실행하면, 커스텀 헤더를 못 붙이는 제약을 피해갈 수 있다.
+const DOCS_API_PATH = "/web-apps/apps/api/documents/api.js";
+
+// 경고 페이지가 없는 터널(Cloudflare 등)이나 같은 오리진이면 표준 <script src>가 가장 안정적이다.
+function loadDocsApiScriptPlain(origin: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `${origin}${DOCS_API_PATH}`;
+    script.onload = () => (window.DocsAPI ? resolve() : reject(new Error("편집기 스크립트를 불러오지 못했습니다.")));
+    script.onerror = () => reject(new Error("편집기 스크립트를 불러오지 못했습니다."));
+    document.body.appendChild(script);
+  });
+}
+
+// ngrok 무료 도메인 전용 우회. <script src="...">는 브라우저가 커스텀 헤더를 못 붙이는데, ngrok은
+// ngrok-skip-browser-warning 헤더 없는 브라우저 요청을 전부 "방문 경고" HTML 페이지로 가로챈다
+// (그 페이지가 JS인 척 로드되어 DocsAPI가 끝내 정의되지 않음). 그래서 fetch에 헤더를 직접 실어
+// 받은 뒤 내용을 인라인으로 실행한다. (편집기 iframe 자체도 같은 경고 페이지에 걸리므로 ngrok
+// 무료 도메인으로는 한계가 있다 — 가능하면 Cloudflare 터널을 쓴다.)
 function loadDocsApiScript(origin: string): Promise<void> {
   if (window.DocsAPI) return Promise.resolve();
   if (scriptLoadPromise) return scriptLoadPromise;
+  if (!isNgrokUrl(origin)) {
+    scriptLoadPromise = loadDocsApiScriptPlain(origin).catch((e) => {
+      scriptLoadPromise = null;
+      throw e;
+    });
+    return scriptLoadPromise;
+  }
   scriptLoadPromise = (async () => {
-    const res = await fetch(`${origin}/web-apps/apps/api/documents/api.js`, {
+    const res = await fetch(`${origin}${DOCS_API_PATH}`, {
       headers: { "ngrok-skip-browser-warning": "true" },
     });
     const code = await res.text();
@@ -45,7 +65,7 @@ function loadDocsApiScript(origin: string): Promise<void> {
     // 실행·재요청 없이 src 속성만 갖게 하는 "표지" 태그를 하나 더 둔다.
     const marker = document.createElement("script");
     marker.type = "application/json";
-    marker.src = `${origin}/web-apps/apps/api/documents/api.js`;
+    marker.src = `${origin}${DOCS_API_PATH}`;
     document.body.appendChild(marker);
     const script = document.createElement("script");
     script.textContent = code;

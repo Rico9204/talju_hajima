@@ -51,7 +51,7 @@ export class OnlyofficeController {
     @Param('projectId') projectId: string,
     @Param('fileId') fileId: string,
     @Query('token') token: string,
-    @Body() body: { status?: number; url?: string },
+    @Body() body: { status?: number; url?: string; filetype?: string },
     @Res() res: Response,
   ): Promise<void> {
     try {

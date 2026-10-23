@@ -132,7 +132,7 @@ export class OnlyofficeService {
     projectId: string,
     fileId: string,
     userId: string,
-    body: { status?: number; url?: string },
+    body: { status?: number; url?: string; filetype?: string },
   ): Promise<void> {
     if (body.status !== 2 && body.status !== 6) return;
     if (!body.url) return;
@@ -140,6 +140,14 @@ export class OnlyofficeService {
     const file = await this.filesService.getFile(projectId, fileId, userId);
     const type = officeTypeFor(file.path);
     if (!type) return;
+    const originalExt = file.path.split('.').pop()?.toLowerCase() ?? '';
+
+    // 구형 바이너리 형식(.doc/.xls/.ppt)은 OnlyOffice가 열 때 내부적으로 변환해서 편집하고, 저장할 때는
+    // OOXML(docx/xlsx/pptx)로 돌려준다. 그걸 원래 확장자 그대로 덮어쓰면 다음에 열 때 파일이
+    // 깨지므로, 콜백이 알려주는 저장 형식(없으면 다운로드 주소의 output.<확장자>)을 확인해서
+    // 형식이 다르면 파일 이름의 확장자도 같이 바꾼다.
+    const savedExt = (body.filetype ?? body.url.match(/output\.([0-9a-zA-Z]+)/)?.[1] ?? originalExt).toLowerCase();
+    const savedType = EXT_TYPE_MAP[savedExt] ?? type;
 
     // OnlyOffice가 내려준 url은 컨테이너가 "자기 자신"을 가리키는 주소라 호스트에서 그대로
     // fetch하면 포트/호스트가 안 맞을 수 있다 — path+query만 빌려서 우리가 아는
@@ -150,9 +158,23 @@ export class OnlyofficeService {
     if (!res.ok) throw new Error(`OnlyOffice가 저장한 파일을 가져오지 못했습니다: ${res.status}`);
     const arrayBuf = await res.arrayBuffer();
 
-    const mime = MIME_BY_EXT[type.fileType] ?? 'application/octet-stream';
+    const mime = MIME_BY_EXT[savedType.fileType] ?? 'application/octet-stream';
     const base64 = Buffer.from(arrayBuf).toString('base64');
     await this.filesService.saveCollabSnapshot(fileId, userId, `data:${mime};base64,${base64}`);
+
+    if (savedExt !== originalExt && EXT_TYPE_MAP[savedExt]) {
+      const stem = file.path.replace(/\.[^./]+$/, '');
+      // 같은 이름의 변환본이 이미 있으면 "(변환)"을 붙여서라도 내용과 확장자가 어긋나지 않게 한다.
+      for (const candidate of [`${stem}.${savedExt}`, `${stem} (변환).${savedExt}`, `${stem} (변환 ${Date.now()}).${savedExt}`]) {
+        try {
+          await this.filesService.moveFile(projectId, fileId, candidate, userId);
+          this.logger.log(`OnlyOffice 저장 형식 변환: ${file.path} -> ${candidate}`);
+          break;
+        } catch (err) {
+          this.logger.warn(`확장자 변경 실패(${candidate}): ${err instanceof Error ? err.message : err}`);
+        }
+      }
+    }
     this.logger.log(`OnlyOffice 저장 반영: file=${fileId} status=${body.status}`);
   }
 }

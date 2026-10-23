@@ -16,6 +16,10 @@ const BODY_SIZE_LIMIT = '100mb';
 // 프론트를 붙여볼 때 필요. 실제 운영 단계에서는 반드시 실 도메인으로 좁혀야 함.
 const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()).filter(Boolean);
 
+// 한 요청의 처리되지 않은 예외/거부 하나 때문에 서버 전체가 내려가지 않게 기록만 남긴다.
+process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason));
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err));
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.enableCors({ origin: corsOrigin && corsOrigin.length > 0 ? corsOrigin : true, credentials: true });
