@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseEgovTable, parseArtclTable, parseCardList, parseRssFeed } from '../src/lib/crawler/parsers.ts';
 import { findSchoolEntry } from '../src/lib/crawler/schoolsRegistry.ts';
 import { crawlNotices } from '../src/lib/crawler/crawlerService.ts';
-import { optimizedPosterUrl } from '../src/lib/crawler/posterImage.ts';
+import { needsPosterPlaceholder, optimizedPosterUrl } from '../src/lib/crawler/posterImage.ts';
 
 test('findSchoolEntry matches school names and known aliases', () => {
   const snu = findSchoolEntry('서울대');
@@ -251,7 +251,7 @@ test('포스터 추출: 목록 행의 새 글·첨부·문서 형식 표시 이�
   assert.equal(thumbnailOf('<img src="/upload/c.png" width="300" height="400">'), 'https://univ.ac.kr/upload/c.png');
 });
 
-test('상세 페이지 포스터: 설정된 게시판의 공모전 글만 읽고, 다른 사이트 링크는 요청하지 않는다', async () => {
+test('상세 페이지 이미지: 설정된 게시판은 분류와 상관없이 읽고, 다른 사이트 링크는 요청하지 않는다', async () => {
   const CONTEST = 'https://www.tu.ac.kr/tuhome/sub07_01_11.do';
   const GENERAL = 'https://www.tu.ac.kr/tuhome/sub07_01_01.do';
   const row = (href, title, extra = '') => '<tr><td class="subject"><a href="' + href + '">' + title + '</a></td><td class="writer">담당' + extra + '</td><td class="date">2026-10-01</td></tr>';
@@ -271,6 +271,7 @@ test('상세 페이지 포스터: 설정된 게시판의 공모전 글만 읽고
     'https://www.tu.ac.kr/tuhome/a': '<img src="/logo.png"><div class="fr-view"><img src="/_attach/poster-a.png"><img src="/_attach/second.png"></div>',
     'https://www.tu.ac.kr/tuhome/b': '<div class="fr-view"><img src="/img/ic_new.png"><img src="data:image/png;base64,AAAA"><img src="/_attach/poster-b.png"></div>',
     'https://www.tu.ac.kr/tuhome/c': '<div class="fr-view"><p>본문</p></div>',
+    'https://www.tu.ac.kr/tuhome/g': '<div class="fr-view"><img src="/_attach/notice-g.png"></div>',
   };
   const requested = [];
   const originalFetch = globalThis.fetch;
@@ -288,10 +289,9 @@ test('상세 페이지 포스터: 설정된 게시판의 공모전 글만 읽고
     assert.equal(thumb('오류 나는 공모전'), undefined);
     assert.equal(thumb('다른 사이트 공모전'), undefined);
     assert.equal(thumb('목록에 포스터 있는 공모전'), 'https://www.tu.ac.kr/upload/list.png');
-    assert.equal(thumb('학사 일정 안내'), undefined);
+    assert.equal(thumb('학사 일정 안내'), 'https://www.tu.ac.kr/_attach/notice-g.png');
     assert.ok(!requested.includes('https://evil.example/e'), '다른 사이트는 요청하지 않는다');
     assert.ok(!requested.includes('https://www.tu.ac.kr/tuhome/f'), '목록에 이미지가 있으면 상세를 읽지 않는다');
-    assert.ok(!requested.includes('https://www.tu.ac.kr/tuhome/g'), '공모전이 아닌 글은 상세를 읽지 않는다');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -329,4 +329,35 @@ test('vercel.json: 화면이 쓰는 이미지 폭·품질이 허용 목록에 �
   const { images } = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
   for (const width of Object.values(POSTER_WIDTH)) assert.ok(images.sizes.includes(width), String(width));
   assert.ok(images.qualities.includes(75));
+});
+
+test('상세 페이지 이미지: 설정이 없는 게시판은 상세 페이지를 읽지 않는다', async () => {
+  const { SCHOOL_REGISTRY } = await import('../src/lib/crawler/schoolsRegistry.ts');
+  const entry = SCHOOL_REGISTRY.find((school) => school.boards.length > 0 && school.boards.every((board) => board.cmsType === 'egov_table' && !board.selectors?.detailImage));
+  assert.ok(entry, '설정 없는 표 게시판 학교가 있어야 한다');
+  const listUrls = new Set(entry.boards.map((board) => board.listUrl));
+  const html = '<table class="tbl_board"><tbody><tr><td class="subject"><a href="/view/1">공지 제목</a></td><td class="writer">담당</td><td class="date">2026-10-01</td></tr></tbody></table>';
+  const requested = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    return listUrls.has(url) ? new Response(html) : new Response('', { status: 404 });
+  };
+  try {
+    const { notices } = await crawlNotices(entry.name, 'all');
+    assert.ok(notices.some((notice) => notice.title === '공지 제목'));
+    assert.deepEqual(requested.filter((url) => !listUrls.has(url)), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('자리표시: 같은 줄의 다른 카드에 이미지가 있을 때만 넣는다', () => {
+  const on = { thumbnail: 'https://u.ac.kr/a.png' };
+  const off = {};
+  const notices = [on, off, off, off, off, off, off, on];
+  const placed = (columns) => notices.map((_, index) => needsPosterPlaceholder(notices, index, columns));
+  assert.deepEqual(placed(3), [false, true, true, false, false, false, true, false]);
+  assert.deepEqual(placed(2), [false, true, false, false, false, false, true, false]);
+  assert.deepEqual(placed(1), notices.map(() => false));
 });

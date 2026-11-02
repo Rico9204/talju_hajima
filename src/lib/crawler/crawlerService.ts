@@ -48,10 +48,10 @@ function generateFallbackNotices(
 const DETAIL_IMAGE_CONCURRENCY = 4;
 const DETAIL_IMAGE_TIMEOUT_MS = 3000;
 
-// 목록에 이미지가 없는 공모전 글은 상세 페이지 본문에서 포스터를 찾는다.
+// 목록에 이미지가 없는 글은 상세 페이지 본문에서 이미지를 찾는다.
 // 설정(selectors.detailImage)이 있는 게시판의 화면에 나갈 글만 읽고, 다 합쳐 제한 시간 안에 끝난 것만 쓴다.
 async function fillDetailImages(notices: NoticeItem[], detailBoards: Map<string, UnivBoardConfig>): Promise<void> {
-  const targets = notices.filter((notice) => notice.category === "contest" && !notice.thumbnail && detailBoards.has(notice.link));
+  const targets = notices.filter((notice) => !notice.thumbnail && detailBoards.has(notice.link));
   const signal = AbortSignal.timeout(DETAIL_IMAGE_TIMEOUT_MS);
   let next = 0;
   async function worker() {

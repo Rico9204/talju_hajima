@@ -31475,7 +31475,8 @@ var SCHOOL_REGISTRY = [
         categoryLabel: "\uAD50\uB0B4\uCC44\uC6A9\xB7\uCDE8\uC5C5",
         cmsType: "egov_table",
         listUrl: "https://www.tu.ac.kr/tuhome/sub07_01_07.do",
-        baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_07.do"
+        baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_07.do",
+        selectors: { detailImage: ".fr-view img" }
       },
       {
         schoolCode: "tongmyong",
@@ -31484,7 +31485,8 @@ var SCHOOL_REGISTRY = [
         categoryLabel: "\uC77C\uBC18\xB7\uD559\uC0AC\uACF5\uC9C0",
         cmsType: "egov_table",
         listUrl: "https://www.tu.ac.kr/tuhome/sub07_01_01.do",
-        baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_01.do"
+        baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_01.do",
+        selectors: { detailImage: ".fr-view img" }
       }
     ]
   },
@@ -47136,7 +47138,7 @@ function generateFallbackNotices(schoolName, schoolCode, category, officialUrl) 
 var DETAIL_IMAGE_CONCURRENCY = 4;
 var DETAIL_IMAGE_TIMEOUT_MS = 3e3;
 async function fillDetailImages(notices, detailBoards) {
-  const targets = notices.filter((notice) => notice.category === "contest" && !notice.thumbnail && detailBoards.has(notice.link));
+  const targets = notices.filter((notice) => !notice.thumbnail && detailBoards.has(notice.link));
   const signal = AbortSignal.timeout(DETAIL_IMAGE_TIMEOUT_MS);
   let next2 = 0;
   async function worker() {

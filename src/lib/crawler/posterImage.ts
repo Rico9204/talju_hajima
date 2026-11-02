@@ -5,3 +5,10 @@ export const POSTER_WIDTH = { card: 640, list: 96 } as const;
 export function optimizedPosterUrl(url: string, width: number, production = !!import.meta.env?.PROD): string {
   return production ? `/_vercel/image?url=${encodeURIComponent(url)}&w=${width}&q=75` : url;
 }
+
+// 같은 줄의 다른 카드에 이미지가 있을 때만 자리표시를 넣어 카드의 공백을 메운다. 한 줄에 카드 하나면 맞출 옆 카드가 없다.
+export function needsPosterPlaceholder(notices: { thumbnail?: string }[], index: number, columns: number): boolean {
+  if (columns < 2 || notices[index]?.thumbnail) return false;
+  const rowStart = index - (index % columns);
+  return notices.slice(rowStart, rowStart + columns).some((notice) => notice.thumbnail);
+}

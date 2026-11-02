@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { NoticeItem, NoticeCategory, ScrappedNotice } from "../lib/crawler/types";
 import { SCHOOL_REGISTRY } from "../lib/crawler/schoolsRegistry";
 import { NoticeSortOption, NOTICE_SORT_OPTIONS, sortNotices } from "../lib/crawler/noticeSort";
-import { POSTER_WIDTH, optimizedPosterUrl } from "../lib/crawler/posterImage";
+import { POSTER_WIDTH, needsPosterPlaceholder, optimizedPosterUrl } from "../lib/crawler/posterImage";
 import { useOptionalProject, useProjectManagement } from "../context/ProjectContext";
 import SchoolSearchCombobox from "./SchoolSearchCombobox";
 
@@ -25,6 +25,24 @@ function PosterImage({ src, alt, width, className }: { src: string; alt: string;
       }}
     />
   );
+}
+
+// 카드 격자의 열 수. grid-cols-1 md:grid-cols-2 lg:grid-cols-3과 같은 기준이다.
+function useCardColumns() {
+  const [columns, setColumns] = useState(1);
+  useEffect(() => {
+    const medium = window.matchMedia("(min-width: 48rem)");
+    const large = window.matchMedia("(min-width: 64rem)");
+    const update = () => setColumns(large.matches ? 3 : medium.matches ? 2 : 1);
+    update();
+    medium.addEventListener("change", update);
+    large.addEventListener("change", update);
+    return () => {
+      medium.removeEventListener("change", update);
+      large.removeEventListener("change", update);
+    };
+  }, []);
+  return columns;
 }
 
 const CATEGORY_TABS: { id: NoticeCategory | "scrapped"; label: string; icon: string }[] = [
@@ -51,6 +69,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<NoticeSortOption>("latest");
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const cardColumns = useCardColumns();
 
   const [notices, setNotices] = useState<NoticeItem[]>([]);
   const [scrappedList, setScrappedList] = useState<ScrappedNotice[]>([]);
@@ -445,6 +464,15 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-700 backdrop-blur-[1px]">
                       <span>🔍 포스터 크게 보기</span>
                     </div>
+                  </div>
+                )}
+                {needsPosterPlaceholder(displayedNotices, idx, cardColumns) && (
+                  <div
+                    aria-hidden="true"
+                    className="w-full h-44 rounded-lg border flex items-center justify-center text-4xl bg-black/5 dark:bg-white/5"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    <span className="opacity-40">{CATEGORY_TABS.find((tab) => tab.id === notice.category)?.icon ?? "🌐"}</span>
                   </div>
                 )}
 

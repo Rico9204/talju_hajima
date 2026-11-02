@@ -178,6 +178,7 @@ export const SCHOOL_REGISTRY: SchoolEntry[] = [
         cmsType: "egov_table",
         listUrl: "https://www.tu.ac.kr/tuhome/sub07_01_07.do",
         baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_07.do",
+        selectors: { detailImage: ".fr-view img" },
       },
       {
         schoolCode: "tongmyong",
@@ -187,6 +188,7 @@ export const SCHOOL_REGISTRY: SchoolEntry[] = [
         cmsType: "egov_table",
         listUrl: "https://www.tu.ac.kr/tuhome/sub07_01_01.do",
         baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_01.do",
+        selectors: { detailImage: ".fr-view img" },
       },
     ],
   },
