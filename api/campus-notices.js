@@ -4037,14 +4037,14 @@ var require_streams = __commonJS({
     "use strict";
     var Buffer2 = require_safer().Buffer;
     module.exports = function(stream_module) {
-      var Transform2 = stream_module.Transform;
+      var Transform = stream_module.Transform;
       function IconvLiteEncoderStream(conv, options) {
         this.conv = conv;
         options = options || {};
         options.decodeStrings = false;
-        Transform2.call(this, options);
+        Transform.call(this, options);
       }
-      IconvLiteEncoderStream.prototype = Object.create(Transform2.prototype, {
+      IconvLiteEncoderStream.prototype = Object.create(Transform.prototype, {
         constructor: { value: IconvLiteEncoderStream }
       });
       IconvLiteEncoderStream.prototype._transform = function(chunk, encoding, done) {
@@ -4082,9 +4082,9 @@ var require_streams = __commonJS({
         this.conv = conv;
         options = options || {};
         options.encoding = this.encoding = "utf8";
-        Transform2.call(this, options);
+        Transform.call(this, options);
       }
-      IconvLiteDecoderStream.prototype = Object.create(Transform2.prototype, {
+      IconvLiteDecoderStream.prototype = Object.create(Transform.prototype, {
         constructor: { value: IconvLiteDecoderStream }
       });
       IconvLiteDecoderStream.prototype._transform = function(chunk, encoding, done) {
@@ -9560,7 +9560,7 @@ var require_webidl = __commonJS({
 var require_util2 = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/web/fetch/util.js"(exports, module) {
     "use strict";
-    var { Transform: Transform2 } = __require("node:stream");
+    var { Transform } = __require("node:stream");
     var zlib = __require("node:zlib");
     var { redirectStatusSet, referrerPolicyTokens, badPortsSet } = require_constants3();
     var { getGlobalOrigin } = require_global();
@@ -10151,7 +10151,7 @@ var require_util2 = __commonJS({
       contentRange += isomorphicEncode(`${fullLength}`);
       return contentRange;
     }
-    var InflateStream = class extends Transform2 {
+    var InflateStream = class extends Transform {
       #zlibOptions;
       /** @param {zlib.ZlibOptions} [zlibOptions] */
       constructor(zlibOptions) {
@@ -12102,10 +12102,10 @@ upgrade: ${upgrade}\r
     }
     function writeStream(abort, body, client, request, socket, contentLength, header, expectsPayload) {
       assert(contentLength !== 0 || client[kRunning] === 0, "stream body cannot be pipelined");
-      let finished2 = false;
+      let finished = false;
       const writer = new AsyncWriter({ abort, socket, request, contentLength, client, expectsPayload, header });
       const onData = function(chunk) {
-        if (finished2) {
+        if (finished) {
           return;
         }
         try {
@@ -12117,7 +12117,7 @@ upgrade: ${upgrade}\r
         }
       };
       const onDrain = function() {
-        if (finished2) {
+        if (finished) {
           return;
         }
         if (body.resume) {
@@ -12128,16 +12128,16 @@ upgrade: ${upgrade}\r
         queueMicrotask(() => {
           body.removeListener("error", onFinished);
         });
-        if (!finished2) {
+        if (!finished) {
           const err = new RequestAbortedError();
           queueMicrotask(() => onFinished(err));
         }
       };
       const onFinished = function(err) {
-        if (finished2) {
+        if (finished) {
           return;
         }
-        finished2 = true;
+        finished = true;
         assert(socket.destroyed || socket[kWriting] && client[kRunning] <= 1);
         socket.off("drain", onDrain).off("error", onFinished);
         body.removeListener("data", onData).removeListener("end", onFinished).removeListener("close", onClose);
@@ -16637,7 +16637,7 @@ var require_api_stream = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/api/api-stream.js"(exports, module) {
     "use strict";
     var assert = __require("node:assert");
-    var { finished: finished2 } = __require("node:stream");
+    var { finished } = __require("node:stream");
     var { AsyncResource } = __require("node:async_hooks");
     var { InvalidArgumentError, InvalidReturnValueError } = require_errors();
     var util = require_util();
@@ -16721,7 +16721,7 @@ var require_api_stream = __commonJS({
         if (!res || typeof res.write !== "function" || typeof res.end !== "function" || typeof res.on !== "function") {
           throw new InvalidReturnValueError("expected Writable");
         }
-        finished2(res, { readable: false }, (err) => {
+        finished(res, { readable: false }, (err) => {
           const { callback, res: res2, opaque: opaque2, trailers, abort } = this;
           this.res = null;
           if (err || !res2?.readable) {
@@ -18121,13 +18121,13 @@ var require_mock_pool = __commonJS({
 var require_pending_interceptors_formatter = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/mock/pending-interceptors-formatter.js"(exports, module) {
     "use strict";
-    var { Transform: Transform2 } = __require("node:stream");
+    var { Transform } = __require("node:stream");
     var { Console } = __require("node:console");
     var PERSISTENT = process.versions.icu ? "\u2705" : "Y ";
     var NOT_PERSISTENT = process.versions.icu ? "\u274C" : "N ";
     module.exports = class PendingInterceptorsFormatter {
       constructor({ disableColors } = {}) {
-        this.transform = new Transform2({
+        this.transform = new Transform({
           transform(chunk, _enc, cb) {
             cb(null, chunk);
           }
@@ -21517,7 +21517,7 @@ var require_cache_handler = __commonJS({
 var require_memory_cache_store = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/cache/memory-cache-store.js"(exports, module) {
     "use strict";
-    var { Writable: Writable3 } = __require("node:stream");
+    var { Writable } = __require("node:stream");
     var { EventEmitter } = __require("node:events");
     var { assertCacheKey, assertCacheValue } = require_cache();
     var MemoryCacheStore = class extends EventEmitter {
@@ -21607,7 +21607,7 @@ var require_memory_cache_store = __commonJS({
         const topLevelKey = `${key.origin}:${key.path}`;
         const store = this;
         const entry = { ...key, ...val2, body: [], size: 0 };
-        return new Writable3({
+        return new Writable({
           write(chunk, encoding, callback) {
             if (typeof chunk === "string") {
               chunk = Buffer.from(chunk, encoding);
@@ -23140,7 +23140,7 @@ var require_deduplicate = __commonJS({
 var require_sqlite_cache_store = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/cache/sqlite-cache-store.js"(exports, module) {
     "use strict";
-    var { Writable: Writable3 } = __require("node:stream");
+    var { Writable } = __require("node:stream");
     var { assertCacheKey, assertCacheValue } = require_cache();
     var DatabaseSync;
     var VERSION = 3;
@@ -23384,7 +23384,7 @@ var require_sqlite_cache_store = __commonJS({
         let size = 0;
         const body = [];
         const store = this;
-        return new Writable3({
+        return new Writable({
           decodeStrings: true,
           write(chunk, encoding, callback) {
             size += chunk.byteLength;
@@ -25337,7 +25337,7 @@ var require_fetch = __commonJS({
       subresourceSet
     } = require_constants3();
     var EE = __require("node:events");
-    var { Readable, pipeline, finished: finished2, isErrored, isReadable } = __require("node:stream");
+    var { Readable, pipeline, finished, isErrored, isReadable } = __require("node:stream");
     var { addAbortListener, bufferToLowerCasedHeaderName } = require_util();
     var { dataURLProcessor, serializeAMimeType, minimizeSupportedMimeType } = require_data_url();
     var { getGlobalDispatcher } = require_global2();
@@ -25814,7 +25814,7 @@ var require_fetch = __commonJS({
       if (internalResponse.body == null) {
         processResponseEndOfBody();
       } else {
-        finished2(internalResponse.body.stream, () => {
+        finished(internalResponse.body.stream, () => {
           processResponseEndOfBody();
         });
       }
@@ -28457,7 +28457,7 @@ var require_permessage_deflate = __commonJS({
 var require_receiver = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/web/websocket/receiver.js"(exports, module) {
     "use strict";
-    var { Writable: Writable3 } = __require("node:stream");
+    var { Writable } = __require("node:stream");
     var assert = __require("node:assert");
     var { parserStates, opcodes, states, emptyBuffer, sentCloseFrameState } = require_constants5();
     var {
@@ -28473,7 +28473,7 @@ var require_receiver = __commonJS({
     var { WebsocketFrameSend } = require_frame();
     var { PerMessageDeflate } = require_permessage_deflate();
     var { MessageSizeExceededError } = require_errors();
-    var ByteParser = class extends Writable3 {
+    var ByteParser = class extends Writable {
       #buffers = [];
       #fragmentsBytes = 0;
       #byteOffset = 0;
@@ -29805,7 +29805,7 @@ var require_util6 = __commonJS({
 var require_eventsource_stream = __commonJS({
   "node_modules/.pnpm/undici@7.30.0/node_modules/undici/lib/web/eventsource/eventsource-stream.js"(exports, module) {
     "use strict";
-    var { Transform: Transform2 } = __require("node:stream");
+    var { Transform } = __require("node:stream");
     var { isASCIINumber, isValidLastEventId } = require_util6();
     var BOM = [239, 187, 191];
     var LF = 10;
@@ -29846,7 +29846,7 @@ var require_eventsource_stream = __commonJS({
       }
       return true;
     }
-    var EventSourceStream = class extends Transform2 {
+    var EventSourceStream = class extends Transform {
       /**
        * @type {eventSourceSettings}
        */
@@ -46377,12 +46377,8 @@ function renderWithParse5(dom) {
 var parse7 = getParse((content, options, isDocument2, context) => options._useHtmlParser2 ? parseDocument(content, options) : parseWithParse5(content, options, isDocument2, context));
 var load = getLoad(parse7, (dom, options) => options._useHtmlParser2 ? esm_default(dom, options) : renderWithParse5(dom));
 
-// node_modules/.pnpm/parse5-parser-stream@7.1.2/node_modules/parse5-parser-stream/dist/index.js
-import { Writable } from "node:stream";
-
 // node_modules/.pnpm/encoding-sniffer@0.2.1/node_modules/encoding-sniffer/dist/esm/index.js
 var import_iconv_lite = __toESM(require_lib(), 1);
-import { Transform } from "node:stream";
 
 // node_modules/.pnpm/encoding-sniffer@0.2.1/node_modules/encoding-sniffer/dist/esm/sniffer.js
 var import_whatwg_encoding = __toESM(require_whatwg_encoding(), 1);
@@ -46503,7 +46499,6 @@ var STRINGS = {
 // node_modules/.pnpm/cheerio@1.2.0/node_modules/cheerio/dist/esm/index.js
 var undici = __toESM(require_undici(), 1);
 var import_whatwg_mimetype = __toESM(require_mime_type(), 1);
-import { Writable as Writable2, finished } from "node:stream";
 
 // src/lib/crawler/parsers.ts
 function resolveUrl(baseUrl, href, config, onclick) {
@@ -46551,6 +46546,71 @@ function resolveUrlUnchecked(baseUrl, href, config, onclick) {
 function cleanText(text3) {
   if (!text3) return "";
   return text3.replace(/\s+/g, " ").replace(/[\r\n\t]+/g, " ").trim();
+}
+function isValidThumbnail(url) {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  const lower = trimmed.toLowerCase();
+  if (/icon|ico_|ico-|_ico|\/ico\/|bullet|btn_|btn-|_btn|blank\.gif|spacer\.gif|dot\.gif|arrow|common\/img\/|common\/images\/|menu_|nav_|footer_|badge|banner_bar|sns_|facebook|twitter|instagram|youtube|kakao|naver_blog/i.test(
+    lower
+  )) {
+    return false;
+  }
+  return true;
+}
+function extractThumbnail($el, baseUrl, config) {
+  if (config?.selectors?.thumbnail) {
+    const $target = $el.find(config.selectors.thumbnail).first();
+    const raw = $target.attr("src") || $target.attr("data-src") || $target.attr("data-original") || $target.attr("data-lazy-src");
+    if (raw) {
+      const resolved = resolveUrl(baseUrl, raw, config);
+      if (isValidThumbnail(resolved)) return resolved;
+    }
+  }
+  const candidateSelectors = [
+    ".poster img",
+    ".thumb img",
+    ".thumbnail img",
+    ".img img",
+    ".photo img",
+    ".pic img",
+    ".image img",
+    ".card_img img",
+    ".b_img img",
+    "img.poster",
+    "img.thumb",
+    "img.thumbnail",
+    "td.photo img",
+    "td.thumb img",
+    "td[class*='thumb'] img",
+    "img"
+  ];
+  for (const sel of candidateSelectors) {
+    const $imgs = $el.find(sel);
+    for (let i = 0; i < $imgs.length; i++) {
+      const $img = $imgs.eq(i);
+      const raw = $img.attr("src") || $img.attr("data-src") || $img.attr("data-original") || $img.attr("data-lazy-src") || $img.attr("data-img");
+      if (raw) {
+        const resolved = resolveUrl(baseUrl, raw, config);
+        if (isValidThumbnail(resolved)) {
+          return resolved;
+        }
+      }
+    }
+  }
+  const $styleEls = $el.find("[style*='background']").addBack("[style*='background']");
+  for (let i = 0; i < $styleEls.length; i++) {
+    const style = $styleEls.eq(i).attr("style") || "";
+    const match = style.match(/url\(['"]?([^'")]+)['"]?\)/i);
+    if (match && match[1]) {
+      const resolved = resolveUrl(baseUrl, match[1], config);
+      if (isValidThumbnail(resolved)) {
+        return resolved;
+      }
+    }
+  }
+  return void 0;
 }
 function classifyNoticeCategory(title, defaultCategory = "general", defaultLabel) {
   const t = title.toLowerCase();
@@ -46621,6 +46681,7 @@ function parseEgovTable(html3, config) {
       config.category,
       config.categoryLabel
     );
+    const thumbnail = extractThumbnail($tr, config.baseUrl, config);
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -46632,6 +46693,7 @@ function parseEgovTable(html3, config) {
       postDate,
       link,
       views,
+      thumbnail,
       isPinned
     });
   });
@@ -46660,6 +46722,7 @@ function parseArtclTable(html3, config) {
       config.category,
       config.categoryLabel
     );
+    const thumbnail = extractThumbnail($tr, config.baseUrl, config);
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -46670,6 +46733,7 @@ function parseArtclTable(html3, config) {
       author,
       postDate,
       link,
+      thumbnail,
       isPinned
     });
   });
@@ -46694,8 +46758,7 @@ function parseCardList(html3, config) {
     const author = cleanText(
       $card.find(config.selectors?.author || ".writer, .b-writer, .company, .organizer").first().text()
     ) || config.schoolName;
-    const thumbSrc = $card.find("img").attr("src");
-    const thumbnail = thumbSrc ? resolveUrl(config.baseUrl, thumbSrc, config) : void 0;
+    const thumbnail = extractThumbnail($card, config.baseUrl, config);
     const { category, categoryLabel } = classifyNoticeCategory(
       title,
       config.category,
@@ -46734,6 +46797,7 @@ function parseGnuboard(html3, config) {
       config.category,
       config.categoryLabel
     );
+    const thumbnail = extractThumbnail($tr, config.baseUrl, config);
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -46744,6 +46808,7 @@ function parseGnuboard(html3, config) {
       author,
       postDate,
       link,
+      thumbnail,
       isPinned
     });
   });
@@ -46765,6 +46830,10 @@ function parseRssFeed(xml2, config) {
       config.category,
       config.categoryLabel
     );
+    const enclosure = $item.find("enclosure[type*='image']").attr("url");
+    const mediaContent = $item.find("media\\:content, content").attr("url");
+    const rawThumb = enclosure || mediaContent;
+    const thumbnail = rawThumb && isValidThumbnail(rawThumb) ? rawThumb : void 0;
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -46774,7 +46843,8 @@ function parseRssFeed(xml2, config) {
       title,
       author,
       postDate,
-      link: link || config.listUrl
+      link: link || config.listUrl,
+      thumbnail
     });
   });
   return items;
@@ -46800,6 +46870,8 @@ function parseGenericHtml(html3, config) {
         config.category,
         config.categoryLabel
       );
+      const $container = $a.closest("li, tr, div, article");
+      const thumbnail = extractThumbnail($container.length ? $container : $a.parent(), config.baseUrl, config);
       items.push({
         id: `${config.schoolCode}-${category}-${idx}`,
         schoolCode: config.schoolCode,
@@ -46809,7 +46881,8 @@ function parseGenericHtml(html3, config) {
         title: text3,
         author: config.schoolName,
         postDate: normalizeDate(dateMatch[1]),
-        link: resolveUrl(config.baseUrl, href, config)
+        link: resolveUrl(config.baseUrl, href, config),
+        thumbnail
       });
     }
   });
@@ -46832,6 +46905,7 @@ function parseYonseiNews(html3, config) {
     const isAcademia = href.includes("/academia/");
     const seqMatch = href.match(/bbSeq=(\d+)/);
     const id = seqMatch ? `yonsei-${seqMatch[1]}` : `yonsei-${idx}`;
+    const thumbnail = extractThumbnail($2(el), config.baseUrl, config);
     items.push({
       id,
       schoolCode: config.schoolCode,
@@ -46842,7 +46916,8 @@ function parseYonseiNews(html3, config) {
       author: isAcademia ? "\uC5F0\uC138\uB300\uD559\uAD50 \uC5F0\uAD6C\xB7\uD559\uC220" : "\uC5F0\uC138\uBBF8\uB514\uC5B4",
       postDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
       link: href,
-      views: 150 + idx * 17 % 300
+      views: 150 + idx * 17 % 300,
+      thumbnail
     });
   });
   return items;
@@ -46919,7 +46994,9 @@ function parseCampuspick(html3, board) {
       const organ = $2(el).find(".company, .organ, .host").text().trim() || "\uCEA0\uD37C\uC2A4\uD53D";
       const dDayMatch = $2(el).text().match(/D-\d+|D-Day|마감/i);
       const dDay = dDayMatch ? dDayMatch[0] : void 0;
-      const img = $2(el).find("img").attr("src");
+      const img = $2(el).find("img").attr("src") || $2(el).find("img").attr("data-src") || $2(el).find("img").attr("data-original");
+      const rawThumb = img?.startsWith("http") ? img : img ? `https://www.campuspick.com${img.startsWith("/") ? "" : "/"}${img}` : void 0;
+      const thumbnail = isValidThumbnail(rawThumb) ? rawThumb : void 0;
       items.push({
         id: `campuspick-${id}`,
         schoolCode: board.schoolCode,
@@ -46930,7 +47007,7 @@ function parseCampuspick(html3, board) {
         link: fullUrl,
         author: organ,
         dDay,
-        thumbnail: img?.startsWith("http") ? img : img ? `https://www.campuspick.com${img}` : void 0,
+        thumbnail,
         postDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
       });
     });

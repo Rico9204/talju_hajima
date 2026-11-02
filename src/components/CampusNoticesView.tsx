@@ -37,6 +37,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
   const [scrappedList, setScrappedList] = useState<ScrappedNotice[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewPoster, setPreviewPoster] = useState<{ src: string; title: string; link: string } | null>(null);
 
   // Load scrapped notices
   async function loadScrapped() {
@@ -396,136 +397,240 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
                       )}
                     </div>
 
-                    {/* Scrap Star Button */}
-                    <button
-                      onClick={() => void handleToggleScrap(notice)}
-                      title={isScrapped ? "스크랩 취소" : "스크랩하기"}
-                      className="p-1 text-base transition-transform active:scale-90 cursor-pointer"
-                    >
-                      {isScrapped ? "⭐" : "☆"}
-                    </button>
-                  </div>
-
-                  {/* Card Title */}
-                  <h3 className="text-sm font-700 leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-                    {notice.title}
-                  </h3>
-
-                  {/* Summary (if available) */}
-                  {notice.summary && (
-                    <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                      {notice.summary}
-                    </p>
-                  )}
-                </div>
-
-                {/* Card Footer Actions */}
-                <div className="pt-4 mt-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
-                  <div className="flex items-center justify-between text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-                    <span className="truncate max-w-[120px]">{notice.author}</span>
-                    <span>{notice.postDate}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-1">
-                    <a
-                      href={safeLink(notice.link)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 py-1.5 px-3 text-center text-xs font-700 transition-all border hover:bg-black/5 dark:hover:bg-white/5"
-                      style={{
-                        borderColor: "var(--border)",
-                        borderRadius: "8px",
-                        color: "var(--foreground)",
-                      }}
-                    >
-                      원문 보기 ↗
-                    </a>
-
-                    {/* 공모전 카테고리인 경우에만 게시판 팀원 모집 연동 버튼 노출 */}
-                    {notice.category === "contest" && onRecruitFromNotice && (
-                      <button
-                        onClick={() => onRecruitFromNotice(notice)}
-                        title="이 공모전으로 게시판에서 팀원 모집하기"
-                        className="py-1.5 px-3 text-xs font-700 transition-all flex items-center justify-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
-                        style={{
-                          background: "var(--primary)",
-                          color: "#ffffff",
-                          borderRadius: "8px",
-                        }}
-                      >
-                        <span>🚀</span>
-                        <span>팀원 모집</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        /* Compact List View */
-        <div
-          className="border divide-y overflow-hidden"
-          style={{ background: "var(--card)", borderRadius: "var(--radius)", borderColor: "var(--border)" }}
-        >
-          {displayedNotices.map((notice, idx) => {
-            const isScrapped = scrappedLinks.has(notice.link);
-
-            return (
-              <div
-                key={`${notice.id || notice.link}-${idx}`}
-                className="p-3.5 sm:px-5 flex items-center justify-between gap-4 transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <div className="flex items-center gap-3 min-w-0">
+                  {/* Scrap Star Button */}
                   <button
                     onClick={() => void handleToggleScrap(notice)}
-                    className="text-base shrink-0 cursor-pointer"
-                    title={isScrapped ? "스크랩 취소" : "스크랩"}
+                    title={isScrapped ? "스크랩 취소" : "스크랩하기"}
+                    className="p-1 text-base transition-transform active:scale-90 cursor-pointer"
                   >
                     {isScrapped ? "⭐" : "☆"}
                   </button>
-
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-800 px-1.5 py-0.2 rounded bg-black/5 dark:bg-white/10" style={{ color: "var(--muted-foreground)" }}>
-                        {notice.categoryLabel || notice.category}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground truncate">{notice.schoolName}</span>
-                    </div>
-                    <a
-                      href={safeLink(notice.link)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs sm:text-sm font-700 truncate block hover:underline"
-                    >
-                      {notice.title}
-                    </a>
-                  </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-xs hidden sm:inline" style={{ color: "var(--muted-foreground)" }}>
-                    {notice.postDate}
-                  </span>
+                {/* Poster / Thumbnail Image */}
+                {notice.thumbnail && (
+                  <div
+                    className="relative w-full h-44 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 border cursor-pointer group/img"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={() => setPreviewPoster({ src: notice.thumbnail!, title: notice.title, link: notice.link })}
+                    title="포스터 크게 보기"
+                  >
+                    <img
+                      src={notice.thumbnail}
+                      alt={notice.title}
+                      loading="lazy"
+                      className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        (e.currentTarget.parentElement as HTMLElement)?.style.setProperty("display", "none");
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-700 backdrop-blur-[1px]">
+                      <span>🔍 포스터 크게 보기</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Card Title */}
+                <h3 className="text-sm font-700 leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+                  {notice.title}
+                </h3>
+
+                {/* Summary (if available) */}
+                {notice.summary && (
+                  <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
+                    {notice.summary}
+                  </p>
+                )}
+              </div>
+
+              {/* Card Footer Actions */}
+              <div className="pt-4 mt-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
+                <div className="flex items-center justify-between text-[11px]" style={{ color: "var(--muted-foreground)" }}>
+                  <span className="truncate max-w-[120px]">{notice.author}</span>
+                  <span>{notice.postDate}</span>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <a
+                    href={safeLink(notice.link)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-1.5 px-3 text-center text-xs font-700 transition-all border hover:bg-black/5 dark:hover:bg-white/5"
+                    style={{
+                      borderColor: "var(--border)",
+                      borderRadius: "8px",
+                      color: "var(--foreground)",
+                    }}
+                  >
+                    원문 보기 ↗
+                  </a>
+
                   {/* 공모전 카테고리인 경우에만 게시판 팀원 모집 연동 버튼 노출 */}
                   {notice.category === "contest" && onRecruitFromNotice && (
                     <button
                       onClick={() => onRecruitFromNotice(notice)}
-                      title="게시판에서 팀원 모집하기"
-                      className="px-2.5 py-1 text-xs font-700 transition-all flex items-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
-                      style={{ background: "var(--primary)", color: "#fff", borderRadius: "6px" }}
+                      title="이 공모전으로 게시판에서 팀원 모집하기"
+                      className="py-1.5 px-3 text-xs font-700 transition-all flex items-center justify-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
+                      style={{
+                        background: "var(--primary)",
+                        color: "#ffffff",
+                        borderRadius: "8px",
+                      }}
                     >
                       <span>🚀</span>
-                      <span className="hidden sm:inline">팀원 모집</span>
+                      <span>팀원 모집</span>
                     </button>
                   )}
                 </div>
               </div>
-            );
-          })}
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      /* Compact List View */
+      <div
+        className="border divide-y overflow-hidden"
+        style={{ background: "var(--card)", borderRadius: "var(--radius)", borderColor: "var(--border)" }}
+      >
+        {displayedNotices.map((notice, idx) => {
+          const isScrapped = scrappedLinks.has(notice.link);
+
+          return (
+            <div
+              key={`${notice.id || notice.link}-${idx}`}
+              className="p-3.5 sm:px-5 flex items-center justify-between gap-4 transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  onClick={() => void handleToggleScrap(notice)}
+                  className="text-base shrink-0 cursor-pointer"
+                  title={isScrapped ? "스크랩 취소" : "스크랩"}
+                >
+                  {isScrapped ? "⭐" : "☆"}
+                </button>
+
+                {notice.thumbnail && (
+                  <div
+                    className="w-12 h-12 rounded-lg overflow-hidden shrink-0 border bg-black/5 dark:bg-white/5 cursor-pointer hover:opacity-85 transition-opacity"
+                    style={{ borderColor: "var(--border)" }}
+                    onClick={() => setPreviewPoster({ src: notice.thumbnail!, title: notice.title, link: notice.link })}
+                    title="포스터 크게 보기"
+                  >
+                    <img
+                      src={notice.thumbnail}
+                      alt={notice.title}
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget.parentElement as HTMLElement)?.style.setProperty("display", "none");
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-800 px-1.5 py-0.2 rounded bg-black/5 dark:bg-white/10" style={{ color: "var(--muted-foreground)" }}>
+                      {notice.categoryLabel || notice.category}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground truncate">{notice.schoolName}</span>
+                  </div>
+                  <a
+                    href={safeLink(notice.link)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs sm:text-sm font-700 truncate block hover:underline"
+                  >
+                    {notice.title}
+                  </a>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-xs hidden sm:inline" style={{ color: "var(--muted-foreground)" }}>
+                  {notice.postDate}
+                </span>
+                {/* 공모전 카테고리인 경우에만 게시판 팀원 모집 연동 버튼 노출 */}
+                {notice.category === "contest" && onRecruitFromNotice && (
+                  <button
+                    onClick={() => onRecruitFromNotice(notice)}
+                    title="게시판에서 팀원 모집하기"
+                    className="px-2.5 py-1 text-xs font-700 transition-all flex items-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
+                    style={{ background: "var(--primary)", color: "#fff", borderRadius: "6px" }}
+                  >
+                    <span>🚀</span>
+                    <span className="hidden sm:inline">팀원 모집</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
+
+    {/* Poster Preview Modal */}
+    {previewPoster && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+        onClick={() => setPreviewPoster(null)}
+      >
+        <div
+          className="relative max-w-2xl w-full max-h-[90vh] flex flex-col p-4 space-y-3"
+          style={{
+            background: "var(--card)",
+            borderRadius: "var(--radius)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 20px 40px rgba(0,0,0,0.3)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--border)" }}>
+            <h3 className="text-sm font-800 line-clamp-1">{previewPoster.title}</h3>
+            <button
+              onClick={() => setPreviewPoster(null)}
+              className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 text-sm font-700 cursor-pointer"
+              title="닫기"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto flex items-center justify-center rounded-lg bg-black/5 dark:bg-white/5 min-h-[250px] max-h-[65vh]">
+            <img
+              src={previewPoster.src}
+              alt={previewPoster.title}
+              className="max-h-[65vh] w-auto object-contain rounded-md shadow-sm"
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+              💡 포스터 이미지 미리보기
+            </span>
+            <div className="flex items-center gap-2">
+              <a
+                href={safeLink(previewPoster.link)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 text-xs font-700 rounded-lg border transition-all hover:bg-black/5 dark:hover:bg-white/5"
+                style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
+              >
+                공지 원문 보기 ↗
+              </a>
+              <button
+                onClick={() => setPreviewPoster(null)}
+                className="px-4 py-1.5 text-xs font-700 rounded-lg cursor-pointer"
+                style={{ background: "var(--primary)", color: "#ffffff" }}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
+    )}
     </div>
   );
 }

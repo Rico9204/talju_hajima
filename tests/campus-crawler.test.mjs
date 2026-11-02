@@ -182,3 +182,40 @@ test('수집한 링크는 http(s)만: javascript:·data: 주소는 게시판 주
   for (const link of links) assert.match(link, /^https:\/\/univ\.ac\.kr/);
   assert.ok(links.includes('https://univ.ac.kr/notice/view?id=7'));
 });
+
+test('포스터/썸네일 이미지 추출: 테이블 및 카드에서 포스터 이미지 주소를 수집하고 아이콘은 제외한다', () => {
+  const html = `
+    <table class="tbl_board"><tbody>
+      <tr>
+        <td class="photo"><img src="/upload/poster_2026.png" alt="포스터" /></td>
+        <td class="subject"><a href="/view/1">2026 대학생 소프트웨어 창업 공모전</a></td>
+        <td class="writer"><img src="/img/icon_writer.gif" alt="아이콘" />산학협력단</td>
+        <td class="date">2026-10-01</td>
+      </tr>
+      <tr>
+        <td class="photo"><img src="/common/img/blank.gif" alt="빈이미지" /></td>
+        <td class="subject"><a href="/view/2">하반기 장학금 정기 신청 공지</a></td>
+        <td class="writer">장학복지팀</td>
+        <td class="date">2026-10-02</td>
+      </tr>
+    </tbody></table>
+  `;
+
+  const config = {
+    schoolCode: 'test-thumb',
+    schoolName: '테스트대학교',
+    category: 'contest',
+    categoryLabel: '공모전',
+    cmsType: 'egov_table',
+    listUrl: 'https://univ.ac.kr/board',
+    baseUrl: 'https://univ.ac.kr',
+  };
+
+  const results = parseEgovTable(html, config);
+  assert.equal(results.length, 2);
+  // 포스터 이미지가 있는 첫 번째 항목은 thumbnail 추출
+  assert.equal(results[0].thumbnail, 'https://univ.ac.kr/upload/poster_2026.png');
+  // blank.gif, icon 등 유효하지 않은 이미지는 제외
+  assert.equal(results[1].thumbnail, undefined);
+});
+

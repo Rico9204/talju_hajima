@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test \"tests/*.test.mjs\""
+    "test": "node --test \"tests/*.test.mjs\"",
+    "bundle:notices": "node scripts/bundle-campus-notices.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",

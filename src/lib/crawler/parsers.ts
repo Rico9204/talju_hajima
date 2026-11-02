@@ -65,6 +65,83 @@ function cleanText(text: string | undefined): string {
   return text.replace(/\s+/g, " ").replace(/[\r\n\t]+/g, " ").trim();
 }
 
+export function isValidThumbnail(url: string | undefined): boolean {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return false;
+  const lower = trimmed.toLowerCase();
+  if (
+    /icon|ico_|ico-|_ico|\/ico\/|bullet|btn_|btn-|_btn|blank\.gif|spacer\.gif|dot\.gif|arrow|common\/img\/|common\/images\/|menu_|nav_|footer_|badge|banner_bar|sns_|facebook|twitter|instagram|youtube|kakao|naver_blog/i.test(
+      lower
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function extractThumbnail(
+  $el: cheerio.Cheerio<any>,
+  baseUrl: string,
+  config?: UnivBoardConfig
+): string | undefined {
+  // 1. Configured selector
+  if (config?.selectors?.thumbnail) {
+    const $target = $el.find(config.selectors.thumbnail).first();
+    const raw =
+      $target.attr("src") ||
+      $target.attr("data-src") ||
+      $target.attr("data-original") ||
+      $target.attr("data-lazy-src");
+    if (raw) {
+      const resolved = resolveUrl(baseUrl, raw, config);
+      if (isValidThumbnail(resolved)) return resolved;
+    }
+  }
+
+  // 2. Poster / thumbnail candidates
+  const candidateSelectors = [
+    ".poster img", ".thumb img", ".thumbnail img", ".img img", ".photo img",
+    ".pic img", ".image img", ".card_img img", ".b_img img", "img.poster",
+    "img.thumb", "img.thumbnail", "td.photo img", "td.thumb img", "td[class*='thumb'] img",
+    "img"
+  ];
+
+  for (const sel of candidateSelectors) {
+    const $imgs = $el.find(sel);
+    for (let i = 0; i < $imgs.length; i++) {
+      const $img = $imgs.eq(i);
+      const raw =
+        $img.attr("src") ||
+        $img.attr("data-src") ||
+        $img.attr("data-original") ||
+        $img.attr("data-lazy-src") ||
+        $img.attr("data-img");
+      if (raw) {
+        const resolved = resolveUrl(baseUrl, raw, config);
+        if (isValidThumbnail(resolved)) {
+          return resolved;
+        }
+      }
+    }
+  }
+
+  // 3. Background image in style
+  const $styleEls = $el.find("[style*='background']").addBack("[style*='background']");
+  for (let i = 0; i < $styleEls.length; i++) {
+    const style = $styleEls.eq(i).attr("style") || "";
+    const match = style.match(/url\(['"]?([^'")]+)['"]?\)/i);
+    if (match && match[1]) {
+      const resolved = resolveUrl(baseUrl, match[1], config);
+      if (isValidThumbnail(resolved)) {
+        return resolved;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export function classifyNoticeCategory(
   title: string,
   defaultCategory: any = "general",
@@ -188,6 +265,8 @@ export function parseEgovTable(html: string, config: UnivBoardConfig): NoticeIte
       config.categoryLabel
     );
 
+    const thumbnail = extractThumbnail($tr, config.baseUrl, config);
+
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -199,6 +278,7 @@ export function parseEgovTable(html: string, config: UnivBoardConfig): NoticeIte
       postDate,
       link,
       views,
+      thumbnail,
       isPinned,
     });
   });
@@ -237,6 +317,8 @@ export function parseArtclTable(html: string, config: UnivBoardConfig): NoticeIt
       config.categoryLabel
     );
 
+    const thumbnail = extractThumbnail($tr, config.baseUrl, config);
+
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -247,6 +329,7 @@ export function parseArtclTable(html: string, config: UnivBoardConfig): NoticeIt
       author,
       postDate,
       link,
+      thumbnail,
       isPinned,
     });
   });
@@ -282,8 +365,7 @@ export function parseCardList(html: string, config: UnivBoardConfig): NoticeItem
       $card.find(config.selectors?.author || ".writer, .b-writer, .company, .organizer").first().text()
     ) || config.schoolName;
 
-    const thumbSrc = $card.find("img").attr("src");
-    const thumbnail = thumbSrc ? resolveUrl(config.baseUrl, thumbSrc, config) : undefined;
+    const thumbnail = extractThumbnail($card, config.baseUrl, config);
 
     const { category, categoryLabel } = classifyNoticeCategory(
       title,
@@ -332,6 +414,8 @@ export function parseGnuboard(html: string, config: UnivBoardConfig): NoticeItem
       config.categoryLabel
     );
 
+    const thumbnail = extractThumbnail($tr, config.baseUrl, config);
+
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -342,6 +426,7 @@ export function parseGnuboard(html: string, config: UnivBoardConfig): NoticeItem
       author,
       postDate,
       link,
+      thumbnail,
       isPinned,
     });
   });
@@ -370,6 +455,11 @@ export function parseRssFeed(xml: string, config: UnivBoardConfig): NoticeItem[]
       config.categoryLabel
     );
 
+    const enclosure = $item.find("enclosure[type*='image']").attr("url");
+    const mediaContent = $item.find("media\\:content, content").attr("url");
+    const rawThumb = enclosure || mediaContent;
+    const thumbnail = rawThumb && isValidThumbnail(rawThumb) ? rawThumb : undefined;
+
     items.push({
       id: `${config.schoolCode}-${category}-${idx}-${postDate}`,
       schoolCode: config.schoolCode,
@@ -380,6 +470,7 @@ export function parseRssFeed(xml: string, config: UnivBoardConfig): NoticeItem[]
       author,
       postDate,
       link: link || config.listUrl,
+      thumbnail,
     });
   });
 
@@ -414,6 +505,8 @@ export function parseGenericHtml(html: string, config: UnivBoardConfig): NoticeI
         config.category,
         config.categoryLabel
       );
+      const $container = $a.closest("li, tr, div, article");
+      const thumbnail = extractThumbnail($container.length ? $container : $a.parent(), config.baseUrl, config);
       items.push({
         id: `${config.schoolCode}-${category}-${idx}`,
         schoolCode: config.schoolCode,
@@ -424,6 +517,7 @@ export function parseGenericHtml(html: string, config: UnivBoardConfig): NoticeI
         author: config.schoolName,
         postDate: normalizeDate(dateMatch[1]),
         link: resolveUrl(config.baseUrl, href, config),
+        thumbnail,
       });
     }
   });
@@ -455,6 +549,7 @@ export function parseYonseiNews(html: string, config: UnivBoardConfig): NoticeIt
     const isAcademia = href.includes("/academia/");
     const seqMatch = href.match(/bbSeq=(\d+)/);
     const id = seqMatch ? `yonsei-${seqMatch[1]}` : `yonsei-${idx}`;
+    const thumbnail = extractThumbnail($(el), config.baseUrl, config);
 
     items.push({
       id,
@@ -467,6 +562,7 @@ export function parseYonseiNews(html: string, config: UnivBoardConfig): NoticeIt
       postDate: new Date().toISOString().slice(0, 10),
       link: href,
       views: 150 + ((idx * 17) % 300),
+      thumbnail,
     });
   });
 
@@ -549,7 +645,9 @@ export function parseCampuspick(html: string, board: UnivBoardConfig): NoticeIte
       const organ = $(el).find(".company, .organ, .host").text().trim() || "캠퍼스픽";
       const dDayMatch = $(el).text().match(/D-\d+|D-Day|마감/i);
       const dDay = dDayMatch ? dDayMatch[0] : undefined;
-      const img = $(el).find("img").attr("src");
+      const img = $(el).find("img").attr("src") || $(el).find("img").attr("data-src") || $(el).find("img").attr("data-original");
+      const rawThumb = img?.startsWith("http") ? img : img ? `https://www.campuspick.com${img.startsWith("/") ? "" : "/"}${img}` : undefined;
+      const thumbnail = isValidThumbnail(rawThumb) ? rawThumb : undefined;
 
       items.push({
         id: `campuspick-${id}`,
@@ -561,7 +659,7 @@ export function parseCampuspick(html: string, board: UnivBoardConfig): NoticeIte
         link: fullUrl,
         author: organ,
         dDay,
-        thumbnail: img?.startsWith("http") ? img : img ? `https://www.campuspick.com${img}` : undefined,
+        thumbnail,
         postDate: new Date().toISOString().slice(0, 10),
       });
     });
