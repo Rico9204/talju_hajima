@@ -640,7 +640,7 @@ export function parseLinkareer(html: string, board: UnivBoardConfig): NoticeItem
             title: act.name || act.title || "공모전 소식",
             link: act.url || `https://linkareer.com/activity/${id}`,
             author: apolloAct?.organizationName || "링커리어",
-            thumbnail: act.imageUrl || undefined,
+            thumbnail: isValidThumbnail(act.imageUrl) ? act.imageUrl : undefined,
             dDay: apolloAct?.dDay || undefined,
             postDate: new Date().toISOString().slice(0, 10),
           });

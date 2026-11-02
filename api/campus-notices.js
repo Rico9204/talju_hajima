@@ -46984,7 +46984,7 @@ function parseLinkareer(html3, board) {
             title: act.name || act.title || "\uACF5\uBAA8\uC804 \uC18C\uC2DD",
             link: act.url || `https://linkareer.com/activity/${id}`,
             author: apolloAct?.organizationName || "\uB9C1\uCEE4\uB9AC\uC5B4",
-            thumbnail: act.imageUrl || void 0,
+            thumbnail: isValidThumbnail(act.imageUrl) ? act.imageUrl : void 0,
             dDay: apolloAct?.dDay || void 0,
             postDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)
           });

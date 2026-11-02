@@ -4,6 +4,7 @@ import { parseEgovTable, parseArtclTable, parseCardList, parseRssFeed } from '..
 import { findSchoolEntry } from '../src/lib/crawler/schoolsRegistry.ts';
 import { crawlNotices } from '../src/lib/crawler/crawlerService.ts';
 import { needsPosterPlaceholder, optimizedPosterUrl } from '../src/lib/crawler/posterImage.ts';
+import { createNoticeCache } from '../src/lib/crawler/noticeCache.ts';
 
 test('findSchoolEntry matches school names and known aliases', () => {
   const snu = findSchoolEntry('서울대');
@@ -360,4 +361,22 @@ test('자리표시: 같은 줄의 다른 카드에 이미지가 있을 때만 �
   assert.deepEqual(placed(3), [false, true, true, false, false, false, true, false]);
   assert.deepEqual(placed(2), [false, true, false, false, false, false, true, false]);
   assert.deepEqual(placed(1), notices.map(() => false));
+});
+
+test('탭 결과 기억: 학교·탭별로 구분하고, 시간이 지나거나 결과가 비면 다시 요청한다', () => {
+  let clock = 0;
+  const cache = createNoticeCache(1000, () => clock);
+  const items = [{ id: 'n1', title: '공지' }];
+  cache.set('동명대학교', 'all', items);
+  assert.equal(cache.get('동명대학교', 'all'), items);
+  assert.equal(cache.get('동명대학교', 'contest'), undefined);
+  assert.equal(cache.get('홍익대학교', 'all'), undefined);
+  cache.set('홍익대학교', 'all', []);
+  assert.equal(cache.get('홍익대학교', 'all'), undefined);
+  cache.set('홍익대학교', 'all', [{ id: 'hongik-official-guide', title: '공식 공지 안내' }]);
+  assert.equal(cache.get('홍익대학교', 'all'), undefined);
+  clock = 999;
+  assert.equal(cache.get('동명대학교', 'all'), items);
+  clock = 1000;
+  assert.equal(cache.get('동명대학교', 'all'), undefined);
 });

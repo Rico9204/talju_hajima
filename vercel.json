@@ -1,7 +1,7 @@
 {
     "regions": ["icn1"],
     "images": {
-        "sizes": [96, 640],
+        "sizes": [96, 640, 1280],
         "qualities": [75],
         "formats": ["image/webp"],
         "minimumCacheTTL": 2592000,

@@ -3,11 +3,14 @@ import type { NoticeItem, NoticeCategory, ScrappedNotice } from "../lib/crawler/
 import { SCHOOL_REGISTRY } from "../lib/crawler/schoolsRegistry";
 import { NoticeSortOption, NOTICE_SORT_OPTIONS, sortNotices } from "../lib/crawler/noticeSort";
 import { POSTER_WIDTH, needsPosterPlaceholder, optimizedPosterUrl } from "../lib/crawler/posterImage";
+import { createNoticeCache } from "../lib/crawler/noticeCache";
 import { useOptionalProject, useProjectManagement } from "../context/ProjectContext";
 import SchoolSearchCombobox from "./SchoolSearchCombobox";
 
 // 링크는 http(s)만 연다 — 스크랩은 DB에서 오고, 수집 결과도 외부 페이지에서 오므로 화면에서 한 번 더 막는다.
 const safeLink = (link: string) => (/^https?:\/\//i.test(link) ? link : undefined);
+
+const noticeCache = createNoticeCache();
 
 // 줄인 이미지를 먼저 쓰고, 실패하면 원본으로 다시 받는다. 원본도 실패해야 이미지 칸을 숨긴다.
 function PosterImage({ src, alt, width, className }: { src: string; alt: string; width: number; className: string }) {
@@ -29,11 +32,12 @@ function PosterImage({ src, alt, width, className }: { src: string; alt: string;
 
 // 카드 격자의 열 수. grid-cols-1 md:grid-cols-2 lg:grid-cols-3과 같은 기준이다.
 function useCardColumns() {
-  const [columns, setColumns] = useState(1);
+  const [medium] = useState(() => window.matchMedia("(min-width: 48rem)"));
+  const [large] = useState(() => window.matchMedia("(min-width: 64rem)"));
+  const read = () => (large.matches ? 3 : medium.matches ? 2 : 1);
+  const [columns, setColumns] = useState(read);
   useEffect(() => {
-    const medium = window.matchMedia("(min-width: 48rem)");
-    const large = window.matchMedia("(min-width: 64rem)");
-    const update = () => setColumns(large.matches ? 3 : medium.matches ? 2 : 1);
+    const update = () => setColumns(read());
     update();
     medium.addEventListener("change", update);
     large.addEventListener("change", update);
@@ -93,7 +97,19 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
 
   // Fetch notices when school or category changes
   useEffect(() => {
-    if (activeTab === "scrapped") return;
+    if (activeTab === "scrapped") {
+      // 수집 중에 스크랩 탭으로 오면 앞선 요청이 취소되어 로딩 표시가 남는다.
+      setLoading(false);
+      return;
+    }
+
+    const cached = noticeCache.get(selectedSchool, activeTab);
+    if (cached) {
+      setNotices(cached);
+      setLoading(false);
+      setError(null);
+      return;
+    }
 
     let cancelled = false;
     setLoading(true);
@@ -104,6 +120,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
       category: activeTab,
     })
       .then((items) => {
+        noticeCache.set(selectedSchool, activeTab, items);
         if (!cancelled) {
           if (items.length === 0 && activeTab !== "all") {
             // 선택된 카테고리의 소식이 0개인 경우 전체 탭으로 자동 전환하여 빈 화면 방지
@@ -642,9 +659,11 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
           </div>
 
           <div className="flex-1 overflow-auto flex items-center justify-center rounded-lg bg-black/5 dark:bg-white/5 min-h-[250px] max-h-[65vh]">
-            <img
+            <PosterImage
+              key={previewPoster.src}
               src={previewPoster.src}
               alt={previewPoster.title}
+              width={POSTER_WIDTH.preview}
               className="max-h-[65vh] w-auto object-contain rounded-md shadow-sm"
             />
           </div>
