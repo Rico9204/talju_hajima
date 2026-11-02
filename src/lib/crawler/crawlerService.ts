@@ -1,6 +1,6 @@
-import type { NoticeItem, NoticeCategory } from "./types.ts";
+import type { NoticeItem, NoticeCategory, UnivBoardConfig } from "./types.ts";
 import { getBoardsForSchool, findSchoolEntry } from "./schoolsRegistry.ts";
-import { parseByCmsType } from "./parsers.ts";
+import { extractDetailImage, parseByCmsType } from "./parsers.ts";
 import { getUniversityOfficialUrl, findUniversity } from "../constants/koreanUniversities.ts";
 
 const USER_AGENT =
@@ -45,6 +45,32 @@ function generateFallbackNotices(
   ];
 }
 
+const DETAIL_IMAGE_CONCURRENCY = 4;
+const DETAIL_IMAGE_TIMEOUT_MS = 3000;
+
+// 목록에 이미지가 없는 공모전 글은 상세 페이지 본문에서 포스터를 찾는다.
+// 설정(selectors.detailImage)이 있는 게시판의 화면에 나갈 글만 읽고, 다 합쳐 제한 시간 안에 끝난 것만 쓴다.
+async function fillDetailImages(notices: NoticeItem[], detailBoards: Map<string, UnivBoardConfig>): Promise<void> {
+  const targets = notices.filter((notice) => notice.category === "contest" && !notice.thumbnail && detailBoards.has(notice.link));
+  const signal = AbortSignal.timeout(DETAIL_IMAGE_TIMEOUT_MS);
+  let next = 0;
+  async function worker() {
+    while (next < targets.length) {
+      const notice = targets[next++];
+      const board = detailBoards.get(notice.link)!;
+      try {
+        // 링크는 외부 페이지에서 온 값이라, 서버가 게시판과 다른 곳에 요청을 보내지 않게 한다.
+        if (new URL(notice.link).origin !== new URL(board.listUrl).origin) continue;
+        const res = await fetch(notice.link, { headers: { "User-Agent": USER_AGENT }, redirect: "error", signal });
+        if (res.ok) notice.thumbnail = extractDetailImage(await res.text(), board);
+      } catch {
+        // 이미지 없이 글만 보여 준다.
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(DETAIL_IMAGE_CONCURRENCY, targets.length) }, worker));
+}
+
 export async function crawlNotices(
   schoolQuery: string,
   category: NoticeCategory = "all"
@@ -57,6 +83,7 @@ export async function crawlNotices(
   const boards = getBoardsForSchool(schoolQuery, category);
   const allNotices: NoticeItem[] = [];
   const seenTitles = new Set<string>();
+  const detailBoards = new Map<string, UnivBoardConfig>();
   let primarySourceUrl = boards[0]?.listUrl || officialUrl;
 
   for (const board of boards) {
@@ -100,6 +127,7 @@ export async function crawlNotices(
             if (!seenTitles.has(key)) {
               seenTitles.add(key);
               allNotices.push(item);
+              if (board.selectors?.detailImage) detailBoards.set(item.link, board);
             }
           }
           primarySourceUrl = board.listUrl;
@@ -203,8 +231,11 @@ export async function crawlNotices(
     return b.postDate.localeCompare(a.postDate);
   });
 
+  const notices = allNotices.slice(0, 30);
+  await fillDetailImages(notices, detailBoards);
+
   return {
-    notices: allNotices.slice(0, 30),
+    notices,
     schoolName,
     schoolCode,
     sourceUrl: primarySourceUrl,

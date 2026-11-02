@@ -168,6 +168,23 @@ export function extractThumbnail(
   return undefined;
 }
 
+// 글 상세 페이지 본문의 첫 이미지를 포스터로 쓴다.
+export function extractDetailImage(html: string, config: UnivBoardConfig): string | undefined {
+  const selector = config.selectors?.detailImage;
+  if (!selector) return undefined;
+  const $ = cheerio.load(html);
+  const $imgs = $(selector);
+  for (let i = 0; i < $imgs.length; i++) {
+    const $img = $imgs.eq(i);
+    const raw = $img.attr("src") || $img.attr("data-src");
+    if (!raw || isTinyImage($img)) continue;
+    const resolved = resolveUrl(config.baseUrl, raw, config);
+    // resolveUrl은 data: 같은 주소를 게시판 주소로 바꿔 돌려주므로 함께 거른다.
+    if (resolved !== config.baseUrl && isValidThumbnail(resolved)) return resolved;
+  }
+  return undefined;
+}
+
 export function classifyNoticeCategory(
   title: string,
   defaultCategory: any = "general",

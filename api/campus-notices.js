@@ -31465,7 +31465,8 @@ var SCHOOL_REGISTRY = [
         categoryLabel: "\uACF5\uBAA8\uC804",
         cmsType: "egov_table",
         listUrl: "https://www.tu.ac.kr/tuhome/sub07_01_11.do",
-        baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_11.do"
+        baseUrl: "https://www.tu.ac.kr/tuhome/sub07_01_11.do",
+        selectors: { detailImage: ".fr-view img" }
       },
       {
         schoolCode: "tongmyong",
@@ -46631,6 +46632,20 @@ function extractThumbnail($el, baseUrl, config) {
   }
   return void 0;
 }
+function extractDetailImage(html3, config) {
+  const selector = config.selectors?.detailImage;
+  if (!selector) return void 0;
+  const $2 = load(html3);
+  const $imgs = $2(selector);
+  for (let i = 0; i < $imgs.length; i++) {
+    const $img = $imgs.eq(i);
+    const raw = $img.attr("src") || $img.attr("data-src");
+    if (!raw || isTinyImage($img)) continue;
+    const resolved = resolveUrl(config.baseUrl, raw, config);
+    if (resolved !== config.baseUrl && isValidThumbnail(resolved)) return resolved;
+  }
+  return void 0;
+}
 function classifyNoticeCategory(title, defaultCategory = "general", defaultLabel) {
   const t = title.toLowerCase();
   if (/공모전|경진대회|챌린지|해커톤|해카톤|서포터즈|아이디어|대회|페스티벌|동아리|봉사단|기획서|캠프|참가자\s*모집|크리에이터|공모\b/.test(
@@ -47114,6 +47129,26 @@ function generateFallbackNotices(schoolName, schoolCode, category, officialUrl) 
     }
   ];
 }
+var DETAIL_IMAGE_CONCURRENCY = 4;
+var DETAIL_IMAGE_TIMEOUT_MS = 3e3;
+async function fillDetailImages(notices, detailBoards) {
+  const targets = notices.filter((notice) => notice.category === "contest" && !notice.thumbnail && detailBoards.has(notice.link));
+  const signal = AbortSignal.timeout(DETAIL_IMAGE_TIMEOUT_MS);
+  let next2 = 0;
+  async function worker() {
+    while (next2 < targets.length) {
+      const notice = targets[next2++];
+      const board = detailBoards.get(notice.link);
+      try {
+        if (new URL(notice.link).origin !== new URL(board.listUrl).origin) continue;
+        const res = await fetch(notice.link, { headers: { "User-Agent": USER_AGENT }, redirect: "error", signal });
+        if (res.ok) notice.thumbnail = extractDetailImage(await res.text(), board);
+      } catch {
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(DETAIL_IMAGE_CONCURRENCY, targets.length) }, worker));
+}
 async function crawlNotices(schoolQuery, category = "all") {
   const schoolEntry = findSchoolEntry(schoolQuery);
   const schoolName = schoolEntry ? schoolEntry.name : schoolQuery || "\uC804\uAD6D \uACF5\uBAA8\uC804\xB7\uCDE8\uC5C5 Pick";
@@ -47122,6 +47157,7 @@ async function crawlNotices(schoolQuery, category = "all") {
   const boards = getBoardsForSchool(schoolQuery, category);
   const allNotices = [];
   const seenTitles = /* @__PURE__ */ new Set();
+  const detailBoards = /* @__PURE__ */ new Map();
   let primarySourceUrl = boards[0]?.listUrl || officialUrl;
   for (const board of boards) {
     try {
@@ -47162,6 +47198,7 @@ async function crawlNotices(schoolQuery, category = "all") {
             if (!seenTitles.has(key)) {
               seenTitles.add(key);
               allNotices.push(item);
+              if (board.selectors?.detailImage) detailBoards.set(item.link, board);
             }
           }
           primarySourceUrl = board.listUrl;
@@ -47253,8 +47290,10 @@ async function crawlNotices(schoolQuery, category = "all") {
     if (!a.isPinned && b.isPinned) return 1;
     return b.postDate.localeCompare(a.postDate);
   });
+  const notices = allNotices.slice(0, 30);
+  await fillDetailImages(notices, detailBoards);
   return {
-    notices: allNotices.slice(0, 30),
+    notices,
     schoolName,
     schoolCode,
     sourceUrl: primarySourceUrl

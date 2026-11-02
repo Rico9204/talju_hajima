@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEgovTable, parseArtclTable, parseCardList, parseRssFeed } from '../src/lib/crawler/parsers.ts';
 import { findSchoolEntry } from '../src/lib/crawler/schoolsRegistry.ts';
+import { crawlNotices } from '../src/lib/crawler/crawlerService.ts';
 
 test('findSchoolEntry matches school names and known aliases', () => {
   const snu = findSchoolEntry('서울대');
@@ -247,4 +248,50 @@ test('포스터 추출: 목록 행의 새 글·첨부·문서 형식 표시 이�
   }
   assert.equal(thumbnailOf('<img src="/upload/b.png" width="50%">'), 'https://univ.ac.kr/upload/b.png');
   assert.equal(thumbnailOf('<img src="/upload/c.png" width="300" height="400">'), 'https://univ.ac.kr/upload/c.png');
+});
+
+test('상세 페이지 포스터: 설정된 게시판의 공모전 글만 읽고, 다른 사이트 링크는 요청하지 않는다', async () => {
+  const CONTEST = 'https://www.tu.ac.kr/tuhome/sub07_01_11.do';
+  const GENERAL = 'https://www.tu.ac.kr/tuhome/sub07_01_01.do';
+  const row = (href, title, extra = '') => '<tr><td class="subject"><a href="' + href + '">' + title + '</a></td><td class="writer">담당' + extra + '</td><td class="date">2026-10-01</td></tr>';
+  const table = (rows) => '<table class="tbl_board"><tbody>' + rows.join('') + '</tbody></table>';
+  const lists = {
+    [CONTEST]: table([
+      row('https://www.tu.ac.kr/tuhome/a', '포스터 있는 공모전'),
+      row('https://www.tu.ac.kr/tuhome/b', '본문 첫 이미지가 아이콘인 공모전'),
+      row('https://www.tu.ac.kr/tuhome/c', '이미지 없는 공모전'),
+      row('https://www.tu.ac.kr/tuhome/d', '오류 나는 공모전'),
+      row('https://evil.example/e', '다른 사이트 공모전'),
+      row('https://www.tu.ac.kr/tuhome/f', '목록에 포스터 있는 공모전', '<img src="/upload/list.png">'),
+    ]),
+    [GENERAL]: table([row('https://www.tu.ac.kr/tuhome/g', '학사 일정 안내')]),
+  };
+  const details = {
+    'https://www.tu.ac.kr/tuhome/a': '<img src="/logo.png"><div class="fr-view"><img src="/_attach/poster-a.png"><img src="/_attach/second.png"></div>',
+    'https://www.tu.ac.kr/tuhome/b': '<div class="fr-view"><img src="/img/ic_new.png"><img src="data:image/png;base64,AAAA"><img src="/_attach/poster-b.png"></div>',
+    'https://www.tu.ac.kr/tuhome/c': '<div class="fr-view"><p>본문</p></div>',
+  };
+  const requested = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    const body = lists[url] ?? details[url];
+    return body === undefined ? new Response('', { status: 404 }) : new Response(body);
+  };
+  try {
+    const { notices } = await crawlNotices('동명대학교', 'all');
+    const thumb = (title) => notices.find((n) => n.title === title)?.thumbnail;
+    assert.equal(thumb('포스터 있는 공모전'), 'https://www.tu.ac.kr/_attach/poster-a.png');
+    assert.equal(thumb('본문 첫 이미지가 아이콘인 공모전'), 'https://www.tu.ac.kr/_attach/poster-b.png');
+    assert.equal(thumb('이미지 없는 공모전'), undefined);
+    assert.equal(thumb('오류 나는 공모전'), undefined);
+    assert.equal(thumb('다른 사이트 공모전'), undefined);
+    assert.equal(thumb('목록에 포스터 있는 공모전'), 'https://www.tu.ac.kr/upload/list.png');
+    assert.equal(thumb('학사 일정 안내'), undefined);
+    assert.ok(!requested.includes('https://evil.example/e'), '다른 사이트는 요청하지 않는다');
+    assert.ok(!requested.includes('https://www.tu.ac.kr/tuhome/f'), '목록에 이미지가 있으면 상세를 읽지 않는다');
+    assert.ok(!requested.includes('https://www.tu.ac.kr/tuhome/g'), '공모전이 아닌 글은 상세를 읽지 않는다');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

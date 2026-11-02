@@ -49,6 +49,7 @@ export interface UnivBoardConfig {
     link?: string;
     thumbnail?: string;
     pinned?: string;
+    detailImage?: string; // 목록에 이미지가 없는 게시판: 글 상세 페이지에서 포스터를 찾을 위치
   };
 }
 
