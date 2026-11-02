@@ -3,6 +3,7 @@ import { useProjectManagement } from "../context/ProjectContext";
 import type { Project } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import AdminProjectMembers from "./AdminProjectMembers";
+import { forgetEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
 
 const STATUS_LABEL: Record<Project["approvalStatus"], { text: string; bg: string; color: string }> = {
   pending: { text: "승인 대기", bg: "#f59e0b18", color: "#f59e0b" },
@@ -44,6 +45,11 @@ export default function AdminPanel() {
   useEffect(() => {
     refresh();
   }, []);
+
+  async function saveEvaluationScoreCca(enabled: boolean) {
+    await dataRepository.setEvaluationScoreCca(enabled);
+    forgetEvaluationScoreCca();
+  }
 
   async function approve(id: string) {
     setBusyId(id);
@@ -122,6 +128,13 @@ export default function AdminPanel() {
         description="켜져 있으면 동료 평가 화면에 ‘현재 방식 / CCA’ 토글이 보여요. 두 점수를 비교하면 작은 팀에서 다른 팀원끼리 준 점수의 합을 짐작할 수 있으니, 검토할 때만 켜 주세요."
         load={dataRepository.getEvaluationMethodPreview}
         save={dataRepository.setEvaluationMethodPreview}
+        onError={setError}
+      />
+      <SettingSwitch
+        title="공식 점수 방식: CCA"
+        description="켜면 모든 동료 평가 평점(프로필·대시보드·업적·상위 %)을 CCA(성향 보정 합의 평균)로 계산해요. 저장된 원점수는 그대로라 끄면 바로 원점수 평균으로 돌아가요."
+        load={dataRepository.getEvaluationScoreCca}
+        save={saveEvaluationScoreCca}
         onError={setError}
       />
 

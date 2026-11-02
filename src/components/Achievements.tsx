@@ -123,8 +123,8 @@ export default function Achievements() {
                   const nextThreshold = tier.min + ((tierUpperBound(tierIndex) - tier.min) / 3) * (subTierIndex(result.score!, tierIndex) + 1);
                   const remaining = Math.max(0, nextThreshold - result.score!);
                   return remaining > 0
-                    ? `다음 단계까지 ${remaining.toFixed(1)}점 (평가 평균 ${result.score!.toFixed(1)} / 10 기준)`
-                    : `최고 단계 달성 (평가 평균 ${result.score!.toFixed(1)} / 10 기준)`;
+                    ? `다음 단계까지 ${remaining.toFixed(2)}점 (평가 평균 ${result.score!.toFixed(2)} / 10 기준)`
+                    : `최고 단계 달성 (평가 평균 ${result.score!.toFixed(2)} / 10 기준)`;
                 })()}
               </p>
             ) : (

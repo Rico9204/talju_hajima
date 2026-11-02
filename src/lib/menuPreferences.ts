@@ -163,14 +163,14 @@ export function useMenuOrder() {
 // Home (Main screen) menu preferences
 // -------------------------------------------------------------
 
-export type HomeNavTab = "projects" | "campus" | "board" | "achievements" | "settings";
+// 설정은 메뉴가 아니라 왼쪽 아래 내 카드 메뉴의 창으로 연다. 예전에 저장된 순서의 "settings"는 sanitize가 버린다.
+export type HomeNavTab = "projects" | "campus" | "board" | "achievements";
 
 export const DEFAULT_HOME_MENU_ORDER: readonly HomeNavTab[] = [
   "projects",
   "campus",
   "board",
   "achievements",
-  "settings",
 ];
 
 export interface HomeMenuItemMeta {
@@ -204,12 +204,6 @@ export const HOME_MENU_ITEMS_META: Record<HomeNavTab, HomeMenuItemMeta> = {
     label: "업적",
     icon: "◈",
     description: "나의 티어, 메달 및 협업 업적 점수 현황",
-  },
-  settings: {
-    id: "settings",
-    label: "설정",
-    icon: "⚙",
-    description: "화면 테마, 그래픽 성능, 알림 및 메뉴 순서 설정",
   },
 };
 

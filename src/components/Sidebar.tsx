@@ -195,15 +195,30 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     const minutes = Math.max(0, Math.floor((new Date(codeExpiresAt).getTime() - now) / 60_000));
     return minutes >= 60 ? `${Math.floor(minutes / 60)}시간 ${minutes % 60}분 남음` : `${minutes}분 남음`;
   })();
-  async function reissueJoinCode() {
-    if (!projectIdForCode || rotatingCode) return;
+  // 복사: 팀장·부팀장은 복사할 때마다 새 코드를 발급해 그 코드를 복사한다(이전 코드는 바로 무효, 6시간 유효).
+  // 다른 팀원은 갱신 권한이 없으므로, 그 사이 다른 사람이 새로 발급했을 수 있어 서버에서 지금 유효한 코드를 다시 받아 복사한다.
+  // 코드를 기다리는 동안 클릭의 사용자 동작이 끊기지 않도록(사파리) 가능하면 ClipboardItem에 Promise를 넘긴다.
+  async function copyJoinCode() {
+    if (!projectIdForCode || !shownCode || rotatingCode) return;
+    const projectId = projectIdForCode;
+    const next = isLeader || isViceLeader ? rotateJoinCode(projectId) : getJoinCode(projectId);
+    const text = next.then((code) => code.joinCode);
     setRotatingCode(true);
     try {
-      setJoinCode({ projectId: projectIdForCode, ...(await rotateJoinCode(projectIdForCode)) });
-      setNow(Date.now());
-    } catch (error) {
-      setJoinCodeError(error instanceof Error ? error.message : "참여 코드를 재발급하지 못했습니다.");
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((value) => new Blob([value], { type: "text/plain" })) })]);
+      } else {
+        await navigator.clipboard.writeText(await text);
+      }
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      // 코드를 받지 못했으면 그 이유를, 클립보드만 실패했으면 복사 실패를 알린다.
+      const issueError = await next.then(() => null, (e) => (e instanceof Error ? e.message : "참여 코드를 불러오지 못했습니다."));
+      window.alert(issueError ?? "복사하지 못했습니다. 브라우저의 클립보드 권한을 확인해 주세요.");
     } finally {
+      const code = await next.catch(() => null);
+      if (code) { setJoinCode({ projectId, ...code }); setJoinCodeError(null); setNow(Date.now()); }
       setRotatingCode(false);
     }
   }
@@ -486,32 +501,15 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
             <span className="text-xs truncate flex-1 select-all" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }} title={shownCode ?? undefined}>
               참여 코드: {shownCode ?? (joinCodeError ? "불러오지 못함" : "…")}
             </span>
-            <div className="flex items-center gap-1 shrink-0">
-              {(isLeader || isViceLeader) && (
-                <button
-                  onClick={reissueJoinCode}
-                  disabled={rotatingCode}
-                  title="지금 새 코드로 재발급(이전 코드는 바로 무효, 6시간 유효)"
-                  className="text-xs px-1.5 py-0.5 hover:opacity-80"
-                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "6px" }}
-                >
-                  {rotatingCode ? "…" : "↻"}
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (!shownCode) return;
-                  navigator.clipboard.writeText(shownCode);
-                  setCodeCopied(true);
-                  setTimeout(() => setCodeCopied(false), 1500);
-                }}
-                disabled={!shownCode}
-                className="text-xs font-600 px-2 py-0.5 shrink-0"
-                style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
-              >
-                {codeCopied ? "복사됨!" : "복사"}
-              </button>
-            </div>
+            <button
+              onClick={() => void copyJoinCode()}
+              disabled={!shownCode || rotatingCode}
+              title={isLeader || isViceLeader ? "복사할 때마다 새 코드가 발급돼요(이전 코드는 바로 무효, 6시간 유효)" : "참여 코드 복사"}
+              className="text-xs font-600 px-2 py-0.5 shrink-0"
+              style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
+            >
+              {rotatingCode ? "…" : codeCopied ? "복사됨!" : "복사"}
+            </button>
           </div>
           <div className="flex items-center justify-end text-[10px] mt-0.5 px-0.5" style={{ color: "var(--muted-foreground)" }}>
             <span>{joinCodeError && !shownCode ? joinCodeError : remaining}</span>
@@ -724,7 +722,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
         </div>
       </nav>
 
-      <UserMenu subtitle={`${myRole} · 이 프로젝트`} onOpenSettings={() => { setMobileOpen(false); routerNavigate("/home", { state: { tab: "settings" } }); }} />
+      <UserMenu subtitle={`${myRole} · 이 프로젝트`} />
     </aside>
     {createOpen && (
       <CreateProjectModal

@@ -14,10 +14,10 @@ const CRITERIA = [["role", "역할 이행"], ["deadline", "약속·마감 준수
 export function criteriaChartData(criteria: MyEvaluationSummary["criteria"], percentiles?: EvaluationPercentiles | null) {
   return CRITERIA.map(([key, label]) => ({ label, value: criteria[key], note: percentiles?.available ? `상위 ${percentiles.criteria[key]}%` : undefined }));
 }
-// 점수 아래 한 줄 설명: "전체 사용자 42명 중 상위 12%" 또는 인원 부족 안내.
+// 점수 아래 한 줄: "서비스 전체 42명 중 상위 12%" 또는 "상위 % 집계 전"(10명 미만, 자세한 조건은 평가 점수 안내).
 export function percentileCaption(percentiles: EvaluationPercentiles | null | undefined) {
   if (!percentiles) return null;
   return percentiles.available
     ? `서비스 전체 ${percentiles.population}명 중 상위 ${percentiles.overall}%`
-    : "비교할 사용자가 10명 이상 모이면 상위 %가 표시됩니다.";
+    : "상위 % 집계 전";
 }

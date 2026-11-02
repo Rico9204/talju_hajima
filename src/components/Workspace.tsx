@@ -2,7 +2,7 @@ import SearchHighlight from "./SearchHighlight";
 import { matchesWorkspaceSearch, currentFileText, contentSnippet } from "../lib/workspaceSearch";
 import WorkspaceComments from "./WorkspaceComments";
 import FileUploadDialog from "./FileUploadDialog";
-import { folderSubtree, latestFileUploadTime, reorderIds, sortFolders, sortWorkspaceFiles, type FileSortOption } from "../lib/workspaceFiles";
+import { folderSubtree, isCodeFile, latestFileUploadTime, reorderIds, sortFolders, sortWorkspaceFiles, extBadgeLabel, type FileSortOption } from "../lib/workspaceFiles";
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef } from "react";
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
@@ -26,7 +26,16 @@ const typeColors: Record<string, { bg: string; color: string; label: string }> =
   xls: { bg: "#22c55e18", color: "#22c55e", label: "XLS" },
   zip: { bg: "#8b5cf618", color: "#8b5cf6", label: "ZIP" },
   img: { bg: "#06b6d418", color: "#06b6d4", label: "IMG" },
+  code: { bg: "#0d948818", color: "#0d9488", label: "CODE" },
+  text: { bg: "#64748b18", color: "#64748b", label: "TXT" },
 };
+// 텍스트·코드·이미지 파일은 DOC·IMG 대신 확장자 이름(TXT, CSV, JAVA, PNG …)으로 표시한다. 색은 코드 / CSV(표) / 이미지 / 그 밖의 글로 나눈다.
+function fileBadge(f: { name: string; type: string }) {
+  const label = extBadgeLabel(f.name);
+  if (!label) return typeColors[f.type] || typeColors.doc;
+  const tone = isCodeFile(f.name) ? typeColors.code : f.type === "xls" || f.type === "img" ? typeColors[f.type] : typeColors.text;
+  return { ...tone, label };
+}
 
 const tagColors: Record<string, string> = {
   보고서: "#3d52d5",
@@ -903,7 +912,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             </div>
           )}
           {sortedFiles.map((f) => {
-            const tc = typeColors[f.type] || typeColors.doc;
+            const tc = fileBadge(f);
             const deletable = canDeleteFile(f);
             const isSelected = selectMode || visibleSelected.length > 0 ? selectedIds.has(f.id) : selected === f.id;
             return (
@@ -942,7 +951,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 {/* Type badge */}
                 <div
                   className="w-9 h-9 flex items-center justify-center text-xs font-700 shrink-0"
-                  style={{ background: isSelected ? "rgba(255,255,255,0.2)" : tc.bg, color: isSelected ? "#fff" : tc.color, borderRadius: "var(--radius-sm)" }}
+                  style={{ background: isSelected ? "rgba(255,255,255,0.2)" : tc.bg, color: isSelected ? "#fff" : tc.color, borderRadius: "var(--radius-sm)", fontSize: tc.label.length > 4 ? 10 : undefined }}
                 >
                   {tc.label}
                 </div>
@@ -1006,8 +1015,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
               <div className="flex items-start justify-between gap-3 mb-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="text-xs font-700 px-2 py-0.5" style={{ background: typeColors[selFile.type]?.bg, color: typeColors[selFile.type]?.color, borderRadius: "3px" }}>
-                  {typeColors[selFile.type]?.label}
+                <span className="text-xs font-700 px-2 py-0.5" style={{ background: fileBadge(selFile).bg, color: fileBadge(selFile).color, borderRadius: "3px" }}>
+                  {fileBadge(selFile).label}
                 </span>
                 <span className="text-xs px-2 py-0.5 font-600" style={{ background: `${tagColors[selFile.tag] || "#6b7280"}18`, color: tagColors[selFile.tag] || "#6b7280", borderRadius: "3px" }}>
                   {selFile.tags.join(" · ") || "태그 없음"}

@@ -36,6 +36,7 @@ import {
   type ChatToolPayload,
   type ChatToolActionPayload,
 } from "../lib/chatTools"
+import { extBadgeLabel } from "../lib/workspaceFiles"
 
 interface FileRef {
   id: number
@@ -114,10 +115,10 @@ export default function TeamChat({
   ]
 
   const FOOD_EMOJIS: Record<string, string> = {
-    "순대국밥": "🍲", "김치찌개": "🌶️", "된장찌개": "🫕", "제육볶음": "🥩",
+    "순대국밥": "🍲", "김치찌개": "🌶️", "된장찌개": "🍲", "제육볶음": "🥩",
     "비빔밥": "🥗", "냉면": "🍜", "칼국수": "🍜", "짜장면": "🍝",
     "짬뽕": "🦐", "탕수육": "🍖", "삼겹살": "🥓", "닭갈비": "🍗",
-    "부대찌개": "🫕", "떡볶이": "🌶️", "라멘": "🍜", "우동": "🍜",
+    "부대찌개": "🍲", "떡볶이": "🌶️", "라멘": "🍜", "우동": "🍜",
     "돈까스": "🍛", "오므라이스": "🍳", "파스타": "🍝", "피자": "🍕",
     "버거": "🍔", "샌드위치": "🥪", "초밥": "🍣", "회덮밥": "🐟",
     "갈비탕": "🍲", "설렁탕": "🍲", "육개장": "🌶️", "콩나물국밥": "🥣",
@@ -125,7 +126,7 @@ export default function TeamChat({
     "치킨": "🍗", "회": "🐟", "양꼬치": "🍢", "곱창": "💪", "대창": "💪",
     "닭발": "🦶", "쭈꾸미": "🐙", "낙지볶음": "🐙", "해물탕": "🦞",
     "감자탕": "🦴", "뼈다귀해장국": "🦴", "스테이크": "🥩", "리조또": "🍚",
-    "타코": "🌮", "부리토": "🌯", "마라탕": "🌶️", "훠궈": "🫕",
+    "타코": "🌮", "부리토": "🌯", "마라탕": "🌶️", "훠궈": "🍲",
     "샤브샤브": "🥘", "돼지국밥": "🍲", "조개구이": "🦪", "장어구이": "🐍",
     "오리불고기": "🦆", "닭도리탕": "🍗",
   }
@@ -154,7 +155,7 @@ export default function TeamChat({
     const face = sides === 6 ? (DICE_FACES[result] ?? "🎲") : "🎲"
     const flavors: Record<number, string> = {
       1: "최악이네요... 🙈 하지만 괜찮아요!",
-      2: "아깝다... 🥲",
+      2: "아깝다... 😅",
       3: "평범하네요. 🙂",
       4: "나쁘지 않은걸요? 😏",
       5: "꽤 잘 나왔는데요! 😄",
@@ -1460,7 +1461,7 @@ export default function TeamChat({
                                   borderRadius: "6px",
                                 }}
                               >
-                                {fileTypeLabel[fileRef.type] || "FILE"}
+                                {extBadgeLabel(fileRef.name) ?? (fileTypeLabel[fileRef.type] || "FILE")}
                               </span>
                               <div className="min-w-0">
                                 <div
@@ -1780,7 +1781,7 @@ export default function TeamChat({
                         borderRadius: "6px",
                       }}
                     >
-                      {fileTypeLabel[f.type] || "FILE"}
+                      {extBadgeLabel(f.name) ?? (fileTypeLabel[f.type] || "FILE")}
                     </span>
                     <div className="min-w-0">
                       <div className="text-xs font-700 truncate">{f.name}</div>
@@ -1819,7 +1820,7 @@ export default function TeamChat({
                     borderRadius: "6px",
                   }}
                 >
-                  {fileTypeLabel[pendingFile.type] || "FILE"}
+                  {extBadgeLabel(pendingFile.name) ?? (fileTypeLabel[pendingFile.type] || "FILE")}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-700 truncate">

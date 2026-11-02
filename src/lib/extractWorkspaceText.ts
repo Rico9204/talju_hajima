@@ -1,4 +1,5 @@
 import { MAX_SEARCH_TEXT, type ExtractedText } from "./workspaceSearch";
+import { EDITABLE_TEXT_EXTENSIONS } from "./workspaceFiles";
 
 export async function extractWorkspaceText(file: File): Promise<ExtractedText> {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
@@ -44,7 +45,7 @@ export async function extractWorkspaceText(file: File): Promise<ExtractedText> {
       } catch { return { text: "", status: "failed" }; }
     }
   }
-  if (/\.(txt|md|csv|json|js|jsx|ts|tsx|css|html|xml|yml|yaml|sql|log)$/i.test(file.name)) {
+  if (EDITABLE_TEXT_EXTENSIONS.includes(file.name.split(".").pop()?.toLowerCase() ?? "")) {
     try {
       const text = (await file.slice(0, 1_000_000).text()).replace(/\0/g, "");
       return { text: text.slice(0, MAX_SEARCH_TEXT), status: file.size > 1_000_000 || text.length > MAX_SEARCH_TEXT ? "partial" : "ready" };

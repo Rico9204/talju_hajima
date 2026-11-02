@@ -14,6 +14,7 @@ export function Fixture({ children }: { children: ReactNode }) {
     project, team, currentMember: team.members[0], isLeader: true, isShortTerm: mode === "short",
     getEvaluationMode: async () => true,
     getEvaluationMethodPreview: async () => true,
+    getEvaluationScoreCca: async () => false,
     getEvaluations: async (phase: EvaluationPhase): Promise<EvaluationData> => mode === "feedback" && phase === "midterm" ? {
       submitted: false,
       records: [],

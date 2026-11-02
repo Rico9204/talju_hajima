@@ -8,6 +8,8 @@ import { detectLink } from "../lib/links";
 import Avatar from "./Avatar";
 import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 import MyEvaluationSummary from "./MyEvaluationSummary";
+import EvaluationInfoButton from "./EvaluationInfoButton";
+import CcaBadge from "./CcaBadge";
 import type { EvaluationPercentiles } from "../api/types";
 import { criteriaChartData, percentileCaption } from "../lib/evaluationSummary";
 import PentagonChart from "./PentagonChart";
@@ -33,6 +35,7 @@ import { canUseTheme, PROFILE_CARD_THEMES } from "../lib/profileThemes";
 import { ACHIEVEMENTS, formatAchievementValue } from "../lib/achievements";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import { useStillUrl } from "../lib/useStillUrl";
+import { useEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
 import { PROFILE_IMAGE_MIME_TYPES, validateProfileImage } from "../lib/profileImages";
 
 // 내 프로필 편집은 항목별로 나눠 하나씩 보여 준다(왼쪽 아래 내 카드 메뉴와 같은 구분). 저장은 모든 항목을 한 번에.
@@ -99,6 +102,7 @@ export default function ProfileModal() {
 
   // 보이는 점수(이 프로젝트 기준)가 서비스 전체 사용자 중 상위 몇 %인지. 서버가 비율만 돌려준다.
   const [otherPercentiles, setOtherPercentiles] = useState<EvaluationPercentiles | null>(null);
+  const scoreCca = useEvaluationScoreCca();
   useEffect(() => {
     setOtherPercentiles(null);
     if (isSelfProfile || !viewedMember || viewedMember.evalCount === 0 || !project.id) return;
@@ -406,7 +410,8 @@ export default function ProfileModal() {
 
   return (
     <>
-      {viewedMember && (
+      {/* "비밀번호 변경"으로 열 때는 effect가 비밀번호 창으로 바꾸기 전에 카드가 한 번 비치지 않도록 그리지 않는다. */}
+      {viewedMember && !(isSelfProfile && profileSection === "password") && (
         <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4 z-50" style={{ background: "rgba(15,18,53,0.42)" }} onClick={closeMemberProfile}>
           {/* Wrapper exists so TierFlame can sit outside the card's overflow-hidden clip. */}
           <div className={`relative isolate w-[820px] max-w-full my-auto${editSection ? " profile-edit-static" : ""}`} onClick={(e) => e.stopPropagation()}>
@@ -473,7 +478,7 @@ export default function ProfileModal() {
                   {isSelfProfile && myTier && (
                     <HoverTip
                       label={`${myTier.label} 등급`}
-                      detail={myScore !== null ? `평가 평균 ${myScore.toFixed(1)} / 10 기준` : "최종 평가 평균이 공개되면 등급이 매겨져요"}
+                      detail={myScore !== null ? `평가 평균 ${myScore.toFixed(2)} / 10 기준` : "최종 평가 평균이 공개되면 등급이 매겨져요"}
                     >
                       <span className="mb-1.5 flex"><MedalIcon shape={myTier.shape} colors={myTier.colors} size={26} /></span>
                     </HoverTip>
@@ -629,7 +634,10 @@ export default function ProfileModal() {
                 <MyEvaluationSummary chart />
               ) : (
                 <section aria-label={`${viewedMember.name} 평가 요약`} className="p-4 mb-5" style={{ background: "var(--card)", borderRadius: "var(--radius)" }}>
-                  <h2 className="text-sm font-700 mb-3">협업 신뢰도</h2>
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <h2 className="text-sm font-700">협업 신뢰도</h2>
+                    <EvaluationInfoButton section={viewedMember.evalCount > 0 ? "trust" : "disclosure"} />
+                  </div>
                   {otherStats && (
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div>
@@ -644,9 +652,11 @@ export default function ProfileModal() {
                   )}
                   {viewedMember.evalCount > 0 ? (
                     <>
-                      <div className="flex items-baseline gap-1.5 mb-3">
-                        <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(1)}</strong>
-                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10 · {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
+                      <div className="flex items-baseline gap-1.5 mb-1 flex-wrap">
+                        <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(2)}</strong>
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10</span>
+                        {scoreCca && <CcaBadge />}
+                        <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>· {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>
                       </div>
                       <p className="text-xs mb-1" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       {otherPercentiles && (
@@ -660,7 +670,7 @@ export default function ProfileModal() {
                     </>
                   ) : (
                     <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-                      평균 공개 대기 중입니다. 동료 2명 이상이 모두 제출하면 확인할 수 있습니다.
+                      공개 대기
                     </p>
                   )}
                 </section>
