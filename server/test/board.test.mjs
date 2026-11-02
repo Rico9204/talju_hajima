@@ -163,3 +163,21 @@ test('본문 정리: 저장 전에 스크립트·이벤트 속성·위험한 링
   assert.equal((await call(author, 'PATCH', `/board/posts/${created.body.id}`, { content: '<p>고침<img src=x onerror=alert(1)></p>' })).status, 204);
   assert.equal((await call(reader, 'GET', `/board/posts/${created.body.id}/content`)).body.content, '<p>고침</p>');
 });
+
+test('필독: 관리자만 지정·해제, 공지사항 글만, 작성자도 직접 못 바꾼다', async () => {
+  const [admin] = await signupUsers(api, 1, 'pinadmin');
+  await pg.query('update profiles set is_admin = true where id = $1', [admin.id]);
+  const notice = (await call(admin, 'POST', '/board/posts', { category: 'notice', title: '공지', content: 'x', attachments: [] })).body;
+  assert.equal((await call(author, 'PUT', `/board/posts/${post.id}/pinned`, { pinned: true })).status >= 400, true, '일반 사용자는 자기 글도 필독 불가');
+  assert.equal((await call(admin, 'PUT', `/board/posts/${post.id}/pinned`, { pinned: true })).status >= 400, true, '공지사항이 아닌 글은 필독 불가');
+  assert.equal((await call(reader, 'PUT', `/board/posts/${notice.id}/pinned`, { pinned: true })).status >= 400, true);
+  assert.equal((await call(admin, 'PUT', `/board/posts/${notice.id}/pinned`, { pinned: true })).status, 204);
+  let list = (await call(reader, 'GET', '/board/posts')).body;
+  assert.equal(list[0].id, notice.id);
+  assert.equal(list[0].pinned, true);
+  assert.equal((await call(admin, 'PUT', `/board/posts/${notice.id}/pinned`, { pinned: false })).status, 204);
+  list = (await call(reader, 'GET', '/board/posts')).body;
+  assert.equal(list.find((p) => p.id === notice.id).pinned, false);
+  await assert.rejects(pg.query("set role authenticated; update board_posts set pinned = true where id = $1", [post.id]));
+  await pg.query('reset role');
+});

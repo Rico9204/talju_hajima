@@ -385,7 +385,7 @@ export default function CreatePostView({
                 </button>
                 <label
                   className="cursor-pointer px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all"
-                  style={{ background: "#2563eb18", color: "#2563eb", borderRadius: "8px" }}
+                  style={{ background: "#4a74b518", color: "#4a74b5", borderRadius: "8px" }}
                   title="커서 위치에 이미지 삽입"
                 >
                   <span>📷 본문에 이미지 삽입</span>
@@ -450,8 +450,8 @@ export default function CreatePostView({
                 onClick={() => setHasPoll(!hasPoll)}
                 className="px-3 py-1.5 text-xs font-700 rounded-lg transition-all"
                 style={{
-                  background: hasPoll ? "rgba(239, 68, 68, 0.1)" : "rgba(37, 99, 235, 0.1)",
-                  color: hasPoll ? "#ef4444" : "#2563eb",
+                  background: hasPoll ? "rgba(239, 68, 68, 0.1)" : "rgba(74, 116, 181, 0.1)",
+                  color: hasPoll ? "#ef4444" : "#4a74b5",
                 }}
               >
                 {hasPoll ? "✕ 투표 제거" : "+ 투표 만들기"}

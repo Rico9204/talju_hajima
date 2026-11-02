@@ -16,7 +16,7 @@ type LinkState = { running: boolean; progress: string; needsPermission: boolean 
 const IDLE: LinkState = { running: false, progress: "", needsPermission: false };
 
 // 워크스페이스 화면의 "내 컴퓨터 폴더와 동기화" 영역. 동기화 규칙은 lib/localSync.ts.
-export default function WorkspaceLocalSync({ ref, projectId, userId, locked, ready, files, folders, currentFolderId, folderLabel, upload, createFolder, load }: {
+export default function WorkspaceLocalSync({ ref, projectId, userId, locked, ready, files, folders, currentFolderId, folderLabel, upload, createFolder, load, embedded = false, onRequestOpen, onLinksChange }: {
   ref?: Ref<LocalSyncHandle>;
   projectId: string;
   userId: string;
@@ -29,6 +29,9 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
   upload: (input: FileUploadInput) => Promise<{ fileId: number; versionId: number }>;
   createFolder: (name: string, parentId: number | null) => Promise<Folder>;
   load: (versionId: number) => Promise<Blob>;
+  embedded?: boolean; // true면 머리글 없이 본문만 보여 준다(바깥 창이 열고 닫는다). 타이머는 닫혀 있어도 계속 돈다.
+  onRequestOpen?: () => void; // 받기 연결처럼 결과를 바로 보여 줘야 할 때 바깥 창을 열어 달라고 알린다
+  onLinksChange?: (count: number) => void;
 }) {
   const supported = isLocalSyncSupported();
   const [open, setOpen] = useState(false);
@@ -57,7 +60,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     void loadLinks(projectId, userId).then(async (saved) => {
       if (!alive) return;
       setLinks(saved);
-      if (saved.length) setOpen(true);
+      if (saved.length && !embedded) setOpen(true);
       for (const link of saved) patchState(link.id, { needsPermission: !(await hasPermission(link.handle, false)) });
     }).catch(() => setError("저장해 둔 동기화 연결을 불러오지 못했어요."));
     return () => { alive = false; };
@@ -127,6 +130,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
   async function addDownload(fileIds: number[]) {
     setError("");
     setOpen(true);
+    onRequestOpen?.();
     if (!supported) { void downloadOnce(fileIds); return; }
     try {
       const handle = await pickDirectory();
@@ -142,6 +146,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
     } catch (e) { setError(errorText(e, "로컬 폴더를 고르지 못했어요.")); }
   }
   useImperativeHandle(ref, () => ({ addDownload: (ids) => void addDownload(ids) }));
+  useEffect(() => { onLinksChange?.(links.length); }, [links.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 같은 폴더를 올리기·받기 양쪽에 연결하면 받은 파일이 다시 올라가 같은 버전이 하나 더 생긴다.
   async function usedByOther(handle: DirHandle, kind: SyncLink["kind"]): Promise<boolean> {
@@ -215,13 +220,13 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
   const pill = "text-xs font-700 px-3 py-1.5 disabled:opacity-50";
   const pillStyle = { background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" };
   return (
-    <div className="mb-4 border" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+    <div className={embedded ? undefined : "mb-4 border"} style={embedded ? undefined : { background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+      {!embedded && <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
         <span className="text-sm font-700">💻 내 컴퓨터 폴더와 동기화{links.length > 0 && <span className="ml-2 text-xs font-600" style={{ color: "var(--muted-foreground)" }}>연결 {links.length}개</span>}</span>
         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{open ? "접기 ▲" : "펼치기 ▼"}</span>
-      </button>
-      {open && (
-        <div className="px-4 pb-4 text-xs" style={{ color: "var(--foreground)" }}>
+      </button>}
+      {(open || embedded) && (
+        <div className={embedded ? "text-xs" : "px-4 pb-4 text-xs"} style={{ color: "var(--foreground)" }}>
           {!supported ? (
             <p className="mb-3" style={{ color: "var(--muted-foreground)" }}>
               이 브라우저는 폴더 자동 동기화를 지원하지 않아요(크롬·엣지 PC에서 쓸 수 있어요). 여기서는 폴더를 한 번에 올리거나, 고른 파일을 한 번 내려받을 수 있어요.

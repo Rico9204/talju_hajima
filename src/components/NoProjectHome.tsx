@@ -7,6 +7,7 @@ import CampusNoticesView from "./CampusNoticesView";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import Settings from "./Settings";
+import { useConfirm } from "./ConfirmDialog";
 
 // 아직 참여한 프로젝트가 없는 계정의 첫 화면. 예전에는 "만들기/참여하기" 카드만 있어서
 // 팀을 찾는 데 필요한 게시판(팀원 모집 글)·캠퍼스 소식·설정을 쓸 수 없었고 로그아웃 버튼도 없었다.
@@ -26,12 +27,17 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
   joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [tab, setTab] = useState<Tab>("start");
+  const [ask, confirmDialog] = useConfirm();
+  async function confirmSignOut() {
+    if (await ask({ title: "로그아웃할까요?", message: "이 기기에서 로그아웃돼요. 다시 쓰려면 로그인해야 해요.", confirmLabel: "로그아웃" })) signOut();
+  }
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--background)" }}>
+      {confirmDialog}
       <header className="shrink-0 border-b" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
         <div className="max-w-5xl mx-auto flex items-center gap-3 px-4 md:px-8 py-3">
           <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-8 h-8 shrink-0" style={{ borderRadius: "20%" }} />
@@ -49,7 +55,7 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
               </button>
             ))}
           </nav>
-          <button type="button" onClick={signOut} className="shrink-0 text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
+          <button type="button" onClick={() => void confirmSignOut()} className="shrink-0 text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
             로그아웃
           </button>
         </div>

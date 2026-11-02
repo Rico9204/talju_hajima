@@ -15,6 +15,7 @@ import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/sl
 import { collabImageName, type CollabImageStore } from "../lib/collabImages";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
+import WindowPanel from "./WindowPanel";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
 import { useProject, type FileVersion, type Folder, type WorkspaceFile } from "../context/ProjectContext";
 import { useAccountBackground } from "../lib/useAccountBackground";
@@ -43,7 +44,7 @@ const tagColors: Record<string, string> = {
   데이터: "#22c55e",
   사진: "#8b5cf6",
   회의록: "#6b7280",
-  전사: "#2563eb",
+  전사: "#4a74b5",
   영상: "#ef4444",
 };
 
@@ -84,7 +85,18 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState("");
-  const [detailTab, setDetailTab] = useState<"versions" | "comments">("versions");
+  // 폴더 트리에서 접어 둔 폴더(하위 폴더를 숨김). 프로젝트별로 이 브라우저에 기억한다.
+  const collapseKey = `collabpeer.workspace-collapsed.${project.id}`;
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(collapseKey) ?? "[]");
+      setCollapsedFolders(new Set(Array.isArray(saved) ? saved.filter((x): x is number => typeof x === "number") : []));
+    } catch { setCollapsedFolders(new Set()); }
+  }, [collapseKey]);
+  const [syncOpen, setSyncOpen] = useState(false); // "💻 동기화" 창
+  const [syncCount, setSyncCount] = useState(0);
+  const [detailTab, setDetailTab] = useState<"info" | "versions" | "comments">("versions");
   // 버전 "페이지" 보기에서 지금 보고 있는 버전 — 댓글 탭의 "이 버전" 기준. null이면 현재 버전.
   const [viewingVersionId, setViewingVersionId] = useState<number | null>(null);
   // 바로 수정(동시 편집): 프로젝트 단위 presence로 "누가 어떤 파일을 수정 중인지"를 공유한다.
@@ -305,12 +317,13 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const dropStyle = (target: number | "root") => (isInto(target) ? { outline: "2px dashed var(--primary)", outlineOffset: "2px" } : {});
   const isSpot = (kind: "folder" | "file", id: number, place: "before" | "after") => !!dropSpot && !("into" in dropSpot) && dropSpot.kind === kind && dropSpot.id === id && dropSpot.place === place;
 
-  // 폴더 카드: 폴더를 끌어 카드 왼쪽·오른쪽 가장자리에 놓으면 순서 바꾸기, 가운데(또는 파일)는 그 폴더 안으로.
-  function folderCardDragOver(e: React.DragEvent, target: Folder) {
+  // 폴더 트리 줄: 같은 부모의 폴더를 끌어 줄의 위·아래 가장자리에 놓으면 순서 바꾸기, 가운데(또는 파일)는 그 폴더 안으로.
+  function treeRowDragOver(e: React.DragEvent, target: Folder) {
     if (!e.dataTransfer.types.includes(ITEM_DRAG_TYPE) || !dragging || locked) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    if (dragging.kind === "folder" && dragging.id !== target.id && (ratio < 0.25 || ratio > 0.75)) {
+    const ratio = (e.clientY - rect.top) / rect.height;
+    const dragged = dragging.kind === "folder" ? folderById.get(dragging.id) : undefined;
+    if (dragged && dragged.id !== target.id && dragged.parentId === target.parentId && (ratio < 0.25 || ratio > 0.75)) {
       e.preventDefault(); e.dataTransfer.dropEffect = "move";
       setDropSpot({ kind: "folder", id: target.id, place: ratio < 0.25 ? "before" : "after" });
       return;
@@ -318,12 +331,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     if (!canDropInto(dragging, target.id)) return;
     e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropSpot({ into: target.id });
   }
-  function folderCardDrop(e: React.DragEvent, target: Folder) {
+  function treeRowDrop(e: React.DragEvent, target: Folder) {
     if (!dragging || !dropSpot) return;
     e.preventDefault(); e.stopPropagation();
     const item = dragging, spot = dropSpot; endDrag();
     if ("into" in spot) { if (canDropInto(item, target.id)) dropInto(item, target.id); return; }
-    if (item.kind === "folder") void reorder("folder", reorderIds(childFolders.map((f) => f.id), [item.id], target.id, spot.place));
+    if (item.kind === "folder") void reorder("folder", reorderIds(sortFolders(folders.filter((x) => x.parentId === target.parentId)).map((x) => x.id), [item.id], target.id, spot.place));
   }
 
   // 파일 줄: 같은 목록 안에서 위·아래 절반에 놓으면 순서 바꾸기. 검색·태그로 일부만 보일 때는 순서를 바꾸지 않는다.
@@ -352,7 +365,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       // 여러 개를 끌 때는 "파일 N개" 표를 끌리는 모양으로 쓴다.
       const ghost = document.createElement("div");
       ghost.textContent = `📄 파일 ${ids.length}개`;
-      Object.assign(ghost.style, { position: "fixed", top: "-100px", left: "0", padding: "6px 12px", borderRadius: "999px", background: "#2563eb", color: "#fff", font: "600 13px sans-serif" });
+      Object.assign(ghost.style, { position: "fixed", top: "-100px", left: "0", padding: "6px 12px", borderRadius: "999px", background: "#4a74b5", color: "#fff", font: "600 13px sans-serif" });
       document.body.appendChild(ghost);
       e.dataTransfer.setDragImage(ghost, 10, 10);
       setTimeout(() => ghost.remove(), 0);
@@ -440,6 +453,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   useEffect(() => {
     if (focusFile) {
       setCurrentFolderId(focusFile.folderId);
+      revealFolder(focusFile.folderId);
       setSelected(focusFile.fileId);
       setDetailTab("versions");
       setFilterTag(null);
@@ -456,7 +470,23 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     return path;
   }
   const folderPath = pathOf(currentFolder);
-  const parentFolder = folderPath.length > 1 ? folderPath[folderPath.length - 2] : null;
+  function saveCollapsed(next: Set<number>) {
+    setCollapsedFolders(next);
+    try { localStorage.setItem(collapseKey, JSON.stringify([...next])); } catch { /* 저장이 막힌 환경에서는 이번 방문 동안만 유지 */ }
+  }
+  function toggleFolderOpen(id: number) {
+    const next = new Set(collapsedFolders);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    saveCollapsed(next);
+  }
+  // 그 폴더까지 가는 길에 접힌 폴더가 있으면 펼친다(바로가기로 들어오거나 새 폴더를 만들 때, 가려져 못 보지 않게).
+  function revealFolder(id: number | null) {
+    if (id === null) return;
+    const next = new Set(collapsedFolders);
+    let changed = false;
+    for (const f of pathOf(folderById.get(id) ?? null)) if (next.delete(f.id)) changed = true;
+    if (changed) saveCollapsed(next);
+  }
   const childFolders = sortFolders(folders.filter((f) => f.parentId === (currentFolder?.id ?? null)));
   const canNestFolder = folderPath.length < 10;
   const searchScope = searchQuery.trim() ? files.filter((f) => matchesWorkspaceSearch(f, searchQuery)) : scoped;
@@ -519,6 +549,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       await addFolder(newFolderName, currentFolder?.id ?? null);
       if (activeProjectRef.current === targetProject) {
         setNewFolderName(""); setCreatingFolder(false);
+        revealFolder(currentFolder?.id ?? null);
       }
     } catch (e) {
       if (activeProjectRef.current === targetProject) setFolderError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? "폴더 생성에 실패했습니다. 다시 시도해 주세요.");
@@ -549,22 +580,225 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     if (binary && !locked && !uploadingRef.current) setPendingUpload(binary);
   }
 
+  // 왼쪽 폴더 트리: 폴더 안의 폴더는 들여써서 보여 준다. 줄을 누르면 그 폴더를 연다.
+  function renderFolderTree(parentId: number | null, depth: number): React.ReactNode {
+    const level = sortFolders(folders.filter((f) => f.parentId === parentId));
+    if (level.length === 0) return null;
+    return (
+      <ul className="flex flex-col gap-0.5">
+        {level.map((f) => {
+          const count = files.filter((x) => x.folderId === f.id).length;
+          const active = currentFolderId === f.id;
+          const hasChildren = folders.some((x) => x.parentId === f.id);
+          const closed = hasChildren && collapsedFolders.has(f.id);
+          return (
+            <li key={f.id}>
+              <div className="flex items-center" style={{ paddingLeft: depth * 14 }}>
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleFolderOpen(f.id)}
+                    aria-expanded={!closed}
+                    aria-label={`${f.name} 하위 폴더 ${closed ? "펼치기" : "숨기기"}`}
+                    title={closed ? "하위 폴더 펼치기" : "하위 폴더 숨기기"}
+                    className="w-5 h-8 shrink-0 flex items-center justify-center text-xs font-700 rounded-md transition-colors hover:bg-[var(--muted)]"
+                    style={{ color: "var(--foreground)", opacity: 0.75 }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 10 10" aria-hidden="true" style={{ transform: closed ? "rotate(-90deg)" : "none", transition: "transform 0.15s" }}>
+                      <path d="M2 3.5 L5 6.5 L8 3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                ) : (
+                  <span className="w-5 shrink-0" aria-hidden="true" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => openFolder(f.id)}
+                  draggable={!locked}
+                  onDragStart={(e) => { e.dataTransfer.setData(ITEM_DRAG_TYPE, "folder"); e.dataTransfer.effectAllowed = "move"; setDragging({ kind: "folder", id: f.id }); }}
+                  onDragEnd={endDrag}
+                  onDragOver={(e) => treeRowDragOver(e, f)}
+                  onDragLeave={() => setDropSpot((cur) => (cur && ("into" in cur ? cur.into === f.id : cur.kind === "folder" && cur.id === f.id) ? null : cur))}
+                  onDrop={(e) => treeRowDrop(e, f)}
+                  title={!locked ? "끌어서 다른 폴더 안으로 옮기거나, 같은 단계 폴더의 위·아래 끝에 놓아 순서를 바꿀 수 있어요" : undefined}
+                  aria-current={active ? "true" : undefined}
+                  className="flex-1 min-w-0 flex items-center gap-2 py-2 pl-1.5 pr-2.5 text-left transition-colors hover:bg-[var(--muted)]"
+                  style={{
+                    borderRadius: "10px",
+                    background: active ? "var(--primary)" : undefined,
+                    color: active ? "#fff" : "var(--foreground)",
+                    opacity: dragging?.kind === "folder" && dragging.id === f.id ? 0.5 : 1,
+                    boxShadow: isSpot("folder", f.id, "before") ? "inset 0 3px 0 var(--primary)" : isSpot("folder", f.id, "after") ? "inset 0 -3px 0 var(--primary)" : undefined,
+                    ...dropStyle(f.id),
+                  }}
+                >
+                  <span aria-hidden="true" className="shrink-0 text-sm">📁</span>
+                  <span className="flex-1 min-w-0 truncate text-[13px] font-600"><SearchHighlight text={f.name} query={searchQuery} /></span>
+                  <span className="text-[11px] shrink-0" style={{ opacity: 0.7 }}>{count}</span>
+                </button>
+              </div>
+              {!closed && renderFolderTree(f.id, depth + 1)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
+  const rootFileCount = files.filter((x) => x.folderId === null).length;
+  const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" };
+
   return (
-    <div ref={workspaceRef} className="p-4 md:p-8 max-w-5xl mx-auto" style={{ overflowAnchor: "none" }}>
-      <div className="mb-7">
-        <div className="text-xs font-600 uppercase tracking-widest mb-2" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          파일 워크스페이스 · {project.name}
+    <div ref={workspaceRef} className="p-4 md:p-6 max-w-[1600px] mx-auto" style={{ overflowAnchor: "none" }}>
+      <div className="mb-5 flex items-end justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            워크스페이스
+          </div>
+          <h1 className="text-2xl font-700">{project.name}</h1>
+          <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+            폴더 {folders.length}개 · 전체 파일 {files.length}개{locked && " · 종료된 프로젝트 (읽기 전용 보관함)"}
+          </p>
         </div>
-        <h1 className="text-2xl font-700">Workspace</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--muted-foreground)" }}>
-          폴더 {folders.length}개 · 전체 파일 {files.length}개{locked && " · 종료된 프로젝트 (읽기 전용 보관함)"}
-        </p>
+        {!locked && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <input ref={fileInputRef} type="file" aria-label="새 파일 업로드" disabled={uploading} className="hidden" onChange={handleFileInput} />
+            <button type="button" onClick={() => setNewDoc({ kind: "doc", name: "" })} className="text-xs font-700 px-3.5 py-2.5" style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "40px" }}>
+              ＋ 새 문서
+            </button>
+            <button type="button" onClick={() => setNewDoc({ kind: "slides", name: "" })} className="text-xs font-700 px-3.5 py-2.5" style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "40px" }}>
+              ＋ 새 슬라이드
+            </button>
+            <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()} className="text-xs font-700 px-5 py-2.5 disabled:opacity-60" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}>
+              ⬆ 업로드
+            </button>
+          </div>
+        )}
       </div>
 
       {pendingUpload && <FileUploadDialog key={project.id} file={pendingUpload} destination={currentFolder ? `“${currentFolder.name}” 폴더` : "워크스페이스 루트"} onCancel={() => setPendingUpload(null)} onConfirm={(tags, note) => uploadBinary(pendingUpload, tags, note)} />}
       <WorkspaceCleanupNotice />
+      {!locked && newDoc !== null && (
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <input
+            autoFocus
+            disabled={docBusy}
+            value={newDoc.name}
+            onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void createCollabFile(); if (e.key === "Escape") setNewDoc(null); }}
+            placeholder={newDoc.kind === "doc" ? "문서 이름 (예: 회의록)" : "슬라이드 이름 (예: 중간발표)"}
+            aria-label={newDoc.kind === "doc" ? "새 문서 이름" : "새 슬라이드 이름"}
+            maxLength={100}
+            className="flex-1 min-w-40 text-sm px-3 py-2 border outline-none"
+            style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
+          />
+          <button type="button" onClick={() => void createCollabFile()} disabled={docBusy} className="text-xs font-700 px-4 py-2" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}>{docBusy ? "만드는 중…" : "만들기"}</button>
+          <button type="button" onClick={() => setNewDoc(null)} disabled={docBusy} className="text-xs font-600 px-3 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}>취소</button>
+          <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>여러 명이 함께 편집할 수 있어요</span>
+        </div>
+      )}
+      {moveError && <p role="alert" className="mb-3 text-sm text-red-500">{moveError}</p>}
+      {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_310px] gap-4 items-start">
+        {/* 폴더 */}
+        <WindowPanel id="workspace-folders" title="폴더" style={cardStyle} bodyClassName="p-2.5">
+          <button
+            type="button"
+            onClick={() => openFolder(null)}
+            {...(!locked && currentFolder ? dropHandlers("root") : {})}
+            aria-current={!currentFolder ? "true" : undefined}
+            className="w-full flex items-center gap-2 py-2 px-2.5 text-left transition-colors hover:bg-[var(--muted)]"
+            style={{ borderRadius: "10px", background: !currentFolder ? "var(--primary)" : undefined, color: !currentFolder ? "#fff" : "var(--foreground)", ...dropStyle("root") }}
+          >
+            <span aria-hidden="true" className="text-sm">⬡</span>
+            <span className="flex-1 min-w-0 truncate text-[13px] font-700">워크스페이스</span>
+            <span className="text-[11px] shrink-0" style={{ opacity: 0.7 }}>{rootFileCount}</span>
+          </button>
+          <div className="mt-0.5">{renderFolderTree(null, 0)}</div>
+          {folders.length === 0 && (
+            <p className="text-xs px-2.5 py-3" style={{ color: "var(--muted-foreground)" }}>아직 폴더가 없어요</p>
+          )}
+          {!locked && canNestFolder && (
+            <div className="mt-2 px-1">
+              {folderError && <p role="alert" className="mb-2 text-xs text-red-500">{folderError}</p>}
+              {creatingFolder && (
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    autoFocus
+                    disabled={folderBusy}
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleAddFolder(); if (e.key === "Escape") { setCreatingFolder(false); setNewFolderName(""); setFolderError(""); } }}
+                    placeholder="폴더 이름"
+                    aria-label="새 폴더 이름"
+                    className="w-full min-w-0 text-xs px-2.5 py-1.5 border outline-none"
+                    style={{ borderColor: "var(--border)", borderRadius: "8px", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={handleAddFolder}
+                      disabled={folderBusy || !newFolderName.trim()}
+                      className="flex-1 text-xs font-700 py-1.5"
+                      style={{
+                        background: newFolderName.trim() ? "var(--primary)" : "var(--muted)",
+                        color: newFolderName.trim() ? "#fff" : "var(--muted-foreground)",
+                        borderRadius: "8px",
+                      }}
+                    >
+                      {folderBusy ? "만드는 중…" : "만들기"}
+                    </button>
+                    <button
+                      disabled={folderBusy}
+                      onClick={() => { setCreatingFolder(false); setNewFolderName(""); setFolderError(""); }}
+                      className="flex-1 text-xs font-600 py-1.5"
+                      style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!creatingFolder && (
+                <button
+                  type="button"
+                  onClick={() => setCreatingFolder(true)}
+                  title={currentFolder ? `“${currentFolder.name}” 폴더 안에 새 폴더를 만들어요` : "워크스페이스에 새 폴더를 만들어요"}
+                  className="w-full text-xs font-600 py-2 transition-colors hover:bg-[var(--muted)]"
+                  style={{ border: "1px dashed var(--border)", color: "var(--muted-foreground)", borderRadius: "10px" }}
+                >
+                  ＋ {currentFolder ? "이 폴더 안에 새 폴더" : "새 폴더"}
+                </button>
+              )}
+            </div>
+          )}
+          {currentFolder && (
+            <div className="mt-3 pt-3 flex flex-col gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+              {currentFolder && !locked && (
+                <label className="flex items-center gap-2 text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
+                  <span className="shrink-0 font-600">이 폴더 옮기기</span>
+                  <select
+                    value={currentFolder.parentId ?? ""}
+                    onChange={(e) => void moveFolder(currentFolder.id, e.target.value === "" ? null : Number(e.target.value))}
+                    aria-label="이 폴더를 옮길 곳"
+                    className="min-w-0 max-w-sm flex-1 text-xs px-2.5 py-1 border rounded-lg outline-none"
+                    style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                  >
+                    <option value="">워크스페이스 루트</option>
+                    {movableFolderTargets.map((fo) => <option key={fo.id} value={fo.id}>📁 {pathOf(fo).map((x) => x.name).join(" / ")}</option>)}
+                  </select>
+                </label>
+              )}
+              {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" childCount={scoped.length + childFolders.length} onDeleted={() => openFolder(null)} />}
+            </div>
+          )}
+        </WindowPanel>
+
+        {/* 파일 목록 */}
+        <WindowPanel id="workspace-files" title={`${currentFolder ? currentFolder.name : "워크스페이스"} · ${filtered.length}`} collapsible={false} style={cardStyle} bodyClassName="p-4">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-5 text-sm flex-wrap">
+      <div className="flex items-center gap-2 mb-3 text-sm flex-wrap">
         <button
           onClick={() => openFolder(null)}
           {...(!locked && currentFolder ? dropHandlers("root") : {})}
@@ -590,218 +824,24 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         ))}
       </div>
 
-      {/* Folder grid: 루트의 폴더, 또는 현재 폴더의 하위 폴더 */}
-      {(!currentFolder || childFolders.length > 0 || (!locked && canNestFolder)) && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-700">{currentFolder ? "하위 폴더" : "폴더"}</h2>
-            {!locked && !creatingFolder && canNestFolder && (
-              <button
-                onClick={() => setCreatingFolder(true)}
-                className="text-xs font-700 px-3 py-1.5 transition-all"
-                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
-              >
-                + 새 폴더 만들기
-              </button>
-            )}
-          </div>
-
-          {folderError && <p role="alert" className="mb-3 text-sm text-red-500">{folderError}</p>}
-          {creatingFolder && (
-            <div className="flex gap-2 mb-3">
-              <input
-                autoFocus
-                disabled={folderBusy}
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleAddFolder(); }}
-                placeholder="폴더 이름 (예: 발표 자료)"
-                className="flex-1 text-sm px-3 py-2 border outline-none"
-                style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
-              />
-              <button
-                onClick={handleAddFolder}
-                disabled={folderBusy || !newFolderName.trim()}
-                className="text-xs font-700 px-4 py-2"
-                style={{
-                  background: newFolderName.trim() ? "var(--primary)" : "var(--muted)",
-                  color: newFolderName.trim() ? "#fff" : "var(--muted-foreground)",
-                  borderRadius: "var(--radius-sm)",
-                }}
-              >
-                {folderBusy ? "생성 중…" : "만들기"}
-              </button>
-              <button
-                disabled={folderBusy}
-                onClick={() => { setCreatingFolder(false); setNewFolderName(""); setFolderError(""); }}
-                className="text-xs font-600 px-3 py-2"
-                style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}
-              >
-                취소
-              </button>
+          {!locked && (
+            <div
+              className="mb-3 border-2 border-dashed px-4 py-2.5 text-center text-xs transition-all cursor-pointer"
+              style={{ borderColor: dragOver ? "var(--primary)" : "var(--border)", background: dragOver ? "var(--primary)08" : undefined, borderRadius: "var(--radius-sm)", color: "var(--muted-foreground)" }}
+              onDragOver={(e) => { if (e.dataTransfer.types.includes(ITEM_DRAG_TYPE)) return; e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
+            >
+              {currentFolder ? `“${currentFolder.name}” 폴더에 업로드` : "워크스페이스 루트에 업로드"} — 파일을 끌어다 놓거나 클릭 · 파일당 최대 50MB
             </div>
           )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {childFolders.map((f) => {
-              const count = files.filter((x) => x.folderId === f.id).length;
-              const subCount = folders.filter((x) => x.parentId === f.id).length;
-              return (
-                <button
-                  key={f.id}
-                  onClick={() => openFolder(f.id)}
-                  draggable={!locked}
-                  onDragStart={(e) => { e.dataTransfer.setData(ITEM_DRAG_TYPE, "folder"); e.dataTransfer.effectAllowed = "move"; setDragging({ kind: "folder", id: f.id }); }}
-                  onDragEnd={endDrag}
-                  onDragOver={(e) => folderCardDragOver(e, f)}
-                  onDragLeave={() => setDropSpot((cur) => (cur && ("into" in cur ? cur.into === f.id : cur.kind === "folder" && cur.id === f.id) ? null : cur))}
-                  onDrop={(e) => folderCardDrop(e, f)}
-                  title={!locked ? "끌어서 다른 폴더 안이나 경로로 옮기거나, 다른 폴더의 왼쪽·오른쪽 끝에 놓아 순서를 바꿀 수 있어요" : undefined}
-                  className="flex items-center gap-3 p-4 text-left transition-all"
-                  style={{
-                    background: "var(--card-glass)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", ...dropStyle(f.id),
-                    // 순서 바꾸기로 놓을 자리: 카드 왼쪽(앞)·오른쪽(뒤)에 굵은 선
-                    boxShadow: isSpot("folder", f.id, "before") ? "inset 4px 0 0 var(--primary), var(--shadow-card)" : isSpot("folder", f.id, "after") ? "inset -4px 0 0 var(--primary), var(--shadow-card)" : "var(--shadow-card)",
-                    opacity: dragging?.kind === "folder" && dragging.id === f.id ? 0.5 : 1,
-                  }}
-                >
-                  <div
-                    className="w-10 h-10 flex items-center justify-center text-lg shrink-0"
-                    style={{ background: `${f.color}18`, color: f.color, borderRadius: "10px" }}
-                  >
-                    📁
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-700 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
-                    <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{subCount > 0 && `폴더 ${subCount}개 · `}파일 {count}개 · {f.createdBy}</div>
-                  </div>
-                </button>
-              );
-            })}
-            {!currentFolder && childFolders.length === 0 && !creatingFolder && (
-              <div className="col-span-1 sm:col-span-2 md:col-span-3 p-6 text-center text-xs border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
-                아직 폴더가 없어요
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {currentFolder && (
-        <button
-          onClick={() => openFolder(parentFolder?.id ?? null)}
-          {...(!locked ? dropHandlers(parentFolder?.id ?? "root") : {})}
-          className="mb-5 text-xs font-600 px-3 py-1.5"
-          style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px", ...dropStyle(parentFolder?.id ?? "root") }}
-        >
-          {dragging !== null
-            ? `⬆ 여기에 놓으면 상위(${parentFolder ? `“${parentFolder.name}” 폴더` : "워크스페이스 루트"})로 이동`
-            : parentFolder ? "← 상위 폴더로" : "← 전체 폴더로"}
-        </button>
-      )}
-      {moveError && <p role="alert" className="mb-3 text-sm text-red-500">{moveError}</p>}
-
-      {!locked && (
-        <div className="mb-3 flex items-center gap-2 flex-wrap">
-          {newDoc === null ? (
-            <>
-              <button type="button" onClick={() => setNewDoc({ kind: "doc", name: "" })} className="text-xs font-700 px-3 py-1.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
-                📄 + 새 문서 만들기
-              </button>
-              <button type="button" onClick={() => setNewDoc({ kind: "slides", name: "" })} className="text-xs font-700 px-3 py-1.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
-                🖼️ + 새 슬라이드 만들기
-              </button>
-              <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>여러 명이 함께 편집할 수 있어요</span>
-            </>
-          ) : (
-            <>
-              <input
-                autoFocus
-                disabled={docBusy}
-                value={newDoc.name}
-                onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void createCollabFile(); if (e.key === "Escape") setNewDoc(null); }}
-                placeholder={newDoc.kind === "doc" ? "문서 이름 (예: 회의록)" : "슬라이드 이름 (예: 중간발표)"}
-                aria-label={newDoc.kind === "doc" ? "새 문서 이름" : "새 슬라이드 이름"}
-                maxLength={100}
-                className="flex-1 min-w-40 text-sm px-3 py-2 border outline-none"
-                style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
-              />
-              <button type="button" onClick={() => void createCollabFile()} disabled={docBusy} className="text-xs font-700 px-4 py-2" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}>{docBusy ? "만드는 중…" : "만들기"}</button>
-              <button type="button" onClick={() => setNewDoc(null)} disabled={docBusy} className="text-xs font-600 px-3 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "var(--radius-sm)" }}>취소</button>
-            </>
-          )}
-        </div>
-      )}
-
-      {currentFolder && !locked && (
-        <label className="flex items-center gap-2 text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
-          <span className="shrink-0 font-600">이 폴더 옮기기</span>
-          <select
-            value={currentFolder.parentId ?? ""}
-            onChange={(e) => void moveFolder(currentFolder.id, e.target.value === "" ? null : Number(e.target.value))}
-            aria-label="이 폴더를 옮길 곳"
-            className="min-w-0 max-w-sm flex-1 text-xs px-2.5 py-1 border rounded-lg outline-none"
-            style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
-          >
-            <option value="">워크스페이스 루트</option>
-            {movableFolderTargets.map((fo) => <option key={fo.id} value={fo.id}>📁 {pathOf(fo).map((x) => x.name).join(" / ")}</option>)}
-          </select>
-        </label>
-      )}
-      {currentFolder && <WorkspaceDeleteActions key={`${project.id}:folder:${currentFolder.id}`} item={currentFolder} kind="folder" childCount={scoped.length + childFolders.length} onDeleted={() => openFolder(null)} />}
-      {uploading && <p role="status" className="mb-3 text-sm">원본 파일을 업로드하고 있습니다…</p>}
-      {currentMember && (
-        <WorkspaceLocalSync
-          ref={syncRef}
-          projectId={project.id}
-          userId={currentMember.userId ?? currentMember.id}
-          locked={locked}
-          ready={!loading}
-          files={files}
-          folders={folders}
-          currentFolderId={currentFolderId}
-          folderLabel={(id) => { const f = id === null ? null : folderById.get(id) ?? null; return f ? pathOf(f).map((x) => x.name).join(" / ") : "워크스페이스 루트"; }}
-          upload={uploadWorkspaceFile}
-          createFolder={addFolder}
-          load={downloadFileVersion}
-        />
-      )}
-      {/* Upload zone */}
-      {!locked && (
-        <>
-          <div
-            className="mb-6 border-2 border-dashed p-5 text-center transition-all cursor-pointer"
-            style={{
-              borderColor: dragOver ? "var(--primary)" : "var(--border)",
-              background: dragOver ? "var(--primary)08" : "var(--card-glass)",
-              borderRadius: "var(--radius)",
-              backdropFilter: "var(--panel-blur)",
-              WebkitBackdropFilter: "var(--panel-blur)",
-              ...lineSafeStyle,
-            }}
-            onDragOver={(e) => { if (e.dataTransfer.types.includes(ITEM_DRAG_TYPE)) return; e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
-          >
-            <input ref={fileInputRef} type="file" aria-label="새 파일 업로드" disabled={uploading} className="hidden" onChange={handleFileInput} />
-            <div className="text-2xl mb-2">⬆</div>
-            <div className="text-sm font-600">
-              {currentFolder ? `"${currentFolder.name}" 폴더에 업로드` : "워크스페이스 루트에 업로드"} — 드래그하거나 클릭
-            </div>
-            <div className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>PDF, DOCX, PPTX, XLSX, ZIP, 이미지 등 모든 형식 지원 · 파일당 최대 50MB</div>
-          </div>
-
-        </>
-      )}
-
-      <label className="block text-sm mb-4">파일 검색
-        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full mt-2 p-3 rounded-xl border" style={{ background: "var(--card-glass)", borderColor: "var(--border)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }} />
+      <label className="block mb-3"><span className="sr-only">파일 검색</span>
+        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full text-sm px-4 py-2 rounded-full border outline-none" style={{ background: "var(--card-glass)", borderColor: "var(--border)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }} />
         {searchQuery.trim() && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>검색 결과 {filtered.length}개 · 본문은 현재 버전 기준</span>}
       </label>
       {/* Filter */}
-      <div className="flex gap-2 mb-5 flex-wrap">
+      <div className="flex gap-2 mb-3 flex-wrap">
         {tags.map((t) => (
           <button
             key={t === null ? "all-tags" : `tag:${t}`}
@@ -859,6 +899,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {currentMember && (
+            <button
+              type="button"
+              onClick={() => setSyncOpen(true)}
+              title="내 컴퓨터 폴더와 파일을 자동으로 맞춰요"
+              className="text-xs font-700 px-3 py-1.5 transition-colors hover:bg-[var(--secondary)]"
+              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "20px" }}
+            >
+              💻 동기화{syncCount > 0 && <span className="ml-1.5 font-600" style={{ color: "var(--primary)" }}>{syncCount}</span>}
+            </button>
+          )}
           {visibleSelected.some(canDeleteFile) && (
             <button
               onClick={() => void bulkDelete()}
@@ -888,14 +939,13 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </div>
       </div>
       {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
-      {confirmDialog}
+          {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
+          {confirmDialog}
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
-        {/* File list */}
         <div
           ref={listRef}
           onPointerDown={startBand}
-          className="relative col-span-1 md:col-span-3 flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 pb-12"
+          className="relative flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 pb-12"
           style={{ userSelect: band ? "none" : undefined }}
         >
           {visibleSelected.length > 0 && !selectMode && (
@@ -953,7 +1003,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-600 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
                   {searchQuery.trim() && contentSnippet(currentFileText(f), searchQuery) && <p className="text-xs mt-1 line-clamp-2 break-words"><SearchHighlight text={contentSnippet(currentFileText(f), searchQuery)} query={searchQuery} /></p>}
-                  <div className="flex items-center gap-2 mt-0.5" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+                  <div className="flex items-center gap-x-2 gap-y-0 flex-wrap mt-0.5 whitespace-nowrap" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
                     <span className="text-xs">{f.uploader}</span>
                     <span className="text-xs">·</span>
                     <span className="text-xs" style={{ fontFamily: "var(--font-jetbrains)" }}>{latestFileUploadTime(f)}</span>
@@ -998,16 +1048,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           {band && (
             <div aria-hidden="true" className="absolute pointer-events-none" style={{
               left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0),
-              background: "rgba(37,99,235,0.12)", border: "1px solid rgba(37,99,235,0.6)", borderRadius: 4,
+              background: "rgba(74,116,181,0.12)", border: "1px solid rgba(74,116,181,0.6)", borderRadius: 4,
             }} />
           )}
         </div>
+        </WindowPanel>
 
-        {/* Version panel */}
-        <div className="col-span-1 md:col-span-2">
+        {/* 파일 상세 */}
+        <WindowPanel id="workspace-detail" title={selFile ? "파일 상세" : "파일 상세"} style={cardStyle} bodyClassName="p-4">
           {selFile ? (
-            <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} className="p-5 border" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)", minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
-              <div className="flex items-start justify-between gap-3 mb-1">
+            <div key={`${project.id}:${selFile.id}`} ref={detailPanelRef} style={{ minHeight: detailPanelHeight?.key === `${project.id}:${selFile.id}` ? detailPanelHeight.height : undefined }}>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="text-xs font-700 px-2 py-0.5" style={{ background: fileBadge(selFile).bg, color: fileBadge(selFile).color, borderRadius: "3px" }}>
                   {fileBadge(selFile).label}
@@ -1016,31 +1066,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   {selFile.tags.join(" · ") || "태그 없음"}
                 </span>
               </div>
-              <WorkspaceDeleteActions item={selFile} kind="file" onDeleted={() => setSelected(null)} />
-              </div>
               <h3 className="text-sm font-700 mt-2 mb-0.5 leading-snug break-words">{selFile.name}</h3>
-              <p className="text-xs mb-4" style={{ color: "var(--muted-foreground)" }}>
+              <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
                 {selFile.versions.length}개 버전 · 최근 업로드 {latestFileUploadTime(selFile)}
               </p>
 
-              {!locked && (
-                <label className="flex items-center gap-2 text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
-                  <span className="shrink-0 font-600">폴더 이동</span>
-                  <select
-                    value={selFile.folderId ?? ""}
-                    onChange={(e) => void moveFiles([selFile.id], e.target.value === "" ? null : Number(e.target.value))}
-                    className="flex-1 min-w-0 text-xs px-2.5 py-1 border rounded-lg outline-none"
-                    style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
-                  >
-                    <option value="">워크스페이스 루트(상위)</option>
-                    {folders.map((fo) => <option key={fo.id} value={fo.id}>📁 {pathOf(fo).map((x) => x.name).join(" / ")}</option>)}
-                  </select>
-                </label>
-              )}
-              <FileTagEditor file={selFile} />
               {/* Tab toggle */}
-              <div className="flex gap-1.5 mb-3 p-1" style={{ background: "var(--muted)", borderRadius: "10px" }}>
-                {(["versions", "comments"] as const).map((t) => (
+              <div className="flex gap-1 mb-3 p-1" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+                {(["versions", "comments", "info"] as const).map((t) => (
                   <button
                     key={t}
                     onClick={() => {
@@ -1059,20 +1092,41 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                       boxShadow: detailTab === t ? "var(--shadow-card)" : "none",
                     }}
                   >
-                    {t === "versions" ? `버전 이력 (${selFile.versions.length})` : `댓글 (${selFile.comments.length})`}
+                    {t === "versions" ? `버전 (${selFile.versions.length})` : t === "comments" ? `댓글 (${selFile.comments.length})` : "정보"}
                   </button>
                 ))}
               </div>
 
               {detailTab === "versions" ? (
                 <FileVersionPanel file={selFile} searchQuery={searchQuery} onViewingVersionChange={setViewingVersionId} onSelectFile={(fileId) => { setSelected(fileId); setDetailTab("versions"); }} onQuickEdit={(mode, v) => void startQuickEdit(selFile, mode, v)} editorNames={[...new Set(editors.filter((e) => e.fileId === selFile.id).map((e) => e.name))]} presence={presenceRef.current} editors={editors} />
-              ) : (
+              ) : detailTab === "comments" ? (
                 <WorkspaceComments file={selFile} focusedVersionId={selFile.versions.some((v) => v.id === viewingVersionId) ? viewingVersionId : selFile.versions.find((v) => v.current)?.id ?? null} />
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {!locked && (
+                    <label className="flex items-center gap-2 text-xs" style={{ color: "var(--muted-foreground)" }}>
+                      <span className="shrink-0 font-600">폴더 이동</span>
+                      <select
+                        value={selFile.folderId ?? ""}
+                        onChange={(e) => void moveFiles([selFile.id], e.target.value === "" ? null : Number(e.target.value))}
+                        className="flex-1 min-w-0 text-xs px-2.5 py-1 border rounded-lg outline-none"
+                        style={{ background: "var(--card-glass)", borderColor: "var(--border)", color: "var(--foreground)" }}
+                      >
+                        <option value="">워크스페이스 루트(상위)</option>
+                        {folders.map((fo) => <option key={fo.id} value={fo.id}>📁 {pathOf(fo).map((x) => x.name).join(" / ")}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <FileTagEditor file={selFile} />
+                  <div className="pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                    <WorkspaceDeleteActions item={selFile} kind="file" onDeleted={() => setSelected(null)} />
+                  </div>
+                </div>
               )}
             </div>
           ) : (
             <div
-              className="p-8 border text-center h-full flex flex-col items-center justify-center"
+              className="p-6 border text-center flex flex-col items-center justify-center"
               style={{ borderColor: "var(--border)", borderStyle: "dashed", borderRadius: "var(--radius)", color: "var(--muted-foreground)" }}
             >
               <div className="text-3xl mb-3">⬡</div>
@@ -1080,8 +1134,42 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               <div className="text-sm">버전 이력을 확인할 수 있어요</div>
             </div>
           )}
-        </div>
+        </WindowPanel>
       </div>
+
+      {/* 동기화 창: 닫아도 화면에서만 숨길 뿐 계속 켜 둔다(자동 올리기·받기 타이머가 이 안에서 돈다) */}
+      {currentMember && (
+        <div
+          className={syncOpen ? "fixed inset-0 z-50 flex items-center justify-center p-4" : "hidden"}
+          style={syncOpen ? { background: "rgba(34,42,58,0.4)", backdropFilter: "blur(4px)" } : undefined}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setSyncOpen(false); }}
+        >
+          <div className="w-full max-w-xl">
+            <WindowPanel id="workspace-sync" title="💻 내 컴퓨터 폴더와 동기화" collapsible={false} style={{ ...cardStyle, boxShadow: "0 24px 64px rgba(34,42,58,0.3)" }} bodyClassName="p-5 max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-end mb-3">
+                <button type="button" onClick={() => setSyncOpen(false)} className="text-xs font-600 px-2.5 py-1" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>닫기</button>
+              </div>
+              <WorkspaceLocalSync
+          ref={syncRef}
+          projectId={project.id}
+          userId={currentMember.userId ?? currentMember.id}
+          locked={locked}
+          ready={!loading}
+          files={files}
+          folders={folders}
+          currentFolderId={currentFolderId}
+          folderLabel={(id) => { const f = id === null ? null : folderById.get(id) ?? null; return f ? pathOf(f).map((x) => x.name).join(" / ") : "워크스페이스 루트"; }}
+          upload={uploadWorkspaceFile}
+          createFolder={addFolder}
+          load={downloadFileVersion}
+          embedded
+          onRequestOpen={() => setSyncOpen(true)}
+          onLinksChange={setSyncCount}
+        />
+            </WindowPanel>
+          </div>
+        </div>
+      )}
       {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-500/10 text-red-500 p-3">{editError}</p>}
       {editing && presenceRef.current && files.find((f) => f.id === editing.fileId) && (
         <QuickEditModal

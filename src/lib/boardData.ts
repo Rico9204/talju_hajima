@@ -22,8 +22,8 @@ export const BOARD_CATEGORIES: BoardCategoryInfo[] = [
     id: "free",
     name: "자유 게시판",
     icon: "💬",
-    badgeColor: "#2563eb",
-    badgeBg: "#2563eb18",
+    badgeColor: "#4a74b5",
+    badgeBg: "#4a74b518",
     description: "팀원 및 사용자들과 자유롭게 담소를 나누는 공간입니다.",
   },
   {

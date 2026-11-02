@@ -78,15 +78,15 @@ export default function ChatToolPreviewBubble({
         className="w-72 sm:w-80 p-3.5 rounded-2xl border transition-all text-left shadow-sm"
         style={{
           background: "var(--card)",
-          borderColor: "rgba(59, 130, 246, 0.3)",
-          boxShadow: "0 4px 16px rgba(59, 130, 246, 0.08)",
+          borderColor: "rgba(74, 116, 181, 0.3)",
+          boxShadow: "0 4px 16px rgba(74, 116, 181, 0.08)",
         }}
       >
         <div className="flex items-center justify-between gap-1.5 mb-2">
           <div className="flex items-center gap-1.5">
             <span
               className="text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
-              style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}
+              style={{ background: "rgba(74, 116, 181, 0.15)", color: "#4a74b5" }}
             >
               <LadderIcon />
               <span>사다리타기</span>
@@ -117,7 +117,7 @@ export default function ChatToolPreviewBubble({
           type="button"
           onClick={onOpenOverlay}
           className="w-full py-2 px-3 rounded-xl font-bold text-xs text-white flex items-center justify-center gap-1.5 transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
-          style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)" }}
+          style={{ background: "linear-gradient(135deg, #4a74b5, #7c3aed)" }}
         >
           <LadderIcon />
           <span>사다리타기 열기</span>

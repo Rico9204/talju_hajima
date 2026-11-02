@@ -38,7 +38,7 @@ export default function ResetPassword() {
           <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
           <h3 className="font-700 mb-1">비밀번호가 변경되었습니다</h3>
           <p className="text-sm mb-5" style={{ color: "var(--muted-foreground)" }}>모든 기기에서 로그아웃되었어요. 새 비밀번호로 다시 로그인해 주세요.</p>
-          <Link to="/login" replace className="block w-full py-2.5 text-sm font-700 text-center" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(37,99,235,0.3)" }}>
+          <Link to="/login" replace className="block w-full py-2.5 text-sm font-700 text-center" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px rgba(74,116,181,0.3)" }}>
             로그인하러 가기
           </Link>
         </div>
@@ -96,7 +96,7 @@ export default function ResetPassword() {
             background: canSubmit && !submitting ? "var(--primary)" : "var(--border)",
             color: canSubmit && !submitting ? "#fff" : "var(--muted-foreground)",
             borderRadius: "40px",
-            boxShadow: canSubmit && !submitting ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
+            boxShadow: canSubmit && !submitting ? "0 4px 12px rgba(74,116,181,0.3)" : "none",
             cursor: canSubmit && !submitting ? "pointer" : "not-allowed",
           }}
         >

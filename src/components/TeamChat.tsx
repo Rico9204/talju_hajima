@@ -1,3 +1,5 @@
+import WindowPanel from "./WindowPanel"
+import { groupSharedFiles } from "../lib/chatSharedFiles"
 import StillImg from "./StillImg"
 import ChatMessageText from "./ChatMessageText"
 import { isMentionForMember } from "../lib/chatMentions"
@@ -91,6 +93,7 @@ export default function TeamChat({
     openMemberProfile,
     chatGroups,
     isManager,
+    onlineMemberStates,
   } = useProject()
   // "create" = 새 단체방 만들기, ChatGroup = 그 방에 팀원 초대
   const [groupModal, setGroupModal] = useState<"create" | ChatGroup | null>(null)
@@ -873,30 +876,52 @@ export default function TeamChat({
     setEmojiPickerOpen(false)
   }
 
-  return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto flex flex-col h-full md:block md:h-auto">
-      <div className="hidden md:block mb-5 shrink-0">
-        <div
-          className="text-xs font-600 uppercase tracking-widest mb-1"
-          style={{
-            color: "var(--muted-foreground)",
-            fontFamily: "var(--font-jetbrains)",
-          }}
-        >
-          채팅
-        </div>
-        <h1 className="text-2xl font-700">Team Chat</h1>
-        <p
-          className="text-sm mt-0.5"
-          style={{ color: "var(--muted-foreground)" }}
-        >
-          {project.name} · 팀 채팅과 1:1 대화
-          {project.status === "done" && " · 종료된 프로젝트 대화 기록"}
-        </p>
-      </div>
+  // 접속 상태: 온라인 / 자리비움 / 오프라인 (팀 정보 화면과 같은 기준)
+  const PRESENCE = {
+    online: { label: "온라인", color: "#22c55e" },
+    idle: { label: "자리비움", color: "#f59e0b" },
+    offline: { label: "오프라인", color: "#94a3b8" },
+  } as const
+  const presenceOf = (memberId?: string) => {
+    const member = team.members.find((m) => m.id === memberId)
+    const state = member ? onlineMemberStates[member.id] : undefined
+    if (!member || !member.online || !state) return PRESENCE.offline
+    return state.status === "idle" ? PRESENCE.idle : PRESENCE.online
+  }
 
-      <div
-        className="grid grid-cols-1 md:grid-cols-5 gap-0 overflow-hidden flex-1 min-h-0 md:flex-none md:h-[560px]"
+  // 채널 목록: 팀 / 단체방 / 1:1 대화로 나눠 보여 준다.
+  const channelSections = [
+    { id: "team", title: "팀", items: filteredChannels.filter((c) => c.id === "all") },
+    { id: "groups", title: "단체방", items: filteredChannels.filter((c) => c.type === "group" && c.id !== "all") },
+    { id: "dm", title: "1:1 대화", items: filteredChannels.filter((c) => c.type === "dm") },
+  ]
+  const canCreateGroup = isManager && project.status === "active"
+
+  // 오른쪽 채널 정보: 이 채널의 멤버와, 이 채널에서 공유된 파일(공유한 시각별).
+  const activeGroupMemberIds = chatGroups.find((g) => `grp:${g.id}` === chan.id)?.memberIds ?? []
+  const channelMembers =
+    chan.id === "all"
+      ? team.members
+      : chan.type === "group"
+        ? team.members.filter((m) => activeGroupMemberIds.includes(m.id))
+        : team.members.filter((m) => m.id === currentMember.id || m.id === chan.memberId)
+  const sharedFileGroups = groupSharedFiles(thread)
+  const sharedTimeLabel = (label: string, iso: string) =>
+    label === "이전"
+      ? new Date(iso).toLocaleDateString("ko-KR", { month: "long", day: "numeric" })
+      : label === "이번 주"
+        ? `${new Date(iso).toLocaleDateString("ko-KR", { weekday: "short" })} ${formatChatTime(iso)}`
+        : formatChatTime(iso)
+
+  return (
+    <div className="p-4 md:p-6 max-w-6xl mx-auto flex flex-col h-full md:block md:h-auto">
+      <WindowPanel
+        id="chat-main"
+        title={`채팅 · ${project.name}${project.status === "done" ? " · 종료된 프로젝트 대화 기록" : ""}`}
+        collapsible={false}
+        lit
+        className="flex flex-col flex-1 min-h-0 md:flex-none md:h-[min(780px,calc(100vh-7rem))] md:min-h-[520px]"
+        bodyClassName="grid grid-cols-1 md:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_260px] gap-0 overflow-hidden flex-1 min-h-0"
         style={{
           background: "var(--card-glass)",
           borderRadius: "var(--radius)",
@@ -909,131 +934,101 @@ export default function TeamChat({
         <div
           className={`${
             mobileShowThread ? "hidden" : "flex"
-          } md:flex md:col-span-2 min-h-0 flex-col`}
+          } md:flex min-h-0 flex-col`}
           style={{ borderRight: "1px solid var(--border)" }}
         >
-          <div
-            className="px-4 py-2 flex items-center justify-between gap-2"
-            style={{ borderBottom: "1px solid var(--border)" }}
-          >
-            <div
-              className="text-xs font-600 uppercase tracking-widest shrink-0"
-              style={{ color: "var(--muted-foreground)" }}
-            >
-              채널
-            </div>
-            {isManager && project.status === "active" && (
-              <button
-                type="button"
-                onClick={() => setGroupModal("create")}
-                title="팀원을 골라 단체 채팅방 만들기"
-                className="text-xs font-700 px-2.5 py-1.5 shrink-0 whitespace-nowrap"
-                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
-              >
-                + 단체방
-              </button>
-            )}
+          <div className="px-3 pt-3 pb-1 shrink-0">
             <input
               value={channelSearch}
               onChange={(e) => setChannelSearch(e.target.value)}
               placeholder="채널 검색"
-              className="w-28 min-w-0 text-xs px-3 py-1.5 border outline-none"
+              className="w-full text-xs px-3 py-2 border outline-none"
               style={{
                 borderColor: "var(--border)",
-                borderRadius: "20px",
-                background: "var(--background)",
+                borderRadius: "10px",
+                background: "var(--surface-opaque)",
                 fontFamily: "var(--font-outfit)",
               }}
             />
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto py-2">
-            {filteredChannels.map((c) => {
-              const isActive = active === c.id
-
-              const unread = chatUnread[c.id] ?? 0
-
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3">
+            {channelSections.map((section) => {
+              if (section.items.length === 0 && !(section.id === "groups" && canCreateGroup)) return null
               return (
-                <button
-                  key={c.id}
-                  onClick={() => selectChannel(c.id)}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all"
-                  style={{
-                    background: isActive ? "var(--secondary)" : "transparent",
-                    borderLeft: isActive
-                      ? "3px solid var(--primary)"
-                      : "3px solid transparent",
-                  }}
-                >
-                  <div className="w-9 h-9 relative shrink-0">
-                    <div
-                      className="w-full h-full rounded-full flex items-center justify-center text-sm font-700 overflow-hidden"
-                      style={{
-                        background: c.avatarUrl
-                          ? "var(--card)"
-                          : `${c.color}18`,
-                        color: c.color,
-                      }}
-                    >
-                      {c.avatarUrl ? (
-                        <StillImg
-                          src={c.avatarUrl}
-                          alt={c.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        c.avatar
-                      )}
-                    </div>
-                    {c.type === "dm" && c.online && (
-                      <span
-                        className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
-                        style={{
-                          background: "#22c55e",
-                          border: "2px solid var(--card)",
-                        }}
-                      />
+                <div key={section.id}>
+                  <div className="flex items-center justify-between px-3 pt-3 pb-1">
+                    <span className="text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>{section.title}</span>
+                    {section.id === "groups" && canCreateGroup && (
+                      <button
+                        type="button"
+                        onClick={() => setGroupModal("create")}
+                        title="팀원을 골라 단체 채팅방 만들기"
+                        aria-label="단체방 만들기"
+                        className="w-5 h-5 flex items-center justify-center text-sm font-700 leading-none"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        ＋
+                      </button>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className="text-sm font-700 truncate"
-                      style={{
-                        color: isActive
-                          ? "var(--primary)"
-                          : "var(--foreground)",
-                      }}
-                    >
-                      {c.name}
-                    </div>
-                    <div
-                      className="text-xs truncate"
-                      style={{ color: "var(--muted-foreground)" }}
-                    >
-                      {c.type === "group"
-                        ? `${c.id === "all" ? "전체" : "참여"} ${c.memberCount}명`
-                        : c.role}
-                    </div>
-                  </div>
-                  {unread > 0 && (
-                    <span
-                      className="text-xs font-700 min-w-5 h-5 px-1 flex items-center justify-center shrink-0"
-                      style={{
-                        background: "var(--accent)",
-                        color: "#fff",
-                        borderRadius: "20px",
-                      }}
-                    >
-                      {unread}
-                    </span>
-                  )}
-                </button>
+                  {section.items.map((c) => {
+                    const isActive = active === c.id
+                    const unread = chatUnread[c.id] ?? 0
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => selectChannel(c.id)}
+                        aria-current={isActive ? "true" : undefined}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--muted)]"
+                        style={{
+                          borderRadius: "10px",
+                          background: isActive ? "var(--primary)" : undefined,
+                          color: isActive ? "#fff" : "var(--foreground)",
+                        }}
+                      >
+                        {c.type === "group" ? (
+                          <span className="w-7 h-7 shrink-0 flex items-center justify-center text-sm font-700" style={{ opacity: isActive ? 1 : 0.55 }}>#</span>
+                        ) : (
+                          <span className="w-7 h-7 relative shrink-0">
+                            <span
+                              className="w-full h-full rounded-full flex items-center justify-center text-xs font-700 overflow-hidden"
+                              style={{ background: "var(--surface-opaque)", color: c.color }}
+                            >
+                              {c.avatarUrl ? (
+                                <StillImg src={c.avatarUrl} alt={c.name} className="w-full h-full object-cover" />
+                              ) : (
+                                c.avatar
+                              )}
+                            </span>
+                            <span
+                              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
+                              style={{ background: presenceOf(c.memberId).color, border: "2px solid var(--card)" }}
+                              title={presenceOf(c.memberId).label}
+                            />
+                          </span>
+                        )}
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[13.5px] truncate" style={{ fontWeight: isActive || unread > 0 ? 700 : 500 }}>{c.name}</span>
+                          <span className="block text-[11px] truncate" style={{ opacity: isActive ? 0.8 : 0.6 }}>
+                            {c.type === "group" ? `${c.id === "all" ? "전체" : "참여"} ${c.memberCount}명` : `${c.role} · ${presenceOf(c.memberId).label}`}
+                          </span>
+                        </span>
+                        {unread > 0 && (
+                          <span
+                            className="text-[11px] font-700 min-w-5 h-5 px-1.5 flex items-center justify-center shrink-0"
+                            style={{ background: isActive ? "rgba(255,255,255,0.28)" : "var(--accent)", color: "#fff", borderRadius: "20px" }}
+                          >
+                            {unread}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               )
             })}
             {filteredChannels.length === 0 && (
-              <div
-                className="text-xs text-center py-4"
-                style={{ color: "var(--muted-foreground)" }}
-              >
+              <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
                 검색 결과가 없어요
               </div>
             )}
@@ -1044,7 +1039,7 @@ export default function TeamChat({
         <div
           className={`${
             mobileShowThread ? "flex" : "hidden"
-          } md:flex md:col-span-3 min-h-0 min-w-0 flex-col`}
+          } md:flex min-h-0 min-w-0 flex-col`}
         >
           <div
             className="flex items-center justify-between gap-2.5 px-5 py-3 shrink-0"
@@ -1093,13 +1088,14 @@ export default function TeamChat({
                     chan.avatar
                   )}
                 </div>
-                {chan.type === "dm" && chan.online && (
+                {chan.type === "dm" && (
                   <span
                     className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
                     style={{
-                      background: "#22c55e",
+                      background: presenceOf(chan.memberId).color,
                       border: "2px solid var(--card)",
                     }}
+                    title={presenceOf(chan.memberId).label}
                   />
                 )}
               </button>
@@ -1117,7 +1113,7 @@ export default function TeamChat({
                 >
                   {chan.type === "group"
                     ? `${chan.id === "all" ? "전체" : "참여"} ${chan.memberCount}명`
-                    : chan.role}
+                    : `${chan.role} · ${presenceOf(chan.memberId).label}`}
                 </div>
               </div>
             </div>
@@ -1410,11 +1406,11 @@ export default function TeamChat({
                                     background: mine
                                       ? "var(--primary)"
                                       : isMentioned
-                                      ? "rgba(59, 130, 246, 0.12)"
+                                      ? "rgba(74, 116, 181, 0.12)"
                                       : "var(--muted)",
                                     color: mine ? "#fff" : "var(--foreground)",
-                                    border: isMentioned ? "1.5px solid rgba(59, 130, 246, 0.4)" : "none",
-                                    boxShadow: isMentioned ? "0 0 14px rgba(59, 130, 246, 0.15)" : undefined,
+                                    border: isMentioned ? "1.5px solid rgba(74, 116, 181, 0.4)" : "none",
+                                    boxShadow: isMentioned ? "0 0 14px rgba(74, 116, 181, 0.15)" : undefined,
                                     borderRadius: bubbleRadius,
                                     overflowWrap: "anywhere",
                                     whiteSpace: "pre-wrap",
@@ -1423,7 +1419,7 @@ export default function TeamChat({
                                   {isMentioned && (
                                     <div
                                       className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 mb-1 rounded select-none"
-                                      style={{ background: "rgba(59, 130, 246, 0.2)", color: "var(--primary)" }}
+                                      style={{ background: "rgba(74, 116, 181, 0.2)", color: "var(--primary)" }}
                                     >
                                       @ 나를 멘션함
                                     </div>
@@ -2133,7 +2129,7 @@ export default function TeamChat({
                         className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shadow-xs shrink-0 group-hover:scale-105 transition-transform"
                         style={{
                           background:
-                            "linear-gradient(135deg, #0284c7, #2563eb)",
+                            "linear-gradient(135deg, #0284c7, #4a74b5)",
                           color: "#ffffff",
                         }}
                       >
@@ -2260,7 +2256,95 @@ export default function TeamChat({
             </div>
           </div>
         </div>
-      </div>
+        {/* 채널 정보: 멤버 + 공유된 파일(공유한 시각별) */}
+        <aside
+          aria-label="채널 정보"
+          className="hidden xl:flex min-h-0 flex-col overflow-y-auto px-4 py-4"
+          style={{ borderLeft: "1px solid var(--border)" }}
+        >
+          <div className="text-sm font-700 mb-3">채널 정보</div>
+          <div className="text-[11px] font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>멤버 {channelMembers.length}</div>
+          <ul className="flex flex-col gap-0.5 mb-5">
+            {channelMembers.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => openMemberProfile(m.id)}
+                  className="w-full flex items-center gap-2.5 px-2 py-1.5 text-left transition-colors hover:bg-[var(--muted)]"
+                  style={{ borderRadius: "8px" }}
+                >
+                  <span className="relative shrink-0">
+                    <span
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-700 overflow-hidden"
+                      style={{ background: "var(--surface-opaque)", color: m.color }}
+                    >
+                      {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                    </span>
+                    <span
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
+                      style={{ background: presenceOf(m.id).color, border: "2px solid var(--card)" }}
+                    />
+                  </span>
+                  <span className="text-[13px] truncate">{m.name}</span>
+                  {m.isLeader && <span className="text-[10px]" title="팀장">🧭</span>}
+                  {m.isViceLeader && <span className="text-[10px]" title="부팀장">🚩</span>}
+                  <span className="ml-auto text-[11px] shrink-0" style={{ color: "var(--muted-foreground)" }}>{presenceOf(m.id).label}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="text-[11px] font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>공유된 파일</div>
+          {sharedFileGroups.length === 0 ? (
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>이 채널에서 공유된 파일이 없어요</p>
+          ) : (
+            sharedFileGroups.map((group) => (
+              <div key={group.label} className="mb-3">
+                <div className="text-[11px] font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>{group.label}</div>
+                <ul className="flex flex-col gap-1">
+                  {group.items.map((item) => {
+                    const file = fileRefFor(item.fileId)
+                    const sender = memberFor(item.senderId)
+                    const body = (
+                      <>
+                        <span aria-hidden="true">📄</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12.5px] font-600 truncate">{file ? file.name : "삭제된 파일"}</span>
+                          <span className="block text-[11px] truncate" style={{ color: "var(--muted-foreground)" }}>
+                            {sender?.name ?? "알 수 없음"} · {sharedTimeLabel(group.label, item.sharedAt)}
+                          </span>
+                        </span>
+                      </>
+                    )
+                    return (
+                      <li key={item.fileId}>
+                        {file && onOpenFile ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenFile(file.id, file.folderId)}
+                            title={`${file.name} 열기`}
+                            className="w-full flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-[var(--muted)]"
+                            style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--surface-opaque)" }}
+                          >
+                            {body}
+                          </button>
+                        ) : (
+                          <div
+                            className="flex items-center gap-2 px-2.5 py-2"
+                            style={{ border: "1px solid var(--border)", borderRadius: "10px", background: "var(--surface-opaque)", opacity: file ? 1 : 0.6 }}
+                          >
+                            {body}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))
+          )}
+        </aside>
+      </WindowPanel>
 
       <ChatToolModal
         open={toolModalOpen}

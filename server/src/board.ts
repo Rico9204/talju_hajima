@@ -94,6 +94,10 @@ class ActiveDto {
   @IsBoolean() active!: boolean;
 }
 
+class PinnedDto {
+  @IsBoolean() pinned!: boolean;
+}
+
 class CommentDto {
   @IsString() @MaxLength(2000) content!: string;
   @IsOptional() @IsInt() parentCommentId?: number;
@@ -236,6 +240,13 @@ export class BoardController {
   @HttpCode(204)
   async deletePost(@UserId() userId: string, @Param("postId", ParseIntPipe) postId: number) {
     await this.db.asUser(userId, (query) => query("delete from public.board_posts where id = $1", [postId]));
+  }
+
+  // 필독 지정·해제: 관리자만, 공지사항 글만(DB 함수가 검사한다).
+  @Put("posts/:postId/pinned")
+  @HttpCode(204)
+  async setPinned(@UserId() userId: string, @Param("postId", ParseIntPipe) postId: number, @Body() body: PinnedDto) {
+    await this.db.asUser(userId, (query) => query("select public.set_board_post_pinned($1::bigint, $2)", [postId, body.pinned]));
   }
 
   @Post("posts/:postId/views")

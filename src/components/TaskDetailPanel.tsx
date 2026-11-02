@@ -441,7 +441,7 @@ export default function TaskDetailPanel({
                     <Avatar
                       url={liveMember?.avatarUrl ?? null}
                       initial={liveMember?.avatar ?? c.avatar}
-                      color={liveMember?.color ?? "#2563eb"}
+                      color={liveMember?.color ?? "#4a74b5"}
                       size={28}
                     />
                   </button>

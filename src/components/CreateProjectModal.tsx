@@ -91,13 +91,13 @@ export default function CreateProjectModal({
       >
         <div
           className="w-10 h-10 flex items-center justify-center text-lg font-700 mb-3"
-          style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "12px" }}
+          style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "12px" }}
         >
           +
         </div>
         <h3 className="font-700 mb-1">새 프로젝트 만들기</h3>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
-          새 팀플 프로젝트를 시작하면 팀 관리·채팅·과제·워크스페이스·동료 평가가 이 프로젝트 전용으로 분리되고, 만든 사람이 자동으로 팀장이 됩니다.
+          새 팀플 프로젝트를 시작하면 팀 정보·채팅·과제·워크스페이스·동료 평가가 이 프로젝트 전용으로 분리되고, 만든 사람이 자동으로 팀장이 됩니다.
         </p>
 
         <label className="text-xs font-600 block mb-1.5">
@@ -216,7 +216,7 @@ export default function CreateProjectModal({
               </>
             )}
             <p className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>
-              프로젝트는 "승인 대기" 상태로 만들어지고, 지정한 관리자가 승인해야 팀 관리·채팅·과제 등을 사용할 수 있어요.
+              프로젝트는 "승인 대기" 상태로 만들어지고, 지정한 관리자가 승인해야 팀 정보·채팅·과제 등을 사용할 수 있어요.
             </p>
           </div>
         )}
@@ -256,7 +256,7 @@ export default function CreateProjectModal({
               background: canSubmit ? "var(--primary)" : "var(--border)",
               color: canSubmit ? "#fff" : "var(--muted-foreground)",
               borderRadius: "40px",
-              boxShadow: canSubmit ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
+              boxShadow: canSubmit ? "0 4px 12px rgba(74,116,181,0.3)" : "none",
               cursor: canSubmit ? "pointer" : "not-allowed",
             }}
           >

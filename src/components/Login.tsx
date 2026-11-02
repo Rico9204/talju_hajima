@@ -175,7 +175,7 @@ export default function Login() {
         ) : (
           <>
             {mode === "admin" && (
-              <div className="text-xs mb-4 p-3" style={{ background: "#3b82f612", color: "var(--foreground)", borderRadius: "10px", lineHeight: 1.6 }}>
+              <div className="text-xs mb-4 p-3" style={{ background: "#4a74b512", color: "var(--foreground)", borderRadius: "10px", lineHeight: 1.6 }}>
                 <div className="font-700 mb-1">관리자 가입 절차</div>
                 <ol className="list-decimal pl-4">
                   <li>아래에서 계정을 만들고, 받은 메일의 링크로 이메일 인증을 합니다.</li>
@@ -237,7 +237,7 @@ export default function Login() {
                 background: canSubmit && !submitting ? "var(--primary)" : "var(--border)",
                 color: canSubmit && !submitting ? "#fff" : "var(--muted-foreground)",
                 borderRadius: "40px",
-                boxShadow: canSubmit && !submitting ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
+                boxShadow: canSubmit && !submitting ? "0 4px 12px rgba(74,116,181,0.3)" : "none",
                 cursor: canSubmit && !submitting ? "pointer" : "not-allowed",
               }}
             >

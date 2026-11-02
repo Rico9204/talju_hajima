@@ -209,6 +209,7 @@ export interface DataRepository {
   uploadBoardAttachment(file: File): Promise<BoardAttachment>;
   castBoardPollVote(pollId: number, optionIds: number[]): Promise<BoardPoll>;
   closeBoardPoll(pollId: number): Promise<void>;
+  setBoardPostPinned(postId: number, pinned: boolean): Promise<void>;
   reportBoardPost(postId: number, reason: BoardReportReason, detail: string): Promise<void>;
   listBoardPostReports(postId: number): Promise<BoardPostReport[]>; // 관리자만
   listAllBoardReports(): Promise<BoardPostReport[]>; // 관리자만, 최신순

@@ -5,6 +5,7 @@ import { ACHIEVEMENTS, TIERS, achievementProgress, bestEarnedAchievement, format
 import { PROFILE_CARD_THEMES } from "../lib/profileThemes";
 import MedalIcon from "./MedalIcon";
 import AchievementBadge from "./AchievementBadge";
+import WindowPanel from "./WindowPanel";
 
 const cardStyle = {
   background: "var(--card-glass)",
@@ -41,13 +42,14 @@ export default function Achievements() {
 
   return (
     <div>
-      <h1 className="text-xl font-800 mb-1">업적</h1>
-      <p className="text-sm mb-6" style={{ color: "var(--muted-foreground)" }}>내 평판 등급과 도전과제를 확인해요. 100%를 채우면 뱃지를 획득하고, 가장 돋보이는 뱃지가 프로필에 자동으로 표시돼요.</p>
+      <h1 className="text-2xl font-800 mb-1">업적</h1>
+      <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>내 평판 등급과 도전과제를 확인해요. 100%를 채우면 뱃지를 획득하고, 가장 돋보이는 뱃지가 프로필에 자동으로 표시돼요.</p>
 
       {error ? <p role="alert" className="text-sm">업적 정보를 불러오지 못했습니다. <button onClick={() => setRetry((n) => n + 1)}>다시 시도</button></p>
         : !result ? <p role="status" className="text-sm">불러오는 중…</p>
-        : <>
-          <section className="p-5 mb-6" style={cardStyle}>
+        : <div className="grid gap-4 items-start lg:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="flex flex-col gap-4">
+          <WindowPanel id="achievements-tier" title="내 등급" style={cardStyle} bodyClassName="p-5">
             <div className="text-sm font-700 mb-4">
               내 등급: <span style={{ color: tier?.color ?? "var(--foreground)" }}>{tier ? tier.label : "평가 공개 대기"}</span>
             </div>
@@ -130,10 +132,25 @@ export default function Achievements() {
             ) : (
               <p className="text-xs mt-3" style={{ color: "var(--muted-foreground)" }}>최종 평가 평균이 공개되면 등급이 매겨져요</p>
             )}
-          </section>
+          </WindowPanel>
 
-          <h2 className="text-sm font-700 mb-3">도전과제</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <WindowPanel id="achievements-shown" title="프로필에 표시 중" style={cardStyle} bodyClassName="p-5">
+            {(() => {
+              const shown = ACHIEVEMENTS.find((a) => a.id === shownId);
+              return shown ? (
+                <div className="flex items-center gap-4">
+                  <AchievementBadge achievement={shown} earned label={shown.label} size={84} />
+                  <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>가장 돋보이는 뱃지가 프로필에 자동으로 표시돼요.</p>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>아직 획득한 뱃지가 없어요. 도전과제를 채우면 여기에 표시돼요.</p>
+              );
+            })()}
+          </WindowPanel>
+          </div>
+
+          <WindowPanel id="achievements-list" title={`도전과제 · ${ACHIEVEMENTS.filter((a) => achievementProgress(a, result).earned).length} / ${ACHIEVEMENTS.length} 획득`} style={cardStyle} bodyClassName="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {ACHIEVEMENTS.map((achievement) => {
               const { value, pct, earned } = achievementProgress(achievement, result);
               const shown = shownId === achievement.id;
@@ -141,7 +158,7 @@ export default function Achievements() {
                 <div
                   key={achievement.id}
                   className="p-4 flex flex-col items-center text-center"
-                  style={{ ...cardStyle, outline: shown ? `2px solid ${achievement.colors[1]}` : undefined, outlineOffset: shown ? -2 : undefined }}
+                  style={{ background: "var(--card)", borderRadius: 14, outline: shown ? `2px solid ${achievement.colors[1]}` : undefined, outlineOffset: shown ? -2 : undefined }}
                 >
                   <AchievementBadge achievement={achievement} earned={earned} label={achievement.label} size={76} />
                   <div className="w-full mt-4">
@@ -164,7 +181,8 @@ export default function Achievements() {
               );
             })}
           </div>
-        </>}
+          </WindowPanel>
+        </div>}
     </div>
   );
 }

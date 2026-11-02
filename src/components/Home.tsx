@@ -21,20 +21,31 @@ import {
   type HomeNavTab,
 } from "../lib/menuPreferences";
 import type { ScheduleEventType, UpcomingEvent } from "../api/types";
-import { dDayLabel } from "../lib/dday";
+import { dDayLabel, todayKst } from "../lib/dday";
 import { recruitPostFromNotice, type BoardInitialState } from "../lib/recruitFromNotice";
+import NavIcon from "./NavIcon";
+import WindowPanel from "./WindowPanel";
 
 const EVENT_TYPE: Record<ScheduleEventType, { label: string; color: string }> = {
   deadline: { label: "마감", color: "#ef4444" },
-  meeting: { label: "회의", color: "#2563eb" },
+  meeting: { label: "회의", color: "#4a74b5" },
   presentation: { label: "발표", color: "#f59e0b" },
   other: { label: "기타", color: "#8b5cf6" },
 };
 
 const statusStyle: Record<"active" | "done", { label: string; bg: string; color: string }> = {
-  active: { label: "진행 중", bg: "#22c55e18", color: "#22c55e" },
+  active: { label: "진행 중", bg: "rgba(91,154,116,.14)", color: "#2f6b4a" },
   done: { label: "완료", bg: "var(--muted)", color: "var(--muted-foreground)" },
 };
+
+// 프로젝트 기간 대비 진행률(%). 시작·종료일이 없으면 null, 완료된 프로젝트는 100.
+function periodProgress(p: { status: "active" | "done"; startDate?: string; endDate?: string }): number | null {
+  if (p.status === "done") return 100;
+  if (!p.startDate || !p.endDate) return null;
+  const start = Date.parse(p.startDate), end = Date.parse(p.endDate), now = Date.parse(todayKst());
+  if (!(end > start)) return null;
+  return Math.max(0, Math.min(100, Math.round(((now - start) / (end - start)) * 100)));
+}
 
 type HomeTab = "projects" | "campus" | "board" | "achievements" | "operator" | "reports";
 
@@ -265,7 +276,7 @@ export default function Home() {
                   title="내 프로젝트 (드래그하여 순서 변경)"
                 >
                   <span className="flex items-center gap-2.5">
-                    <span>📁</span>
+                    <NavIcon id="projects" />
                     <span>내 프로젝트</span>
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -291,7 +302,7 @@ export default function Home() {
                   title="게시판 (드래그하여 순서 변경)"
                 >
                   <span className="flex items-center gap-2.5">
-                    <span>💬</span>
+                    <NavIcon id="board" />
                     <span>게시판</span>
                   </span>
                   <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
@@ -309,7 +320,7 @@ export default function Home() {
                   title="캠퍼스 소식 (드래그하여 순서 변경)"
                 >
                   <span className="flex items-center gap-2.5">
-                    <span>🎓</span>
+                    <NavIcon id="campus" />
                     <span>캠퍼스 소식</span>
                   </span>
                   <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
@@ -327,7 +338,7 @@ export default function Home() {
                   title="업적 (드래그하여 순서 변경)"
                 >
                   <span className="flex items-center gap-2.5">
-                    <span>◈</span>
+                    <NavIcon id="achievements" />
                     <span>업적</span>
                   </span>
                   <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
@@ -454,7 +465,7 @@ export default function Home() {
                   <button
                     onClick={() => setJoinOpen(true)}
                     className="text-xs font-700 px-3.5 py-2"
-                    style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}
+                    style={{ background: "rgba(91,154,116,.14)", color: "#2f6b4a", borderRadius: "20px" }}
                   >
                     참여하기
                   </button>
@@ -476,8 +487,23 @@ export default function Home() {
                   참여 중인 프로젝트가 없어요
                 </div>
               ) : (
+                <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: "진행 중", value: projects.filter((p) => p.status === "active").length, color: "var(--foreground)" },
+                    { label: "이번 주 일정", value: upcoming.filter((e) => e.date <= todayKst(new Date(Date.now() + 7 * 86_400_000))).length, color: "var(--foreground)" },
+                    { label: "새 알림이 있는 프로젝트", value: projects.filter((p) => hasAlert(p.id)).length, color: "#8f3a35" },
+                    { label: "완료", value: projects.filter((p) => p.status === "done").length, color: "var(--foreground)" },
+                  ].map((stat) => (
+                    <div key={stat.label} className="px-4 py-3.5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+                      <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>{stat.label}</div>
+                      <div className="text-2xl font-800 mt-0.5" style={{ color: stat.color }}>{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {projects.map((p) => {
+                    const progress = periodProgress(p);
                     const st = statusStyle[p.status];
                     const events = upcoming.filter((e) => e.projectId === p.id);
                     const nearest = events[0];
@@ -491,10 +517,15 @@ export default function Home() {
                         onFocus={() => setHoveredProjectId(p.id)}
                         onBlur={() => setHoveredProjectId((id) => (id === p.id ? null : id))}
                       >
+                      <WindowPanel
+                        id={`home-project-${p.id}`}
+                        title={p.org || "프로젝트"}
+                        className="h-full"
+                        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
+                      >
                       <button
                         onClick={() => enterProject(p.id)}
                         className="relative w-full h-full text-left p-5 transition-all"
-                        style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
                         aria-label={hasAlert(p.id) ? `${p.name} (확인하지 않은 알림 있음)` : undefined}
                       >
                         {hasAlert(p.id) && (
@@ -521,8 +552,15 @@ export default function Home() {
                           )}
                         </div>
                         <div className="text-base font-700 truncate mb-1">{p.name}</div>
-                        <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{p.org}</div>
-                        <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
+                        <div className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{p.period}</div>
+                        {progress !== null && (
+                          <div className="mt-3.5">
+                            <div className="h-[7px] rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                              <div className="h-full rounded-full" style={{ width: `${progress}%`, background: p.status === "done" ? "#5b9a74" : "var(--primary)" }} />
+                            </div>
+                            <div className="text-[11px] mt-1" style={{ color: "var(--muted-foreground)" }}>기간 {progress}% 경과</div>
+                          </div>
+                        )}
                         <div className={`flex items-center gap-2 mt-3 pt-2.5 min-w-0${events.length > 1 ? " pr-12" : ""}`} style={{ borderTop: "1px solid var(--border)" }}>
                           {nearest ? (
                             <>
@@ -535,6 +573,7 @@ export default function Home() {
                           )}
                         </div>
                       </button>
+                      </WindowPanel>
                       {events.length > 1 && (
                         <button
                           type="button"
@@ -574,6 +613,7 @@ export default function Home() {
                     );
                   })}
                 </div>
+                </>
               )}
             </>
           )}

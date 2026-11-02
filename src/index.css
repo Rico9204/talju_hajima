@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,400&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
 @import 'tailwindcss';
 
 @keyframes reaction-pop {
@@ -670,51 +670,72 @@
 
 :root {
   color-scheme: light; /* 드롭다운 펼친 목록·날짜 선택 창·스크롤바 등 브라우저 기본 입력창 색 */
-  --background: #edf0fb;
-  --foreground: #0f1235;
-  --card: #ffffff;
-  --card-foreground: #0f1235;
+  --background: #f3f5f9;
+  --foreground: #222a3a;
+  --card: #fbfcfe;
+  --card-foreground: #222a3a;
   /* Always-opaque surface for form controls (inputs/selects) that need
      reliable contrast regardless of the account's glass intensity. */
-  --surface-opaque: #ffffff;
+  --surface-opaque: #fbfcfe;
   --glass-alpha: 0.32;
   --panel-blur-px: 2px;
   --card-glass: rgba(255, 255, 255, var(--glass-alpha));
   /* saturate/brightness keep the blurred backdrop vivid instead of the
      washed-out "milky" look plain blur() gives on a white-tinted card. */
   --panel-blur: blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05);
-  --primary: #2563eb;
+  --primary: #4a74b5;
   --primary-foreground: #ffffff;
-  --primary-glow: rgba(37, 99, 235, 0.25);
-  --secondary: #e8eeff;
-  --secondary-foreground: #2563eb;
-  --muted: #f4f6ff;
+  --primary-glow: rgba(74, 116, 181, 0.25);
+  --secondary: #e6eefa;
+  --secondary-foreground: #4a74b5;
+  --muted: #eef2f8;
   /* Darker than the original #7b82a8 — secondary text needs real contrast
      now that panels can sit on a busy background photo at low opacity. */
-  --muted-foreground: #454b6e;
-  --accent: #f59e0b;
+  --muted-foreground: #4b566b;
+  --accent: #d69a4e;
   --accent-foreground: #ffffff;
-  --border: #e2e6f8;
-  --ring: #2563eb;
+  --border: #e1e6ef;
+  --ring: #4a74b5;
   --radius: 16px;
-  --shadow-card: 0 2px 16px rgba(37, 99, 235, 0.07), 0 1px 4px rgba(15, 18, 53, 0.05);
-  --shadow-hover: 0 8px 32px rgba(37, 99, 235, 0.13), 0 2px 8px rgba(15, 18, 53, 0.07);
-  --hero-banner-bg: linear-gradient(135deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%);
+  --shadow-card: 0 2px 16px rgba(74, 116, 181, 0.07), 0 1px 4px rgba(34, 42, 58, 0.05);
+  --shadow-hover: 0 8px 32px rgba(74, 116, 181, 0.13), 0 2px 8px rgba(34, 42, 58, 0.07);
+  --hero-banner-bg: linear-gradient(135deg, #4a74b5 0%, #3f6399 55%, #2f4e80 100%);
   --hero-banner-border: 1px solid transparent;
-  --hero-banner-shadow: 0 8px 32px rgba(37, 99, 235, 0.3);
+  --hero-banner-shadow: 0 8px 32px rgba(74, 116, 181, 0.3);
   --hero-banner-btn-bg: #ffffff;
   --hero-banner-btn-text: var(--primary);
   --hero-banner-circle-bg: rgba(255, 255, 255, 0.06);
   --nav-active-bg: var(--primary);
   --nav-active-text: #ffffff;
   --nav-active-border: 1px solid transparent;
-  --nav-active-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  --nav-active-shadow: 0 4px 12px rgba(74, 116, 181, 0.25);
   --nav-active-icon-bg: rgba(255, 255, 255, 0.2);
-  --status-inprogress: #2563eb;
-  --status-inprogress-bg: rgba(37, 99, 235, 0.4);
+  --status-inprogress: #4a74b5;
+  --status-inprogress-bg: rgba(74, 116, 181, 0.4);
   --font-outfit: 'Outfit', sans-serif;
   --font-fraunces: 'Fraunces', serif;
   --font-jetbrains: 'JetBrains Mono', monospace;
+}
+
+/* 라이트 모드인데 배경이 어두울 때(data-bg-dark): 배경 위에 바로 놓인 글자(메뉴 등)만 밝게 쓴다. 창 색·투명도·블러는 그대로.
+   반투명 창과 불투명한 면(입력창, 흰 카드 등) 안은 어두운 글자를 쓰되,
+   어두운 배경이 많이 비쳐 창이 회색이 되면(data-bg-dark-glass) 반투명 창 안도 밝게 쓴다. */
+:root[data-bg-dark] {
+  --foreground: #f1f5f9;
+  --card-foreground: #f1f5f9;
+  --muted-foreground: #cbd5e1;
+}
+:root[data-bg-dark] :is(input, textarea, [style*="var(--card-glass)"], [style*="var(--card)"], [style*="var(--muted)"], [style*="var(--background)"], [style*="var(--secondary)"], [style*="var(--surface-opaque)"], [class*="bg-[var(--card)]"], [class*="bg-[var(--muted)]"], [class*="bg-[var(--background)]"], [class*="bg-white"], .bg-card, .bg-muted, .bg-background, .bg-secondary):not([class*="bg-transparent"]) {
+  --foreground: #222a3a;
+  --card-foreground: #222a3a;
+  --muted-foreground: #4b566b;
+  color: var(--foreground);
+}
+:root[data-bg-dark][data-bg-dark-glass] :is([style*="var(--card-glass)"]):not([class*="bg-transparent"]) {
+  --foreground: #f1f5f9;
+  --card-foreground: #f1f5f9;
+  --muted-foreground: #cbd5e1;
+  color: var(--foreground);
 }
 
 :root[data-theme="dark"],
@@ -816,7 +837,7 @@ html, body, #root {
 .code-keyword { color: #7c3aed; }
 .code-type { color: #0e7490; }
 .code-meta { color: #be185d; }
-.code-tag { color: #2563eb; }
+.code-tag { color: #4a74b5; }
 .code-attr { color: #b45309; }
 :root[data-theme="dark"] .code-comment, .dark .code-comment { color: #8b95a7; }
 :root[data-theme="dark"] .code-string, .dark .code-string { color: #86efac; }

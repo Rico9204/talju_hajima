@@ -125,7 +125,7 @@ export default function BoardPollView({
           {poll.allowMultiple && (
             <span
               className="px-2 py-0.5 rounded-full text-[11px]"
-              style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3b82f6" }}
+              style={{ background: "rgba(74, 116, 181, 0.12)", color: "#4a74b5" }}
             >
               복수 선택
             </span>
@@ -207,7 +207,7 @@ export default function BoardPollView({
                     style={{
                       width: `${percent}%`,
                       background: isLeading
-                        ? "linear-gradient(90deg, rgba(59, 130, 246, 0.22), rgba(147, 51, 234, 0.22))"
+                        ? "linear-gradient(90deg, rgba(74, 116, 181, 0.22), rgba(147, 51, 234, 0.22))"
                         : "var(--muted)",
                       opacity: 0.6,
                     }}
@@ -283,7 +283,7 @@ export default function BoardPollView({
               className="flex items-center gap-3 p-3 md:p-3.5 rounded-xl border cursor-pointer transition-all hover:border-[var(--primary)]"
               style={{
                 borderColor: isSelected ? "var(--primary)" : "var(--border)",
-                background: isSelected ? "rgba(59, 130, 246, 0.06)" : "var(--card)",
+                background: isSelected ? "rgba(74, 116, 181, 0.06)" : "var(--card)",
               }}
             >
               <div
@@ -358,7 +358,7 @@ export default function BoardPollView({
                 onClick={handleVoteSubmit}
                 className="px-4 py-1.5 text-xs font-bold rounded-xl transition-all shadow-sm hover:opacity-95 disabled:opacity-50"
                 style={{
-                  background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+                  background: "linear-gradient(135deg, #4a74b5, #7c3aed)",
                   color: "#ffffff",
                 }}
               >

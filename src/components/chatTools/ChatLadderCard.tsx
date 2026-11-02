@@ -212,7 +212,7 @@ export default function ChatLadderCard({
       const path = computeLadderPath(col, "down");
       return {
         ...path,
-        color: p.color || "#3b82f6",
+        color: p.color || "#4a74b5",
         participant: p,
       };
     });
@@ -227,9 +227,9 @@ export default function ChatLadderCard({
   }, [selectedTarget, numCols, computeLadderPath]);
 
   const participantColor = useMemo(() => {
-    if (!activePath) return "#3b82f6";
+    if (!activePath) return "#4a74b5";
     if (activePath.direction === "down") {
-      return participants[activePath.startCol]?.color || "#3b82f6";
+      return participants[activePath.startCol]?.color || "#4a74b5";
     } else {
       return participants[activePath.endCol]?.color || "#a855f7";
     }
@@ -322,7 +322,7 @@ export default function ChatLadderCard({
 
   if (lines.length === 0) {
     return (
-      <div className="p-5 my-1.5 rounded-2xl border text-left max-w-xl w-full" style={{ background: "var(--card-glass)", borderColor: "rgba(59, 130, 246, 0.35)" }}>
+      <div className="p-5 my-1.5 rounded-2xl border text-left max-w-xl w-full" style={{ background: "var(--card-glass)", borderColor: "rgba(74, 116, 181, 0.35)" }}>
         <div className="flex items-center gap-2 text-sm font-bold pr-10" style={{ color: "var(--foreground)" }}>
           <LadderIcon /> {data?.title || "사다리타기"}
         </div>
@@ -336,8 +336,8 @@ export default function ChatLadderCard({
       className="p-4 md:p-5 my-1.5 rounded-2xl border transition-all text-left max-w-xl w-full"
       style={{
         background: "var(--card-glass)",
-        borderColor: "rgba(59, 130, 246, 0.35)",
-        boxShadow: "0 8px 30px rgba(59, 130, 246, 0.08)",
+        borderColor: "rgba(74, 116, 181, 0.35)",
+        boxShadow: "0 8px 30px rgba(74, 116, 181, 0.08)",
         backdropFilter: "var(--panel-blur)",
         WebkitBackdropFilter: "var(--panel-blur)",
       }}
@@ -358,7 +358,7 @@ export default function ChatLadderCard({
         <div className="flex items-center gap-2">
           <span
             className="text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1"
-            style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }}
+            style={{ background: "rgba(74, 116, 181, 0.15)", color: "#4a74b5" }}
           >
             <LadderIcon />
             <span>사다리타기</span>
@@ -436,7 +436,7 @@ export default function ChatLadderCard({
             onClick={() => selectTarget({ type: "top", col: 0 }, false)}
             className="text-[11px] font-bold shrink-0 ml-2 px-2.5 py-1 rounded transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
             style={{
-              background: "linear-gradient(135deg, #2563eb, #3b82f6)",
+              background: "linear-gradient(135deg, #4a74b5, #4a74b5)",
               color: "#ffffff",
             }}
           >
@@ -592,7 +592,7 @@ export default function ChatLadderCard({
                 const isDestArrived =
                   activePath?.direction === "up" && activePath.endCol === idx && isCompleted;
                 const isSelected = isStart || isDestArrived;
-                const pColor = p.color || "#3b82f6";
+                const pColor = p.color || "#4a74b5";
                 const posX = (idx + 1) * colSpacing;
 
                 return (
@@ -907,7 +907,7 @@ export default function ChatLadderCard({
                 (selectedTarget?.type === "top" && selectedTarget.col === pIndex) ||
                 (activePath?.direction === "up" && activePath.endCol === pIndex);
               const pObj = participants[pIndex];
-              const pColor = pObj?.color || "#3b82f6";
+              const pColor = pObj?.color || "#4a74b5";
               return (
                 <button
                   key={m.participantId}
@@ -996,7 +996,7 @@ export default function ChatLadderCard({
               onClick={handleStartLadder}
               className="text-xs px-4 py-1.5 rounded-lg font-bold transition-all shadow-sm hover:opacity-90 active:scale-95 cursor-pointer"
               style={{
-                background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+                background: "linear-gradient(135deg, #4a74b5, #7c3aed)",
                 color: "#ffffff",
               }}
             >

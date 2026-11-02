@@ -42,7 +42,7 @@ export default function AdminApplicationNotice() {
     detail = application.reviewNote ?? "";
     action = "다시 신청";
   } else if (!application && wantsAdmin) {
-    tone = { bg: "#3b82f618", color: "#3b82f6" };
+    tone = { bg: "#4a74b518", color: "#4a74b5" };
     title = "관리자 신청서를 아직 제출하지 않았어요";
     detail = "교수·교원 증명서(PDF)를 제출하면 운영자가 확인한 뒤 관리자로 승인해요.";
     action = "신청서 작성";

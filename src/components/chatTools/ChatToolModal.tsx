@@ -141,7 +141,7 @@ export default function ChatToolModal({
         name: m.name,
         avatar: m.avatar,
         avatarUrl: m.avatarUrl || null,
-        color: m.color || "#3b82f6",
+        color: m.color || "#4a74b5",
       }))
 
     if (participants.length < 2) {
@@ -283,7 +283,7 @@ export default function ChatToolModal({
                   <span
                     className="text-xs font-bold"
                     style={{
-                      color: tab === "ladder" ? "#2563eb" : "var(--foreground)",
+                      color: tab === "ladder" ? "#4a74b5" : "var(--foreground)",
                     }}
                   >
                     사다리타기
@@ -562,15 +562,15 @@ export default function ChatToolModal({
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all"
                       style={{
                         background: selected
-                          ? "rgba(59, 130, 246, 0.15)"
+                          ? "rgba(74, 116, 181, 0.15)"
                           : "var(--card)",
-                        borderColor: selected ? "#3b82f6" : "var(--border)",
-                        color: selected ? "#3b82f6" : "var(--foreground)",
+                        borderColor: selected ? "#4a74b5" : "var(--border)",
+                        color: selected ? "#4a74b5" : "var(--foreground)",
                       }}
                     >
                       <span
                         className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                        style={{ background: m.color || "#3b82f6" }}
+                        style={{ background: m.color || "#4a74b5" }}
                       >
                         {m.avatar || m.name[0]}
                       </span>
@@ -628,7 +628,7 @@ export default function ChatToolModal({
               onClick={handleCreateLadder}
               className="w-full py-2.5 rounded-xl font-bold text-white transition-all shadow-md mt-2"
               style={{
-                background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+                background: "linear-gradient(135deg, #4a74b5, #7c3aed)",
               }}
             >
               사다리타기 채팅에 보내기
@@ -760,7 +760,7 @@ export default function ChatToolModal({
                           "#f59e0b",
                           "#10b981",
                           "#06b6d4",
-                          "#3b82f6",
+                          "#4a74b5",
                           "#6366f1",
                           "#8b5cf6",
                           "#ec4899",

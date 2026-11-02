@@ -4,6 +4,7 @@ import { SCHOOL_REGISTRY } from "../lib/crawler/schoolsRegistry";
 import { NoticeSortOption, NOTICE_SORT_OPTIONS, sortNotices } from "../lib/crawler/noticeSort";
 import { useOptionalProject, useProjectManagement } from "../context/ProjectContext";
 import SchoolSearchCombobox from "./SchoolSearchCombobox";
+import WindowPanel from "./WindowPanel";
 
 // 링크는 http(s)만 연다 — 스크랩은 DB에서 오고, 수집 결과도 외부 페이지에서 오므로 화면에서 한 번 더 막는다.
 const safeLink = (link: string) => (/^https?:\/\//i.test(link) ? link : undefined);
@@ -140,154 +141,92 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
     return sortNotices(list, sortBy);
   }, [notices, scrappedList, activeTab, searchQuery, sortBy]);
 
+  const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" } as const;
+  const chipOff = { background: "rgba(15,18,53,.05)", color: "var(--foreground)" } as const;
+  const lightBtn = { background: "rgba(15,18,53,.06)", color: "var(--foreground)", borderRadius: "20px" } as const;
+  const dDayChip = { background: "rgba(201,98,91,.12)", color: "#8f3a35", borderRadius: "10px" } as const;
+
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
-      {/* Top Header Card */}
-      <div
-        className="p-6 md:p-8 space-y-4"
-        style={{
-          background: "var(--card-glass)",
-          borderRadius: "var(--radius)",
-          border: "1px solid var(--border)",
-          boxShadow: "var(--shadow-card)",
-          backdropFilter: "var(--panel-blur)",
-          WebkitBackdropFilter: "var(--panel-blur)",
-        }}
-      >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-2xl">🎓</span>
-              <h1 className="text-xl md:text-2xl font-800 tracking-tight">캠퍼스 소식 & 공모전·취업</h1>
-            </div>
-            <p className="text-xs md:text-sm" style={{ color: "var(--muted-foreground)" }}>
-              대학교 공지사항과 전국의 알짜 공모전·채용 소식을 한곳에서 모아보고, 공모전에 함께할 팀원을 모집해보세요.
-            </p>
-          </div>
-
-          {/* Header Right Controls: Sort & View above School Selector */}
-          <div className="flex flex-col items-start md:items-end gap-2.5 shrink-0 w-full sm:w-auto">
-            {/* Sort Dropdown & View Mode Toggle */}
-            <div className="flex items-center gap-2 self-start md:self-end">
-              {/* Sort Dropdown */}
-              <div className="flex items-center shrink-0">
-                <select
-                  id="campus-notices-sort"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as NoticeSortOption)}
-                  aria-label="소식 정렬 순서"
-                  className="text-xs px-2.5 py-1.5 border rounded-full outline-none cursor-pointer transition-all font-600"
-                  style={{
-                    background: "var(--muted)",
-                    borderColor: "var(--border)",
-                    color: "var(--foreground)",
-                  }}
-                >
-                  {NOTICE_SORT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value} style={{ background: "var(--card)", color: "var(--foreground)" }}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* View Mode Toggle */}
-              <div className="flex items-center bg-black/5 dark:bg-white/5 p-0.5 rounded-lg border shrink-0" style={{ borderColor: "var(--border)" }}>
-                <button
-                  onClick={() => setViewMode("card")}
-                  title="카드 보기"
-                  className="p-1.5 text-xs rounded transition-all cursor-pointer"
-                  style={{
-                    background: viewMode === "card" ? "var(--card)" : "transparent",
-                    color: "var(--foreground)",
-                  }}
-                >
-                  ▦
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  title="목록 보기"
-                  className="p-1.5 text-xs rounded transition-all cursor-pointer"
-                  style={{
-                    background: viewMode === "list" ? "var(--card)" : "transparent",
-                    color: "var(--foreground)",
-                  }}
-                >
-                  ≡
-                </button>
-              </div>
-            </div>
-
-            {/* School & Platform Selector Combobox */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-start md:self-auto shrink-0 w-full sm:w-auto">
-              <span className="text-xs font-700 shrink-0" style={{ color: "var(--muted-foreground)" }}>
-                소식 출처:
-              </span>
-              <SchoolSearchCombobox
-                selectedSchool={selectedSchool}
-                onSelectSchool={(school) => {
-                  setSelectedSchool(school);
-                  setSearchQuery("");
-                }}
-                mySchool={currentMember?.school}
-              />
-            </div>
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-800 flex items-center gap-2"><span>🎓</span> 캠퍼스 소식 · 공모전·취업</h1>
+          <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
+            대학교 공지사항과 전국의 알짜 공모전·채용 소식을 한곳에서 모아보고, 공모전에 함께할 팀원을 모집해보세요.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <select
+            id="campus-notices-sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as NoticeSortOption)}
+            aria-label="소식 정렬 순서"
+            className="text-xs px-3 py-2 outline-none cursor-pointer font-700"
+            style={{ ...chipOff, borderRadius: "20px" }}
+          >
+            {NOTICE_SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} style={{ background: "var(--card)", color: "var(--foreground)" }}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1">
+            {([["card", "카드 보기", "▦"], ["list", "목록 보기", "≡"]] as const).map(([mode, label, glyph]) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                title={label}
+                aria-label={label}
+                aria-pressed={viewMode === mode}
+                className="w-8 h-8 text-xs font-700 cursor-pointer"
+                style={{ ...(viewMode === mode ? { background: "var(--primary)", color: "#fff" } : chipOff), borderRadius: "20px" }}
+              >
+                {glyph}
+              </button>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* Category Tabs & Search Bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            {CATEGORY_TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              const countBadge = tab.id === "scrapped" ? scrappedList.length : undefined;
-
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className="px-3 py-1.5 text-xs font-700 whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer"
-                  style={{
-                    background: isActive ? "var(--primary)" : "var(--muted)",
-                    color: isActive ? "#ffffff" : "var(--foreground)",
-                    borderRadius: "20px",
-                    boxShadow: isActive ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
-                  }}
-                >
-                  <span>{tab.icon}</span>
-                  <span>{tab.label}</span>
-                  {countBadge !== undefined && (
-                    <span
-                      className="px-1.5 py-0.2 text-[10px] rounded-full font-800"
-                      style={{
-                        background: isActive ? "rgba(255,255,255,0.25)" : "var(--border)",
-                        color: isActive ? "#ffffff" : "var(--foreground)",
-                      }}
-                    >
-                      {countBadge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="relative flex-1 min-w-[140px] sm:w-56 sm:flex-initial">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="제목, 작성부서 검색…"
-              className="w-full pl-8 pr-3 py-1.5 text-xs outline-none"
-              style={{
-                background: "var(--muted)",
-                border: "1px solid var(--border)",
-                borderRadius: "20px",
-                color: "var(--foreground)",
-              }}
-            />
-            <span className="absolute left-2.5 top-2 text-xs opacity-50">🔍</span>
-          </div>
+      {/* 출처 선택 · 분류 칩 · 검색 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="shrink-0">
+          <SchoolSearchCombobox
+            selectedSchool={selectedSchool}
+            onSelectSchool={(school) => {
+              setSelectedSchool(school);
+              setSearchQuery("");
+            }}
+            mySchool={currentMember?.school}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+          {CATEGORY_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className="px-3.5 py-2 text-xs font-700 whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5"
+                style={{ ...(isActive ? { background: "var(--primary)", color: "#fff" } : chipOff), borderRadius: "20px" }}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}{tab.id === "scrapped" ? ` ${scrappedList.length}` : ""}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="relative w-full sm:w-60 sm:ml-auto shrink-0">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="제목, 작성부서 검색…"
+            aria-label="소식 검색"
+            className="w-full pl-8 pr-3.5 py-2 text-xs outline-none"
+            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "20px", color: "var(--foreground)" }}
+          />
+          <span className="absolute left-3 top-2 text-xs opacity-50">🔍</span>
         </div>
       </div>
 
@@ -295,15 +234,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="p-5 space-y-3 animate-pulse"
-              style={{
-                background: "var(--card)",
-                borderRadius: "var(--radius)",
-                border: "1px solid var(--border)",
-              }}
-            >
+            <div key={i} className="p-5 space-y-3 animate-pulse" style={cardStyle}>
               <div className="h-4 w-24 bg-current opacity-10 rounded" />
               <div className="h-5 w-3/4 bg-current opacity-15 rounded" />
               <div className="h-3 w-1/2 bg-current opacity-10 rounded" />
@@ -311,14 +242,9 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
           ))}
         </div>
       ) : error ? (
-        <div
-          className="p-8 text-center space-y-3"
-          style={{ background: "var(--card)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}
-        >
+        <div className="p-8 text-center space-y-3" style={cardStyle}>
           <div className="text-2xl">⚠️</div>
-          <div className="text-sm font-700" style={{ color: "#ef4444" }}>
-            {error}
-          </div>
+          <div className="text-sm font-700" style={{ color: "#8f3a35" }}>{error}</div>
           <button
             onClick={() => setSelectedSchool((prev) => prev)}
             className="px-4 py-1.5 text-xs font-700"
@@ -328,10 +254,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
           </button>
         </div>
       ) : displayedNotices.length === 0 ? (
-        <div
-          className="p-12 text-center space-y-3"
-          style={{ background: "var(--card)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }}
-        >
+        <div className="p-12 text-center space-y-2" style={cardStyle}>
           <div className="text-3xl">📭</div>
           <div className="text-sm font-700">해당 조건의 소식이 없습니다.</div>
           <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
@@ -339,119 +262,62 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
           </p>
         </div>
       ) : viewMode === "card" ? (
-        /* Card Grid View */
+        /* Card Grid View: 소식 하나가 창 하나 */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayedNotices.map((notice, idx) => {
             const isScrapped = scrappedLinks.has(notice.link);
-
             return (
-              <div
+              <WindowPanel
                 key={`${notice.id || notice.link}-${idx}`}
-                className="flex flex-col justify-between p-5 transition-all hover:translate-y-[-2px] hover:shadow-md border group"
-                style={{
-                  background: "var(--card)",
-                  borderRadius: "var(--radius)",
-                  borderColor: notice.isPinned ? "var(--primary)" : "var(--border)",
-                  boxShadow: "var(--shadow-card)",
-                }}
+                id={`campus-notice-${idx}`}
+                title={`${notice.categoryLabel || notice.category} · ${notice.schoolName}`}
+                className="flex flex-col"
+                bodyClassName="flex flex-col flex-1"
+                style={cardStyle}
               >
-                <div className="space-y-3">
-                  {/* Card Badges */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className="text-[11px] font-800 px-2 py-0.5 rounded-full"
-                        style={{
-                          background:
-                            notice.category === "contest"
-                              ? "#f59e0b18"
-                              : notice.category === "job"
-                              ? "#22c55e18"
-                              : "var(--muted)",
-                          color:
-                            notice.category === "contest"
-                              ? "#f59e0b"
-                              : notice.category === "job"
-                              ? "#22c55e"
-                              : "var(--foreground)",
-                        }}
-                      >
-                        {notice.categoryLabel || notice.category}
-                      </span>
-                      <span
-                        className="text-[11px] font-700 px-2 py-0.5 rounded-full"
-                        style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
-                      >
-                        {notice.schoolName}
-                      </span>
-                      {notice.dDay && (
-                        <span className="text-[11px] font-800 px-2 py-0.5 rounded-full bg-red-500/15 text-red-500">
-                          {notice.dDay}
-                        </span>
-                      )}
-                      {notice.isPinned && (
-                        <span className="text-[10px] font-800 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600">
-                          📌 공지
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Scrap Star Button */}
+                <div className="p-4 flex flex-col flex-1 min-h-[150px]">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-sm font-700 leading-snug line-clamp-2">{notice.title}</h3>
                     <button
                       onClick={() => void handleToggleScrap(notice)}
                       title={isScrapped ? "스크랩 취소" : "스크랩하기"}
-                      className="p-1 text-base transition-transform active:scale-90 cursor-pointer"
+                      aria-label={isScrapped ? "스크랩 취소" : "스크랩하기"}
+                      className="text-base leading-none transition-transform active:scale-90 cursor-pointer shrink-0"
                     >
                       {isScrapped ? "⭐" : "☆"}
                     </button>
                   </div>
-
-                  {/* Card Title */}
-                  <h3 className="text-sm font-700 leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-                    {notice.title}
-                  </h3>
-
-                  {/* Summary (if available) */}
+                  {(notice.dDay || notice.isPinned) && (
+                    <div className="flex items-center gap-1.5 mt-2">
+                      {notice.dDay && <span className="text-[11px] font-700 px-2 py-0.5" style={dDayChip}>{notice.dDay}</span>}
+                      {notice.isPinned && <span className="text-[11px] font-700 px-2 py-0.5" style={{ background: "rgba(214,154,78,.16)", color: "#7a4f12", borderRadius: "10px" }}>📌 공지</span>}
+                    </div>
+                  )}
                   {notice.summary && (
-                    <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
+                    <p className="text-xs line-clamp-2 leading-relaxed mt-2" style={{ color: "var(--muted-foreground)" }}>
                       {notice.summary}
                     </p>
                   )}
-                </div>
-
-                {/* Card Footer Actions */}
-                <div className="pt-4 mt-4 border-t space-y-3" style={{ borderColor: "var(--border)" }}>
-                  <div className="flex items-center justify-between text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-                    <span className="truncate max-w-[120px]">{notice.author}</span>
-                    <span>{notice.postDate}</span>
+                  <div className="text-[11px] mt-2 mb-auto" style={{ color: "var(--muted-foreground)" }}>
+                    <span className="truncate">{notice.author}</span> · {notice.postDate}
                   </div>
-
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2 pt-3">
                     <a
                       href={safeLink(notice.link)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-1 py-1.5 px-3 text-center text-xs font-700 transition-all border hover:bg-black/5 dark:hover:bg-white/5"
-                      style={{
-                        borderColor: "var(--border)",
-                        borderRadius: "8px",
-                        color: "var(--foreground)",
-                      }}
+                      className="py-1.5 px-3.5 text-xs font-700 transition-all hover:opacity-80"
+                      style={lightBtn}
                     >
                       원문 보기 ↗
                     </a>
-
                     {/* 공모전 카테고리인 경우에만 게시판 팀원 모집 연동 버튼 노출 */}
                     {notice.category === "contest" && onRecruitFromNotice && (
                       <button
                         onClick={() => onRecruitFromNotice(notice)}
                         title="이 공모전으로 게시판에서 팀원 모집하기"
-                        className="py-1.5 px-3 text-xs font-700 transition-all flex items-center justify-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
-                        style={{
-                          background: "var(--primary)",
-                          color: "#ffffff",
-                          borderRadius: "8px",
-                        }}
+                        className="py-1.5 px-3.5 text-xs font-700 transition-all flex items-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
+                        style={{ background: "var(--primary)", color: "#ffffff", borderRadius: "20px" }}
                       >
                         <span>🚀</span>
                         <span>팀원 모집</span>
@@ -459,72 +325,68 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
                     )}
                   </div>
                 </div>
-              </div>
+              </WindowPanel>
             );
           })}
         </div>
       ) : (
         /* Compact List View */
-        <div
-          className="border divide-y overflow-hidden"
-          style={{ background: "var(--card)", borderRadius: "var(--radius)", borderColor: "var(--border)" }}
-        >
-          {displayedNotices.map((notice, idx) => {
-            const isScrapped = scrappedLinks.has(notice.link);
-
-            return (
-              <div
-                key={`${notice.id || notice.link}-${idx}`}
-                className="p-3.5 sm:px-5 flex items-center justify-between gap-4 transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    onClick={() => void handleToggleScrap(notice)}
-                    className="text-base shrink-0 cursor-pointer"
-                    title={isScrapped ? "스크랩 취소" : "스크랩"}
-                  >
-                    {isScrapped ? "⭐" : "☆"}
-                  </button>
-
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-800 px-1.5 py-0.2 rounded bg-black/5 dark:bg-white/10" style={{ color: "var(--muted-foreground)" }}>
-                        {notice.categoryLabel || notice.category}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground truncate">{notice.schoolName}</span>
-                    </div>
-                    <a
-                      href={safeLink(notice.link)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs sm:text-sm font-700 truncate block hover:underline"
+        <WindowPanel id="campus-notices-list" title={`소식 ${displayedNotices.length}`} style={cardStyle}>
+          <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+            {displayedNotices.map((notice, idx) => {
+              const isScrapped = scrappedLinks.has(notice.link);
+              return (
+                <div
+                  key={`${notice.id || notice.link}-${idx}`}
+                  className="p-3.5 sm:px-5 flex items-center justify-between gap-4 transition-colors hover:bg-[rgba(74,116,181,.06)]"
+                  style={{ borderColor: "var(--border)" }}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      onClick={() => void handleToggleScrap(notice)}
+                      className="text-base shrink-0 cursor-pointer leading-none"
+                      title={isScrapped ? "스크랩 취소" : "스크랩"}
+                      aria-label={isScrapped ? "스크랩 취소" : "스크랩"}
                     >
-                      {notice.title}
-                    </a>
+                      {isScrapped ? "⭐" : "☆"}
+                    </button>
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-700 px-2 py-0.5" style={{ background: "rgba(15,18,53,.06)", color: "var(--muted-foreground)", borderRadius: "10px" }}>
+                          {notice.categoryLabel || notice.category}
+                        </span>
+                        <span className="text-[10px] truncate" style={{ color: "var(--muted-foreground)" }}>{notice.schoolName}</span>
+                      </div>
+                      <a
+                        href={safeLink(notice.link)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs sm:text-sm font-700 truncate block hover:underline"
+                      >
+                        {notice.title}
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs hidden sm:inline" style={{ color: "var(--muted-foreground)" }}>{notice.postDate}</span>
+                    {/* 공모전 카테고리인 경우에만 게시판 팀원 모집 연동 버튼 노출 */}
+                    {notice.category === "contest" && onRecruitFromNotice && (
+                      <button
+                        onClick={() => onRecruitFromNotice(notice)}
+                        title="게시판에서 팀원 모집하기"
+                        className="px-3 py-1 text-xs font-700 transition-all flex items-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
+                        style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+                      >
+                        <span>🚀</span>
+                        <span className="hidden sm:inline">팀원 모집</span>
+                      </button>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-xs hidden sm:inline" style={{ color: "var(--muted-foreground)" }}>
-                    {notice.postDate}
-                  </span>
-                  {/* 공모전 카테고리인 경우에만 게시판 팀원 모집 연동 버튼 노출 */}
-                  {notice.category === "contest" && onRecruitFromNotice && (
-                    <button
-                      onClick={() => onRecruitFromNotice(notice)}
-                      title="게시판에서 팀원 모집하기"
-                      className="px-2.5 py-1 text-xs font-700 transition-all flex items-center gap-1 cursor-pointer hover:opacity-90 active:scale-95"
-                      style={{ background: "var(--primary)", color: "#fff", borderRadius: "6px" }}
-                    >
-                      <span>🚀</span>
-                      <span className="hidden sm:inline">팀원 모집</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </WindowPanel>
       )}
     </div>
   );

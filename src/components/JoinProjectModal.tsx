@@ -69,7 +69,7 @@ export default function JoinProjectModal({
       >
         <div
           className="w-10 h-10 flex items-center justify-center text-lg font-700 mb-3"
-          style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "12px" }}
+          style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "12px" }}
         >
           →
         </div>
@@ -156,7 +156,7 @@ export default function JoinProjectModal({
               background: preview && !joining && canSubmitProfile ? "var(--primary)" : "var(--border)",
               color: preview && !joining && canSubmitProfile ? "#fff" : "var(--muted-foreground)",
               borderRadius: "40px",
-              boxShadow: preview && !joining && canSubmitProfile ? "0 4px 12px rgba(37,99,235,0.3)" : "none",
+              boxShadow: preview && !joining && canSubmitProfile ? "0 4px 12px rgba(74,116,181,0.3)" : "none",
               cursor: preview && !joining && canSubmitProfile ? "pointer" : "not-allowed",
             }}
           >

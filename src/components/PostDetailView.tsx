@@ -20,6 +20,7 @@ export default function PostDetailView({
   onDeleteComment,
   onToggleLike,
   onDeletePost,
+  onTogglePinned,
   onVotePoll,
   onClosePoll,
   onReported,
@@ -39,6 +40,7 @@ export default function PostDetailView({
   onDeleteComment: (postId: number, commentId: number) => void;
   onToggleLike: (postId: number) => void;
   onDeletePost: (postId: number) => void;
+  onTogglePinned?: (post: BoardPost) => void; // 관리자가 공지사항 글을 필독으로 지정·해제
   onVotePoll?: (pollId: number, optionIds: number[]) => Promise<void>;
   onClosePoll?: (pollId: number) => Promise<void>;
   onReported?: (postId: number) => void;
@@ -103,13 +105,24 @@ export default function PostDetailView({
           <span>목록으로 돌아가기</span>
         </button>
 
+        <div className="flex gap-2">
+        {isAdmin && post.category === "notice" && onTogglePinned && (
+          <button
+            disabled={busy}
+            onClick={() => onTogglePinned(post)}
+            className="text-xs font-700 px-3.5 py-2 transition-all disabled:opacity-50"
+            style={{ background: "rgba(201,98,91,.12)", color: "#8f3a35", borderRadius: "20px" }}
+          >
+            {post.pinned ? "📌 필독 해제" : "📌 필독으로 지정"}
+          </button>
+        )}
         {isAuthor && (
-          <div className="flex gap-2">
+          <>
             {onEditPost && (
               <button
                 onClick={() => onEditPost(post)}
                 className="text-xs font-700 px-3.5 py-2 transition-all"
-                style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "20px" }}
+                style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "20px" }}
               >
                 ✏️ 게시글 수정
               </button>
@@ -122,8 +135,9 @@ export default function PostDetailView({
             >
               🗑️ 게시글 삭제
             </button>
-          </div>
+          </>
         )}
+        </div>
       </div>
 
       {isOperator && <PostReportList postId={post.id} />}

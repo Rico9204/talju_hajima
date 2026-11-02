@@ -18,7 +18,7 @@ export function renderMentionText(text: string, mine: boolean, myName?: string, 
         key={r.start}
         className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded font-700 text-xs transition-all"
         style={{
-          background: mine ? "rgba(255, 255, 255, 0.28)" : isMe ? "rgba(239, 68, 68, 0.18)" : "rgba(37, 99, 235, 0.15)",
+          background: mine ? "rgba(255, 255, 255, 0.28)" : isMe ? "rgba(239, 68, 68, 0.18)" : "rgba(74, 116, 181, 0.15)",
           color: mine ? "#fff" : isMe ? "#ef4444" : "var(--primary)",
           boxShadow: isMe && !mine ? "0 0 0 1px rgba(239, 68, 68, 0.3)" : undefined,
         }}

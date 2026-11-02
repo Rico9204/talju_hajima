@@ -222,7 +222,7 @@ export default function AdminOperatorPanel({ onPendingCountChange }: { onPending
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-700">{acct.displayName}</span>
                     {acct.isOperator && (
-                      <span className="text-xs font-600 px-2 py-0.5" style={{ background: "#3b82f618", color: "#3b82f6", borderRadius: "20px" }}>운영자</span>
+                      <span className="text-xs font-600 px-2 py-0.5" style={{ background: "#4a74b518", color: "#4a74b5", borderRadius: "20px" }}>운영자</span>
                     )}
                     {acct.pendingProjects > 0 && (
                       <span className="text-xs font-600 px-2 py-0.5" style={{ background: "#f59e0b18", color: "#f59e0b", borderRadius: "20px" }}>승인 대기 프로젝트 {acct.pendingProjects}건</span>

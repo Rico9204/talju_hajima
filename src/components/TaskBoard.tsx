@@ -3,6 +3,7 @@ import { useProject, type Member, type TaskStatus, type TaskPriority } from "../
 import TaskDetailPanel from "./TaskDetailPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import Avatar from "./Avatar";
+import WindowPanel from "./WindowPanel";
 
 export function memberInfo(members: Member[], id: string): { name: string; avatar: string; avatarUrl: string | null; color: string } {
   const m = members.find((m) => m.id === id);
@@ -14,15 +15,21 @@ export function memberInfo(members: Member[], id: string): { name: string; avata
 const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = [
   { id: "todo", label: "예정", color: "#454b6e", bg: "#454b6e66" },
   { id: "inprogress", label: "진행 중", color: "var(--status-inprogress)", bg: "var(--status-inprogress-bg)" },
-  { id: "review", label: "검토 중", color: "#f59e0b", bg: "#f59e0b66" },
-  { id: "done", label: "완료", color: "#22c55e", bg: "#22c55e66" },
+  { id: "review", label: "검토 중", color: "#d69a4e", bg: "#d69a4e66" },
+  { id: "done", label: "완료", color: "#5b9a74", bg: "#5b9a7466" },
 ];
 
+// 상태 이동 버튼의 글자색: 바탕(반투명)보다 훨씬 진하게.
+const STATUS_TEXT: Record<TaskStatus, string> = { todo: "#3a4357", inprogress: "#2f4e80", review: "#7a4f12", done: "#2f6b4a" };
+
 const priorityLabel: Record<TaskPriority, { label: string; color: string }> = {
-  high: { label: "긴급", color: "#ef4444" },
-  mid: { label: "보통", color: "#f59e0b" },
-  low: { label: "낮음", color: "#22c55e" },
+  high: { label: "긴급", color: "#c9625b" },
+  mid: { label: "보통", color: "#d69a4e" },
+  low: { label: "낮음", color: "#5b9a74" },
 };
+// 칩 글자는 바탕(반투명)보다 훨씬 진하게 — 배경 사진 위에서도 읽히도록.
+const PRIORITY_TEXT: Record<TaskPriority, string> = { high: "#8f3a35", mid: "#7a4f12", low: "#2f6b4a" };
+const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" };
 
 function daysUntilDue(due: string): number | null {
   if (!due.trim()) return null;
@@ -47,6 +54,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile, markSectionViewed,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
+  const [view, setView] = useState<"board" | "member">("board");
   const [assigneeFilterSearch, setAssigneeFilterSearch] = useState("");
   const [quickAddAssigneeSearch, setQuickAddAssigneeSearch] = useState("");
   const [boardSearch, setBoardSearch] = useState("");
@@ -98,6 +106,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
       (filter === "all" || t.assigneeIds.includes(filter)) &&
       (!boardSearchTrimmed || t.title.toLowerCase().includes(boardSearchTrimmed))
   );
+  const laneTasks = tasks.filter((t) => !boardSearchTrimmed || t.title.toLowerCase().includes(boardSearchTrimmed));
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
 
   function startQuickAdd(col: TaskStatus) {
@@ -140,31 +149,52 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
 
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-6">
-        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          과제 보드 · {project.name}
+      <div className="mb-5">
+        <div className="text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+          과제 보드
         </div>
-        <div className="flex items-end justify-between">
-          <div>
-            <h1 className="text-2xl font-700">Task Board</h1>
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-700">{project.name}</h1>
             <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
               {doneCount}/{tasks.length}개 완료{project.status === "done" && " · 프로젝트 종료 (읽기 전용)"}
             </p>
           </div>
-          {/* Mini progress */}
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-32" style={{ background: "var(--border)", borderRadius: "4px" }}>
-              <div className="h-2" style={{ width: `${tasks.length ? (doneCount / tasks.length) * 100 : 0}%`, background: "linear-gradient(90deg, #2563eb, #22c55e)", borderRadius: "4px" }} />
+          <div className="flex items-center gap-4">
+            <div role="group" aria-label="보기 방식" className="inline-flex p-0.5" style={{ background: "var(--muted)", borderRadius: "20px" }}>
+              {([["board", "보드"], ["member", "팀원별"]] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={view === id}
+                  onClick={() => setView(id)}
+                  className="text-xs font-600 px-3.5 py-1.5 transition-all"
+                  style={{
+                    borderRadius: "16px",
+                    background: view === id ? "var(--surface-opaque)" : "transparent",
+                    color: view === id ? "var(--foreground)" : "var(--muted-foreground)",
+                    boxShadow: view === id ? "0 1px 3px rgba(34,42,58,0.12)" : "none",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <span className="text-xs font-700" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
-              {tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0}%
-            </span>
+            {/* Mini progress */}
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-32" style={{ background: "var(--border)", borderRadius: "4px" }}>
+                <div className="h-2" style={{ width: `${tasks.length ? (doneCount / tasks.length) * 100 : 0}%`, background: "linear-gradient(90deg, #4a74b5, #5b9a74)", borderRadius: "4px" }} />
+              </div>
+              <span className="text-xs font-700" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+                {tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0}%
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Search + filter pills */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
+      <div className={`flex items-center gap-2 flex-wrap ${view === "board" ? "mb-3" : "mb-4"}`}>
         {showBoardSearch && (
           <input
             value={boardSearch}
@@ -174,7 +204,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
             style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
           />
         )}
-        {showAssigneeFilterSearch && (
+        {view === "board" && showAssigneeFilterSearch && (
           <input
             value={assigneeFilterSearch}
             onChange={(e) => setAssigneeFilterSearch(e.target.value)}
@@ -184,7 +214,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           />
         )}
       </div>
-      <div className="flex gap-2 mb-6 flex-wrap">
+      {view === "board" && <div className="flex gap-2 mb-6 flex-wrap">
         {visibleFilterOptions.map((a) => (
           <button
             key={a.id}
@@ -203,29 +233,17 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
         {visibleFilterOptions.length === 0 && (
           <div className="text-xs py-2" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
         )}
-      </div>
+      </div>}
 
       {/* Kanban */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {view === "board" ? (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
         {columns.map((col) => {
           const colTasks = filtered.filter((t) => t.status === col.id);
           const colTasksUnfiltered = tasks.filter((t) => t.status === col.id).length;
           return (
-            <div key={col.id}>
-              {/* Column header */}
-              <div className="flex items-center justify-between mb-3 px-3 py-2.5" style={{ background: col.bg, borderRadius: "12px" }}>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: "#fff" }} />
-                  <span className="text-xs font-700" style={{ color: "#fff" }}>{col.label}</span>
-                </div>
-                <span
-                  className="text-xs font-700 w-5 h-5 flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.85)", color: col.color, borderRadius: "50%", fontFamily: "var(--font-jetbrains)" }}
-                >
-                  {colTasks.length}
-                </span>
-              </div>
-
+            <WindowPanel key={col.id} id={`tasks-col-${col.id}`} title={`${col.label} · ${colTasks.length}`} style={cardStyle} bodyClassName="p-3">
+              <div className="h-[3px] mb-3" style={{ background: col.color, borderRadius: "2px", opacity: 0.85 }} />
               <div className="flex flex-col gap-3 min-h-32">
                 <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1 scrollbar-dark">
                 {colTasks.map((task) => {
@@ -242,7 +260,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                         background: "var(--card-glass)",
                         borderRadius: "var(--radius)",
                         boxShadow: "var(--shadow-card)",
-                        border: urgent ? "1.5px solid #ef4444" : "1.5px solid transparent",
+                        border: urgent ? "1.5px solid #c9625b" : "1.5px solid transparent",
                         backdropFilter: "var(--panel-blur)",
                         WebkitBackdropFilter: "var(--panel-blur)",
                       }}
@@ -251,17 +269,17 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                       <div className="flex items-center gap-1.5 mb-2.5 flex-wrap">
                         <span
                           className="text-xs font-600 px-2 py-0.5"
-                          style={{ background: `${priorityLabel[task.priority].color}15`, color: priorityLabel[task.priority].color, borderRadius: "20px" }}
+                          style={{ background: `${priorityLabel[task.priority].color}24`, color: PRIORITY_TEXT[task.priority], borderRadius: "20px" }}
                         >
                           {priorityLabel[task.priority].label}
                         </span>
                         {urgent && (
-                          <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}>
+                          <span className="text-xs font-700 px-2 py-0.5" style={{ background: "rgba(201,98,91,0.14)", color: "#8f3a35", borderRadius: "20px" }}>
                             {dLeft! < 0 ? "기한 초과" : "마감임박"}
                           </span>
                         )}
                         {task.tags.map((tag) => (
-                          <span key={tag} className="text-xs px-2 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                          <span key={tag} className="text-xs px-2 py-0.5" style={{ background: "rgba(74,116,181,0.12)", color: "#2f4e80", borderRadius: "20px" }}>
                             {tag}
                           </span>
                         ))}
@@ -302,8 +320,8 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                         <span
                           className="text-xs font-600 px-2 py-0.5 shrink-0"
                           style={{
-                            background: urgent ? "#ef444418" : "var(--muted)",
-                            color: urgent ? "#ef4444" : "var(--muted-foreground)",
+                            background: urgent ? "rgba(201,98,91,0.14)" : "var(--muted)",
+                            color: urgent ? "#8f3a35" : "var(--muted-foreground)",
                             borderRadius: "20px",
                             fontFamily: "var(--font-jetbrains)",
                           }}
@@ -336,8 +354,8 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                               <button
                                 key={c.id}
                                 onClick={() => void run(() => moveTask(task.id, c.id), "과제 상태를 바꾸지 못했습니다.")}
-                                className="text-xs px-2.5 py-1 font-600 transition-colors"
-                                style={{ background: c.bg, color: c.color, borderRadius: "20px" }}
+                                className="text-xs px-2.5 py-1 font-800 transition-colors"
+                                style={{ background: c.bg, color: STATUS_TEXT[c.id], borderRadius: "20px" }}
                               >
                                 {c.label} →
                               </button>
@@ -424,10 +442,81 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                   )
                 )}
               </div>
-            </div>
+            </WindowPanel>
           );
         })}
       </div>
+      ) : (
+      <WindowPanel id="tasks-lanes" title="팀원별 · 상태별" collapsible={false} style={cardStyle}>
+        <div className="overflow-x-auto">
+          <div className="min-w-[880px]">
+            <div className="grid grid-cols-[150px_repeat(4,minmax(0,1fr))] gap-3 px-4 pt-3 pb-1 text-[11.5px] font-700" style={{ color: "var(--muted-foreground)" }}>
+              <span />
+              {columns.map((c) => (
+                <span key={c.id} className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full block" style={{ background: c.color }} />{c.label}</span>
+              ))}
+            </div>
+            {team.members.map((m) => {
+              const mine = laneTasks.filter((t) => t.assigneeIds.includes(m.id));
+              const mineDone = mine.filter((t) => t.status === "done").length;
+              return (
+                <div key={m.id} className="grid grid-cols-[150px_repeat(4,minmax(0,1fr))] gap-3 px-4 py-3 items-start" style={{ borderTop: "1px solid var(--border)" }}>
+                  <div className="min-w-0">
+                    <button type="button" onClick={() => openMemberProfile(m.id)} title={`${m.name} 프로필 보기`} className="flex items-center gap-2.5 max-w-full">
+                      <Avatar url={m.avatarUrl} initial={m.avatar} color={m.color} size={32} />
+                      <span className="text-sm font-700 truncate">{m.name}</span>
+                    </button>
+                    <div className="text-[11.5px] mt-1.5 mb-1" style={{ color: "var(--muted-foreground)" }}>{mineDone}/{mine.length} 완료</div>
+                    <div className="h-1.5" style={{ background: "var(--border)", borderRadius: "4px" }} aria-hidden="true">
+                      <div className="h-1.5" style={{ width: `${mine.length ? (mineDone / mine.length) * 100 : 0}%`, background: m.color, borderRadius: "4px" }} />
+                    </div>
+                  </div>
+                  {columns.map((c, index) => {
+                    const cell = mine.filter((t) => t.status === c.id);
+                    return (
+                      <div key={c.id} className="flex flex-col gap-2 min-w-0">
+                        {cell.map((task) => {
+                          const dLeft = daysUntilDue(task.due);
+                          const urgent = task.status !== "done" && dLeft !== null && dLeft <= 3;
+                          return (
+                            <button
+                              key={task.id}
+                              type="button"
+                              onClick={() => setSelectedTaskId(task.id)}
+                              className="text-left p-2.5 transition-colors hover:bg-[var(--muted)]"
+                              style={{ background: "var(--card-glass)", borderRadius: "12px", border: `1.5px solid ${urgent ? "#c9625b" : "transparent"}`, boxShadow: "var(--shadow-card)" }}
+                            >
+                              <span className="block text-[12.5px] font-600 leading-snug">{task.title}</span>
+                              <span className="flex items-center justify-between gap-2 mt-1.5">
+                                <span className="text-[11px] font-600 px-2 py-0.5" style={{ background: `${priorityLabel[task.priority].color}24`, color: PRIORITY_TEXT[task.priority], borderRadius: "20px" }}>
+                                  {priorityLabel[task.priority].label}
+                                </span>
+                                <span
+                                  className="text-[11px] font-600 px-2 py-0.5"
+                                  style={{ background: urgent ? "rgba(201,98,91,0.14)" : "var(--muted)", color: urgent ? "#8f3a35" : "var(--muted-foreground)", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
+                                >
+                                  {task.due ? `~${shortDue(task.due)}` : "미정"}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {mine.length === 0 && index === 0 && (
+                          <span className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>맡은 과제 없음</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <p className="px-4 py-2.5 text-[11px]" style={{ color: "var(--muted-foreground)", borderTop: "1px solid var(--border)" }}>
+          담당자가 여러 명인 과제는 각 담당자 줄에 모두 보여요. 새 과제는 "보드" 보기에서 추가해요.
+        </p>
+      </WindowPanel>
+      )}
 
       {selectedTask && (
         <TaskDetailPanel
