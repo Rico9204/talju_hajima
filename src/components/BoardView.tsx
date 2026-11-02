@@ -17,8 +17,6 @@ interface HoveredImagePreview {
   title: string;
   imageCount: number;
   isBlurred?: boolean;
-  x: number;
-  y: number;
 }
 
 function isImageAttachment(a: { kind: string; mimeType?: string; name?: string; url?: string }): boolean {
@@ -480,57 +478,42 @@ export default function BoardView({
             const firstImageUrl = postImages[0] ?? null;
             const imageCount = postImages.length;
             const fileCount = post.attachments.filter((a) => !isImageAttachment(a)).length;
+            const isHovered = hoveredPreview?.postId === post.id;
             return (
-              <button
+              <div
                 key={post.id}
-                onClick={() => {
-                  setHoveredPreview(null);
-                  void openPostDetail(post);
-                }}
-                onMouseEnter={(e) => {
-                  if (firstImageUrl) {
-                    setHoveredPreview({
-                      postId: post.id,
-                      url: firstImageUrl,
-                      title: post.title,
-                      imageCount,
-                      isBlurred: isPreviewDisabled,
-                      x: e.clientX,
-                      y: e.clientY,
-                    });
-                  }
-                }}
-                onMouseMove={(e) => {
-                  if (firstImageUrl) {
-                    setHoveredPreview((prev) =>
-                      prev && prev.postId === post.id
-                        ? { ...prev, x: e.clientX, y: e.clientY }
-                        : {
-                            postId: post.id,
-                            url: firstImageUrl,
-                            title: post.title,
-                            imageCount,
-                            isBlurred: isPreviewDisabled,
-                            x: e.clientX,
-                            y: e.clientY,
-                          }
-                    );
-                  }
-                }}
-                onMouseLeave={() => {
-                  setHoveredPreview((prev) => (prev?.postId === post.id ? null : prev));
-                }}
-                className="w-full text-left px-4 py-3 transition-all hover:translate-y-[-1px] flex items-center justify-between gap-3 cursor-pointer"
-                style={{
-                  background: "var(--card)",
-                  borderRadius: "var(--radius)",
-                  boxShadow: "var(--shadow-card)",
-                  transform: "translateZ(0)",
-                  backfaceVisibility: "hidden",
-                  WebkitBackfaceVisibility: "hidden",
-                  backgroundClip: "padding-box",
-                }}
+                className={`relative ${isHovered ? "z-30" : "z-0"}`}
               >
+                <button
+                  onClick={() => {
+                    setHoveredPreview(null);
+                    void openPostDetail(post);
+                  }}
+                  onMouseEnter={() => {
+                    if (firstImageUrl) {
+                      setHoveredPreview({
+                        postId: post.id,
+                        url: firstImageUrl,
+                        title: post.title,
+                        imageCount,
+                        isBlurred: isPreviewDisabled,
+                      });
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredPreview((prev) => (prev?.postId === post.id ? null : prev));
+                  }}
+                  className="w-full text-left px-4 py-3 transition-all hover:translate-y-[-1px] flex items-center justify-between gap-3 cursor-pointer"
+                  style={{
+                    background: "var(--card)",
+                    borderRadius: "var(--radius)",
+                    boxShadow: "var(--shadow-card)",
+                    transform: "translateZ(0)",
+                    backfaceVisibility: "hidden",
+                    WebkitBackfaceVisibility: "hidden",
+                    backgroundClip: "padding-box",
+                  }}
+                >
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   {post.pinned && (
                     <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "6px" }}>
@@ -612,7 +595,72 @@ export default function BoardView({
                     </span>
                   </div>
                 </div>
-              </button>
+                </button>
+
+                {isHovered && (
+                  <div
+                    className="absolute left-4 top-full mt-1.5 z-40 pointer-events-none w-[280px] max-w-[calc(100%-2rem)] select-none animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    <div
+                      className="overflow-hidden border backdrop-blur-md"
+                      style={{
+                        background: "var(--card)",
+                        borderColor: "var(--border)",
+                        borderRadius: "14px",
+                        boxShadow: "0 16px 36px -4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08)",
+                      }}
+                    >
+                      <div className="relative bg-black/10 dark:bg-black/30 flex items-center justify-center min-h-[140px] max-h-[190px] overflow-hidden">
+                        <img
+                          src={hoveredPreview.url}
+                          alt={hoveredPreview.title}
+                          className={`w-full h-full object-cover max-h-[190px] transition-all duration-200 ${
+                            hoveredPreview.isBlurred ? "filter blur-xl brightness-75 scale-110" : ""
+                          }`}
+                          loading="eager"
+                        />
+                        {hoveredPreview.isBlurred && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-black/40 backdrop-blur-[1px]">
+                            <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-lg mb-1.5 shadow-lg border border-white/20">
+                              🔒
+                            </div>
+                            <span className="text-xs font-bold text-white drop-shadow-md">
+                              미리보기 방지 적용됨
+                            </span>
+                            <span className="text-[10px] text-white/80 mt-0.5 drop-shadow">
+                              클릭하여 게시글에서 원본 확인
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div
+                        className="px-3 py-2 border-t flex items-center justify-between gap-2"
+                        style={{ borderColor: "var(--border)", background: "var(--card)" }}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs">🖼️</span>
+                          <span className="text-[11px] font-700 truncate" style={{ color: "var(--foreground)" }}>
+                            {hoveredPreview.title}
+                          </span>
+                        </div>
+                        <span
+                          className="text-[10px] font-700 shrink-0 px-1.5 py-0.5 rounded"
+                          style={{
+                            background: hoveredPreview.isBlurred ? "rgba(239, 68, 68, 0.12)" : "rgba(59, 130, 246, 0.12)",
+                            color: hoveredPreview.isBlurred ? "#ef4444" : "#3b82f6",
+                          }}
+                        >
+                          {hoveredPreview.isBlurred
+                            ? "블러 미리보기"
+                            : hoveredPreview.imageCount > 1
+                            ? `이미지 1/${hoveredPreview.imageCount}`
+                            : "이미지 미리보기"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -659,88 +707,7 @@ export default function BoardView({
         </div>
       )}
 
-      {hoveredPreview && (() => {
-        const PREVIEW_WIDTH = 280;
-        const PREVIEW_HEIGHT = 220;
-        let previewLeft = hoveredPreview.x + 18;
-        let previewTop = hoveredPreview.y - 60;
 
-        if (typeof window !== "undefined") {
-          if (previewLeft + PREVIEW_WIDTH > window.innerWidth - 16) {
-            previewLeft = Math.max(16, hoveredPreview.x - PREVIEW_WIDTH - 18);
-          }
-          if (previewTop < 16) {
-            previewTop = 16;
-          } else if (previewTop + PREVIEW_HEIGHT > window.innerHeight - 16) {
-            previewTop = Math.max(16, window.innerHeight - PREVIEW_HEIGHT - 16);
-          }
-        }
-
-        return (
-          <div
-            className="fixed z-50 pointer-events-none transition-transform duration-75 ease-out select-none"
-            style={{
-              left: `${previewLeft}px`,
-              top: `${previewTop}px`,
-              width: `${PREVIEW_WIDTH}px`,
-            }}
-          >
-            <div
-              className="overflow-hidden border backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
-              style={{
-                background: "var(--card)",
-                borderColor: "var(--border)",
-                borderRadius: "14px",
-                boxShadow: "0 16px 36px -4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08)",
-              }}
-            >
-              <div className="relative bg-black/10 dark:bg-black/30 flex items-center justify-center min-h-[140px] max-h-[190px] overflow-hidden">
-                <img
-                  src={hoveredPreview.url}
-                  alt={hoveredPreview.title}
-                  className={`w-full h-full object-cover max-h-[190px] transition-all duration-200 ${
-                    hoveredPreview.isBlurred ? "filter blur-xl brightness-75 scale-110" : ""
-                  }`}
-                  loading="eager"
-                />
-                {hoveredPreview.isBlurred && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-black/40 backdrop-blur-[1px]">
-                    <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-lg mb-1.5 shadow-lg border border-white/20">
-                      🔒
-                    </div>
-                    <span className="text-xs font-bold text-white drop-shadow-md">
-                      미리보기 방지 적용됨
-                    </span>
-                    <span className="text-[10px] text-white/80 mt-0.5 drop-shadow">
-                      클릭하여 게시글에서 원본 확인
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div
-                className="px-3 py-2 border-t flex items-center justify-between gap-2"
-                style={{ borderColor: "var(--border)", background: "var(--card)" }}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-xs">🖼️</span>
-                  <span className="text-[11px] font-700 truncate" style={{ color: "var(--foreground)" }}>
-                    {hoveredPreview.title}
-                  </span>
-                </div>
-                <span
-                  className="text-[10px] font-700 shrink-0 px-1.5 py-0.5 rounded"
-                  style={{
-                    background: hoveredPreview.isBlurred ? "rgba(239, 68, 68, 0.12)" : "rgba(59, 130, 246, 0.12)",
-                    color: hoveredPreview.isBlurred ? "#ef4444" : "#3b82f6",
-                  }}
-                >
-                  {hoveredPreview.isBlurred ? "블러 미리보기" : "이미지 미리보기"}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
