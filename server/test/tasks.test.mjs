@@ -113,6 +113,13 @@ test('다가오는 일정(메인 화면): 내 프로젝트의 오늘 이후 일�
   assert.ok(memberView.some((e) => e.title === '병원') && memberView.some((e) => e.title === '아르바이트')); // 내 일정은 원래 제목
   assert.deepEqual((await call(s.outsider, 'GET', '/me/upcoming-events')).body, []);
 
+  // 프로젝트 일정 목록도 응답에서부터 가린다(주인에게는 원래 제목).
+  const listed = (viewer) => call(viewer, 'GET', `/projects/${s.p}/schedule`).then((r) => r.body.find((e) => e.id === busy.id));
+  assert.equal((await listed(s.leader)).title, '바쁨');
+  assert.equal((await listed(s.member)).title, '아르바이트');
+  assert.equal((await call(s.member, 'PATCH', `/schedule/${busy.id}`, { hideTitle: false })).status, 204);
+  assert.equal((await listed(s.leader)).title, '아르바이트');
+
   for (const e of [future, past, ongoing]) await call(s.leader, 'DELETE', `/schedule/${e.id}`);
   for (const e of [secret, busy]) await call(s.member, 'DELETE', `/schedule/${e.id}`);
 });

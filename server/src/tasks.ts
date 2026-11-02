@@ -44,6 +44,10 @@ class ReactionDto {
   @IsBoolean() active!: boolean;
 }
 
+const MASKED_TITLE_SQL = `(e.scope = 'personal' and e.hide_title and not exists (
+  select 1 from public.members m where m.id = e.owner_member_id and m.user_id = auth.uid())) as masked`;
+const mapVisibleEvent = (row: Record<string, unknown>) => ({ ...mapScheduleEvent(row), title: row.masked ? "바쁨" : row.title });
+
 class ScheduleLinkDto {
   @IsIn(["team", "personal"]) field!: "team" | "personal";
   @ValidateIf((dto: ScheduleLinkDto) => dto.eventId !== null) @IsInt() eventId!: number | null;
@@ -216,10 +220,11 @@ export class TasksController {
   }
 
   // ── 일정 ──
+  // 남의 "제목 숨김" 개인 일정은 응답에서부터 제목을 "바쁨"으로 바꿔 보낸다(화면에서만 가리면 네트워크 응답·툴팁·알림으로 샌다).
   @Get("projects/:projectId/schedule")
   listEvents(@UserId() userId: string, @Param("projectId") projectId: string) {
     return this.db.asUser(userId, async (query) =>
-      (await selectJson(query, "select * from public.schedule_events where project_id = $1 order by date, id", [projectId])).map(mapScheduleEvent));
+      (await selectJson(query, `select e.*, ${MASKED_TITLE_SQL} from public.schedule_events e where e.project_id = $1 order by e.date, e.id`, [projectId])).map(mapVisibleEvent));
   }
 
   // 메인 화면 프로젝트 카드용: 내가 참여한 모든 프로젝트의 오늘(한국 시간) 이후 일정. 볼 수 있는 일정은 권한 규칙이 정하고,
@@ -228,17 +233,14 @@ export class TasksController {
   upcomingEvents(@UserId() userId: string) {
     return this.db.asUser(userId, async (query) =>
       (await selectJson(query, `
-        select e.*, p.name as project_name,
-          (e.scope = 'personal' and e.hide_title and not exists (
-            select 1 from public.members m where m.id = e.owner_member_id and m.user_id = auth.uid())) as masked
+        select e.*, p.name as project_name, ${MASKED_TITLE_SQL}
         from public.schedule_events e
         join public.projects p on p.id = e.project_id
         where e.project_id in (select project_id from public.members where user_id = auth.uid())
           and coalesce(e.end_date, e.date) >= ${TODAY_SQL}
         order by e.date, e.id
         limit 300`)).map((row) => ({
-        ...mapScheduleEvent(row),
-        title: row.masked ? "바쁨" : row.title,
+        ...mapVisibleEvent(row),
         projectId: row.project_id,
         projectName: row.project_name,
       })));
