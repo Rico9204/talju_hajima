@@ -254,6 +254,18 @@ export default function BoardView({
     }
   }
 
+  async function handleTogglePinned(post: BoardPost) {
+    try {
+      await dataRepository.setBoardPostPinned(post.id, !post.pinned);
+      const pinned = !post.pinned;
+      // 목록은 서버처럼 필독이 위로 오게 다시 정렬한다.
+      setPosts((prev) => prev.map((p) => (p.id === post.id ? { ...p, pinned } : p)).sort((x, y) => Number(y.pinned) - Number(x.pinned) || y.createdAt.localeCompare(x.createdAt)));
+      setSelectedPost((prev) => (prev && prev.id === post.id ? { ...prev, pinned } : prev));
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+
   async function handleClosePoll(pollId: number) {
     try {
       await dataRepository.closeBoardPoll(pollId);
@@ -346,6 +358,7 @@ export default function BoardView({
         onDeleteComment={handleDeleteComment}
         onToggleLike={handleToggleLike}
         onDeletePost={handleDeletePost}
+        onTogglePinned={handleTogglePinned}
         onVotePoll={handleVotePoll}
         onClosePoll={handleClosePoll}
         onReported={(postId) => {

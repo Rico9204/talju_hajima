@@ -140,6 +140,7 @@ export class RestDataRepository implements DataRepository {
   async uploadBoardAttachment(file: File) { return this.upload("/board/attachments", file) as Promise<BoardAttachment>; }
   castBoardPollVote(pollId: number, optionIds: number[]) { return this.api.request<BoardPoll>(`/board/polls/${pollId}/votes`, { method: "POST", body: JSON.stringify({ optionIds }) }); }
   closeBoardPoll(pollId: number) { return this.api.request<void>(`/board/polls/${pollId}/close`, { method: "POST" }); }
+  setBoardPostPinned(postId: number, pinned: boolean) { return this.api.request<void>(`/board/posts/${postId}/pinned`, { method: "PUT", body: JSON.stringify({ pinned }) }); }
   reportBoardPost(postId: number, reason: BoardReportReason, detail: string) { return this.api.request<void>(`/board/posts/${postId}/reports`, { method: "POST", body: JSON.stringify({ reason, detail }) }); }
   listBoardPostReports(postId: number) { return this.api.request<BoardPostReport[]>(`/board/posts/${postId}/reports`); }
   listAllBoardReports() { return this.api.request<BoardPostReport[]>("/board/reports"); }

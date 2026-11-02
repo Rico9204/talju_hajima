@@ -103,6 +103,10 @@ class VoteDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsInt({ each: true }) optionIds!: number[];
 }
 
+class PinnedDto {
+  @IsBoolean() pinned!: boolean;
+}
+
 class ReportDto {
   @IsIn(REASONS) reason!: string;
   @IsString() @MaxLength(1000) detail!: string;
@@ -230,6 +234,13 @@ export class BoardController {
       const sets = [...columns.map((c, i) => `${c} = $${i + 2}${cast[c] ?? ""}`), "updated_at = now()"].join(", ");
       await query(`update public.board_posts set ${sets} where id = $1`, [postId, ...columns.map((c) => updates[c])]);
     });
+  }
+
+  // 필독 지정·해제: 관리자만, 공지사항 글만(DB 함수가 검사한다).
+  @Put("posts/:postId/pinned")
+  @HttpCode(204)
+  async setPinned(@UserId() userId: string, @Param("postId", ParseIntPipe) postId: number, @Body() body: PinnedDto) {
+    await this.db.asUser(userId, (query) => query("select public.set_board_post_pinned($1::bigint, $2)", [postId, body.pinned]));
   }
 
   @Delete("posts/:postId")

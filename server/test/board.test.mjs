@@ -1,6 +1,7 @@
 // 게시판 API: 글(+투표)·좋아요·조회수·댓글/답글·투표/마감·수정 권한·신고(운영자만 열람·처리)·삭제.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createTestDb, signupUsers, startApp } from './helpers.mjs';
 
 let pg, db, app, api;
@@ -162,4 +163,41 @@ test('본문 정리: 저장 전에 스크립트·이벤트 속성·위험한 링
   assert.match(saved, /<strong>굵게<\/strong>/);
   assert.equal((await call(author, 'PATCH', `/board/posts/${created.body.id}`, { content: '<p>고침<img src=x onerror=alert(1)></p>' })).status, 204);
   assert.equal((await call(reader, 'GET', `/board/posts/${created.body.id}/content`)).body.content, '<p>고침</p>');
+});
+
+test('필독: 관리자만·공지사항 글만, 직접 수정은 막히고 공지사항에서 옮기면 풀린다', async () => {
+  const [admin, writer] = await signupUsers(api, 2, 'pin');
+  await pg.query('update profiles set is_admin = true where id = $1', [admin.id]);
+  await pg.exec(readFileSync(new URL('../../supabase/migrations/2611031300_board_post_pinned.sql', import.meta.url), 'utf8')); // 이미 적용된 DB에도 안전
+  const notice = (await call(admin, 'POST', '/board/posts', { category: 'notice', title: '공지', content: 'x', attachments: [] })).body;
+  const mine = (await call(writer, 'POST', '/board/posts', { category: 'free', title: '내 글', content: 'x', attachments: [] })).body;
+  const pin = (user, id, pinned) => call(user, 'PUT', `/board/posts/${id}/pinned`, { pinned });
+
+  assert.equal((await pin(writer, mine.id, true)).status >= 400, true, '일반 사용자는 자기 글도 불가');
+  assert.equal((await pin(admin, mine.id, true)).status >= 400, true, '공지사항이 아닌 글은 불가');
+  assert.equal((await pin(writer, notice.id, true)).status >= 400, true, '일반 사용자는 공지사항도 불가');
+  assert.equal((await pin(admin, 999999, false)).status >= 400, true, '없는 글');
+  assert.equal((await pin(admin, notice.id, true)).status, 204);
+  assert.equal((await call(writer, 'GET', '/board/posts')).body[0].id, notice.id); // 필독이 맨 위
+  assert.equal((await pin(admin, notice.id, false)).status, 204);
+  assert.equal((await call(writer, 'GET', '/board/posts')).body.find((p) => p.id === notice.id).pinned, false);
+
+  // 글쓴이가 서버를 거치지 않고 직접 고쳐도 막힌다. 제목 수정은 되므로, 막힌 이유가 필독 때문임을 함께 확인한다.
+  await pg.query("select set_config('request.jwt.claim.sub', $1, false)", [writer.id]);
+  await pg.exec('set role authenticated');
+  try {
+    assert.equal((await pg.query('update public.board_posts set title = $2 where id = $1 returning title', [mine.id, '고친 제목'])).rows[0].title, '고친 제목');
+    await assert.rejects(pg.query('update public.board_posts set pinned = true where id = $1', [mine.id]), /필독/);
+    await assert.rejects(pg.query("insert into public.board_posts(category, title, content, author_user_id, pinned) values ('free', 't', 'c', $1, true)", [writer.id]), /필독/);
+  } finally {
+    await pg.exec('reset role');
+    await pg.query("select set_config('request.jwt.claim.sub', '', false)");
+  }
+
+  // 필독인 채로 공지사항에서 옮기면 저절로 풀린다.
+  assert.equal((await pin(admin, notice.id, true)).status, 204);
+  assert.equal((await call(admin, 'PATCH', `/board/posts/${notice.id}`, { category: 'free' })).status, 204);
+  const moved = (await call(writer, 'GET', '/board/posts')).body.find((p) => p.id === notice.id);
+  assert.equal(moved.category, 'free');
+  assert.equal(moved.pinned, false);
 });
