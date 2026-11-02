@@ -4,6 +4,8 @@ import { codeLanguageOf } from "../lib/codeHighlight";
 import { lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 const PdfSearchPreview = lazy(() => import("./PdfSearchPreview"));
+const PresentationModal = lazy(() => import("./PresentationModal"));
+import { isPresentationFile } from "./PresentationModal";
 import FileUploadDialog from "./FileUploadDialog";
 import VersionPageView from "./VersionPageView";
 import VersionCalendar from "./VersionCalendar";
@@ -65,6 +67,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
   const textCache = useRef(new Map<number, string | null>());
   const [preview, setPreview] = useState<{ url?: string; text?: string; html?: string; entries?: ZipEntry[]; kind: string; name: string } | null>(null);
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [showPresentation, setShowPresentation] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
   const mounted = useRef(true);
@@ -249,6 +252,20 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
             <div className="text-sm font-700 truncate mt-0.5">{preview.name}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {isPresentationFile(preview.name) && (
+              <button
+                type="button"
+                onClick={() => {
+                  closePreview();
+                  setShowPresentation(true);
+                }}
+                className="h-8 px-2.5 border rounded text-xs font-700 bg-indigo-600/15 border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600/25 flex items-center gap-1.5 cursor-pointer"
+                title="발표 모드로 전환 (전체화면)"
+              >
+                <span>🖥️</span>
+                <span>발표 모드</span>
+              </button>
+            )}
             <button type="button" onClick={openPreviewInNewWindow} className="h-8 px-2.5 border rounded text-xs font-600">새 창에서 보기</button>
             <button type="button" onClick={() => setPreviewZoom((value) => Math.max(0.75, Number((value - 0.25).toFixed(2))))} aria-label="미리보기 축소" className="w-8 h-8 border rounded">−</button>
             <button type="button" onClick={() => setPreviewZoom(1)} className="min-w-14 h-8 border rounded text-xs">{Math.round(previewZoom * 100)}%</button>
@@ -270,5 +287,10 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
         </div>
       </section>
     </div>, document.body)}
+    {showPresentation && (
+      <Suspense fallback={null}>
+        <PresentationModal file={file} onClose={() => setShowPresentation(false)} />
+      </Suspense>
+    )}
   </div>;
 }

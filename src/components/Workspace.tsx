@@ -50,6 +50,8 @@ const tagColors: Record<string, string> = {
 // 문서 편집기(TipTap)는 무거워서 문서를 열 때만 불러온다.
 const DocEditorModal = lazy(() => import("./DocEditorModal"));
 const SlidesEditorModal = lazy(() => import("./SlidesEditorModal"));
+const PresentationModal = lazy(() => import("./PresentationModal"));
+import { isPresentationFile } from "./PresentationModal";
 
 // 앱 안에서 함께 편집하는 파일 종류: 문서(.rtdoc), 슬라이드(.slides)
 type CollabFileKind = "doc" | "slides";
@@ -145,6 +147,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     target?: { kind: "folder"; folder: Folder } | { kind: "file"; file: WorkspaceFile } | null;
   } | null>(null);
   const [showDetailsPane, setShowDetailsPane] = useState(true);
+  const [presentingFile, setPresentingFile] = useState<WorkspaceFile | null>(null);
   const newMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -931,6 +934,27 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             </div>
           )}
 
+          {/* Quick presentation button for selected file */}
+          {(() => {
+            const candidate = selFile ?? (visibleSelected.length === 1 ? visibleSelected[0] : null);
+            if (!candidate || !isPresentationFile(candidate.name)) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => setPresentingFile(candidate)}
+                className="flex items-center gap-1.5 text-xs font-700 px-3 py-1.5 rounded-lg border transition-all cursor-pointer shadow-xs text-white hover:brightness-110 active:scale-95"
+                style={{
+                  background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+                  borderColor: "transparent",
+                }}
+                title={`${candidate.name} 전체화면 발표 시작`}
+              >
+                <span>🖥️</span>
+                <span>발표</span>
+              </button>
+            );
+          })()}
+
           {/* Multi-selection toggle */}
           {filtered.some(canDeleteFile) && visibleSelected.length === 0 && (
             <button
@@ -1305,6 +1329,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   onDoubleClick={() => {
                     const collabKind = collabKindOf(f.name);
                     if (collabKind || isCodeFile(f.name)) void startQuickEdit(f, "main");
+                    else if (isPresentationFile(f.name)) setPresentingFile(f);
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -1314,7 +1339,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     const y = Math.min(e.clientY, window.innerHeight - 300);
                     setContextMenu({ x, y, target: { kind: "file", file: f } });
                   }}
-                  title={!locked && !selectMode ? "클릭하여 선택 · 더블클릭하여 편집 · 우클릭하여 메뉴 열기" : "클릭하여 선택"}
+                  title={!locked && !selectMode ? (isPresentationFile(f.name) ? "클릭하여 선택 · 더블클릭하여 발표 모드 · 우클릭하여 메뉴 열기" : "클릭하여 선택 · 더블클릭하여 편집 · 우클릭하여 메뉴 열기") : "클릭하여 선택"}
                   className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer"
                   style={{
                     background: isSelected ? "var(--primary)15" : "transparent",
@@ -1498,6 +1523,20 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     <div>크기: {selFile.size} · 버전 {selFile.versions.length}개</div>
                     <div>최근 수정: {latestFileUploadTime(selFile)} · 올린 사람: {selFile.uploader}</div>
                   </div>
+
+                  {isPresentationFile(selFile.name) && (
+                    <div className="mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setPresentingFile(selFile)}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-700 text-white shadow-xs transition-all hover:brightness-110 active:scale-[0.98] cursor-pointer"
+                        style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+                      >
+                        <span className="text-sm">🖥️</span>
+                        <span>프레젠테이션 / 발표 시작</span>
+                      </button>
+                    </div>
+                  )}
 
                   {!locked && (
                     <label className="flex items-center gap-2 text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>
@@ -1751,6 +1790,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <span>👁️</span>
                   <span>세부 정보 및 버전 보기</span>
                 </button>
+                {isPresentationFile(file.name) && (
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); setPresentingFile(file); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-indigo-600 dark:text-indigo-400"
+                  >
+                    <span>🖥️</span>
+                    <span>발표 모드로 열기 (전체화면)</span>
+                  </button>
+                )}
                 {collabKind && (
                   <button
                     type="button"
@@ -1847,6 +1896,15 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               />
             );
           })()}
+        </Suspense>
+      )}
+
+      {presentingFile && (
+        <Suspense fallback={null}>
+          <PresentationModal
+            file={presentingFile}
+            onClose={() => setPresentingFile(null)}
+          />
         </Suspense>
       )}
 
