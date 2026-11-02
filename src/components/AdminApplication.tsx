@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useConfirm } from "./ConfirmDialog";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useProjectManagement } from "../context/ProjectContext";
@@ -31,6 +32,10 @@ export default function AdminApplication() {
   const { user, signOut } = useAuth();
   const { isAdmin, getMyAdminApplication, submitAdminApplication } = useProjectManagement();
   const navigate = useNavigate();
+  const [ask, confirmDialog] = useConfirm();
+  async function confirmSignOut() {
+    if (await ask({ title: "로그아웃할까요?", message: "이 기기에서 로그아웃돼요. 다시 쓰려면 로그인해야 해요.", confirmLabel: "로그아웃" })) signOut();
+  }
   const [application, setApplication] = useState<MyAdminApplication | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
   const form = useAdminApplicationForm();
@@ -84,6 +89,7 @@ export default function AdminApplication() {
 
   return (
     <div className="h-full w-full overflow-y-auto" style={{ background: "var(--background)" }}>
+      {confirmDialog}
       <div className="max-w-xl mx-auto p-4 md:p-6">
         <div className="flex items-center justify-between gap-3 mb-5">
           <div>
@@ -96,7 +102,7 @@ export default function AdminApplication() {
             <button onClick={() => navigate("/home")} className="text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
               홈으로
             </button>
-            <button onClick={signOut} className="text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
+            <button onClick={() => void confirmSignOut()} className="text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
               로그아웃
             </button>
           </div>

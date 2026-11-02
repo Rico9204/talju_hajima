@@ -6,6 +6,7 @@ import Avatar from "./Avatar";
 import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
 import Settings from "./Settings";
+import { useConfirm } from "./ConfirmDialog";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 
 // 왼쪽 아래 내 카드. 누르면 디스코드처럼 위로 메뉴가 열리고, 고른 항목의 편집 화면을 바로 연다.
@@ -24,6 +25,10 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
   const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ask, confirmDialog] = useConfirm();
+  async function confirmSignOut() {
+    if (await ask({ title: "로그아웃할까요?", message: "이 기기에서 로그아웃돼요. 다시 쓰려면 로그인해야 해요.", confirmLabel: "로그아웃" })) signOut();
+  }
 
   useEffect(() => {
     if (!open && !settingsOpen) return;
@@ -43,6 +48,7 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
 
   return (
     <div className="relative z-30 mt-4">
+      {confirmDialog}
       {open && <>
         <div className="fixed inset-0" onClick={() => setOpen(false)} />
         <div role="menu" aria-label="내 계정 메뉴" className="absolute bottom-full left-0 right-0 mb-2 py-2"
@@ -65,7 +71,7 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
           <button type="button" role="menuitem" onClick={() => { setOpen(false); setSettingsOpen(true); }} className={itemClass}>
             <span aria-hidden="true">⚙️</span>설정
           </button>
-          <button type="button" role="menuitem" onClick={signOut} className={itemClass} style={{ color: "#ef4444" }}>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); void confirmSignOut(); }} className={itemClass} style={{ color: "#ef4444" }}>
             <span aria-hidden="true">↪</span>로그아웃
           </button>
         </div>

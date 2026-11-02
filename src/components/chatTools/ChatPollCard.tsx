@@ -128,8 +128,8 @@ export default function ChatPollCard({
             <span
               className="px-2 py-0.5 rounded-full text-[11px]"
               style={{
-                background: "rgba(59, 130, 246, 0.12)",
-                color: "#3b82f6",
+                background: "rgba(74, 116, 181, 0.12)",
+                color: "#4a74b5",
               }}
             >
               복수 선택
@@ -194,7 +194,7 @@ export default function ChatPollCard({
                   style={{
                     width: `${percent}%`,
                     background: isLeading
-                      ? "linear-gradient(90deg, rgba(168, 85, 247, 0.2), rgba(59, 130, 246, 0.2))"
+                      ? "linear-gradient(90deg, rgba(168, 85, 247, 0.2), rgba(74, 116, 181, 0.2))"
                       : "var(--muted)",
                     opacity: 0.6,
                   }}

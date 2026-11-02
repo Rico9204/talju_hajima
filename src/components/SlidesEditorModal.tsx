@@ -271,7 +271,7 @@ function SlideCanvas({ doc, slide, loader, selectedId, editingId, onSelect, onSt
         const isImage = str(el, "type") === "image";
         return (
           <div key={id} onMouseDown={(e) => { if (!editing) track(e, el, "move"); }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); if (!isImage) onStartEdit(id); }}
-            className="absolute" style={{ left: `${num(el, "x")}%`, top: `${num(el, "y")}%`, width: `${w}%`, height: `${num(el, "h")}%`, cursor: editing ? "text" : "move", outline: selected ? "2px solid #2563eb" : "1px dashed transparent" }}>
+            className="absolute" style={{ left: `${num(el, "x")}%`, top: `${num(el, "y")}%`, width: `${w}%`, height: `${num(el, "h")}%`, cursor: editing ? "text" : "move", outline: selected ? "2px solid #4a74b5" : "1px dashed transparent" }}>
             {isImage ? (
               <SlideImage loader={loader} versionId={num(el, "versionId")} />
             ) : editing ? (
@@ -284,7 +284,7 @@ function SlideCanvas({ doc, slide, loader, selectedId, editingId, onSelect, onSt
             {selected && !editing && (
               <>
                 <button type="button" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDelete(id); }} aria-label={isImage ? "이미지 삭제" : "글상자 삭제"} className="absolute -top-3 -right-3 w-5 h-5 rounded-full text-[10px] flex items-center justify-center" style={{ background: "#ef4444", color: "#fff" }}>×</button>
-                <div onMouseDown={(e) => track(e, el, "resize")} aria-label="크기 조절" className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full" style={{ background: "#2563eb", cursor: "nwse-resize" }} />
+                <div onMouseDown={(e) => track(e, el, "resize")} aria-label="크기 조절" className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-full" style={{ background: "#4a74b5", cursor: "nwse-resize" }} />
               </>
             )}
           </div>
@@ -349,7 +349,7 @@ function TextBoxEditor({ doc, ytext, onBlur }: { doc: Y.Doc; ytext: Y.Text; onBl
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       className="w-full h-full p-1 outline-none resize-none"
-      style={{ fontSize: 13, background: "rgba(37,99,235,0.06)", color: "#111" }}
+      style={{ fontSize: 13, background: "rgba(74,116,181,0.06)", color: "#111" }}
     />
   );
 }

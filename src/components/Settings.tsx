@@ -89,48 +89,41 @@ function SectionHeader({ title, hint, badge }: { title: string; hint: string; ba
 }
 
 function GraphicsSettings() {
-  const [, setThemeMode, isDark] = useThemeMode();
+  const [themeMode, setThemeMode, isDark] = useThemeMode();
   const [mode, setMode] = usePerformanceMode();
   return (
     <div className="space-y-6">
       <div>
-        <SectionHeader title="화면 테마" hint="눈의 피로를 덜어주는 다크 모드를 켜거나 끌 수 있습니다" badge="자동 저장됨" />
-        <div
-          className="p-3.5 rounded-xl border flex items-center justify-between gap-4 transition-all"
-          style={{ background: "var(--card)", borderColor: "var(--border)" }}
-        >
-          <div className="flex items-center gap-3">
-            <span
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 transition-transform"
-              style={{ background: isDark ? "rgba(59, 130, 246, 0.18)" : "var(--muted)" }}
-            >
-              {isDark ? "🌙" : "☀️"}
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm" style={{ color: "var(--foreground)" }}>
-                  다크 모드
-                </span>
-                <span
-                  className="text-[10px] px-1.5 py-0.5 font-bold rounded-full transition-colors"
-                  style={{
-                    background: isDark ? "var(--primary)" : "var(--muted)",
-                    color: isDark ? "#fff" : "var(--muted-foreground)",
-                  }}
-                >
-                  {isDark ? "켜짐" : "꺼짐"}
-                </span>
-              </div>
-              <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-                {isDark ? "어둡고 눈이 편안한 테마 사용 중" : "화사하고 밝은 기본 테마 사용 중"}
-              </div>
-            </div>
-          </div>
-          <ToggleSwitch
-            checked={isDark}
-            onClick={() => setThemeMode(isDark ? "light" : "dark")}
-            label="다크 모드 켜기/끄기"
-          />
+        <SectionHeader title="화면 테마" hint="라이트·다크 중에서 고르거나, 내 배경에 맞춰 자동으로 바꾸는 적응형을 쓸 수 있습니다" badge="자동 저장됨" />
+        <div className="grid gap-2.5 sm:grid-cols-3">
+          {([
+            { value: "light", icon: "☀️", title: "라이트", desc: "화사하고 밝은 기본 테마" },
+            { value: "dark", icon: "🌙", title: "다크", desc: "어둡고 눈이 편안한 테마" },
+            { value: "adaptive", icon: "🌗", title: "적응형", desc: "내 배경이 어두우면 다크, 밝으면 라이트로 자동 전환" },
+          ] as const).map((option) => {
+            const selected = themeMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setThemeMode(option.value)}
+                aria-pressed={selected}
+                className="text-left p-3.5 transition-colors cursor-pointer"
+                style={{ borderRadius: "12px", border: selected ? "2px solid var(--primary)" : "1px solid var(--border)", background: selected ? "color-mix(in srgb, var(--primary) 8%, var(--card-glass))" : "var(--card)" }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{option.icon}</span>
+                  <span className="font-bold text-sm" style={{ color: "var(--foreground)" }}>{option.title}</span>
+                  {selected && option.value === "adaptive" && (
+                    <span className="text-[10px] px-1.5 py-0.5 font-bold rounded-full" style={{ background: "var(--primary)", color: "#fff" }}>
+                      지금 {isDark ? "다크" : "라이트"}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs mt-1.5" style={{ color: "var(--muted-foreground)" }}>{option.desc}</div>
+              </button>
+            );
+          })}
         </div>
       </div>
 

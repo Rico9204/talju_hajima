@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { useOptionalProject } from "../context/ProjectContext";
 import { usePerformanceMode } from "./performancePreferences";
-import { useThemeMode } from "./themePreferences";
+import { saveAdaptiveDark, useThemeMode } from "./themePreferences";
+import { backgroundIsDark, backgroundLuminance, glassWantsLightText } from "./backgroundLuminance";
 import { useStillUrl } from "./useStillUrl";
 
 // Shared by every top-level page shell (Layout in App.tsx, Home.tsx) so the
@@ -12,11 +13,26 @@ export function useAccountBackground() {
   // 프로젝트가 없는 화면에서도 쓰므로(게시판 등) 팀원 정보가 없으면 기본 배경.
   const currentMember = useOptionalProject()?.currentMember ?? null;
   const [performanceMode] = usePerformanceMode();
-  const [, , isDark] = useThemeMode();
+  const [themeMode, , isDark] = useThemeMode();
   const backgroundImage = useStillUrl(currentMember?.backgroundImageUrl); // GIF frozen unless 고급 mode
   const hasCustomBackground = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient || currentMember?.backgroundColor);
   const needsBackgroundFilter = !!(currentMember?.backgroundImageUrl || currentMember?.backgroundGradient);
   const backgroundBlur = Math.min(40, Math.max(0, currentMember?.glassBlur ?? 2));
+
+  // 배경 밝기를 잰다(잴 수 없으면 이전 결과 유지): 적응형이면 어두울 때 다크, 라이트 모드면 어두운 배경 위 글자만 밝게.
+  const glassOpacity = currentMember?.glassOpacity ?? 32;
+  useEffect(() => {
+    if (themeMode === "dark") return;
+    let active = true;
+    void backgroundLuminance({
+      imageUrl: currentMember?.backgroundImageUrl,
+      gradient: currentMember?.backgroundGradient,
+      color: currentMember?.backgroundColor,
+    }).then((lum) => {
+      if (active && lum !== null) saveAdaptiveDark(backgroundIsDark(lum), glassWantsLightText(lum, glassOpacity / 100));
+    });
+    return () => { active = false; };
+  }, [themeMode, currentMember?.backgroundImageUrl, currentMember?.backgroundGradient, currentMember?.backgroundColor, glassOpacity]);
 
   // Priority: custom background image > gradient preset > solid color preset > default.
   // A dark overlay is blended into the image so the glass cards above it stay legible.

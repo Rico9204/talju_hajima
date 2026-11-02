@@ -1,14 +1,18 @@
 import StillImg from "./StillImg";
 import ConfirmDialog from "./ConfirmDialog";
+import WindowPanel from "./WindowPanel";
 import { useEffect, useRef, useState } from "react";
 import { useProject, type ScheduleEventType, type ScheduleEventScope, type ScheduleEventVisibility, type ScheduleEvent } from "../context/ProjectContext";
 
 const typeMeta: Record<ScheduleEventType, { label: string; color: string }> = {
-  deadline: { label: "마감", color: "#ef4444" },
-  meeting: { label: "회의", color: "#2563eb" },
-  presentation: { label: "발표", color: "#f59e0b" },
-  other: { label: "기타", color: "#8b5cf6" },
+  deadline: { label: "마감", color: "#c9625b" },
+  meeting: { label: "회의", color: "#4a74b5" },
+  presentation: { label: "발표", color: "#d69a4e" },
+  other: { label: "기타", color: "#7e74b8" },
 };
+// 칸 안 칩의 글자색: 바탕(반투명)보다 훨씬 진하게 — 배경 사진 위에서도 읽히도록.
+const TYPE_TEXT: Record<ScheduleEventType, string> = { deadline: "#8f3a35", meeting: "#2f4e80", presentation: "#7a4f12", other: "#54498f" };
+const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" };
 
 // 기기 시간대 기준 오늘(YYYY-MM-DD). toISOString()은 UTC라 한국 시간 새벽 0~9시에 전날이 된다.
 function todayISO() {
@@ -187,6 +191,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false); // 삭제 확인 창
+  const [formOpen, setFormOpen] = useState(false); // "＋ 일정 추가" 창
   async function runAction(action: () => Promise<void>) {
     if (busy) return; setBusy(true); setActionError(null);
     try { await action(); } catch (err) { setActionError(err && typeof err === "object" && "message" in err ? String(err.message) : "일정을 저장하지 못했습니다."); }
@@ -289,6 +294,16 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   function cancelEdit() {
     resetForm();
     setSelectedEventId(null);
+    setFormOpen(false);
+  }
+
+  // "＋ 일정 추가"(머리글) 또는 "＋ 이 날 일정 추가"(날짜 선택 패널)에서 추가 창을 연다.
+  function openAddForm(day?: string) {
+    if (locked) return;
+    resetForm();
+    setSelectedEventId(null);
+    if (day) setDate(day);
+    setFormOpen(true);
   }
 
   const visibleToMe = scheduleEvents.filter(
@@ -372,6 +387,76 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
     (e) => !memberSearchTrimmed || displayTitle(e).toLowerCase().includes(memberSearchTrimmed) || ownerName(e).toLowerCase().includes(memberSearchTrimmed)
   );
 
+  const agendaEnded = (e: ScheduleEvent) => daysUntil(e.endDate ?? e.date, today) < 0;
+  const agendaGroups = [
+    { label: "7일 이내", items: searchableAgenda.filter((e) => !agendaEnded(e) && daysUntil(e.date, today) <= 7) },
+    { label: "그 이후", items: searchableAgenda.filter((e) => !agendaEnded(e) && daysUntil(e.date, today) > 7) },
+    { label: "지난 일정", items: searchableAgenda.filter(agendaEnded).reverse() },
+  ].filter((group) => group.items.length > 0);
+  const agendaTitle = (selectedDay ? `${formatDayLabel(selectedDay)} 일정` : "다가오는 일정") + (authorFilter ? ` · ${team.members.find((m) => m.id === authorFilter)?.name ?? ""} 작성` : "");
+  const formVisible = !locked && (formOpen || editingId !== null);
+  const [monthYear, monthNumber] = month.split("-");
+
+  const renderAgendaRow = (e: ScheduleEvent) => {
+                const meta = typeMeta[e.type];
+                const d = daysUntil(e.date, today);
+                const isMine = e.scope === "personal" && e.ownerMemberId === currentMember?.id;
+                const editable = !locked && canEdit(e);
+                return (
+                  <div
+                    key={e.id}
+                    onClick={() => {
+                      if (editable) {
+                        startEdit(e);
+                      } else {
+                        resetForm();
+                        setSelectedEventId((prev) => (prev === e.id ? null : e.id));
+                      }
+                    }}
+                    className="flex items-center justify-between p-2.5 transition-all"
+                    style={{
+                      background: selectedEventId === e.id ? "var(--secondary)" : "var(--muted)",
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                      boxShadow: selectedEventId === e.id ? "inset 0 0 0 1px var(--primary)" : "none",
+                    }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color, opacity: e.scope === "personal" && e.visibility === "private" ? 0.5 : 1 }} />
+                      <div className="min-w-0">
+                        <div className="text-xs font-600 truncate">{displayTitle(e)}</div>
+                        <div className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+                          {e.date}{e.endDate ? ` ~ ${e.endDate}` : ""} · {meta.label}
+                          {e.scope === "personal" && !isMine ? ` · ${ownerName(e)}님 개인일정` : ""}
+                          {e.scope === "personal" && isMine ? ` · ${e.visibility === "private" ? "나만 보기" : "팀에 공유"}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                    {!locked && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {editable && (
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted-foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                          </svg>
+                        )}
+                        <span
+                          className="text-xs font-700 px-2 py-0.5 shrink-0"
+                          style={{
+                            background: d >= 0 && d <= 7 ? `${meta.color}20` : "var(--card)",
+                            color: d >= 0 && d <= 7 ? meta.color : "var(--muted-foreground)",
+                            borderRadius: "20px",
+                            fontFamily: "var(--font-jetbrains)",
+                          }}
+                        >
+                          {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+  };
+
   async function handleSubmit() {
     if (!title.trim() || !date.trim() || locked) return;
     // 시작일을 나중에 바꾸면 종료일이 더 빨라질 수 있다(날짜 선택기의 min만으로는 못 막음). YYYY-MM-DD라 문자열로 비교된다.
@@ -410,47 +495,70 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto">
-      <div className="mb-5">
-        <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-          일정 · {project.name}
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
+      <div className="mb-5 flex items-end justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
+            일정
+          </div>
+          <h1 className="text-2xl font-700">{project.name}</h1>
+          <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+            마감·회의·발표 일정을 한눈에 확인하세요{locked && " · 종료된 프로젝트 (읽기 전용)"}
+          </p>
         </div>
-        <h1 className="text-2xl font-700">Schedule</h1>
-        <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-          마감·회의·발표 일정을 한눈에 확인하세요{locked && " · 종료된 프로젝트 (읽기 전용)"}
-        </p>
+        {!locked && (
+          <button
+            type="button"
+            onClick={() => openAddForm()}
+            className="text-sm font-700 px-5 py-2.5 transition-all"
+            style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}
+          >
+            ＋ 일정 추가
+          </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
         {/* Calendar */}
-        <div className="col-span-1 md:col-span-3 p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-          <div className="flex items-center justify-between mb-4">
+        <WindowPanel id="schedule-calendar" title="달력" collapsible={false} lit style={cardStyle} bodyClassName="p-5">
+          <div className="flex items-center justify-between mb-4 gap-2">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setMonth((m) => shiftMonth(m, -1))}
+                aria-label="이전 달"
                 className="w-7 h-7 flex items-center justify-center text-sm font-700"
                 style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "50%" }}
               >
                 ‹
               </button>
-              <h2 className="text-base font-700" style={{ fontFamily: "var(--font-jetbrains)" }}>{month}</h2>
+              <h2 className="text-base font-700 min-w-[6.5rem] text-center">{monthYear}년 {Number(monthNumber)}월</h2>
               <button
                 onClick={() => setMonth((m) => shiftMonth(m, 1))}
+                aria-label="다음 달"
                 className="w-7 h-7 flex items-center justify-center text-sm font-700"
                 style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "50%" }}
               >
                 ›
               </button>
             </div>
-            {selectedDay && (
+            <div className="flex items-center gap-1.5">
+              {selectedDay && (
+                <button
+                  onClick={() => setSelectedDay(null)}
+                  className="text-xs font-600 px-3 py-1.5"
+                  style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+                >
+                  전체 보기
+                </button>
+              )}
               <button
-                onClick={() => setSelectedDay(null)}
+                onClick={() => { setMonth(today.slice(0, 7)); setSelectedDay(null); }}
                 className="text-xs font-600 px-3 py-1.5"
-                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+                style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "20px" }}
               >
-                전체 보기
+                오늘
               </button>
-            )}
+            </div>
           </div>
 
           <div className="grid grid-cols-7 mb-1">
@@ -500,6 +608,10 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                   const lanesToRender = Math.min(maxLane + 1, MAX_SEGMENTS_PER_DAY);
                   const hiddenCount = [...bySegmentLane.keys()].filter((lane) => lane >= lanesToRender).length;
 
+                  // 하루짜리 일정은 칸 안에 제목 칩으로(최대 2개), 여러 날 일정은 아래 막대로 보여 준다.
+                  const chipSegments = daySameDayEvents.slice(0, 2);
+                  const extraChips = daySameDayEvents.length - chipSegments.length;
+
                   return (
                     <button
                       key={di}
@@ -509,70 +621,82 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                         if (next && !locked) setDate(next);
                       }}
                       onDoubleClick={(e) => setDayPopup({ dateKey: key, rect: e.currentTarget.getBoundingClientRect() })}
-                      className="min-h-[76px] px-1 pt-1 pb-1 flex flex-col text-left transition-all overflow-hidden"
+                      className="min-h-[108px] px-1.5 pt-1.5 pb-1 flex flex-col text-left transition-colors overflow-hidden hover:bg-[var(--muted)]"
                       style={{
-                        background: isSelected ? "var(--primary)" : isToday ? "var(--secondary)" : "transparent",
+                        background: isSelected ? "rgba(74,116,181,0.12)" : undefined,
                         borderRight: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
                         borderBottom: "1px solid color-mix(in srgb, var(--border) 40%, transparent)",
-                        boxShadow: isToday && !isSelected ? "inset 0 0 0 1px var(--primary)" : "none",
+                        boxShadow: isSelected ? "inset 0 0 0 2px var(--primary)" : "none",
                       }}
                     >
-                      <span className="flex items-center justify-start gap-1.5 shrink-0 w-full">
-                        <span
-                          className="text-xs font-600"
-                          style={{ color: isSelected ? "#fff" : isToday ? "var(--primary)" : "var(--foreground)" }}
-                        >
-                          {d}
-                        </span>
-                        {/* 당일(하루짜리) 일정은 막대 대신 숫자 옆에 점으로 — 최대 3개까지만. */}
-                        {daySameDayEvents.slice(0, 3).map((s) => {
-                          const isHighlighted = s.event.id === highlightEventId;
-                          return (
-                            <span
-                              key={s.event.id}
-                              title={s.event.title}
-                              className="rounded-full shrink-0 transition-all"
-                              style={{
-                                width: isHighlighted ? 8 : 6,
-                                height: isHighlighted ? 8 : 6,
-                                background: isSelected ? "#fff" : typeMeta[s.event.type].color,
-                                opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.4 : 1,
-                                boxShadow: isHighlighted ? `0 0 0 2px ${isSelected ? "rgba(255,255,255,0.4)" : `${typeMeta[s.event.type].color}40`}` : "none",
-                              }}
-                            />
-                          );
-                        })}
+                      <span
+                        className="text-xs font-700 min-w-5 h-5 px-1 inline-flex items-center justify-center shrink-0"
+                        style={{ background: isToday ? "var(--primary)" : "transparent", color: isToday ? "#fff" : di === 0 ? "#b9544d" : "var(--foreground)", borderRadius: "999px" }}
+                      >
+                        {d}
                       </span>
-                      <div className="flex flex-col gap-1 mt-1 -mx-1">
+                      {/* 여러 날 일정: 형광펜으로 긋듯이 칸을 가로질러 이어지는 띠. 띠를 먼저 두어야 줄(레인) 위치가 날짜마다 어긋나지 않는다. */}
+                      <div className="flex flex-col gap-1 mt-1 -mx-1.5">
                         {Array.from({ length: lanesToRender }, (_, lane) => {
                           const s = bySegmentLane.get(lane);
-                          if (!s) return <div key={lane} style={{ height: 3 }} />;
+                          if (!s) return <div key={lane} style={{ height: 18 }} />;
                           const isStart = key === s.start;
                           const isEnd = key === s.end;
                           const isHighlighted = s.event.id === highlightEventId;
+                          const priv = s.event.scope === "personal" && s.event.visibility === "private";
+                          const color = typeMeta[s.event.type].color;
+                          // 제목은 시작하는 날과, 줄이 바뀌어 이어지는 주의 첫 칸(일요일)에 적는다.
+                          const showLabel = isStart || di === 0;
                           return (
                             <div
                               key={lane}
-                              title={s.event.title}
-                              className="transition-all"
+                              title={displayTitle(s.event)}
+                              className="truncate text-[10.5px] font-700 leading-[18px] transition-all"
                               style={{
-                                height: isHighlighted ? 5 : 3,
-                                background: isSelected ? "rgba(255,255,255,0.75)" : typeMeta[s.event.type].color,
-                                opacity: s.event.scope === "personal" && s.event.visibility === "private" ? 0.5 : 1,
-                                marginLeft: isStart ? "50%" : 0,
-                                // 끝나는 날은 시작하는 날보다 살짝 더 짧게 그려서, 다른
-                                // 일정의 시작과 맞물려도(같은 날 끝/시작) 하나의 끊긴
-                                // 선이 아니라 분명히 "여기서 끝난다"는 게 보이게 한다.
-                                marginRight: isEnd ? "65%" : 0,
-                                borderRadius: isStart && isEnd ? 2 : isStart ? "2px 0 0 2px" : isEnd ? "0 2px 2px 0" : 0,
+                                height: 18,
+                                background: `${color}47`,
+                                color: TYPE_TEXT[s.event.type],
+                                opacity: priv ? 0.75 : 1,
+                                marginLeft: isStart ? 6 : 0,
+                                marginRight: isEnd ? 6 : 0,
+                                paddingLeft: showLabel ? 6 : 0,
+                                borderRadius: isStart && isEnd ? 9 : isStart ? "9px 0 0 9px" : isEnd ? "0 9px 9px 0" : 0,
+                                boxShadow: isHighlighted ? `0 0 0 1.5px ${color}` : "none",
                               }}
-                            />
+                            >
+                              {showLabel ? `${priv ? "🔒 " : ""}${displayTitle(s.event)}` : "\u00a0"}
+                            </div>
                           );
                         })}
                         {hiddenCount > 0 && (
-                          <span className="text-[9px] leading-none px-1" style={{ color: isSelected ? "#fff" : "var(--muted-foreground)" }}>
+                          <span className="text-[9px] leading-none px-1.5" style={{ color: "var(--muted-foreground)" }}>
                             +{hiddenCount}개 더보기
                           </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-0.5 mt-1 min-w-0">
+                        {chipSegments.map((s) => {
+                          const isHighlighted = s.event.id === highlightEventId;
+                          const priv = s.event.scope === "personal" && s.event.visibility === "private";
+                          return (
+                            <span
+                              key={s.event.id}
+                              title={displayTitle(s.event)}
+                              className="block truncate text-[10.5px] font-700 px-1.5 py-0.5"
+                              style={{
+                                background: `${typeMeta[s.event.type].color}26`,
+                                color: TYPE_TEXT[s.event.type],
+                                borderRadius: "6px",
+                                opacity: priv ? 0.75 : 1,
+                                boxShadow: isHighlighted ? `0 0 0 1.5px ${typeMeta[s.event.type].color}` : "none",
+                              }}
+                            >
+                              {priv ? "🔒 " : ""}{displayTitle(s.event)}
+                            </span>
+                          );
+                        })}
+                        {extraChips > 0 && (
+                          <span className="text-[10px] leading-none px-1" style={{ color: "var(--muted-foreground)" }}>+{extraChips}개</span>
                         )}
                       </div>
                     </button>
@@ -590,12 +714,12 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
               </div>
             ))}
           </div>
-        </div>
+        </WindowPanel>
 
-        {/* Agenda + add form */}
-        <div className="col-span-1 md:col-span-2 flex flex-col gap-5">
+        {/* 다가오는 일정 / 선택한 날짜 일정 */}
+        <div className="flex flex-col gap-5 min-w-0">
           {!locked && viewingEvent && (
-            <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+            <div className="p-5" style={cardStyle}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-700">일정 정보</h2>
                 <button
@@ -622,19 +746,165 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
               </div>
             </div>
           )}
-          {!locked && !viewingEvent && (
-            <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-700">{editingId !== null ? "일정 수정" : "일정 추가"}</h2>
-                {editingId !== null && (
+
+          <WindowPanel id="schedule-agenda" title={agendaTitle} style={cardStyle} bodyClassName="p-5">
+            <div className="flex items-center justify-end gap-1.5 mb-3">
+              <button
+                onClick={() => setShowTeam((v) => !v)}
+                title="팀 일정"
+                aria-label="팀 일정"
+                aria-pressed={showTeam}
+                className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
+                style={{ background: showTeam ? "var(--secondary)" : "var(--muted)", color: showTeam ? "var(--primary)" : "var(--muted-foreground)", borderRadius: "50%" }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowPersonal((v) => !v)}
+                title="개인 일정"
+                aria-label="개인 일정"
+                aria-pressed={showPersonal}
+                className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
+                style={{ background: showPersonal ? "var(--secondary)" : "var(--muted)", color: showPersonal ? "var(--primary)" : "var(--muted-foreground)", borderRadius: "50%" }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </button>
+            </div>
+
+            {authors.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>작성자</div>
+                <div className="flex gap-1.5 flex-wrap max-h-24 overflow-y-auto pr-1" role="group" aria-label="작성자별 일정 필터">
                   <button
-                    onClick={cancelEdit}
-                    className="text-xs font-600 px-2.5 py-1"
-                    style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                    onClick={() => setAuthorFilter(null)}
+                    aria-pressed={authorFilter === null}
+                    className="text-xs font-600 px-3 py-1 shrink-0"
+                    style={{ borderRadius: "20px", background: authorFilter === null ? "var(--primary)" : "var(--muted)", color: authorFilter === null ? "#fff" : "var(--muted-foreground)" }}
                   >
-                    취소
+                    전체
                   </button>
-                )}
+                  {authors.map((m) => {
+                    const active = authorFilter === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setAuthorFilter(active ? null : m.id)}
+                        aria-pressed={active}
+                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0"
+                        style={{ borderRadius: "20px", background: active ? "var(--primary)" : "var(--muted)", color: active ? "#fff" : "var(--foreground)" }}
+                      >
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden" style={{ background: active ? "rgba(255,255,255,0.25)" : `${m.color}18`, color: active ? "#fff" : m.color }}>
+                          {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                        </span>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {showSearch && (
+              <input
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                placeholder="팀원 · 일정 검색"
+                className="w-full text-xs px-3 py-1.5 border outline-none mb-3"
+                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+              />
+            )}
+
+            {showPersonal && (
+              <div className="mb-4 pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
+                <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto pr-1">
+                  {filterableMembers.map((m) => {
+                    const checked = selectedMembers.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => toggleMember(m.id)}
+                        aria-pressed={checked}
+                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0 transition-all"
+                        style={{
+                          background: checked ? `${m.color}18` : "var(--muted)",
+                          color: checked ? m.color : "var(--muted-foreground)",
+                          borderRadius: "20px",
+                          opacity: checked ? 1 : 0.5,
+                        }}
+                      >
+                        <span
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
+                          style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
+                        >
+                          {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                        </span>
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                  {filterableMembers.length === 0 && (
+                    <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>
+                      {memberSearchTrimmed ? "검색 결과가 없어요" : "개인 일정을 가진 팀원이 없어요"}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto pr-1">
+              {selectedDay
+                ? searchableAgenda.map((e) => renderAgendaRow(e))
+                : agendaGroups.map((group) => (
+                    <div key={group.label} className="flex flex-col gap-2">
+                      <div className="text-[11px] font-700 mt-1" style={{ color: "var(--muted-foreground)" }}>{group.label}</div>
+                      {group.items.map((e) => renderAgendaRow(e))}
+                    </div>
+                  ))}
+              {searchableAgenda.length === 0 && (
+                <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
+                  {agenda.length === 0 ? "등록된 일정이 없어요" : "검색 결과가 없어요"}
+                </div>
+              )}
+            </div>
+            {!locked && selectedDay && (
+              <button
+                type="button"
+                onClick={() => openAddForm(selectedDay)}
+                className="w-full mt-3 text-xs font-600 py-2.5 transition-colors hover:bg-[var(--muted)]"
+                style={{ border: "1px dashed var(--border)", color: "var(--muted-foreground)", borderRadius: "12px" }}
+              >
+                ＋ 이 날 일정 추가
+              </button>
+            )}
+          </WindowPanel>
+        </div>
+      </div>
+
+      {/* 일정 추가·수정 창 */}
+      {formVisible && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(34,42,58,0.4)", backdropFilter: "blur(4px)" }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) cancelEdit(); }}
+        >
+          <div className="w-full max-w-md">
+            <WindowPanel id="schedule-form" title={editingId !== null ? "일정 수정" : "일정 추가"} collapsible={false} style={{ ...cardStyle, boxShadow: "0 24px 64px rgba(34,42,58,0.3)" }} bodyClassName="p-5">
+              <div className="flex justify-end mb-3">
+                <button
+                  onClick={cancelEdit}
+                  className="text-xs font-600 px-2.5 py-1"
+                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                >
+                  {editingId !== null ? "취소" : "닫기"}
+                </button>
               </div>
 
               <div className="flex gap-2 mb-2">
@@ -758,7 +1028,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                     )}
                     <button
                       disabled={busy || !title.trim() || !date}
-                      onClick={() => runAction(handleSubmit)}
+                      onClick={() => runAction(async () => { await handleSubmit(); setFormOpen(false); })}
                       className="flex-1 py-2.5 text-sm font-700 transition-all"
                       style={{
                         background: title.trim() && date.trim() ? "var(--primary)" : "var(--muted)",
@@ -771,199 +1041,10 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                   </div>
                 </>
               )}
-            </div>
-          )}
-
-          <div className="p-5 flex-1" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-700">{selectedDay ? `${selectedDay} 일정` : "전체 일정"}{authorFilter && ` · ${team.members.find((m) => m.id === authorFilter)?.name ?? ""} 작성`}</h2>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => setShowTeam((v) => !v)}
-                  title="팀 일정"
-                  aria-label="팀 일정"
-                  className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
-                  style={{
-                    background: showTeam ? "var(--secondary)" : "var(--muted)",
-                    color: showTeam ? "var(--primary)" : "var(--muted-foreground)",
-                    borderRadius: "50%",
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                    <circle cx="9" cy="7" r="4" />
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setShowPersonal((v) => !v)}
-                  title="개인 일정"
-                  aria-label="개인 일정"
-                  className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
-                  style={{
-                    background: showPersonal ? "var(--secondary)" : "var(--muted)",
-                    color: showPersonal ? "var(--primary)" : "var(--muted-foreground)",
-                    borderRadius: "50%",
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {authors.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>작성자</div>
-                <div className="flex gap-1.5 flex-wrap max-h-24 overflow-y-auto pr-1" role="group" aria-label="작성자별 일정 필터">
-                  <button
-                    onClick={() => setAuthorFilter(null)}
-                    aria-pressed={authorFilter === null}
-                    className="text-xs font-600 px-3 py-1 shrink-0"
-                    style={{ borderRadius: "20px", background: authorFilter === null ? "var(--primary)" : "var(--muted)", color: authorFilter === null ? "#fff" : "var(--muted-foreground)" }}
-                  >
-                    전체
-                  </button>
-                  {authors.map((m) => {
-                    const active = authorFilter === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => setAuthorFilter(active ? null : m.id)}
-                        aria-pressed={active}
-                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0"
-                        style={{ borderRadius: "20px", background: active ? "var(--primary)" : "var(--muted)", color: active ? "#fff" : "var(--foreground)" }}
-                      >
-                        <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden" style={{ background: active ? "rgba(255,255,255,0.25)" : `${m.color}18`, color: active ? "#fff" : m.color }}>
-                          {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-                        </span>
-                        {m.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {showSearch && (
-              <input
-                value={memberSearch}
-                onChange={(e) => setMemberSearch(e.target.value)}
-                placeholder="팀원 · 일정 검색"
-                className="w-full text-xs px-3 py-1.5 border outline-none mb-3"
-                style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-              />
-            )}
-
-            {showPersonal && (
-              <div className="mb-4 pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="flex gap-2 flex-wrap max-h-32 overflow-y-auto pr-1">
-                  {filterableMembers.map((m) => {
-                    const checked = selectedMembers.includes(m.id);
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => toggleMember(m.id)}
-                        aria-pressed={checked}
-                        className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 shrink-0 transition-all"
-                        style={{
-                          background: checked ? `${m.color}18` : "var(--muted)",
-                          color: checked ? m.color : "var(--muted-foreground)",
-                          borderRadius: "20px",
-                          opacity: checked ? 1 : 0.5,
-                        }}
-                      >
-                        <span
-                          className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-700 shrink-0 overflow-hidden"
-                          style={{ background: m.avatarUrl ? "var(--card)" : checked ? `${m.color}30` : "var(--border)", color: checked ? m.color : "var(--muted-foreground)" }}
-                        >
-                          {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-                        </span>
-                        {m.name}
-                      </button>
-                    );
-                  })}
-                  {filterableMembers.length === 0 && (
-                    <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>
-                      {memberSearchTrimmed ? "검색 결과가 없어요" : "개인 일정을 가진 팀원이 없어요"}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-2.5 max-h-[215px] overflow-y-auto pr-1">
-              {searchableAgenda.map((e) => {
-                const meta = typeMeta[e.type];
-                const d = daysUntil(e.date, today);
-                const isMine = e.scope === "personal" && e.ownerMemberId === currentMember?.id;
-                const editable = !locked && canEdit(e);
-                return (
-                  <div
-                    key={e.id}
-                    onClick={() => {
-                      if (editable) {
-                        startEdit(e);
-                      } else {
-                        resetForm();
-                        setSelectedEventId((prev) => (prev === e.id ? null : e.id));
-                      }
-                    }}
-                    className="flex items-center justify-between p-2.5 transition-all"
-                    style={{
-                      background: selectedEventId === e.id ? "var(--secondary)" : "var(--muted)",
-                      borderRadius: "10px",
-                      cursor: "pointer",
-                      boxShadow: selectedEventId === e.id ? "inset 0 0 0 1px var(--primary)" : "none",
-                    }}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.color, opacity: e.scope === "personal" && e.visibility === "private" ? 0.5 : 1 }} />
-                      <div className="min-w-0">
-                        <div className="text-xs font-600 truncate">{displayTitle(e)}</div>
-                        <div className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
-                          {e.date}{e.endDate ? ` ~ ${e.endDate}` : ""} · {meta.label}
-                          {e.scope === "personal" && !isMine ? ` · ${ownerName(e)}님 개인일정` : ""}
-                          {e.scope === "personal" && isMine ? ` · ${e.visibility === "private" ? "나만 보기" : "팀에 공유"}` : ""}
-                        </div>
-                      </div>
-                    </div>
-                    {!locked && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {editable && (
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted-foreground)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                          </svg>
-                        )}
-                        <span
-                          className="text-xs font-700 px-2 py-0.5 shrink-0"
-                          style={{
-                            background: d >= 0 && d <= 7 ? `${meta.color}20` : "var(--card)",
-                            color: d >= 0 && d <= 7 ? meta.color : "var(--muted-foreground)",
-                            borderRadius: "20px",
-                            fontFamily: "var(--font-jetbrains)",
-                          }}
-                        >
-                          {d === 0 ? "D-DAY" : d > 0 ? `D-${d}` : `D+${-d}`}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {searchableAgenda.length === 0 && (
-                <div className="text-xs text-center py-4" style={{ color: "var(--muted-foreground)" }}>
-                  {agenda.length === 0 ? "등록된 일정이 없어요" : "검색 결과가 없어요"}
-                </div>
-              )}
-            </div>
+            </WindowPanel>
           </div>
         </div>
-      </div>
+      )}
 
       {dayPopup && (
         <DayEventsPopup

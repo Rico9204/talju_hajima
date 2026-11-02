@@ -8,28 +8,20 @@ import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import ProfileModal from "./ProfileModal";
 import UserMenu from "./UserMenu";
+import NavIcon from "./NavIcon";
 import { useMenuOrder, reorderMenuItem, type NavPage } from "../lib/menuPreferences";
 
 const navItems: { id: Page; label: string; icon: ReactNode }[] = [
-  { id: "dashboard", label: "대시보드", icon: "⊞" },
-  { id: "team", label: "팀 관리", icon: "◎" },
-  {
-    id: "chat",
-    label: "채팅",
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13" />
-        <polygon points="22 2 15 22 11 13 2 9 22 2" />
-      </svg>
-    ),
-  },
-  { id: "tasks", label: "과제 보드", icon: "≡" },
-  { id: "schedule", label: "일정", icon: "▤" },
-  { id: "workspace", label: "워크스페이스", icon: "⬡" },
-  { id: "evaluation", label: "동료 평가", icon: "★" },
+  { id: "dashboard", label: "대시보드", icon: <NavIcon id="dashboard" /> },
+  { id: "team", label: "팀 정보", icon: <NavIcon id="team" /> },
+  { id: "chat", label: "채팅", icon: <NavIcon id="chat" /> },
+  { id: "tasks", label: "과제 보드", icon: <NavIcon id="tasks" /> },
+  { id: "schedule", label: "일정", icon: <NavIcon id="schedule" /> },
+  { id: "workspace", label: "워크스페이스", icon: <NavIcon id="workspace" /> },
+  { id: "evaluation", label: "동료 평가", icon: <NavIcon id="evaluation" /> },
 ];
 
-const adminNavItem: { id: Page; label: string; icon: string } = { id: "admin", label: "관리자", icon: "⚙" };
+const adminNavItem: { id: Page; label: string; icon: ReactNode } = { id: "admin", label: "관리자", icon: <NavIcon id="admin" /> };
 
 export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPage: Page; onNavigate: (p: Page) => void; onHome: () => void }) {
   const routerNavigate = useNavigate();
@@ -212,6 +204,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
       }
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 1500);
+      window.dispatchEvent(new Event("collabpeer:join-code-copied")); // 팀 정보 화면의 초대 버튼이 "복사됨"을 보여 주도록
     } catch {
       // 코드를 받지 못했으면 그 이유를, 클립보드만 실패했으면 복사 실패를 알린다.
       const issueError = await next.then(() => null, (e) => (e instanceof Error ? e.message : "참여 코드를 불러오지 못했습니다."));
@@ -222,6 +215,14 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
       setRotatingCode(false);
     }
   }
+  // 팀 정보 화면의 "팀원 초대" 버튼도 같은 복사 동작을 쓴다(코드 발급·무효화 규칙이 한 곳에만 있도록).
+  const copyJoinCodeRef = useRef(copyJoinCode);
+  copyJoinCodeRef.current = copyJoinCode;
+  useEffect(() => {
+    const onRequest = () => { void copyJoinCodeRef.current(); };
+    window.addEventListener("collabpeer:copy-join-code", onRequest);
+    return () => window.removeEventListener("collabpeer:copy-join-code", onRequest);
+  }, []);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Below the md breakpoint the sidebar is hidden behind a hamburger button
@@ -362,8 +363,8 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               <div
                 className="p-2 mb-2 rounded-xl border transition-all"
                 style={{
-                  background: "rgba(59, 130, 246, 0.08)",
-                  borderColor: "rgba(59, 130, 246, 0.25)",
+                  background: "rgba(74, 116, 181, 0.08)",
+                  borderColor: "rgba(74, 116, 181, 0.25)",
                 }}
               >
                 <div className="flex items-center justify-between gap-1 mb-1.5 px-0.5">
@@ -593,7 +594,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               >
                 <span
                   className="w-5 h-5 flex items-center justify-center text-xs font-700 shrink-0"
-                  style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "6px" }}
+                  style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "6px" }}
                 >
                   +
                 </span>

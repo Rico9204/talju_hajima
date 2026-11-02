@@ -29,7 +29,7 @@ export const MENU_ITEMS_META: Record<NavPage, MenuItemMeta> = {
   },
   team: {
     id: "team",
-    label: "팀 관리",
+    label: "팀 정보",
     icon: "◎",
     description: "팀원 목록, 권한 및 접속 상태 확인",
   },

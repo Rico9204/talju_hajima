@@ -1,6 +1,6 @@
 import { EVIDENCE_LEVELS, TRUST_LEVELS } from "./collaborationTrust";
 
-// 평가 점수 안내. 프로필·팀 관리·동료 평가 화면은 점수와 짧은 상태만 보여 주고,
+// 평가 점수 안내. 프로필·팀 정보·동료 평가 화면은 점수와 짧은 상태만 보여 주고,
 // 자세한 설명은 ⓘ(EvaluationInfoButton)를 누르면 이 내용이 창으로 열린다. 문구는 여기 한곳에서 고친다.
 export type EvaluationGuideSection = "score" | "disclosure" | "trust" | "cca" | "percentile" | "phases" | "participation";
 

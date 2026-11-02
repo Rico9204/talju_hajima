@@ -5,8 +5,14 @@ import { summarizeDashboardTasks } from "../lib/dashboardTasks";
 import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
 import { useProject } from "../context/ProjectContext";
-import type { Task } from "../api/types";
 import { useDraggableScroll } from "../hooks/useDraggableScroll";
+import Avatar from "./Avatar";
+import AvatarFrame from "./AvatarFrame";
+import MedalIcon from "./MedalIcon";
+import WindowPanel from "./WindowPanel";
+import { useMyProfileTheme } from "../lib/useMyProfileTheme";
+import { ACHIEVEMENTS, achievementProgress, formatAchievementValue } from "../lib/achievements";
+import type { MyEvaluationSummary as EvalSummary } from "../lib/evaluationSummary";
 
 interface Deadline { label: string; due: string; days: number; color: string }
 interface Activity { who: string; action: string; time: string; avatar: string; color: string }
@@ -69,16 +75,16 @@ const dashboardData: Record<string, ProjectDashboardData> = {
     ],
     deadlines: [],
     activity: [
-      { who: "오유진", action: "최종 보고서 v2 업로드", time: "2026-06-19", avatar: "오", color: "#2563eb" },
+      { who: "오유진", action: "최종 보고서 v2 업로드", time: "2026-06-19", avatar: "오", color: "#4a74b5" },
       { who: "박민준", action: "인터뷰 녹취 전사 최종본 확인", time: "2026-06-17", avatar: "박", color: "#f59e0b" },
-      { who: "김지수", action: "종료 평가 제출", time: "2026-06-21", avatar: "김", color: "#2563eb" },
+      { who: "김지수", action: "종료 평가 제출", time: "2026-06-21", avatar: "김", color: "#4a74b5" },
     ],
   },
 };
 
 const emptyDashboardData: ProjectDashboardData = {
   banner: "새 프로젝트가 만들어졌어요. 팀원을 초대하고 과제·일정을 등록해 시작해보세요.",
-  ctaPrimary: { label: "팀 관리로 이동 →", page: "team" },
+  ctaPrimary: { label: "팀 정보로 이동 →", page: "team" },
   stats: [
     { label: "완료 과제", value: "0", sub: "전체 0개 중", icon: "✓", color: "#22c55e" },
     { label: "협업 평점", value: "—", sub: "아직 평가 없음", icon: "★", color: "#f59e0b" },
@@ -89,43 +95,6 @@ const emptyDashboardData: ProjectDashboardData = {
   deadlines: [],
   activity: [],
 };
-
-function DashboardTaskColumnList({
-  columnStatus,
-  filteredItems,
-}: {
-  columnStatus: string;
-  filteredItems: Task[];
-}) {
-  const { ref, events, preventClickIfDragged } = useDraggableScroll<HTMLUListElement>({ direction: "y" });
-
-  return (
-    <ul
-      ref={ref}
-      {...events}
-      id={"dashboard-tasks-" + columnStatus}
-      className="flex flex-col gap-2 max-h-[140px] overflow-y-auto pr-1 select-none cursor-grab active:cursor-grabbing scrollbar-thin"
-    >
-      {filteredItems.map((task) => (
-        <li key={task.id}>
-          <Link
-            to={`/tasks/${task.id}`}
-            onClick={preventClickIfDragged}
-            draggable={false}
-            className="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-[var(--secondary)] focus-visible:outline-2 focus-visible:outline-[var(--primary)] select-none"
-            style={{ background: "var(--muted)", borderRadius: "10px", userSelect: "none", WebkitUserSelect: "none" }}
-          >
-            <span className="text-sm break-words min-w-0 select-none pointer-events-none">{task.title}</span>
-            {task.due && <span className="text-xs shrink-0 select-none pointer-events-none" style={{ color: "var(--muted-foreground)" }}>{task.due}</span>}
-          </Link>
-        </li>
-      ))}
-      {filteredItems.length === 0 && (
-        <li className="text-xs py-2 select-none" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</li>
-      )}
-    </ul>
-  );
-}
 
 function DashboardDeadlinesList({
   deadlines,
@@ -220,7 +189,7 @@ function DashboardActivityList({
 }
 
 export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { project, team, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode } = useProject();
+  const { project, team, tasks, files, scheduleEvents, currentMember, isShortTerm, getEvaluations, getEvaluationMode, getMyEvaluationSummary } = useProject();
   const isDone = project.status === "done";
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -230,8 +199,6 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refreshDate); };
   }, []);
   const taskSummary = summarizeDashboardTasks(tasks, now);
-  const [columnSearch, setColumnSearch] = useState<Record<string, string>>({});
-  useEffect(() => { setColumnSearch({}); }, [project.id]);
   const [deadlineSearch, setDeadlineSearch] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
   const [evaluation, setEvaluation] = useState<{ key: string; submitted: boolean; prototype: boolean; finalSubmitted: boolean } | null>(null);
@@ -287,6 +254,38 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   const searchableActivity = data.activity.filter(
     (a) => !activitySearchTrimmed || `${a.who}${a.action}`.toLowerCase().includes(activitySearchTrimmed)
   );
+  const progressPct = taskSummary.total ? Math.round((taskSummary.completed / taskSummary.total) * 100) : 0;
+  const { myTier, myScore, earnedIds, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
+  const [evalSummary, setEvalSummary] = useState<EvalSummary | null>(null);
+  useEffect(() => {
+    let active = true;
+    getMyEvaluationSummary().then((value) => { if (active) setEvalSummary(value); }).catch(() => {});
+    return () => { active = false; };
+  }, [currentMember?.userId, currentMember?.evalCount, currentMember?.score]);
+  const achievementRows = evalSummary
+    ? ACHIEVEMENTS.map((achievement) => ({ achievement, progress: achievementProgress(achievement, evalSummary) }))
+        .filter((row) => !row.progress.earned).sort((x, y) => y.progress.pct - x.progress.pct).slice(0, 3)
+    : null;
+  const noEvaluations = !!evalSummary && evalSummary.count === 0;
+  const parseDay = (value?: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? ""); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null; };
+  const startMs = parseDay(project.startDate), endMs = parseDay(project.endDate), todayMs = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const elapsedPct = startMs !== null && endMs !== null && endMs > startMs ? Math.max(0, Math.min(100, Math.round(((todayMs - startMs) / (endMs - startMs)) * 100))) : null;
+  const gap = elapsedPct === null ? null : progressPct - elapsedPct;
+  const pace = isDone ? { text: "프로젝트가 종료됐어요.", color: "#16a34a" }
+    : elapsedPct === null ? { text: "프로젝트 기간이 없어 비교할 수 없어요.", color: "#454b6e" }
+    : !taskSummary.total ? { text: "과제를 등록하면 기간과 비교해 드려요.", color: "#454b6e" }
+    : gap! >= 5 ? { text: `기간보다 ${gap}%p 앞서 가고 있어요`, color: "#16a34a" }
+    : gap! <= -5 ? { text: `기간보다 ${-gap!}%p 늦어요. 마감 임박 과제를 확인해 보세요`, color: "#d97706" }
+    : { text: "기간에 맞게 진행 중이에요", color: "var(--primary)" };
+  const tierColor = myTier?.color ?? "#8b95c9";
+  const endMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(project.endDate ?? "");
+  const endDays = endMatch ? Math.round((Date.UTC(+endMatch[1], +endMatch[2] - 1, +endMatch[3]) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000) : null;
+  const dDayLabel = endDays === null ? "—" : endDays < 0 ? "종료" : endDays === 0 ? "D-Day" : "D-" + endDays;
+  const evalStat = data.stats.find((stat) => stat.label === "내 평가");
+  const statusCounts = (["todo", "inprogress", "review", "done"] as const).map((status) => tasks.filter((task) => task.status === status).length);
+  const myTasks = tasks.filter((task) => task.status !== "done" && !!currentMember && task.assigneeIds.includes(currentMember.id));
+  const deadlineById = new Map(taskSummary.deadlines.map((d) => [d.id, d]));
+  const todayTasks = [...myTasks].sort((x, y) => (deadlineById.get(x.id)?.days ?? 1e9) - (deadlineById.get(y.id)?.days ?? 1e9)).slice(0, 5);
   const isPending = project.approvalStatus === "pending";
   const isRejected = project.approvalStatus === "rejected";
   const bannerText = isPending
@@ -295,153 +294,161 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       ? "관리자가 이 프로젝트 생성을 반려했어요. 자세한 사항은 관리자에게 문의해주세요."
       : data.banner;
 
+  const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" };
+  const statusRows = [
+    { status: "todo", label: "예정", color: "#9aa0bd", text: "#454b6e" },
+    { status: "inprogress", label: "진행", color: "var(--status-inprogress)", text: "var(--status-inprogress)" },
+    { status: "review", label: "검토", color: "#f59e0b", text: "#b45309" },
+  ] as const;
+
   return (
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
-      {/* Hero banner */}
-      <div
-        className="relative mb-8 overflow-hidden px-6 py-8 md:px-12 md:py-11" // 휴대폰에서는 여백을 줄인다(예전엔 44px·48px 고정)
-        style={{
-          background: isRejected
-            ? "linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #991b1b 100%)"
-            : isPending
-              ? "linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)"
-              : isDone
-                ? "linear-gradient(135deg, #16a34a 0%, #15803d 50%, #14532d 100%)"
-                : "var(--hero-banner-bg)",
-          borderRadius: "calc(var(--radius) + 8px)",
-          border: isRejected || isPending || isDone ? "none" : "var(--hero-banner-border)",
-          boxShadow: isDone
-            ? "0 8px 32px rgba(22,163,74,0.3)"
-            : isRejected
-              ? "0 8px 32px rgba(239,68,68,0.3)"
-              : isPending
-                ? "0 8px 32px rgba(245,158,11,0.3)"
-                : "var(--hero-banner-shadow)",
-        }}
-      >
-        {/* decorative circles */}
-        <div
-          className="absolute"
-          style={{ width: 200, height: 200, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: -40, top: -60 }}
-        />
-        <div
-          className="absolute"
-          style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--hero-banner-circle-bg)", right: 80, bottom: -40 }}
-        />
-
-        <div className="relative">
-          <div
-            className="inline-block text-xs font-600 uppercase tracking-widest px-3 py-1 mb-3"
-            style={{ background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.9)", borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}
-          >
-            {project.period}
-          </div>
-          <h1 className="text-2xl md:text-3xl font-700 mb-2" style={{ color: "#fff", fontFamily: "var(--font-outfit)" }}>
-            안녕하세요, {currentMember?.name ?? "참여자"}님
-          </h1>
-          {bannerText && <p style={{ color: "rgba(255,255,255,0.75)", fontSize: "15px" }}>{bannerText}</p>}
-
-          {!isPending && !isRejected && (
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={() => onNavigate(data.ctaPrimary.page)}
-                className="px-5 py-2.5 text-sm font-700 transition-all"
-                style={{
-                  background: isDone ? "#fff" : "var(--hero-banner-btn-bg)",
-                  color: isDone ? "#16a34a" : "var(--hero-banner-btn-text)",
-                  borderRadius: "40px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                }}
-              >
-                {data.ctaPrimary.label}
-              </button>
-              <button
-                onClick={() => onNavigate("tasks")}
-                className="px-5 py-2.5 text-sm font-600 transition-all"
-                style={{ background: "rgba(255,255,255,0.15)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.25)" }}
-              >
-                과제 보드
-              </button>
-            </div>
-          )}
+      {(isPending || isRejected) && (
+        <div className="mb-5 px-5 py-3 text-sm font-600" style={{ background: isRejected ? "linear-gradient(135deg, #ef4444, #991b1b)" : "linear-gradient(135deg, #f59e0b, #b45309)", color: "#fff", borderRadius: "var(--radius)" }}>
+          {bannerText}
         </div>
-      </div>
+      )}
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 mb-8">
-        {data.stats.map((s) => (
-          <div key={s.label} className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-            <div className="w-10 h-10 flex items-center justify-center text-lg mb-3" style={{ background: `${s.color}18`, borderRadius: "12px", color: s.color }}>
-              {s.icon}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_330px] gap-5 items-start">
+        <div className="flex flex-col gap-5 min-w-0">
+          {/* 내 프로필 카드 — 티어 색·아바타 프레임은 사용자가 고른 꾸미기 설정을 따른다 */}
+          <WindowPanel id="dashboard-profile" title="내 프로필" dark className="relative" bodyClassName="relative px-6 py-6 md:px-7" style={{ background: "linear-gradient(120deg, #111a47, #2a215f)", borderRadius: "calc(var(--radius) + 4px)", color: "#fff", boxShadow: "0 8px 28px rgba(17,26,71,0.28)" }}>
+            <div className="absolute pointer-events-none" style={{ left: -40, top: -70, width: 280, height: 280, borderRadius: "50%", background: `radial-gradient(circle, ${tierColor}55, transparent 65%)` }} />
+            <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4">
+              <span className="shrink-0 rounded-full" style={avatarFrame ? undefined : { boxShadow: `0 0 0 3px #111a47, 0 0 0 6px ${tierColor}, 0 0 24px ${tierColor}88` }}>
+                {(() => {
+                  const photo = <Avatar url={currentMember?.avatarUrl} initial={currentMember?.avatar ?? "?"} color={currentMember?.color ?? "#f59e0b"} size={84}
+                    badge={myTier && <span title={myTier.label} className="flex items-center justify-center w-full h-full"><MedalIcon shape={myTier.shape} colors={myTier.colors} size={40} /></span>} />;
+                  return avatarFrame ? <AvatarFrame kind={avatarFrame} size={84} c1={cardC1} c2={cardC2}>{photo}</AvatarFrame> : photo;
+                })()}
+              </span>
+              <div className="flex-1 min-w-[180px]">
+                <div className="text-xs font-600" style={{ opacity: 0.7, letterSpacing: "0.08em" }}>{myTier ? myTier.label : "티어 평가 대기"}</div>
+                <div className="text-2xl md:text-3xl font-500 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{currentMember?.name ?? "참여자"}</div>
+                <div className="text-sm" style={{ opacity: 0.75 }}>{project.name}{earnedIds ? ` · 업적 ${earnedIds.size}개` : ""}</div>
+                {!isPending && !isRejected && bannerText && <div className="text-xs mt-1.5" style={{ opacity: 0.7 }}>{bannerText}</div>}
+              </div>
+              <div className="flex gap-6 md:gap-7">
+                <div><div className="text-[11px]" style={{ opacity: 0.65 }}>협업 신뢰도</div><div className="text-2xl md:text-3xl font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{myScore === null ? "대기" : myScore.toFixed(1)}</div></div>
+                <div><div className="text-[11px]" style={{ opacity: 0.65 }}>{isDone ? "프로젝트" : "종료까지"}</div><div className="text-2xl md:text-3xl font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{dDayLabel}</div></div>
+                <div><div className="text-[11px]" style={{ opacity: 0.65 }}>진행률</div><div className="text-2xl md:text-3xl font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{progressPct}%</div></div>
+              </div>
             </div>
-            <div className="text-2xl font-800 leading-none mb-1" style={{ fontFamily: "var(--font-outfit)", color: "var(--foreground)" }}>
-              {s.value}
-            </div>
-            <div className="text-xs font-600">{s.label}</div>
-            <div className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{s.sub}</div>
-          </div>
-        ))}
-      </div>
+            {!isPending && !isRejected && (
+              <div className="relative flex flex-wrap gap-2 mt-5">
+                <button onClick={() => onNavigate(data.ctaPrimary.page)} className="px-4 py-2 text-xs font-700 transition-all" style={{ background: "#fff", color: "#111a47", borderRadius: "40px" }}>{data.ctaPrimary.label}</button>
+                {evalStat && <button onClick={() => onNavigate("evaluation")} className="px-4 py-2 text-xs font-600 transition-all" style={{ background: "rgba(255,255,255,0.14)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.22)" }}>동료 평가 · {evalStat.value}</button>}
+              </div>
+            )}
+          </WindowPanel>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 md:items-start gap-6">
-        {/* Progress */}
-        <div className="col-span-1 md:col-span-3 p-6" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-base font-700">현황판</h2>
-              <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>{project.name}</p>
+          {/* 현황판 요약 — 전체 목록·검색은 과제 보드에서 */}
+          <WindowPanel id="dashboard-board" title="프로젝트 현황판" bodyClassName="p-5 md:p-6" style={cardStyle}>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="min-w-0">
+                <p className="text-sm font-600 truncate" style={{ color: "var(--muted-foreground)" }}>과제 {taskSummary.total}개 중 {taskSummary.completed}개 완료 · {project.name}</p>
+              </div>
+              <button onClick={() => onNavigate("tasks")} className="text-xs font-600 px-4 py-2 transition-all shrink-0" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "40px" }}>전체 보기</button>
             </div>
-            <button
-              onClick={() => onNavigate("tasks")}
-              className="text-xs font-600 px-4 py-2 transition-all"
-              style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "40px" }}
-            >
-              전체 보기
-            </button>
-          </div>
+            <div className="flex h-2 overflow-hidden mb-5" style={{ borderRadius: "6px", background: "var(--border)" }} aria-hidden="true">
+              {[["#9aa0bd", statusCounts[0]], ["var(--status-inprogress)", statusCounts[1]], ["#f59e0b", statusCounts[2]], ["#86d4a0", statusCounts[3]]].map(([color, count], i) => (
+                <i key={i} style={{ width: taskSummary.total ? `${(Number(count) / taskSummary.total) * 100}%` : 0, background: String(color) }} />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              {statusRows.map((column) => {
+                const items = tasks.filter((task) => task.status === column.status);
+                return (
+                  <div key={column.status} aria-label={column.label + " 과제"} className="min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: column.color }} />
+                      <h3 className="text-sm font-700" style={{ color: column.text }}>{column.label}</h3>
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{items.length}</span>
+                    </div>
+                    {items.length === 0 ? <p className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p> : (
+                      <ul className="flex flex-col gap-1.5">
+                        {items.slice(0, 2).map((task) => {
+                          const d = deadlineById.get(task.id);
+                          return (
+                            <li key={task.id}>
+                              <Link to={`/tasks/${task.id}`} className="flex items-center justify-between gap-2 text-sm py-1 transition-colors hover:text-[var(--primary)]">
+                                <span className="truncate">{task.title}</span>
+                                {d && d.days <= 7 && <span className="text-[11px] font-700 shrink-0" style={{ color: d.color, fontFamily: "var(--font-jetbrains)" }}>{d.badge}</span>}
+                              </Link>
+                            </li>
+                          );
+                        })}
+                        {items.length > 2 && <li className="text-xs" style={{ color: "var(--muted-foreground)" }}>+{items.length - 2}개 더</li>}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </WindowPanel>
 
-          <div className="flex flex-col gap-4">
-            {([
-              { status: "todo", label: "예정", color: "#454b6e" },
-              { status: "inprogress", label: "진행", color: "var(--status-inprogress)" },
-              { status: "review", label: "검토", color: "#f59e0b" },
-            ] as const).map((column) => {
-              const items = tasks.filter((task) => task.status === column.status);
-              const searchTrimmed = (columnSearch[column.status] ?? "").trim().toLowerCase();
-              const filteredItems = searchTrimmed
-                ? items.filter((task) => task.title.toLowerCase().includes(searchTrimmed))
-                : items;
-              const showSearch = items.length > 5;
-              return <section key={column.status} aria-label={column.label + " 과제"}>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <h3 className="text-sm font-700" style={{ color: column.color }}>{column.label} · {items.length}개</h3>
-                  {showSearch && (
-                    <input
-                      value={columnSearch[column.status] ?? ""}
-                      onChange={(e) => setColumnSearch((previous) => ({ ...previous, [column.status]: e.target.value }))}
-                      placeholder="과제 검색"
-                      className="w-28 min-w-0 text-xs px-3 py-1 border outline-none"
-                      style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-                    />
-                  )}
+          {/* 일정 대비 진행 · 업적 진행도 — 현황판과 다른 지표 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <WindowPanel id="dashboard-pace" title="우리 팀 속도" bodyClassName="p-5 md:p-6" style={cardStyle}>
+              <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>기간이 얼마나 지났고, 과제는 얼마나 끝났나</p>
+              {[
+                { label: "경과한 기간", pct: elapsedPct, color: "#9aa0bd" },
+                { label: "완료한 과제", pct: taskSummary.total ? progressPct : null, color: "var(--primary)" },
+              ].map((bar) => (
+                <div key={bar.label} className="mb-4">
+                  <div className="flex justify-between text-xs mb-1.5"><span>{bar.label}</span><b>{bar.pct === null ? "—" : bar.pct + "%"}</b></div>
+                  <div className="h-3 overflow-hidden" style={{ background: "var(--border)", borderRadius: "7px" }} role="img" aria-label={`${bar.label} ${bar.pct ?? 0}%`}>
+                    <div className="h-full" style={{ width: `${bar.pct ?? 0}%`, background: bar.color, borderRadius: "7px" }} />
+                  </div>
                 </div>
-                {items.length ? (
-                  <DashboardTaskColumnList
-                    columnStatus={column.status}
-                    filteredItems={filteredItems}
-                  />
-                ) : <p className="text-xs py-2 select-none" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p>}
-              </section>;
-            })}
+              ))}
+              <div className="text-xs font-600 px-3 py-2.5" style={{ background: `${pace.color}1f`, color: pace.color, borderRadius: "12px" }}>{pace.text}</div>
+            </WindowPanel>
+
+            <WindowPanel id="dashboard-achievements" title="다음에 달성할 업적" bodyClassName="p-5 md:p-6" style={cardStyle}>
+              <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>진행 중인 도전과제</p>
+              {!achievementRows ? <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</p>
+                : achievementRows.length === 0 ? <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>모든 업적을 달성했어요.</p>
+                : <ul className="flex flex-col gap-3.5">
+                  {achievementRows.map(({ achievement, progress }) => (
+                    <li key={achievement.id}>
+                      <div className="flex justify-between text-xs mb-1.5 gap-2"><span className="truncate">{achievement.label}</span><b className="shrink-0">{formatAchievementValue(progress.value)} / {formatAchievementValue(achievement.threshold)}{achievement.unit}</b></div>
+                      <div className="h-2 overflow-hidden" style={{ background: "var(--border)", borderRadius: "6px" }} role="img" aria-label={`${achievement.label} ${progress.pct}%`}>
+                        <div className="h-full" style={{ width: `${progress.pct}%`, background: `linear-gradient(90deg, ${achievement.colors[0]}, ${achievement.colors[1]})`, borderRadius: "6px" }} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>}
+              {achievementRows && achievementRows.length > 0 && noEvaluations && <p className="text-[11px] mt-4" style={{ color: "var(--muted-foreground)" }}>동료 평가가 공개되면 진행도가 채워져요.</p>}
+            </WindowPanel>
           </div>
         </div>
 
-        {/* Right column */}
-        <div className="col-span-1 md:col-span-2 flex flex-col gap-6">
-          <MyEvaluationSummary />
+        <div className="flex flex-col gap-5 min-w-0">
+          {/* 오늘 나의 할 일 */}
+          <WindowPanel id="dashboard-mytasks" title="나의 할 일" bodyClassName="p-5" style={cardStyle}>
+            <div className="flex items-center justify-end mb-3">
+              <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{myTasks.length}건</span>
+            </div>
+            {todayTasks.length === 0 ? <p className="text-xs text-center py-3" style={{ color: "var(--muted-foreground)" }}>맡은 진행 과제가 없어요.</p> : (
+              <ul className="flex flex-col">
+                {todayTasks.map((task) => {
+                  const d = deadlineById.get(task.id);
+                  return (
+                    <li key={task.id} style={{ borderTop: "1px solid var(--border)" }} className="first:border-t-0">
+                      <Link to={`/tasks/${task.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-[var(--primary)]">
+                        <span className="truncate">{task.title}</span>
+                        {d && <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: `${d.color}20`, color: d.color, borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}>{d.badge}</span>}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </WindowPanel>
+
           {/* Deadlines */}
-          <div className="p-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-            <h2 className="text-sm font-700 mb-4">다가오는 마감</h2>
+          <WindowPanel id="dashboard-deadlines" title="다가오는 마감" bodyClassName="p-5" style={cardStyle}>
             {showDeadlineSearch && (
               <input
                 value={deadlineSearch}
@@ -463,11 +470,14 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   : null
               }
             />
-          </div>
+          </WindowPanel>
+
+          <WindowPanel id="dashboard-evaluation" title="내 평가 및 참여 현황" bodyClassName="p-5" style={cardStyle}>
+            <MyEvaluationSummary embedded />
+          </WindowPanel>
 
           {/* Recent activity */}
-          <div className="p-5 flex-1" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-            <h2 className="text-sm font-700 mb-4">최근 활동 <span className="text-xs font-400">· 최근 3일</span></h2>
+          <WindowPanel id="dashboard-activity" title="최근 활동 · 최근 3일" bodyClassName="p-5" style={cardStyle}>
             {showActivitySearch && (
               <input
                 value={activitySearch}
@@ -487,7 +497,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   : null
               }
             />
-          </div>
+          </WindowPanel>
         </div>
       </div>
     </div>

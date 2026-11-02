@@ -127,10 +127,10 @@ export default function ChatLuckyDrawCard({
                         item.openedByMemberId,
                         currentMemberId,
                       )
-                        ? "rgba(59, 130, 246, 0.15)"
+                        ? "rgba(74, 116, 181, 0.15)"
                         : "var(--muted)",
                       color: isMyMyPick(item.openedByMemberId, currentMemberId)
-                        ? "#3b82f6"
+                        ? "#4a74b5"
                         : "var(--muted-foreground)",
                     }}
                   >

@@ -6,10 +6,17 @@ import CreatePostView from "./CreatePostView";
 import PostDetailView from "./PostDetailView";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import { useAccountBackground } from "../lib/useAccountBackground";
+import WindowPanel from "./WindowPanel";
 import type { BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 import { previewOpensAbove } from "../lib/boardPreview";
 
 const POSTS_PER_PAGE = 10;
+// 카테고리 칩 톤(팔레트 기준으로 낮춘 색): 공지 = 빨강, 자유 = 파랑, 모집 = 초록.
+const CATEGORY_TONE: Record<BoardCategory, { bg: string; color: string }> = {
+  notice: { bg: "rgba(201,98,91,.12)", color: "#8f3a35" },
+  free: { bg: "rgba(74,116,181,.12)", color: "#2f4e80" },
+  recruit: { bg: "rgba(91,154,116,.14)", color: "#2f6b4a" },
+};
 type SearchTarget = "title_content" | "title" | "content" | "author" | "tag";
 
 interface HoveredImagePreview {
@@ -19,6 +26,9 @@ interface HoveredImagePreview {
   imageCount: number;
   isBlurred?: boolean;
   above: boolean;
+  left: number;
+  rowTop: number;
+  rowBottom: number;
 }
 
 function isImageAttachment(a: { kind: string; mimeType?: string; name?: string; url?: string }): boolean {
@@ -369,13 +379,24 @@ export default function BoardView({
     );
   }
 
+  const pinnedPosts = posts.filter((p) => p.pinned).slice(0, 3);
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  const hotPosts = posts
+    .filter((p) => new Date(p.createdAt).getTime() >= weekAgo && p.likes * 2 + p.commentsCount > 0)
+    .sort((x, y) => (y.likes * 2 + y.commentsCount) - (x.likes * 2 + x.commentsCount))
+    .slice(0, 3);
+  const tagCounts = new Map<string, number>();
+  for (const p of posts) for (const t of p.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+  const popularTags = [...tagCounts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([t]) => t);
+  const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" } as const;
+  const tagChip = { background: "rgba(74,116,181,.12)", color: "#2f4e80", borderRadius: "10px" } as const;
+  const chipOff = { background: "rgba(15,18,53,.05)", color: "var(--foreground)" } as const;
+
   return (
     <div>
       <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
         <div>
-          <h1 className="text-2xl font-800 flex items-center gap-2">
-            <span>💬</span> 게시판
-          </h1>
+          <h1 className="text-2xl font-800 flex items-center gap-2"><span>💬</span> 게시판</h1>
           <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>
             공지사항 확인, 소통 및 팀원을 모집할 수 있는 공간입니다.
           </p>
@@ -396,152 +417,109 @@ export default function BoardView({
         </div>
       )}
 
-      <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
-        <button
-          onClick={() => setSelectedCategory("all")}
-          className="px-4 py-2 text-xs font-700 shrink-0 transition-all"
-          style={{
-            background: selectedCategory === "all" ? "var(--primary)" : "var(--card)",
-            color: selectedCategory === "all" ? "#fff" : "var(--foreground)",
-            borderRadius: "20px",
-            boxShadow: selectedCategory === "all" ? "0 4px 12px var(--primary-glow)" : "var(--shadow-card)",
-          }}
-        >
-          전체 ({posts.length})
-        </button>
-        {BOARD_CATEGORIES.map((cat) => {
-          const active = selectedCategory === cat.id;
-          const count = posts.filter((p) => p.category === cat.id).length;
-          return (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id)}
-              className="px-4 py-2 text-xs font-700 shrink-0 transition-all flex items-center gap-1.5"
-              style={{
-                background: active ? cat.badgeColor : "var(--card)",
-                color: active ? "#fff" : "var(--foreground)",
-                borderRadius: "20px",
-                boxShadow: active ? `0 4px 12px ${cat.badgeColor}40` : "var(--shadow-card)",
-              }}
-            >
-              <span>{cat.icon}</span>
-              <span>{cat.name}</span>
-              <span
-                className="text-[10px] px-1.5 py-0.2 font-700 rounded-full"
-                style={{ background: active ? "rgba(255,255,255,0.25)" : "var(--muted)", color: active ? "#fff" : "var(--muted-foreground)" }}
-              >
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="p-4 mb-4" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <select
-            value={searchTarget}
-            onChange={(e) => setSearchTarget(e.target.value as SearchTarget)}
-            className="text-xs font-700 px-3 py-2 outline-none cursor-pointer border shrink-0"
-            style={{ background: "var(--muted)", color: "var(--foreground)", borderColor: "var(--border)", borderRadius: "8px" }}
-          >
-            <option value="title_content">제목+내용</option>
-            <option value="title">제목</option>
-            <option value="content">내용</option>
-            <option value="author">글쓴이</option>
-            <option value="tag">태그</option>
-          </select>
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 border min-w-0" style={{ background: "var(--background)", borderColor: "var(--border)", borderRadius: "8px" }}>
-            <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>🔍</span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="검색어를 입력하세요..."
-              className="flex-1 bg-transparent text-xs outline-none min-w-0"
-              style={{ color: "var(--foreground)" }}
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery("")} className="text-xs px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>
-                초기화
-              </button>
-            )}
-          </div>
-        </div>
-        {activeTag && (
-          <div className="flex items-center gap-2 mt-3 text-xs">
-            <span style={{ color: "var(--muted-foreground)" }}>태그</span>
-            <span className="font-700 px-2 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}>#{activeTag}</span>
-            <span style={{ color: "var(--muted-foreground)" }}>글만 보는 중</span>
-            <button onClick={() => setActiveTag(null)} className="ml-auto px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>전체 보기 ✕</button>
-          </div>
-        )}
-      </div>
-
-      {loading ? (
-        <p role="status" className="p-12 text-center text-xs" style={{ color: "var(--muted-foreground)" }}>게시글을 불러오는 중…</p>
-      ) : paginatedPosts.length === 0 ? (
-        <div className="p-12 text-center border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
-          등록된 게시글이 없습니다. 첫 번째 글을 작성해 보세요!
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {paginatedPosts.map((post) => {
-            const catInfo = BOARD_CATEGORIES.find((c) => c.id === post.category);
-            const postImages = getPostImages(post);
-            const isPreviewDisabled = Boolean(post.hideImagePreview);
-            const firstImageUrl = postImages[0] ?? null;
-            const imageCount = postImages.length;
-            const fileCount = post.attachments.filter((a) => !isImageAttachment(a)).length;
-            const isHovered = hoveredPreview?.postId === post.id;
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
+      <WindowPanel id="board-posts" title="게시글" style={cardStyle} bodyClassName="p-4">
+        <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+          {[{ id: "all" as const, name: "전체", icon: "", count: posts.length },
+            ...BOARD_CATEGORIES.map((cat) => ({ id: cat.id, name: cat.name, icon: cat.icon, count: posts.filter((p) => p.category === cat.id).length }))].map((cat) => {
+            const active = selectedCategory === cat.id;
             return (
-              <div
-                key={post.id}
-                className={`relative ${isHovered ? "z-30" : "z-0"}`}
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className="px-3.5 py-1.5 text-xs font-700 shrink-0 transition-all"
+                style={{ ...(active ? { background: "var(--primary)", color: "#fff" } : chipOff), borderRadius: "20px" }}
               >
+                {cat.icon && <span>{cat.icon} </span>}{cat.name} {cat.count}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mb-3">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <select
+              value={searchTarget}
+              onChange={(e) => setSearchTarget(e.target.value as SearchTarget)}
+              className="text-xs font-700 px-3 py-2 outline-none cursor-pointer shrink-0"
+              style={{ ...chipOff, borderRadius: "20px" }}
+            >
+              <option value="title_content">제목+내용</option>
+              <option value="title">제목</option>
+              <option value="content">내용</option>
+              <option value="author">글쓴이</option>
+              <option value="tag">태그</option>
+            </select>
+            <div className="flex-1 flex items-center gap-2 px-3.5 py-2 border min-w-0" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "20px" }}>
+              <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>🔍</span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="검색어를 입력하세요..."
+                aria-label="게시글 검색"
+                className="flex-1 bg-transparent text-xs outline-none min-w-0"
+                style={{ color: "var(--foreground)" }}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} className="text-xs px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>
+                  초기화
+                </button>
+              )}
+            </div>
+          </div>
+          {activeTag && (
+            <div className="flex items-center gap-2 mt-3 text-xs">
+              <span style={{ color: "var(--muted-foreground)" }}>태그</span>
+              <span className="font-700 px-2 py-0.5" style={tagChip}>#{activeTag}</span>
+              <span style={{ color: "var(--muted-foreground)" }}>글만 보는 중</span>
+              <button onClick={() => setActiveTag(null)} className="ml-auto px-2 py-0.5" style={{ color: "var(--muted-foreground)" }}>전체 보기 ✕</button>
+            </div>
+          )}
+        </div>
+
+        {loading ? (
+          <p role="status" className="p-12 text-center text-xs" style={{ color: "var(--muted-foreground)" }}>게시글을 불러오는 중…</p>
+        ) : paginatedPosts.length === 0 ? (
+          <div className="p-12 text-center border-2 border-dashed" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
+            등록된 게시글이 없습니다. 첫 번째 글을 작성해 보세요!
+          </div>
+        ) : (
+          <div className="border overflow-hidden" style={{ borderColor: "var(--border)", borderRadius: "12px", background: "var(--card)" }}>
+            {paginatedPosts.map((post, idx) => {
+              const catInfo = BOARD_CATEGORIES.find((c) => c.id === post.category);
+              const tone = CATEGORY_TONE[post.category];
+              const postImages = getPostImages(post);
+              const isPreviewDisabled = Boolean(post.hideImagePreview);
+              const firstImageUrl = postImages[0] ?? null;
+              const imageCount = postImages.length;
+              const fileCount = post.attachments.filter((a) => !isImageAttachment(a)).length;
+              const previewOf = (e: React.MouseEvent) => {
+                const row = e.currentTarget.getBoundingClientRect();
+                return { postId: post.id, url: firstImageUrl as string, title: post.title, imageCount, isBlurred: isPreviewDisabled, above: previewOpensAbove(row, window.innerHeight), left: row.left + 16, rowTop: row.top, rowBottom: row.bottom };
+              };
+              return (
                 <button
+                  key={post.id}
                   onClick={() => {
                     setHoveredPreview(null);
                     void openPostDetail(post);
                   }}
-                  onMouseEnter={(e) => {
-                    if (firstImageUrl) {
-                      setHoveredPreview({
-                        postId: post.id,
-                        url: firstImageUrl,
-                        title: post.title,
-                        imageCount,
-                        isBlurred: isPreviewDisabled,
-                        above: previewOpensAbove(e.currentTarget.getBoundingClientRect(), window.innerHeight),
-                      });
-                    }
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredPreview((prev) => (prev?.postId === post.id ? null : prev));
-                  }}
-                  className="w-full text-left px-4 py-3 transition-all hover:translate-y-[-1px] flex items-center justify-between gap-3 cursor-pointer"
-                  style={{
-                    background: "var(--card)",
-                    borderRadius: "var(--radius)",
-                    boxShadow: "var(--shadow-card)",
-                    transform: "translateZ(0)",
-                    backfaceVisibility: "hidden",
-                    WebkitBackfaceVisibility: "hidden",
-                    backgroundClip: "padding-box",
-                  }}
+                  onMouseEnter={(e) => { if (firstImageUrl) setHoveredPreview(previewOf(e)); }}
+                  onMouseLeave={() => { setHoveredPreview((prev) => (prev?.postId === post.id ? null : prev)); }}
+                  className="w-full text-left px-3.5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-[rgba(74,116,181,.06)]"
+                  style={{ borderTop: idx ? "1px solid var(--border)" : "none", background: post.pinned ? "rgba(201,98,91,.06)" : undefined }}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     {post.pinned && (
-                      <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "6px" }}>
-                        📌 필독
-                      </span>
+                      <span className="text-[10px] font-700 px-2 py-0.5 shrink-0" style={{ background: "rgba(201,98,91,.12)", color: "#8f3a35", borderRadius: "10px" }}>📌 필독</span>
                     )}
                     {catInfo && (
-                      <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: catInfo.badgeBg, color: catInfo.badgeColor, borderRadius: "10px" }}>
+                      <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: tone.bg, color: tone.color, borderRadius: "10px" }}>
                         {catInfo.icon} {catInfo.name}
                       </span>
                     )}
-                    <span className="text-sm font-700 truncate hover:text-blue-500 transition-colors">{post.title}</span>
+                    <span className="text-sm font-700 truncate">{post.title}</span>
                     {post.tags.slice(0, 3).map((tag) => (
                       <span
                         key={tag}
@@ -549,177 +527,169 @@ export default function BoardView({
                         tabIndex={0}
                         onClick={(e) => { e.stopPropagation(); showTag(tag); }}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); showTag(tag); } }}
-                        className="text-[10px] font-600 px-1.5 py-0.5 shrink-0 hover:opacity-80"
-                        style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                        className="text-[10px] font-600 px-1.5 py-0.5 shrink-0 hover:opacity-80 hidden sm:inline-block"
+                        style={tagChip}
                         title={`#${tag} 글만 보기`}
                       >
                         #{tag}
                       </span>
                     ))}
-                    {post.tags.length > 3 && <span className="text-[10px] shrink-0" style={{ color: "var(--muted-foreground)" }}>+{post.tags.length - 3}</span>}
+                    {post.tags.length > 3 && <span className="text-[10px] shrink-0 hidden sm:inline" style={{ color: "var(--muted-foreground)" }}>+{post.tags.length - 3}</span>}
                     {post.poll && (
-                      <span
-                        className="text-[10px] font-bold px-1.5 py-0.5 shrink-0 rounded flex items-center gap-1"
-                        style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3b82f6" }}
-                        title="투표 진행/마감"
-                      >
-                        <span>📊</span>
-                        <span>투표</span>
-                      </span>
+                      <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "rgba(214,154,78,.16)", color: "#7a4f12", borderRadius: "10px" }} title="투표 진행/마감">📊 투표</span>
                     )}
-                    {(imageCount > 0 || fileCount > 0) && (
-                      <span
-                        className="text-[10px] shrink-0 font-600 flex items-center gap-1.5"
-                        style={{ color: "var(--muted-foreground)" }}
-                        title="마우스를 올리면 첫 이미지를 미리 볼 수 있습니다"
-                      >
-                        {imageCount > 0 && (
-                          <span
-                            className="px-1.5 py-0.5 rounded font-700 flex items-center transition-all"
-                            style={{
-                              background: "rgba(59, 130, 246, 0.12)",
-                              color: "#3b82f6",
-                            }}
-                            title="이미지 첨부됨 (마우스를 올리면 미리보기)"
-                          >
-                            <span>📷</span>
-                          </span>
-                        )}
-                        {fileCount > 0 && <span>📎 {fileCount}</span>}
-                      </span>
+                    {imageCount > 0 && (
+                      <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "rgba(15,18,53,.06)", color: "var(--muted-foreground)", borderRadius: "10px" }} title="이미지 첨부됨 (마우스를 올리면 미리보기)">📷</span>
+                    )}
+                    {fileCount > 0 && (
+                      <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "rgba(15,18,53,.06)", color: "var(--muted-foreground)", borderRadius: "10px" }}>📎 {fileCount}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>
-                    <span className="font-600 hidden sm:inline-block w-20 truncate text-right" style={{ color: "var(--foreground)" }}>
-                      {post.author}
-                    </span>
-                    <span className="text-[11px] hidden md:inline-block w-28 text-center shrink-0 tabular-nums">
+                    <span className="font-600 hidden sm:inline-block w-16 truncate text-right" style={{ color: "var(--foreground)" }}>{post.author}</span>
+                    <span className="text-[11px] hidden md:inline-block w-24 text-center shrink-0 tabular-nums">
                       {new Date(post.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                     </span>
-                    <div className="flex items-center gap-3 pl-2.5 border-l" style={{ borderColor: "var(--border)" }}>
-                      <span title="조회수" className="inline-flex items-center justify-between w-12 tabular-nums">
-                        <span className="w-4 text-center shrink-0">👁️</span>
-                        <span className="text-right font-600 flex-1">{post.views}</span>
-                      </span>
-                      <span title="좋아요" className="inline-flex items-center justify-between w-11 tabular-nums">
-                        <span className="w-4 text-center shrink-0">❤️</span>
-                        <span className="text-right font-600 flex-1">{post.likes}</span>
-                      </span>
-                      <span title="댓글수" className="inline-flex items-center justify-between w-11 tabular-nums">
-                        <span className="w-4 text-center shrink-0">💬</span>
-                        <span className="text-right font-600 flex-1">{post.commentsCount}</span>
-                      </span>
-                    </div>
+                    <span className="text-[11px] tabular-nums whitespace-nowrap hidden sm:inline-flex items-center gap-2.5 pl-2.5 border-l" style={{ borderColor: "var(--border)" }}>
+                      <span title="조회수">👁️ {post.views}</span>
+                      <span title="좋아요">❤️ {post.likes}</span>
+                      <span title="댓글수">💬 {post.commentsCount}</span>
+                    </span>
                   </div>
                 </button>
+              );
+            })}
+          </div>
+        )}
 
-                {isHovered && (
-                  <div
-                    className={`absolute left-4 ${hoveredPreview.above ? "bottom-full mb-1.5" : "top-full mt-1.5"} z-40 pointer-events-none w-[280px] max-w-[calc(100%-2rem)] select-none animate-in fade-in zoom-in-95 duration-150`}
-                  >
-                    <div
-                      className="overflow-hidden border backdrop-blur-md"
-                      style={{
-                        background: "var(--card)",
-                        borderColor: "var(--border)",
-                        borderRadius: "14px",
-                        boxShadow: "0 16px 36px -4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08)",
-                      }}
-                    >
-                      <div className="relative bg-black/10 dark:bg-black/30 flex items-center justify-center min-h-[140px] max-h-[190px] overflow-hidden">
-                        <img
-                          src={hoveredPreview.url}
-                          alt={hoveredPreview.title}
-                          className={`w-full h-full object-cover max-h-[190px] transition-all duration-200 ${
-                            hoveredPreview.isBlurred ? "filter blur-xl brightness-75 scale-110" : ""
-                          }`}
-                          loading="eager"
-                        />
-                        {hoveredPreview.isBlurred && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-black/40 backdrop-blur-[1px]">
-                            <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-lg mb-1.5 shadow-lg border border-white/20">
-                              🔒
-                            </div>
-                            <span className="text-xs font-bold text-white drop-shadow-md">
-                              미리보기 방지 적용됨
-                            </span>
-                            <span className="text-[10px] text-white/80 mt-0.5 drop-shadow">
-                              클릭하여 게시글에서 원본 확인
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div
-                        className="px-3 py-2 border-t flex items-center justify-between gap-2"
-                        style={{ borderColor: "var(--border)", background: "var(--card)" }}
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-xs">🖼️</span>
-                          <span className="text-[11px] font-700 truncate" style={{ color: "var(--foreground)" }}>
-                            {hoveredPreview.title}
-                          </span>
-                        </div>
-                        <span
-                          className="text-[10px] font-700 shrink-0 px-1.5 py-0.5 rounded"
-                          style={{
-                            background: hoveredPreview.isBlurred ? "rgba(239, 68, 68, 0.12)" : "rgba(59, 130, 246, 0.12)",
-                            color: hoveredPreview.isBlurred ? "#ef4444" : "#3b82f6",
-                          }}
-                        >
-                          {hoveredPreview.isBlurred
-                            ? "블러 미리보기"
-                            : hoveredPreview.imageCount > 1
-                            ? `이미지 1/${hoveredPreview.imageCount}`
-                            : "이미지 미리보기"}
-                        </span>
-                      </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-4 mt-4 flex-wrap gap-3" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+              총 {filteredPosts.length}개 중 {(currentPage - 1) * POSTS_PER_PAGE + 1} - {Math.min(currentPage * POSTS_PER_PAGE, filteredPosts.length)}개 표시 (페이지 {currentPage} / {totalPages})
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 text-xs font-700 transition-all disabled:opacity-40"
+                style={{ ...chipOff, borderRadius: "20px" }}
+              >
+                ← 이전
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className="w-8 h-8 text-xs font-700 transition-all"
+                  style={{ ...(page === currentPage ? { background: "var(--primary)", color: "#fff" } : chipOff), borderRadius: "20px" }}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 text-xs font-700 transition-all disabled:opacity-40"
+                style={{ ...chipOff, borderRadius: "20px" }}
+              >
+                다음 →
+              </button>
+            </div>
+          </div>
+        )}
+      </WindowPanel>
+
+      <div className="flex flex-col gap-4">
+        {pinnedPosts.length > 0 && (
+          <WindowPanel id="board-pinned" title="필독 공지" style={cardStyle} bodyClassName="px-4 py-2">
+            {pinnedPosts.map((post, i) => (
+              <button key={post.id} onClick={() => void openPostDetail(post)} className="block w-full text-left py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--border)" : "none" }}>
+                <span className="text-[10px] font-700 px-2 py-0.5 mr-1.5" style={{ background: "rgba(201,98,91,.12)", color: "#8f3a35", borderRadius: "10px" }}>📌 필독</span>
+                <span className="font-700">{post.title}</span>
+                <div className="text-[11px] mt-0.5" style={{ color: "var(--muted-foreground)" }}>{post.author} · {new Date(post.createdAt).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" })}</div>
+              </button>
+            ))}
+          </WindowPanel>
+        )}
+        {hotPosts.length > 0 && (
+          <WindowPanel id="board-hot" title="이번 주 인기 글" style={cardStyle} bodyClassName="px-4 py-2">
+            {hotPosts.map((post, i) => (
+              <button key={post.id} onClick={() => void openPostDetail(post)} className="block w-full text-left py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--border)" : "none" }}>
+                <span className="font-800 mr-1.5" style={{ color: "var(--primary)" }}>{i + 1}</span>
+                <span className="font-600">{post.title}</span>
+                <div className="text-[11px] mt-0.5 pl-3.5" style={{ color: "var(--muted-foreground)" }}>❤️ {post.likes} · 💬 {post.commentsCount}</div>
+              </button>
+            ))}
+          </WindowPanel>
+        )}
+        {popularTags.length > 0 && (
+          <WindowPanel id="board-tags" title="인기 태그" style={cardStyle} bodyClassName="p-4 flex flex-wrap gap-1.5">
+            {popularTags.map((tag) => (
+              <button key={tag} onClick={() => showTag(tag)} className="text-[11px] font-600 px-2 py-0.5 hover:opacity-80" style={tagChip}>#{tag}</button>
+            ))}
+          </WindowPanel>
+        )}
+      </div>
+      </div>
+
+      {hoveredPreview && (
+        <div
+          className="fixed z-50 pointer-events-none select-none w-[280px] max-w-[calc(100vw-2rem)]"
+          style={{ left: hoveredPreview.left, ...(hoveredPreview.above ? { bottom: window.innerHeight - hoveredPreview.rowTop + 6 } : { top: hoveredPreview.rowBottom + 6 }) }}
+        >
+            <div
+              className="overflow-hidden border backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+              style={{
+                background: "var(--card)",
+                borderColor: "var(--border)",
+                borderRadius: "14px",
+                boxShadow: "0 16px 36px -4px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08)",
+              }}
+            >
+              <div className="relative bg-black/10 dark:bg-black/30 flex items-center justify-center min-h-[140px] max-h-[190px] overflow-hidden">
+                <img
+                  src={hoveredPreview.url}
+                  alt={hoveredPreview.title}
+                  className={`w-full h-full object-cover max-h-[190px] transition-all duration-200 ${
+                    hoveredPreview.isBlurred ? "filter blur-xl brightness-75 scale-110" : ""
+                  }`}
+                  loading="eager"
+                />
+                {hoveredPreview.isBlurred && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-black/40 backdrop-blur-[1px]">
+                    <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-lg mb-1.5 shadow-lg border border-white/20">
+                      🔒
                     </div>
+                    <span className="text-xs font-bold text-white drop-shadow-md">
+                      미리보기 방지 적용됨
+                    </span>
+                    <span className="text-[10px] text-white/80 mt-0.5 drop-shadow">
+                      클릭하여 게시글에서 원본 확인
+                    </span>
                   </div>
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-6 mt-4 border-t flex-wrap gap-3" style={{ borderColor: "var(--border)" }}>
-          <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-            총 {filteredPosts.length}개 중 {(currentPage - 1) * POSTS_PER_PAGE + 1} - {Math.min(currentPage * POSTS_PER_PAGE, filteredPosts.length)}개 표시 (페이지 {currentPage} / {totalPages})
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 text-xs font-700 transition-all disabled:opacity-40"
-              style={{ background: "var(--card)", borderRadius: "8px", boxShadow: "var(--shadow-card)" }}
-            >
-              ← 이전
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className="w-8 h-8 text-xs font-700 transition-all"
-                style={{
-                  background: page === currentPage ? "var(--primary)" : "var(--card)",
-                  color: page === currentPage ? "#fff" : "var(--foreground)",
-                  borderRadius: "8px",
-                  boxShadow: page === currentPage ? "0 4px 12px var(--primary-glow)" : "var(--shadow-card)",
-                }}
+              <div
+                className="px-3 py-2 border-t flex items-center justify-between gap-2"
+                style={{ borderColor: "var(--border)", background: "var(--card)" }}
               >
-                {page}
-              </button>
-            ))}
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1.5 text-xs font-700 transition-all disabled:opacity-40"
-              style={{ background: "var(--card)", borderRadius: "8px", boxShadow: "var(--shadow-card)" }}
-            >
-              다음 →
-            </button>
-          </div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs">🖼️</span>
+                  <span className="text-[11px] font-700 truncate" style={{ color: "var(--foreground)" }}>
+                    {hoveredPreview.title}
+                  </span>
+                </div>
+                <span
+                  className="text-[10px] font-700 shrink-0 px-1.5 py-0.5 rounded"
+                  style={{
+                    background: hoveredPreview.isBlurred ? "rgba(239, 68, 68, 0.12)" : "rgba(74, 116, 181, 0.12)",
+                    color: hoveredPreview.isBlurred ? "#ef4444" : "#4a74b5",
+                  }}
+                >
+                  {hoveredPreview.isBlurred ? "블러 미리보기" : hoveredPreview.imageCount > 1 ? `이미지 1/${hoveredPreview.imageCount}` : "이미지 미리보기"}
+                </span>
+              </div>
+            </div>
         </div>
       )}
     </div>

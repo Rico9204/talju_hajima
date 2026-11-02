@@ -94,6 +94,10 @@ class ActiveDto {
   @IsBoolean() active!: boolean;
 }
 
+class PinnedDto {
+  @IsBoolean() pinned!: boolean;
+}
+
 class CommentDto {
   @IsString() @MaxLength(2000) content!: string;
   @IsOptional() @IsInt() parentCommentId?: number;
@@ -101,10 +105,6 @@ class CommentDto {
 
 class VoteDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsInt({ each: true }) optionIds!: number[];
-}
-
-class PinnedDto {
-  @IsBoolean() pinned!: boolean;
 }
 
 class ReportDto {

@@ -111,18 +111,18 @@ export default function PostDetailView({
             disabled={busy}
             onClick={() => onTogglePinned(post)}
             className="text-xs font-700 px-3.5 py-2 transition-all disabled:opacity-50"
-            style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", borderRadius: "20px" }}
+            style={{ background: "rgba(201,98,91,.12)", color: "#8f3a35", borderRadius: "20px" }}
           >
             {post.pinned ? "📌 필독 해제" : "📌 필독으로 지정"}
           </button>
         )}
         {isAuthor && (
-          <div className="flex gap-2">
+          <>
             {onEditPost && (
               <button
                 onClick={() => onEditPost(post)}
                 className="text-xs font-700 px-3.5 py-2 transition-all"
-                style={{ background: "#2563eb18", color: "var(--primary)", borderRadius: "20px" }}
+                style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "20px" }}
               >
                 ✏️ 게시글 수정
               </button>
@@ -135,7 +135,7 @@ export default function PostDetailView({
             >
               🗑️ 게시글 삭제
             </button>
-          </div>
+          </>
         )}
         </div>
       </div>

@@ -9,7 +9,7 @@ import PentagonChart from "./PentagonChart";
 import EvaluationInfoButton from "./EvaluationInfoButton";
 import CcaBadge from "./CcaBadge";
 
-export default function MyEvaluationSummary({ chart = false }: { chart?: boolean }) {
+export default function MyEvaluationSummary({ chart = false, embedded = false }: { chart?: boolean; embedded?: boolean }) {
   const { getMyEvaluationSummary, currentMember, projects } = useProject();
   const [result, setResult] = useState<Summary | null>(null);
   const [percentiles, setPercentiles] = useState<EvaluationPercentiles | null>(null);
@@ -32,8 +32,8 @@ export default function MyEvaluationSummary({ chart = false }: { chart?: boolean
   const valueSize = chart ? "text-base" : "text-xl";
   const trust = result ? collaborationTrust(result.score, result.count) : null;
   const caption = result?.score != null ? percentileCaption(percentiles) : null;
-  return <section aria-label="내 평가 요약" className="p-4 mb-5" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-    <div className="flex items-start justify-between gap-2 mb-3"><h2 className={`font-700 ${chart ? "text-xs" : "text-sm"}`}>내 평가 및 참여 현황</h2><EvaluationInfoButton section="trust" /></div>
+  return <section aria-label="내 평가 요약" className={embedded ? "" : "p-4 mb-5"} style={embedded ? undefined : { background: "var(--card-glass)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
+    <div className="flex items-start justify-between gap-2 mb-3">{embedded ? <span /> : <h2 className={`font-700 ${chart ? "text-xs" : "text-sm"}`}>내 평가 및 참여 현황</h2>}<EvaluationInfoButton section="trust" /></div>
     {error ? <p role="alert" className="text-sm">평가 요약을 불러오지 못했습니다. <button onClick={() => setRetry((n) => n + 1)}>다시 시도</button></p>
       : !result ? <p role="status" className="text-sm">평가 요약을 불러오는 중…</p>
       : <>
