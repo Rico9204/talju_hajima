@@ -106,6 +106,12 @@ export function isValidThumbnail(url: string | undefined): boolean {
   return !isBoardMarkFile(trimmed);
 }
 
+// resolveUrl은 data: 같은 주소를 게시판 주소로 바꿔 돌려주므로 함께 거른다.
+function resolveThumbnail(baseUrl: string, raw: string, config?: UnivBoardConfig): string | undefined {
+  const resolved = resolveUrl(baseUrl, raw, config);
+  return resolved !== baseUrl && isValidThumbnail(resolved) ? resolved : undefined;
+}
+
 export function extractThumbnail(
   $el: cheerio.Cheerio<any>,
   baseUrl: string,
@@ -120,8 +126,8 @@ export function extractThumbnail(
       $target.attr("data-original") ||
       $target.attr("data-lazy-src");
     if (raw && !isTinyImage($target)) {
-      const resolved = resolveUrl(baseUrl, raw, config);
-      if (isValidThumbnail(resolved)) return resolved;
+      const resolved = resolveThumbnail(baseUrl, raw, config);
+      if (resolved) return resolved;
     }
   }
 
@@ -144,8 +150,8 @@ export function extractThumbnail(
         $img.attr("data-lazy-src") ||
         $img.attr("data-img");
       if (raw && !isTinyImage($img)) {
-        const resolved = resolveUrl(baseUrl, raw, config);
-        if (isValidThumbnail(resolved)) {
+        const resolved = resolveThumbnail(baseUrl, raw, config);
+        if (resolved) {
           return resolved;
         }
       }
@@ -158,8 +164,8 @@ export function extractThumbnail(
     const style = $styleEls.eq(i).attr("style") || "";
     const match = style.match(/url\(['"]?([^'")]+)['"]?\)/i);
     if (match && match[1]) {
-      const resolved = resolveUrl(baseUrl, match[1], config);
-      if (isValidThumbnail(resolved)) {
+      const resolved = resolveThumbnail(baseUrl, match[1], config);
+      if (resolved) {
         return resolved;
       }
     }
@@ -178,9 +184,8 @@ export function extractDetailImage(html: string, config: UnivBoardConfig): strin
     const $img = $imgs.eq(i);
     const raw = $img.attr("src") || $img.attr("data-src");
     if (!raw || isTinyImage($img)) continue;
-    const resolved = resolveUrl(config.baseUrl, raw, config);
-    // resolveUrl은 data: 같은 주소를 게시판 주소로 바꿔 돌려주므로 함께 거른다.
-    if (resolved !== config.baseUrl && isValidThumbnail(resolved)) return resolved;
+    const resolved = resolveThumbnail(config.baseUrl, raw, config);
+    if (resolved) return resolved;
   }
   return undefined;
 }

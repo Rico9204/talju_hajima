@@ -40,16 +40,18 @@ test('평가 상위 %: 내 위치, 대상 지정은 projectId·memberId를 함�
 });
 
 test('캠퍼스 소식 스크랩: 토글로 저장·해제, 본인 것만 보이고 http(s) 링크만', async () => {
-  const notice = { id: 'n1', schoolCode: 'snu', schoolName: '서울대학교', category: 'contest', title: '공모전', author: '학생처', postDate: '2026-10-01', link: 'https://example.com/n1', dDay: 'D-3' };
+  const notice = { id: 'n1', schoolCode: 'snu', schoolName: '서울대학교', category: 'contest', title: '공모전', author: '학생처', postDate: '2026-10-01', link: 'https://example.com/n1', thumbnail: 'https://example.com/poster.png', dDay: 'D-3' };
   assert.deepEqual((await call(s.member, 'POST', '/me/scrapped-notices/toggle', notice)).body, { scrapped: true });
   const list = await call(s.member, 'GET', '/me/scrapped-notices');
   assert.equal(list.body.length, 1);
   assert.equal(list.body[0].link, notice.link);
+  assert.equal(list.body[0].thumbnail, notice.thumbnail);
   assert.equal(list.body[0].userId, s.member.id);
   assert.deepEqual((await call(s.leader, 'GET', '/me/scrapped-notices')).body, []);
   assert.deepEqual((await call(s.member, 'POST', '/me/scrapped-notices/toggle', notice)).body, { scrapped: false });
   assert.deepEqual((await call(s.member, 'GET', '/me/scrapped-notices')).body, []);
   assert.equal((await call(s.member, 'POST', '/me/scrapped-notices/toggle', { ...notice, link: 'javascript:alert(1)' })).status, 400);
+  assert.equal((await call(s.member, 'POST', '/me/scrapped-notices/toggle', { ...notice, thumbnail: 'javascript:alert(1)' })).status, 400);
   assert.equal((await call(s.member, 'POST', '/me/scrapped-notices/toggle', { ...notice, category: 'x' })).status, 400);
 });
 

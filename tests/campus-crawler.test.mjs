@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseEgovTable, parseArtclTable, parseCardList, parseRssFeed } from '../src/lib/crawler/parsers.ts';
 import { findSchoolEntry } from '../src/lib/crawler/schoolsRegistry.ts';
 import { crawlNotices } from '../src/lib/crawler/crawlerService.ts';
+import { optimizedPosterUrl } from '../src/lib/crawler/posterImage.ts';
 
 test('findSchoolEntry matches school names and known aliases', () => {
   const snu = findSchoolEntry('서울대');
@@ -294,4 +295,38 @@ test('상세 페이지 포스터: 설정된 게시판의 공모전 글만 읽고
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('포스터 추출: 목록 행의 data: 이미지는 건너뛰고 뒤의 포스터를 찾는다', () => {
+  const config = {
+    schoolCode: 'test-data',
+    schoolName: '테스트대학교',
+    category: 'general',
+    categoryLabel: '일반',
+    cmsType: 'egov_table',
+    listUrl: 'https://univ.ac.kr/board',
+    baseUrl: 'https://univ.ac.kr/board',
+  };
+  const html = '<table class="tbl_board"><tbody><tr><td class="subject"><a href="/view/1">공지 제목</a><img src="data:image/png;base64,AAAA"><img src="/upload/poster.png"></td><td class="writer">담당</td><td class="date">2026-10-01</td></tr></tbody></table>';
+  assert.equal(parseEgovTable(html, config)[0].thumbnail, 'https://univ.ac.kr/upload/poster.png');
+  const onlyData = html.replace('<img src="/upload/poster.png">', '');
+  assert.equal(parseEgovTable(onlyData, config)[0].thumbnail, undefined);
+});
+
+test('포스터 줄이기: 배포에서만 Vercel 이미지 경로를 쓰고 주소를 인코딩한다', () => {
+  const url = 'https://www.tu.ac.kr/_attach/a b.png?x=1&y=2';
+  assert.equal(optimizedPosterUrl(url, 640, false), url);
+  const optimized = new URL(optimizedPosterUrl(url, 640, true), 'https://site.example');
+  assert.equal(optimized.pathname, '/_vercel/image');
+  assert.equal(optimized.searchParams.get('url'), url);
+  assert.equal(optimized.searchParams.get('w'), '640');
+  assert.equal(optimized.searchParams.get('q'), '75');
+});
+
+test('vercel.json: 화면이 쓰는 이미지 폭·품질이 허용 목록에 있다', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { POSTER_WIDTH } = await import('../src/lib/crawler/posterImage.ts');
+  const { images } = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+  for (const width of Object.values(POSTER_WIDTH)) assert.ok(images.sizes.includes(width), String(width));
+  assert.ok(images.qualities.includes(75));
 });

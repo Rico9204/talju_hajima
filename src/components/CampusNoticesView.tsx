@@ -2,11 +2,30 @@ import { useEffect, useState, useMemo } from "react";
 import type { NoticeItem, NoticeCategory, ScrappedNotice } from "../lib/crawler/types";
 import { SCHOOL_REGISTRY } from "../lib/crawler/schoolsRegistry";
 import { NoticeSortOption, NOTICE_SORT_OPTIONS, sortNotices } from "../lib/crawler/noticeSort";
+import { POSTER_WIDTH, optimizedPosterUrl } from "../lib/crawler/posterImage";
 import { useOptionalProject, useProjectManagement } from "../context/ProjectContext";
 import SchoolSearchCombobox from "./SchoolSearchCombobox";
 
 // 링크는 http(s)만 연다 — 스크랩은 DB에서 오고, 수집 결과도 외부 페이지에서 오므로 화면에서 한 번 더 막는다.
 const safeLink = (link: string) => (/^https?:\/\//i.test(link) ? link : undefined);
+
+// 줄인 이미지를 먼저 쓰고, 실패하면 원본으로 다시 받는다. 원본도 실패해야 이미지 칸을 숨긴다.
+function PosterImage({ src, alt, width, className }: { src: string; alt: string; width: number; className: string }) {
+  const [useOriginal, setUseOriginal] = useState(false);
+  const optimized = optimizedPosterUrl(src, width);
+  return (
+    <img
+      src={useOriginal ? src : optimized}
+      alt={alt}
+      loading="lazy"
+      className={className}
+      onError={(e) => {
+        if (!useOriginal && optimized !== src) setUseOriginal(true);
+        else (e.currentTarget.parentElement as HTMLElement)?.style.setProperty("display", "none");
+      }}
+    />
+  );
+}
 
 const CATEGORY_TABS: { id: NoticeCategory | "scrapped"; label: string; icon: string }[] = [
   { id: "all", label: "전체 소식", icon: "🌐" },
@@ -123,6 +142,7 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
         author: s.author,
         postDate: s.postDate,
         link: s.link,
+        thumbnail: s.thumbnail,
       }));
     } else {
       list = notices;
@@ -415,14 +435,12 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
                     onClick={() => setPreviewPoster({ src: notice.thumbnail!, title: notice.title, link: notice.link })}
                     title="포스터 크게 보기"
                   >
-                    <img
+                    <PosterImage
+                      key={notice.thumbnail}
                       src={notice.thumbnail}
                       alt={notice.title}
-                      loading="lazy"
+                      width={POSTER_WIDTH.card}
                       className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                      onError={(e) => {
-                        (e.currentTarget.parentElement as HTMLElement)?.style.setProperty("display", "none");
-                      }}
                     />
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-700 backdrop-blur-[1px]">
                       <span>🔍 포스터 크게 보기</span>
@@ -517,14 +535,12 @@ export default function CampusNoticesView({ onRecruitFromNotice }: CampusNotices
                     onClick={() => setPreviewPoster({ src: notice.thumbnail!, title: notice.title, link: notice.link })}
                     title="포스터 크게 보기"
                   >
-                    <img
+                    <PosterImage
+                      key={notice.thumbnail}
                       src={notice.thumbnail}
                       alt={notice.title}
-                      loading="lazy"
+                      width={POSTER_WIDTH.list}
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget.parentElement as HTMLElement)?.style.setProperty("display", "none");
-                      }}
                     />
                   </div>
                 )}

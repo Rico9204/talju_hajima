@@ -63,5 +63,6 @@ export interface ScrappedNotice {
   author: string;
   postDate: string;
   link: string;
+  thumbnail?: string;
   createdAt: string;
 }

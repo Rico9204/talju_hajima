@@ -46579,13 +46579,17 @@ function isValidThumbnail(url) {
   }
   return !isBoardMarkFile(trimmed);
 }
+function resolveThumbnail(baseUrl, raw, config) {
+  const resolved = resolveUrl(baseUrl, raw, config);
+  return resolved !== baseUrl && isValidThumbnail(resolved) ? resolved : void 0;
+}
 function extractThumbnail($el, baseUrl, config) {
   if (config?.selectors?.thumbnail) {
     const $target = $el.find(config.selectors.thumbnail).first();
     const raw = $target.attr("src") || $target.attr("data-src") || $target.attr("data-original") || $target.attr("data-lazy-src");
     if (raw && !isTinyImage($target)) {
-      const resolved = resolveUrl(baseUrl, raw, config);
-      if (isValidThumbnail(resolved)) return resolved;
+      const resolved = resolveThumbnail(baseUrl, raw, config);
+      if (resolved) return resolved;
     }
   }
   const candidateSelectors = [
@@ -46612,8 +46616,8 @@ function extractThumbnail($el, baseUrl, config) {
       const $img = $imgs.eq(i);
       const raw = $img.attr("src") || $img.attr("data-src") || $img.attr("data-original") || $img.attr("data-lazy-src") || $img.attr("data-img");
       if (raw && !isTinyImage($img)) {
-        const resolved = resolveUrl(baseUrl, raw, config);
-        if (isValidThumbnail(resolved)) {
+        const resolved = resolveThumbnail(baseUrl, raw, config);
+        if (resolved) {
           return resolved;
         }
       }
@@ -46624,8 +46628,8 @@ function extractThumbnail($el, baseUrl, config) {
     const style = $styleEls.eq(i).attr("style") || "";
     const match = style.match(/url\(['"]?([^'")]+)['"]?\)/i);
     if (match && match[1]) {
-      const resolved = resolveUrl(baseUrl, match[1], config);
-      if (isValidThumbnail(resolved)) {
+      const resolved = resolveThumbnail(baseUrl, match[1], config);
+      if (resolved) {
         return resolved;
       }
     }
@@ -46641,8 +46645,8 @@ function extractDetailImage(html3, config) {
     const $img = $imgs.eq(i);
     const raw = $img.attr("src") || $img.attr("data-src");
     if (!raw || isTinyImage($img)) continue;
-    const resolved = resolveUrl(config.baseUrl, raw, config);
-    if (resolved !== config.baseUrl && isValidThumbnail(resolved)) return resolved;
+    const resolved = resolveThumbnail(config.baseUrl, raw, config);
+    if (resolved) return resolved;
   }
   return void 0;
 }

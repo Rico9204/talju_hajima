@@ -1,5 +1,19 @@
 {
     "regions": ["icn1"],
+    "images": {
+        "sizes": [96, 640],
+        "qualities": [75],
+        "formats": ["image/webp"],
+        "minimumCacheTTL": 2592000,
+        "remotePatterns": [
+            { "protocol": "https", "hostname": "www.tu.ac.kr" },
+            { "protocol": "https", "hostname": "www.hongik.ac.kr" },
+            { "protocol": "https", "hostname": "www.knu.ac.kr" },
+            { "protocol": "https", "hostname": "api.linkareer.com" },
+            { "protocol": "https", "hostname": "media-cdn.linkareer.com" },
+            { "protocol": "https", "hostname": "cf-tabs-image.campuspick.com" }
+        ]
+    },
     "rewrites": [
         {
             "source": "/api/:path*",
