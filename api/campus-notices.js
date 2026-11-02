@@ -46547,6 +46547,25 @@ function cleanText(text3) {
   if (!text3) return "";
   return text3.replace(/\s+/g, " ").replace(/[\r\n\t]+/g, " ").trim();
 }
+var BOARD_MARK_FILE = /^(?:ic[_-].*|(?:(?:ico|img|bbs|board|bd|list)[_-]?)?(?:new|hot|file|files|attach|attachment|clip|disk|save|down|download|lock|locked|secret|key|notice|reply|re|comment|pin|top|hwp|hwpx|pdf|docx?|xlsx?|pptx?|zip|txt)(?:[_-]?(?:on|off|small|s|\d{1,2}))?)\.(?:gif|png|jpe?g|svg|webp|bmp)$/i;
+var MIN_THUMBNAIL_PX = 64;
+function isBoardMarkFile(url) {
+  try {
+    return BOARD_MARK_FILE.test(new URL(url).pathname.split("/").pop() ?? "");
+  } catch {
+    return false;
+  }
+}
+function isTinyImage($img) {
+  const style = $img.attr("style") ?? "";
+  const sizes = [
+    $img.attr("width"),
+    $img.attr("height"),
+    style.match(/(?:^|[;\s])width\s*:\s*(\d+)px/i)?.[1],
+    style.match(/(?:^|[;\s])height\s*:\s*(\d+)px/i)?.[1]
+  ];
+  return sizes.some((size) => size !== void 0 && /^\s*\d+(?:px)?\s*$/i.test(size) && parseInt(size, 10) < MIN_THUMBNAIL_PX);
+}
 function isValidThumbnail(url) {
   if (!url || typeof url !== "string") return false;
   const trimmed = url.trim();
@@ -46557,13 +46576,13 @@ function isValidThumbnail(url) {
   )) {
     return false;
   }
-  return true;
+  return !isBoardMarkFile(trimmed);
 }
 function extractThumbnail($el, baseUrl, config) {
   if (config?.selectors?.thumbnail) {
     const $target = $el.find(config.selectors.thumbnail).first();
     const raw = $target.attr("src") || $target.attr("data-src") || $target.attr("data-original") || $target.attr("data-lazy-src");
-    if (raw) {
+    if (raw && !isTinyImage($target)) {
       const resolved = resolveUrl(baseUrl, raw, config);
       if (isValidThumbnail(resolved)) return resolved;
     }
@@ -46591,7 +46610,7 @@ function extractThumbnail($el, baseUrl, config) {
     for (let i = 0; i < $imgs.length; i++) {
       const $img = $imgs.eq(i);
       const raw = $img.attr("src") || $img.attr("data-src") || $img.attr("data-original") || $img.attr("data-lazy-src") || $img.attr("data-img");
-      if (raw) {
+      if (raw && !isTinyImage($img)) {
         const resolved = resolveUrl(baseUrl, raw, config);
         if (isValidThumbnail(resolved)) {
           return resolved;

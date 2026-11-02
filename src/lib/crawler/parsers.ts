@@ -65,6 +65,32 @@ function cleanText(text: string | undefined): string {
   return text.replace(/\s+/g, " ").replace(/[\r\n\t]+/g, " ").trim();
 }
 
+// 게시판 목록 행에 붙는 표시 이미지(새 글·첨부·문서 형식·잠금 등). /attachments/123, file_123.jpg 같은 실제 포스터는 통과하도록 파일 이름 전체로만 비교한다.
+const BOARD_MARK_FILE =
+  /^(?:ic[_-].*|(?:(?:ico|img|bbs|board|bd|list)[_-]?)?(?:new|hot|file|files|attach|attachment|clip|disk|save|down|download|lock|locked|secret|key|notice|reply|re|comment|pin|top|hwp|hwpx|pdf|docx?|xlsx?|pptx?|zip|txt)(?:[_-]?(?:on|off|small|s|\d{1,2}))?)\.(?:gif|png|jpe?g|svg|webp|bmp)$/i;
+// 이보다 작게 표시되는 이미지는 포스터가 아니라 아이콘으로 본다.
+const MIN_THUMBNAIL_PX = 64;
+
+function isBoardMarkFile(url: string): boolean {
+  try {
+    return BOARD_MARK_FILE.test(new URL(url).pathname.split("/").pop() ?? "");
+  } catch {
+    return false;
+  }
+}
+
+function isTinyImage($img: cheerio.Cheerio<any>): boolean {
+  const style = $img.attr("style") ?? "";
+  const sizes = [
+    $img.attr("width"),
+    $img.attr("height"),
+    style.match(/(?:^|[;\s])width\s*:\s*(\d+)px/i)?.[1],
+    style.match(/(?:^|[;\s])height\s*:\s*(\d+)px/i)?.[1],
+  ];
+  // "50%"처럼 비율로 준 값은 실제 크기를 알 수 없어 건너뛴다.
+  return sizes.some((size) => size !== undefined && /^\s*\d+(?:px)?\s*$/i.test(size) && parseInt(size, 10) < MIN_THUMBNAIL_PX);
+}
+
 export function isValidThumbnail(url: string | undefined): boolean {
   if (!url || typeof url !== "string") return false;
   const trimmed = url.trim();
@@ -77,7 +103,7 @@ export function isValidThumbnail(url: string | undefined): boolean {
   ) {
     return false;
   }
-  return true;
+  return !isBoardMarkFile(trimmed);
 }
 
 export function extractThumbnail(
@@ -93,7 +119,7 @@ export function extractThumbnail(
       $target.attr("data-src") ||
       $target.attr("data-original") ||
       $target.attr("data-lazy-src");
-    if (raw) {
+    if (raw && !isTinyImage($target)) {
       const resolved = resolveUrl(baseUrl, raw, config);
       if (isValidThumbnail(resolved)) return resolved;
     }
@@ -117,7 +143,7 @@ export function extractThumbnail(
         $img.attr("data-original") ||
         $img.attr("data-lazy-src") ||
         $img.attr("data-img");
-      if (raw) {
+      if (raw && !isTinyImage($img)) {
         const resolved = resolveUrl(baseUrl, raw, config);
         if (isValidThumbnail(resolved)) {
           return resolved;

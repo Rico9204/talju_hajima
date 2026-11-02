@@ -219,3 +219,32 @@ test('포스터/썸네일 이미지 추출: 테이블 및 카드에서 포스터
   assert.equal(results[1].thumbnail, undefined);
 });
 
+test('포스터 추출: 목록 행의 새 글·첨부·문서 형식 표시 이미지와 작게 표시되는 이미지는 건너뛴다', () => {
+  const config = {
+    schoolCode: 'test-mark',
+    schoolName: '테스트대학교',
+    category: 'general',
+    categoryLabel: '일반',
+    cmsType: 'egov_table',
+    listUrl: 'https://univ.ac.kr/board',
+    baseUrl: 'https://univ.ac.kr',
+  };
+  const thumbnailOf = (imgs) => parseEgovTable(
+    `<table class="tbl_board"><tbody><tr><td class="subject"><a href="/view/1">공지 제목</a>${imgs}</td><td class="writer">담당</td><td class="date">2026-10-01</td></tr></tbody></table>`,
+    config
+  )[0].thumbnail;
+
+  for (const src of ['/img/new.gif', '/images/board/file.gif', '/board/attach.png', '/skin/ic_new.png', '/img/hwp.gif', '/img/pdf.gif', '/img/lock.gif', '/images/notice.png', '/img/bbs_new_01.gif']) {
+    assert.equal(thumbnailOf(`<img src="${src}">`), undefined, src);
+  }
+  assert.equal(thumbnailOf('<img src="/upload/a.png" width="16" height="16">'), undefined);
+  assert.equal(thumbnailOf('<img src="/upload/a.png" style="width: 20px">'), undefined);
+
+  // 실제 포스터 주소는 통과: 표시 이미지 뒤에 있어도 찾고, 파일 이름에 같은 낱말이 들어가도 막지 않는다.
+  assert.equal(thumbnailOf('<img src="/img/new.gif"><img src="/upload/poster.png">'), 'https://univ.ac.kr/upload/poster.png');
+  for (const src of ['/wbbs/file/newsletter/file_1175905643737747979.jpg', '/attachments/978388', '/download.do?id=7', '/upload/new_contest.png']) {
+    assert.equal(thumbnailOf(`<img src="${src}">`), `https://univ.ac.kr${src}`, src);
+  }
+  assert.equal(thumbnailOf('<img src="/upload/b.png" width="50%">'), 'https://univ.ac.kr/upload/b.png');
+  assert.equal(thumbnailOf('<img src="/upload/c.png" width="300" height="400">'), 'https://univ.ac.kr/upload/c.png');
+});
