@@ -39,9 +39,25 @@ export const claimsFor = (userId: string) => JSON.stringify({ sub: userId, role:
 export class PgDb extends Db {
   private readonly pool: pg.Pool;
 
-  constructor(private readonly connectionString: string) {
+  constructor(private readonly connectionString: string, private readonly retryMs = 5000) {
     super();
     this.pool = new pg.Pool({ connectionString, max: 10 });
+    // 쉬고 있는 연결이 끊기면(DB 재시작 등) 풀이 이 이벤트를 낸다. 받는 곳이 없으면 프로세스가 죽는다. 끊긴 연결은 풀이 알아서 버린다.
+    this.pool.on("error", (error) => console.error("[db] 쉬고 있던 DB 연결이 끊겼습니다:", error.message));
+  }
+
+  // Docker보다 서버가 먼저 떠도 시작에 실패하지 않게, DB가 받을 때까지 기다린다.
+  async waitUntilReady(attempts = 40): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.pool.query("select 1");
+        return;
+      } catch (error) {
+        if (attempt >= attempts) throw error;
+        console.warn(`[db] DB 연결 대기 중(${attempt}/${attempts}): ${error instanceof Error ? error.message : error}`);
+        await new Promise((resolve) => setTimeout(resolve, this.retryMs));
+      }
+    }
   }
 
   asUser<T>(userId: string, fn: (query: Query) => Promise<T>): Promise<T> {
@@ -56,23 +72,33 @@ export class PgDb extends Db {
     return this.transaction(fn);
   }
 
-  // 알림 전용 연결 하나를 계속 붙잡아 둔다(LISTEN은 풀 연결로 할 수 없다). 끊기면 5초 뒤 다시 붙는다.
+  // 알림 전용 연결 하나를 계속 붙잡아 둔다(LISTEN은 풀 연결로 할 수 없다). 끊기면 다시 붙을 때까지 5초마다 시도한다.
   // ponytail: 끊겨 있던 동안의 알림은 잃는다(화면은 다음 조회 때 맞춰진다). 놓치면 안 되면 변경 기록 표로 바꾼다.
   async listen(channel: string, onMessage: (payload: string) => void): Promise<() => Promise<void>> {
     if (!/^[a-z_]+$/.test(channel)) throw new Error("잘못된 알림 채널 이름");
     let client: pg.Client | null = null;
     let stopped = false;
+    let retry: NodeJS.Timeout | null = null;
+    const reconnect = () => {
+      if (stopped || retry) return;
+      retry = setTimeout(() => { retry = null; void connect().catch(reconnect); }, this.retryMs);
+    };
     const connect = async () => {
       if (stopped) return;
       const next = new pg.Client({ connectionString: this.connectionString });
       next.on("notification", (msg) => { if (msg.channel === channel && msg.payload) onMessage(msg.payload); });
-      next.on("error", () => { void next.end().catch(() => {}); client = null; setTimeout(() => void connect().catch(() => {}), 5000); });
-      await next.connect();
-      await next.query(`listen ${channel}`);
+      next.on("error", () => { void next.end().catch(() => {}); if (client === next) client = null; reconnect(); });
+      try {
+        await next.connect();
+        await next.query(`listen ${channel}`);
+      } catch (error) {
+        void next.end().catch(() => {});
+        throw error;
+      }
       client = next;
     };
     await connect();
-    return async () => { stopped = true; await client?.end().catch(() => {}); };
+    return async () => { stopped = true; if (retry) clearTimeout(retry); await client?.end().catch(() => {}); };
   }
 
   private async transaction<T>(fn: (query: Query) => Promise<T>): Promise<T> {

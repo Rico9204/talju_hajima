@@ -6,6 +6,7 @@ import { DiskFileStore } from "./storage.js";
 
 const config = loadConfig();
 const db = new PgDb(config.databaseUrl);
+await db.waitUntilReady();
 const app = await createApp({
   db, jwtSecret: config.jwtSecret, corsOrigins: config.corsOrigins, trustProxy: config.trustProxy, trustVercelIp: config.trustVercelIp,
   store: new DiskFileStore(config.storageDir), publicBaseUrl: config.publicBaseUrl,

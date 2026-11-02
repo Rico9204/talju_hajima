@@ -49,7 +49,7 @@ test('2인 팀: 받은 사람에게도, 팀 화면에도 점수·코멘트가 �
   }
 });
 
-test('3인 팀: 일부만 제출하면 가려지고, 전원이 제출하면 평균이 공개된다', async () => {
+test('3인 팀: 나를 평가할 동료 일부만 제출하면 가려지고, 그 동료 전원이 제출하면 내 제출 여부와 관계없이 평균이 공개된다', async () => {
   const s = await setupProject(api, pg);
   const [third] = await signupUsers(api, 1, 'third');
   const joined = await call(third, 'POST', `/projects/${s.p}/join`, { code: await joinCode(api, s.leader, s.p), school: '한국대학교', major: '컴퓨터공학과', student: '2' });
