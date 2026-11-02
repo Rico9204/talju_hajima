@@ -1,5 +1,5 @@
 import { lazy, Suspense, type CSSProperties } from "react";
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, Route, RouterProvider, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { WorkspaceFocus } from "./components/Workspace";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
@@ -175,19 +175,28 @@ function AppRoutes() {
   );
 }
 
+// 라우트는 AppRoutes(<Routes>)가 그대로 맡고, data router는 편집기의 이탈 확인(useBlocker)에만 쓴다.
+// data router는 화면 오류를 자체 기본 화면으로 먼저 잡으므로 앱의 ErrorBoundary를 안쪽에도 둔다.
+const router = createBrowserRouter([{
+  path: "*",
+  element: (
+    <ErrorBoundary variant="full">
+      <ProjectProvider>
+        <Suspense fallback={<PageLoading />}>
+          <AppRoutes />
+        </Suspense>
+      </ProjectProvider>
+    </ErrorBoundary>
+  ),
+}]);
+
 export default function App() {
   // 가장 바깥 안전망: 로그인·프로젝트 불러오기 단계를 포함해 어디서 오류가 나도 흰 화면 대신 안내.
   // 페이지 영역 오류는 Layout 안의 RouteErrorBoundary가 먼저 받아 사이드바는 그대로 둔다.
   return (
     <ErrorBoundary variant="full">
       <AuthProvider>
-        <BrowserRouter>
-          <ProjectProvider>
-            <Suspense fallback={<PageLoading />}>
-              <AppRoutes />
-            </Suspense>
-          </ProjectProvider>
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </AuthProvider>
     </ErrorBoundary>
   );

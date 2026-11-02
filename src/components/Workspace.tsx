@@ -83,6 +83,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const presenceRef = useRef<CollabPresence | null>(null);
   const [editing, setEditing] = useState<{ fileId: number; room: number; mode: CollabMode; initialText: string } | null>(null);
   const [docEditing, setDocEditing] = useState<{ kind: CollabFileKind; fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
+  // 편집 중인 파일. 팀원이 지워 목록에서 사라져도 마지막 정보로 편집기를 유지해, 쓰던 내용을 잃지 않게 한다.
+  const editFileId = editing?.fileId ?? docEditing?.fileId;
+  const lastEditFile = useRef<WorkspaceFile | null>(null);
+  const liveEditFile = files.find((f) => f.id === editFileId);
+  if (liveEditFile) lastEditFile.current = liveEditFile;
+  const editFile = liveEditFile ?? (lastEditFile.current?.id === editFileId ? lastEditFile.current : undefined);
   const [newDoc, setNewDoc] = useState<{ kind: CollabFileKind; name: string } | null>(null); // null = 새 문서·슬라이드 입력창 닫힘
   const [docBusy, setDocBusy] = useState(false);
   // 끌어서 옮기기·순서 바꾸기: 끌고 있는 것(파일 여러 개 또는 폴더 하나)과 지금 놓으려는 곳.
@@ -1074,21 +1080,21 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         </div>
       </div>
       {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-500/10 text-red-500 p-3">{editError}</p>}
-      {editing && presenceRef.current && files.find((f) => f.id === editing.fileId) && (
+      {editing && presenceRef.current && editFile && (
         <QuickEditModal
           key={`${editing.fileId}:${editing.room}:${editing.mode}`}
           projectId={project.id}
-          file={files.find((f) => f.id === editing.fileId)!}
+          file={editFile}
           room={editing.room}
           mode={editing.mode}
           initialText={editing.initialText}
           presence={presenceRef.current}
           editors={editors}
-          save={(text, base, auto) => saveQuickEdit(files.find((f) => f.id === editing.fileId)!, editing.room, text, base, auto)}
+          save={(text, base, auto) => saveQuickEdit(editFile, editing.room, text, base, auto)}
           onClose={() => setEditing(null)}
         />
       )}
-      {docEditing && presenceRef.current && files.find((f) => f.id === docEditing.fileId) && (
+      {docEditing && presenceRef.current && editFile && (
         <Suspense fallback={<div role="status" className="fixed inset-0 z-50 flex items-center justify-center text-sm" style={{ background: "rgba(15,18,53,0.48)", color: "#fff" }}>편집기를 불러오는 중…</div>}>
           {(() => {
             const Editor = docEditing.kind === "doc" ? DocEditorModal : SlidesEditorModal;
@@ -1096,14 +1102,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               <Editor
                 key={`${docEditing.fileId}:${docEditing.room}:${docEditing.mode}`}
                 projectId={project.id}
-                file={files.find((f) => f.id === docEditing.fileId)!}
+                file={editFile}
                 room={docEditing.room}
                 mode={docEditing.mode}
                 initialBytes={docEditing.bytes}
                 presence={presenceRef.current}
                 editors={editors}
-                save={(bytes, text, base, auto) => saveCollabFile(docEditing.kind, files.find((f) => f.id === docEditing.fileId)!, bytes, text, base, auto)}
-                images={collabImages(docEditing.kind, files.find((f) => f.id === docEditing.fileId)!)}
+                save={(bytes, text, base, auto) => saveCollabFile(docEditing.kind, editFile, bytes, text, base, auto)}
+                images={collabImages(docEditing.kind, editFile)}
                 onClose={() => setDocEditing(null)}
               />
             );

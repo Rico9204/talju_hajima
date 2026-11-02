@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
+import { useLeaveGuard } from "../lib/useLeaveGuard";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta, type RemoteCursor } from "../lib/collab";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
@@ -25,6 +26,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const guard = useLeaveGuard(dirty, setConfirmClose);
   const valueRef = useRef(initialText);
   const docRef = useRef<CollabDoc | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -179,8 +181,18 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   }
 
   async function saveAndClose() {
-    if (await runSave()) onClose();
-    else setConfirmClose(false);
+    if (await runSave()) { guard.leave(); onClose(); }
+    else keepEditing();
+  }
+
+  function discardAndClose() {
+    guard.leave();
+    onClose();
+  }
+
+  function keepEditing() {
+    setConfirmClose(false);
+    guard.stay();
   }
 
   const names = [...new Set(roomEditors.map((e) => e.name))];
@@ -209,8 +221,8 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
             <span className="flex-1 min-w-48">저장하지 않은 변경사항이 있어요.{lastEditor && " 지금 나가면 지금까지 수정한 내용이 사라질 수 있어요."}</span>
             <button type="button" onClick={() => void saveAndClose()} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--primary)", color: "#fff" }}>저장하고 닫기</button>
-            <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>저장 없이 닫기</button>
-            <button type="button" onClick={() => setConfirmClose(false)} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>계속 수정</button>
+            <button type="button" onClick={discardAndClose} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>저장 없이 닫기</button>
+            <button type="button" onClick={keepEditing} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>계속 수정</button>
           </div>
         )}
         {error && <p role="alert" className="mx-5 mt-2 text-xs rounded-lg bg-red-500/10 text-red-500 p-2">{error}</p>}

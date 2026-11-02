@@ -9,6 +9,7 @@ import { joinCollabPresence, type CollabEditor, type CollabPresence } from "../.
 import { RICH_DOC_FIELD } from "../../src/lib/richDoc";
 import { newSlidesBytes } from "../../src/lib/slidesDoc";
 import type { CollabImageStore } from "../../src/lib/collabImages";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import type { WorkspaceFile } from "../../src/api/types";
 
 // ?user=a|b&kind=quick|doc|slides — 두 사람은 탭 두 개(또는 collab-cursors-pair.html의 iframe)로 띄운다.
@@ -69,4 +70,4 @@ function App() {
   const Editor = kind === "doc" ? DocEditorModal : SlidesEditorModal;
   return <Editor projectId="fixture" file={file} room={1} mode="main" initialBytes={bytes} presence={presence} editors={editors} save={save} images={images} onClose={() => {}} />;
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(<RouterProvider router={createMemoryRouter([{ path: "*", element: <App /> }])} />);

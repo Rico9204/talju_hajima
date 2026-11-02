@@ -54,7 +54,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   images: CollabImageStore;
   onClose: () => void;
 }) {
-  const { doc, awareness, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose, requestClose, saveAndClose } = useCollabFile({
+  const { doc, awareness, dirty, status, statusText, error, setError, runSave, confirmClose, requestClose, saveAndClose, discardAndClose, keepEditing } = useCollabFile({
     projectId, fileId: file.id, room, mode, initialBytes, presence, keyOf: richDocKey, textOf: richDocText, save,
   });
   const [exporting, setExporting] = useState<"docx" | "pdf" | null>(null);
@@ -183,8 +183,8 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
             <span className="flex-1 min-w-48">저장하지 않은 변경사항이 있어요.{lastEditor && " 지금 나가면 지금까지 수정한 내용이 사라질 수 있어요."}</span>
             <button type="button" onClick={() => void saveAndClose(onClose)} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--primary)", color: "#fff" }}>저장하고 닫기</button>
-            <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>저장 없이 닫기</button>
-            <button type="button" onClick={() => setConfirmClose(false)} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>계속 수정</button>
+            <button type="button" onClick={() => discardAndClose(onClose)} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>저장 없이 닫기</button>
+            <button type="button" onClick={keepEditing} className="px-3 py-1.5 rounded-full font-700" style={{ background: "var(--card)", color: "var(--foreground)" }}>계속 수정</button>
           </div>
         )}
         {error && <p role="alert" className="mx-5 mt-2 text-xs rounded-lg bg-red-500/10 text-red-500 p-2">{error}</p>}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { connectCollabRoom, type CollabMode, type CollabPresence, type CollabRoom } from "./collab";
+import { useLeaveGuard } from "./useLeaveGuard";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
 
@@ -37,6 +38,7 @@ export function useCollabFile(opts: {
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const guard = useLeaveGuard(dirty, setConfirmClose);
 
   const refreshDirty = () => {
     const r = roomRef.current;
@@ -109,6 +111,11 @@ export function useCollabFile(opts: {
   return {
     doc, awareness, dirty, status, statusText, error, setError, runSave, confirmClose, setConfirmClose,
     requestClose: (onClose: () => void) => { if (dirty) setConfirmClose(true); else onClose(); },
-    saveAndClose: async (onClose: () => void) => { if (await runSave()) onClose(); else setConfirmClose(false); },
+    saveAndClose: async (onClose: () => void) => {
+      if (await runSave()) { guard.leave(); onClose(); }
+      else { setConfirmClose(false); guard.stay(); }
+    },
+    discardAndClose: (onClose: () => void) => { guard.leave(); onClose(); },
+    keepEditing: () => { setConfirmClose(false); guard.stay(); },
   };
 }
