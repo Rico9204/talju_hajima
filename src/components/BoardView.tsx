@@ -7,6 +7,7 @@ import PostDetailView from "./PostDetailView";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import type { BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
+import { previewOpensAbove } from "../lib/boardPreview";
 
 const POSTS_PER_PAGE = 10;
 type SearchTarget = "title_content" | "title" | "content" | "author" | "tag";
@@ -17,6 +18,7 @@ interface HoveredImagePreview {
   title: string;
   imageCount: number;
   isBlurred?: boolean;
+  above: boolean;
 }
 
 function isImageAttachment(a: { kind: string; mimeType?: string; name?: string; url?: string }): boolean {
@@ -489,7 +491,7 @@ export default function BoardView({
                     setHoveredPreview(null);
                     void openPostDetail(post);
                   }}
-                  onMouseEnter={() => {
+                  onMouseEnter={(e) => {
                     if (firstImageUrl) {
                       setHoveredPreview({
                         postId: post.id,
@@ -497,6 +499,7 @@ export default function BoardView({
                         title: post.title,
                         imageCount,
                         isBlurred: isPreviewDisabled,
+                        above: previewOpensAbove(e.currentTarget.getBoundingClientRect(), window.innerHeight),
                       });
                     }
                   }}
@@ -514,92 +517,92 @@ export default function BoardView({
                     backgroundClip: "padding-box",
                   }}
                 >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  {post.pinned && (
-                    <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "6px" }}>
-                      📌 필독
-                    </span>
-                  )}
-                  {catInfo && (
-                    <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: catInfo.badgeBg, color: catInfo.badgeColor, borderRadius: "10px" }}>
-                      {catInfo.icon} {catInfo.name}
-                    </span>
-                  )}
-                  <span className="text-sm font-700 truncate hover:text-blue-500 transition-colors">{post.title}</span>
-                  {post.tags.slice(0, 3).map((tag) => (
-                    <span
-                      key={tag}
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); showTag(tag); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); showTag(tag); } }}
-                      className="text-[10px] font-600 px-1.5 py-0.5 shrink-0 hover:opacity-80"
-                      style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
-                      title={`#${tag} 글만 보기`}
-                    >
-                      #{tag}
-                    </span>
-                  ))}
-                  {post.tags.length > 3 && <span className="text-[10px] shrink-0" style={{ color: "var(--muted-foreground)" }}>+{post.tags.length - 3}</span>}
-                  {post.poll && (
-                    <span
-                      className="text-[10px] font-bold px-1.5 py-0.5 shrink-0 rounded flex items-center gap-1"
-                      style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3b82f6" }}
-                      title="투표 진행/마감"
-                    >
-                      <span>📊</span>
-                      <span>투표</span>
-                    </span>
-                  )}
-                  {(imageCount > 0 || fileCount > 0) && (
-                    <span
-                      className="text-[10px] shrink-0 font-600 flex items-center gap-1.5"
-                      style={{ color: "var(--muted-foreground)" }}
-                      title="마우스를 올리면 첫 이미지를 미리 볼 수 있습니다"
-                    >
-                      {imageCount > 0 && (
-                        <span
-                          className="px-1.5 py-0.5 rounded font-700 flex items-center transition-all"
-                          style={{
-                            background: "rgba(59, 130, 246, 0.12)",
-                            color: "#3b82f6",
-                          }}
-                          title="이미지 첨부됨 (마우스를 올리면 미리보기)"
-                        >
-                          <span>📷</span>
-                        </span>
-                      )}
-                      {fileCount > 0 && <span>📎 {fileCount}</span>}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>
-                  <span className="font-600 hidden sm:inline-block w-20 truncate text-right" style={{ color: "var(--foreground)" }}>
-                    {post.author}
-                  </span>
-                  <span className="text-[11px] hidden md:inline-block w-28 text-center shrink-0 tabular-nums">
-                    {new Date(post.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  <div className="flex items-center gap-3 pl-2.5 border-l" style={{ borderColor: "var(--border)" }}>
-                    <span title="조회수" className="inline-flex items-center justify-between w-12 tabular-nums">
-                      <span className="w-4 text-center shrink-0">👁️</span>
-                      <span className="text-right font-600 flex-1">{post.views}</span>
-                    </span>
-                    <span title="좋아요" className="inline-flex items-center justify-between w-11 tabular-nums">
-                      <span className="w-4 text-center shrink-0">❤️</span>
-                      <span className="text-right font-600 flex-1">{post.likes}</span>
-                    </span>
-                    <span title="댓글수" className="inline-flex items-center justify-between w-11 tabular-nums">
-                      <span className="w-4 text-center shrink-0">💬</span>
-                      <span className="text-right font-600 flex-1">{post.commentsCount}</span>
-                    </span>
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    {post.pinned && (
+                      <span className="text-[10px] font-700 px-1.5 py-0.5 shrink-0" style={{ background: "#ef444418", color: "#ef4444", borderRadius: "6px" }}>
+                        📌 필독
+                      </span>
+                    )}
+                    {catInfo && (
+                      <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: catInfo.badgeBg, color: catInfo.badgeColor, borderRadius: "10px" }}>
+                        {catInfo.icon} {catInfo.name}
+                      </span>
+                    )}
+                    <span className="text-sm font-700 truncate hover:text-blue-500 transition-colors">{post.title}</span>
+                    {post.tags.slice(0, 3).map((tag) => (
+                      <span
+                        key={tag}
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); showTag(tag); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); showTag(tag); } }}
+                        className="text-[10px] font-600 px-1.5 py-0.5 shrink-0 hover:opacity-80"
+                        style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                        title={`#${tag} 글만 보기`}
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                    {post.tags.length > 3 && <span className="text-[10px] shrink-0" style={{ color: "var(--muted-foreground)" }}>+{post.tags.length - 3}</span>}
+                    {post.poll && (
+                      <span
+                        className="text-[10px] font-bold px-1.5 py-0.5 shrink-0 rounded flex items-center gap-1"
+                        style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3b82f6" }}
+                        title="투표 진행/마감"
+                      >
+                        <span>📊</span>
+                        <span>투표</span>
+                      </span>
+                    )}
+                    {(imageCount > 0 || fileCount > 0) && (
+                      <span
+                        className="text-[10px] shrink-0 font-600 flex items-center gap-1.5"
+                        style={{ color: "var(--muted-foreground)" }}
+                        title="마우스를 올리면 첫 이미지를 미리 볼 수 있습니다"
+                      >
+                        {imageCount > 0 && (
+                          <span
+                            className="px-1.5 py-0.5 rounded font-700 flex items-center transition-all"
+                            style={{
+                              background: "rgba(59, 130, 246, 0.12)",
+                              color: "#3b82f6",
+                            }}
+                            title="이미지 첨부됨 (마우스를 올리면 미리보기)"
+                          >
+                            <span>📷</span>
+                          </span>
+                        )}
+                        {fileCount > 0 && <span>📎 {fileCount}</span>}
+                      </span>
+                    )}
                   </div>
-                </div>
+                  <div className="flex items-center gap-3 text-xs shrink-0" style={{ color: "var(--muted-foreground)" }}>
+                    <span className="font-600 hidden sm:inline-block w-20 truncate text-right" style={{ color: "var(--foreground)" }}>
+                      {post.author}
+                    </span>
+                    <span className="text-[11px] hidden md:inline-block w-28 text-center shrink-0 tabular-nums">
+                      {new Date(post.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <div className="flex items-center gap-3 pl-2.5 border-l" style={{ borderColor: "var(--border)" }}>
+                      <span title="조회수" className="inline-flex items-center justify-between w-12 tabular-nums">
+                        <span className="w-4 text-center shrink-0">👁️</span>
+                        <span className="text-right font-600 flex-1">{post.views}</span>
+                      </span>
+                      <span title="좋아요" className="inline-flex items-center justify-between w-11 tabular-nums">
+                        <span className="w-4 text-center shrink-0">❤️</span>
+                        <span className="text-right font-600 flex-1">{post.likes}</span>
+                      </span>
+                      <span title="댓글수" className="inline-flex items-center justify-between w-11 tabular-nums">
+                        <span className="w-4 text-center shrink-0">💬</span>
+                        <span className="text-right font-600 flex-1">{post.commentsCount}</span>
+                      </span>
+                    </div>
+                  </div>
                 </button>
 
                 {isHovered && (
                   <div
-                    className="absolute left-4 top-full mt-1.5 z-40 pointer-events-none w-[280px] max-w-[calc(100%-2rem)] select-none animate-in fade-in zoom-in-95 duration-150"
+                    className={`absolute left-4 ${hoveredPreview.above ? "bottom-full mb-1.5" : "top-full mt-1.5"} z-40 pointer-events-none w-[280px] max-w-[calc(100%-2rem)] select-none animate-in fade-in zoom-in-95 duration-150`}
                   >
                     <div
                       className="overflow-hidden border backdrop-blur-md"
@@ -706,8 +709,6 @@ export default function BoardView({
           </div>
         </div>
       )}
-
-
     </div>
   );
 }
