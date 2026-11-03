@@ -339,7 +339,7 @@ export default function CreatePostView({
             </label>
             <div className="flex flex-wrap items-center gap-1.5 px-3 py-2" style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px" }}>
               {tags.map((tag) => (
-                <span key={tag} className="flex items-center gap-1 text-xs font-600 pl-2 pr-1 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                <span key={tag} className="flex items-center gap-1 text-xs font-600 pl-2 pr-1 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}>
                   #{tag}
                   <button type="button" aria-label={`${tag} 태그 삭제`} onClick={() => setTags((prev) => prev.filter((t) => !sameTag(t, tag)))} className="w-4 h-4 flex items-center justify-center">×</button>
                 </span>
@@ -385,7 +385,7 @@ export default function CreatePostView({
                 </button>
                 <label
                   className="cursor-pointer px-3 py-1.5 text-xs font-700 inline-flex items-center gap-1.5 transition-all"
-                  style={{ background: "#4a74b518", color: "#4a74b5", borderRadius: "8px" }}
+                  style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "8px" }}
                   title="커서 위치에 이미지 삽입"
                 >
                   <span>📷 본문에 이미지 삽입</span>

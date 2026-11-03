@@ -214,7 +214,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
       <section className="w-[min(96vw,900px)] h-[min(88vh,760px)] flex flex-col border" aria-label="바로 수정" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
-            <div className="text-xs font-700" style={{ color: "var(--primary)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "바로 수정 (함께 편집)"}</div>
+            <div className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "바로 수정 (함께 편집)"}</div>
             <div className="text-sm font-700 truncate mt-0.5">{file.name}</div>
           </div>
           <div className="flex items-center gap-3 shrink-0">

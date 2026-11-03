@@ -272,11 +272,11 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   const elapsedPct = startMs !== null && endMs !== null && endMs > startMs ? Math.max(0, Math.min(100, Math.round(((todayMs - startMs) / (endMs - startMs)) * 100))) : null;
   const gap = elapsedPct === null ? null : progressPct - elapsedPct;
   const pace = isDone ? { text: "프로젝트가 종료됐어요.", color: "#16a34a" }
-    : elapsedPct === null ? { text: "프로젝트 기간이 없어 비교할 수 없어요.", color: "#454b6e" }
-    : !taskSummary.total ? { text: "과제를 등록하면 기간과 비교해 드려요.", color: "#454b6e" }
+    : elapsedPct === null ? { text: "프로젝트 기간이 없어 비교할 수 없어요.", color: "var(--neutral-text)" }
+    : !taskSummary.total ? { text: "과제를 등록하면 기간과 비교해 드려요.", color: "var(--neutral-text)" }
     : gap! >= 5 ? { text: `기간보다 ${gap}%p 앞서 가고 있어요`, color: "#16a34a" }
     : gap! <= -5 ? { text: `기간보다 ${-gap!}%p 늦어요. 마감 임박 과제를 확인해 보세요`, color: "#d97706" }
-    : { text: "기간에 맞게 진행 중이에요", color: "var(--primary)" };
+    : { text: "기간에 맞게 진행 중이에요", color: "var(--primary-text)" };
   const tierColor = myTier?.color ?? "#8b95c9";
   const endMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(project.endDate ?? "");
   const endDays = endMatch ? Math.round((Date.UTC(+endMatch[1], +endMatch[2] - 1, +endMatch[3]) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000) : null;
@@ -296,9 +296,9 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
   const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" };
   const statusRows = [
-    { status: "todo", label: "예정", color: "#9aa0bd", text: "#454b6e" },
+    { status: "todo", label: "예정", color: "#9aa0bd", text: "var(--neutral-text)" },
     { status: "inprogress", label: "진행", color: "var(--status-inprogress)", text: "var(--status-inprogress)" },
-    { status: "review", label: "검토", color: "#f59e0b", text: "#b45309" },
+    { status: "review", label: "검토", color: "#f59e0b", text: "var(--warning-text)" },
   ] as const;
 
   return (
@@ -348,7 +348,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               <div className="min-w-0">
                 <p className="text-sm font-600 truncate" style={{ color: "var(--muted-foreground)" }}>과제 {taskSummary.total}개 중 {taskSummary.completed}개 완료 · {project.name}</p>
               </div>
-              <button onClick={() => onNavigate("tasks")} className="text-xs font-600 px-4 py-2 transition-all shrink-0" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "40px" }}>전체 보기</button>
+              <button onClick={() => onNavigate("tasks")} className="text-xs font-600 px-4 py-2 transition-all shrink-0" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "40px" }}>전체 보기</button>
             </div>
             <div className="flex h-2 overflow-hidden mb-5" style={{ borderRadius: "6px", background: "var(--border)" }} aria-hidden="true">
               {[["#9aa0bd", statusCounts[0]], ["var(--status-inprogress)", statusCounts[1]], ["#f59e0b", statusCounts[2]], ["#86d4a0", statusCounts[3]]].map(([color, count], i) => (
@@ -402,7 +402,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   </div>
                 </div>
               ))}
-              <div className="text-xs font-600 px-3 py-2.5" style={{ background: `${pace.color}1f`, color: pace.color, borderRadius: "12px" }}>{pace.text}</div>
+              <div className="text-xs font-600 px-3 py-2.5" style={{ background: `color-mix(in srgb, ${pace.color} 12%, transparent)`, color: pace.color, borderRadius: "12px" }}>{pace.text}</div>
             </WindowPanel>
 
             <WindowPanel id="dashboard-achievements" title="다음에 달성할 업적" bodyClassName="p-5 md:p-6" style={cardStyle}>

@@ -615,7 +615,7 @@ export default function BoardView({
           <WindowPanel id="board-hot" title="이번 주 인기 글" style={cardStyle} bodyClassName="px-4 py-2">
             {hotPosts.map((post, i) => (
               <button key={post.id} onClick={() => void openPostDetail(post)} className="block w-full text-left py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--border)" : "none" }}>
-                <span className="font-800 mr-1.5" style={{ color: "var(--primary)" }}>{i + 1}</span>
+                <span className="font-800 mr-1.5" style={{ color: "var(--primary-text)" }}>{i + 1}</span>
                 <span className="font-600">{post.title}</span>
                 <div className="text-[11px] mt-0.5 pl-3.5" style={{ color: "var(--muted-foreground)" }}>❤️ {post.likes} · 💬 {post.commentsCount}</div>
               </button>

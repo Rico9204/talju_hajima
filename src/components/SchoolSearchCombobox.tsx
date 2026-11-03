@@ -169,7 +169,7 @@ export default function SchoolSearchCombobox({
                   <span>⭐</span>
                   <span>{mySchool}</span>
                 </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">소속</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary-text">소속</span>
               </button>
             </div>
           )}
@@ -233,7 +233,7 @@ export default function SchoolSearchCombobox({
                       >
                         {univ.region}
                       </span>
-                      {isSelected && <span className="text-primary text-xs">✓</span>}
+                      {isSelected && <span className="text-primary-text text-xs">✓</span>}
                     </div>
                   </button>
                 );
@@ -253,7 +253,7 @@ export default function SchoolSearchCombobox({
                   borderColor: "rgba(99, 102, 241, 0.2)",
                 }}
               >
-                <div className="flex items-center gap-1.5 font-bold text-primary mb-1">
+                <div className="flex items-center gap-1.5 font-bold text-primary-text mb-1">
                   <span>🏫</span>
                   <span>대학교 공지 검색 안내</span>
                 </div>
@@ -273,7 +273,7 @@ export default function SchoolSearchCombobox({
                 style={{
                   borderColor: "var(--border)",
                   background: activeIndex === results.length ? "var(--muted)" : "transparent",
-                  color: "var(--primary)",
+                  color: "var(--primary-text)",
                   fontWeight: 700,
                 }}
               >

@@ -314,7 +314,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
               <PentagonChart size={230} data={criteria.map((c) => ({ label: c.label, value: average!.criteria![c.id] }))} />
             </div>
             <div className="flex items-baseline gap-2 justify-center flex-wrap text-center">
-              <span className="text-3xl font-300" style={{ fontFamily: "var(--font-outfit)", color: "var(--primary)" }}>{average?.score?.toFixed(2)}</span>
+              <span className="text-3xl font-300" style={{ fontFamily: "var(--font-outfit)", color: "var(--primary-text)" }}>{average?.score?.toFixed(2)}</span>
               <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10.0 {isDone ? "이 프로젝트 협업 평점" : "중간 피드백 평균"}</span>
               {data?.average?.method === "cca" && <CcaBadge />}
             </div>
@@ -499,9 +499,9 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                     return (
                       <div key={c.id} className="py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
                         <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary)" }}>{c.icon}</span>
+                          <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary-text)" }}>{c.icon}</span>
                           <span className="text-sm font-700 truncate">{c.label}</span>
-                          <span className="ml-auto text-xs font-700 shrink-0" style={{ color: current === null ? "#b45309" : "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+                          <span className="ml-auto text-xs font-700 shrink-0" style={{ color: current === null ? "var(--warning-text)" : "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
                             {current === null ? "미선택" : `${current}점`}
                           </span>
                         </div>
@@ -555,7 +555,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                   </div>
                 </div>
                 {remaining.length > 0 && (
-                  <p className="text-xs" style={{ color: "#b45309" }}>
+                  <p className="text-xs" style={{ color: "var(--warning-text)" }}>
                     모든 동료의 모든 항목을 골라야 제출할 수 있어요 · 남은 항목: {remaining.map(({ peer, left }) => `${peer.name} ${left}개`).join(", ")}
                   </p>
                 )}

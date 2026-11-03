@@ -153,7 +153,7 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
       <section className="w-[min(97vw,1150px)] h-[min(90vh,800px)] flex flex-col border" aria-label="슬라이드 편집" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", color: "var(--foreground)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0 flex-wrap" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
-            <div className="text-xs font-700" style={{ color: "var(--primary)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "🖼️ 슬라이드 (함께 편집)"}</div>
+            <div className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "🖼️ 슬라이드 (함께 편집)"}</div>
             <div className="text-sm font-700 truncate mt-0.5">{file.name}</div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

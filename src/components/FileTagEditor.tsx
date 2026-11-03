@@ -21,7 +21,7 @@ export default function FileTagEditor({ file }: { file: WorkspaceFile }) {
   }
   if (project.status === "done") return null;
   return <div className="mb-4 text-xs">
-    {!editing ? <button onClick={() => { setDraft(file.tags.join(", ")); setError(""); setEditing(true); }} className="px-3 py-2 rounded-full font-600 transition-opacity hover:opacity-80" style={{ background: "var(--secondary)", color: "var(--primary)" }}>태그 편집</button> : <div className="p-4 rounded-xl border space-y-3" style={{ background: "var(--muted)", borderColor: "var(--border)" }}>
+    {!editing ? <button onClick={() => { setDraft(file.tags.join(", ")); setError(""); setEditing(true); }} className="px-3 py-2 rounded-full font-600 transition-opacity hover:opacity-80" style={{ background: "var(--secondary)", color: "var(--primary-text)" }}>태그 편집</button> : <div className="p-4 rounded-xl border space-y-3" style={{ background: "var(--muted)", borderColor: "var(--border)" }}>
       <label className="block font-600">파일 태그
         <input autoFocus aria-label="파일 태그" aria-describedby="file-tag-help" value={draft} disabled={busy} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void save(); }} className="block w-full min-w-0 border rounded-xl px-3 py-2.5 mt-2 text-sm font-400 outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-50" style={{ background: "var(--surface-opaque)", borderColor: "var(--border)", color: "var(--foreground)" }} placeholder="예: 디자인, 참고자료" />
       </label>

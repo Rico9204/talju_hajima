@@ -20,7 +20,7 @@ const columns: { id: TaskStatus; label: string; color: string; bg: string }[] = 
 ];
 
 // 상태 이동 버튼의 글자색: 바탕(반투명)보다 훨씬 진하게.
-const STATUS_TEXT: Record<TaskStatus, string> = { todo: "#3a4357", inprogress: "#2f4e80", review: "#7a4f12", done: "#2f6b4a" };
+const STATUS_TEXT: Record<TaskStatus, string> = { todo: "var(--status-todo-text)", inprogress: "var(--status-inprogress-text)", review: "var(--status-review-text)", done: "var(--status-done-text)" };
 
 const priorityLabel: Record<TaskPriority, { label: string; color: string }> = {
   high: { label: "긴급", color: "#c9625b" },
@@ -185,7 +185,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
               <div className="h-2 w-32" style={{ background: "var(--border)", borderRadius: "4px" }}>
                 <div className="h-2" style={{ width: `${tasks.length ? (doneCount / tasks.length) * 100 : 0}%`, background: "linear-gradient(90deg, #4a74b5, #5b9a74)", borderRadius: "4px" }} />
               </div>
-              <span className="text-xs font-700" style={{ color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+              <span className="text-xs font-700" style={{ color: "var(--primary-text)", fontFamily: "var(--font-jetbrains)" }}>
                 {tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0}%
               </span>
             </div>

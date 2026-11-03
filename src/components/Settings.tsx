@@ -416,7 +416,7 @@ function MenuOrderSettings() {
                       </span>
                       <span
                         className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
-                        style={{ background: "var(--muted)", color: "var(--primary)" }}
+                        style={{ background: "var(--muted)", color: "var(--primary-text)" }}
                       >
                         {meta.icon}
                       </span>
@@ -568,7 +568,7 @@ function MenuOrderSettings() {
                       </span>
                       <span
                         className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
-                        style={{ background: "var(--muted)", color: "var(--primary)" }}
+                        style={{ background: "var(--muted)", color: "var(--primary-text)" }}
                       >
                         {meta.icon}
                       </span>

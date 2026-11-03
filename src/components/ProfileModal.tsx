@@ -653,7 +653,7 @@ export default function ProfileModal() {
                   {viewedMember.evalCount > 0 ? (
                     <>
                       <div className="flex items-baseline gap-1.5 mb-1 flex-wrap">
-                        <strong className="text-xl" style={{ color: "var(--primary)" }}>{viewedMember.score.toFixed(2)}</strong>
+                        <strong className="text-xl" style={{ color: "var(--primary-text)" }}>{viewedMember.score.toFixed(2)}</strong>
                         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>/ 10</span>
                         {scoreCca && <CcaBadge />}
                         <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>· {collaborationTrust(viewedMember.score, viewedMember.evalCount).label}</span>

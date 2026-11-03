@@ -123,7 +123,7 @@ export default function VersionCalendar({ file, files, onSelectFile }: {
                   <div className="text-xs font-700 truncate">{scope === "all" ? `${f.name} · ` : ""}{v.version}{v.current ? " · 현재" : ""}</div>
                   <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{v.uploadedBy}{time ? ` · ${time}` : ""}{v.note ? ` · ${v.note}` : ""}</div>
                 </div>
-                {other && onSelectFile && <span className="text-xs shrink-0" style={{ color: "var(--primary)" }}>열기 ›</span>}
+                {other && onSelectFile && <span className="text-xs shrink-0" style={{ color: "var(--primary-text)" }}>열기 ›</span>}
               </button>
             );
           })}

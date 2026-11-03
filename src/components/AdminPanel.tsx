@@ -139,7 +139,7 @@ export default function AdminPanel() {
       />
 
       <div className="mb-4 flex items-center gap-3 text-xs">
-        <button disabled={busyId !== null} onClick={retryCleanup} className="rounded-full px-3 py-2" style={{ background: "var(--muted)", color: "var(--primary)" }}>원본 파일 정리 재시도</button>
+        <button disabled={busyId !== null} onClick={retryCleanup} className="rounded-full px-3 py-2" style={{ background: "var(--muted)", color: "var(--primary-text)" }}>원본 파일 정리 재시도</button>
         {cleanupNotice && <span role="status">{cleanupNotice}</span>}
       </div>
       {loading && (

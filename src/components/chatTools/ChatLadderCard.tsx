@@ -358,7 +358,7 @@ export default function ChatLadderCard({
         <div className="flex items-center gap-2">
           <span
             className="text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1"
-            style={{ background: "rgba(74, 116, 181, 0.15)", color: "#4a74b5" }}
+            style={{ background: "rgba(74, 116, 181, 0.15)", color: "var(--primary-text)" }}
           >
             <LadderIcon />
             <span>사다리타기</span>

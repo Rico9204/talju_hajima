@@ -218,7 +218,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
   }
 
   const pill = "text-xs font-700 px-3 py-1.5 disabled:opacity-50";
-  const pillStyle = { background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" };
+  const pillStyle = { background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" };
   return (
     <div className={embedded ? undefined : "mb-4 border"} style={embedded ? undefined : { background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
       {!embedded && <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
@@ -267,7 +267,7 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
                       <input type="checkbox" checked={link.auto} onChange={() => void toggleAuto(link)} /> 자동
                     </label>
                     {st?.needsPermission ? (
-                      <button type="button" onClick={() => void run(link.id, { ask: true })} className={pill} style={{ ...pillStyle, background: "#f59e0b22", color: "#b45309" }}>권한 다시 허용</button>
+                      <button type="button" onClick={() => void run(link.id, { ask: true })} className={pill} style={{ ...pillStyle, background: "#f59e0b22", color: "var(--warning-text)" }}>권한 다시 허용</button>
                     ) : (
                       <button type="button" onClick={() => void run(link.id, { ask: true })} disabled={st?.running || (link.kind === "upload" && locked)} className={pill} style={pillStyle}>{st?.running ? "동기화 중…" : "지금 동기화"}</button>
                     )}
@@ -278,9 +278,9 @@ export default function WorkspaceLocalSync({ ref, projectId, userId, locked, rea
                     {!st?.needsPermission && !st?.progress && link.checkedAt && link.checkedAt !== link.last?.at && ` (마지막 확인 ${new Date(link.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })})`}
                   </div>
                   {link.last && link.last.conflicts.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2" style={{ color: "#b45309" }}>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2" style={{ color: "var(--warning-text)" }}>
                       <span>내 컴퓨터에서 고쳤거나 같은 이름의 파일이 있어 덮어쓰지 않았어요: {link.last.conflicts.slice(0, 5).join(", ")}{link.last.conflicts.length > 5 && ` 외 ${link.last.conflicts.length - 5}개`}</span>
-                      <button type="button" onClick={() => void run(link.id, { ask: true, force: true })} disabled={st?.running} className={pill} style={{ background: "#f59e0b22", color: "#b45309", borderRadius: "20px" }}>워크스페이스 것으로 덮어쓰기</button>
+                      <button type="button" onClick={() => void run(link.id, { ask: true, force: true })} disabled={st?.running} className={pill} style={{ background: "#f59e0b22", color: "var(--warning-text)", borderRadius: "20px" }}>워크스페이스 것으로 덮어쓰기</button>
                     </div>
                   )}
                   {link.last && link.last.errors.length > 0 && (

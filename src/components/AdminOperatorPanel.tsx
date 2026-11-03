@@ -170,7 +170,7 @@ export default function AdminOperatorPanel({ onPendingCountChange }: { onPending
                     {adminDocTypeLabel(rec.docType)} · {rec.docName} ({formatFileSize(rec.docSize)})
                   </div>
                   <div className="flex gap-2 mt-3 flex-wrap">
-                    <button onClick={() => viewDocument(rec)} disabled={!rec.docPath} className="text-xs font-700 px-3.5 py-2" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                    <button onClick={() => viewDocument(rec)} disabled={!rec.docPath} className="text-xs font-700 px-3.5 py-2" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}>
                       증명서 보기
                     </button>
                     <button onClick={() => { setDialogError(null); setApproveTarget(rec); }} className="text-xs font-700 px-3.5 py-2" style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "20px" }}>
@@ -222,7 +222,7 @@ export default function AdminOperatorPanel({ onPendingCountChange }: { onPending
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-700">{acct.displayName}</span>
                     {acct.isOperator && (
-                      <span className="text-xs font-600 px-2 py-0.5" style={{ background: "#4a74b518", color: "#4a74b5", borderRadius: "20px" }}>운영자</span>
+                      <span className="text-xs font-600 px-2 py-0.5" style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "20px" }}>운영자</span>
                     )}
                     {acct.pendingProjects > 0 && (
                       <span className="text-xs font-600 px-2 py-0.5" style={{ background: "#f59e0b18", color: "#f59e0b", borderRadius: "20px" }}>승인 대기 프로젝트 {acct.pendingProjects}건</span>

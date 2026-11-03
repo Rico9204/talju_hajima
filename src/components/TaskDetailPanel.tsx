@@ -306,10 +306,10 @@ export default function TaskDetailPanel({
             <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>태그</div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {task.tags.map((tag) => (
-                <span key={tag} className="text-xs px-2 py-0.5 flex items-center gap-1" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+                <span key={tag} className="text-xs px-2 py-0.5 flex items-center gap-1" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}>
                   {tag}
                   {canEditFields && (
-                    <button onClick={() => removeTag(tag)} style={{ color: "var(--primary)" }}>✕</button>
+                    <button onClick={() => removeTag(tag)} style={{ color: "var(--primary-text)" }}>✕</button>
                   )}
                 </span>
               ))}

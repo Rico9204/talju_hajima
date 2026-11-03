@@ -263,7 +263,7 @@ function EmptyProjectsScreen({
             <button
               onClick={() => setCreateOpen(true)}
               className="text-xs font-700 px-3.5 py-2"
-              style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+              style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}
             >
               내 프로젝트 만들기
             </button>

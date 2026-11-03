@@ -369,7 +369,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               >
                 <div className="flex items-center justify-between gap-1 mb-1.5 px-0.5">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>📢 멘션 알림</span>
+                    <span className="text-xs font-bold" style={{ color: "var(--primary-text)" }}>📢 멘션 알림</span>
                     <span
                       className="text-[10px] px-1.5 py-0.2 rounded-full font-bold"
                       style={{ background: "var(--primary)", color: "#fff" }}
@@ -410,7 +410,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                       type="button"
                       onClick={() => { setNotifOpen(false); navigate("chat"); }}
                       className="w-full text-center text-[11px] font-700 py-1"
-                      style={{ color: "var(--primary)" }}
+                      style={{ color: "var(--primary-text)" }}
                     >
                       외 {unreadMentions.length - 5}건 더 보기
                     </button>
@@ -425,14 +425,14 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                 style={{ borderRadius: "8px" }}
               >
                 <span className="text-xs font-700">💬 새 메시지</span>
-                <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{Math.max(0, chatUnreadTotal - unreadMentions.length)}건</span>
+                <span className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{Math.max(0, chatUnreadTotal - unreadMentions.length)}건</span>
               </button>
             )}
             {newTasks.length > 0 && (
               <div className="px-2.5 py-2">
                 <button onClick={() => { setNotifOpen(false); navigate("tasks"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
                   <span className="text-xs font-700">📋 새 과제</span>
-                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newTasks.length}건</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{newTasks.length}건</span>
                 </button>
                 {newTasks.slice(0, 3).map((t) => (
                   <div key={t.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {t.title}</div>
@@ -443,7 +443,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               <div className="px-2.5 py-2">
                 <button onClick={() => { setNotifOpen(false); navigate("schedule"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
                   <span className="text-xs font-700">🗓 새 일정</span>
-                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newScheduleEvents.length}건</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{newScheduleEvents.length}건</span>
                 </button>
                 {newScheduleEvents.slice(0, 3).map((e) => (
                   <div key={e.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {e.hideTitle ? "바쁨" : e.title}</div>
@@ -454,7 +454,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               <div className="px-2.5 py-2">
                 <button onClick={() => { setNotifOpen(false); navigate("workspace"); }} className="w-full flex items-center justify-between gap-2 text-left mb-1">
                   <span className="text-xs font-700">📁 새 파일</span>
-                  <span className="text-xs font-700" style={{ color: "var(--primary)" }}>{newFiles.length}건</span>
+                  <span className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{newFiles.length}건</span>
                 </button>
                 {newFiles.slice(0, 3).map((f) => (
                   <div key={f.id} className="text-xs truncate pl-1" style={{ color: "var(--muted-foreground)" }}>· {f.name}</div>
@@ -507,7 +507,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               disabled={!shownCode || rotatingCode}
               title={isLeader || isViceLeader ? "복사할 때마다 새 코드가 발급돼요(이전 코드는 바로 무효, 6시간 유효)" : "참여 코드 복사"}
               className="text-xs font-600 px-2 py-0.5 shrink-0"
-              style={{ background: "var(--muted)", color: "var(--primary)", borderRadius: "20px" }}
+              style={{ background: "var(--muted)", color: "var(--primary-text)", borderRadius: "20px" }}
             >
               {rotatingCode ? "…" : codeCopied ? "복사됨!" : "복사"}
             </button>
@@ -594,11 +594,11 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
               >
                 <span
                   className="w-5 h-5 flex items-center justify-center text-xs font-700 shrink-0"
-                  style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "6px" }}
+                  style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "6px" }}
                 >
                   +
                 </span>
-                <span className="text-xs font-700" style={{ color: "var(--primary)" }}>새 프로젝트 만들기</span>
+                <span className="text-xs font-700" style={{ color: "var(--primary-text)" }}>새 프로젝트 만들기</span>
               </button>
               <button
                 onClick={() => { setSwitcherOpen(false); setJoinOpen(true); }}

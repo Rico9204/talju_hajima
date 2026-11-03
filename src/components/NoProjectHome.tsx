@@ -69,7 +69,7 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
               <div className="text-base font-700 mb-1">아직 참여한 프로젝트가 없어요</div>
               <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)", lineHeight: 1.6 }}>
                 새 프로젝트를 만들거나, 팀장에게 받은 참여 코드로 참여해 보세요.
-                팀을 찾고 있다면 <button type="button" onClick={() => setTab("board")} className="font-700 underline" style={{ color: "var(--primary)" }}>게시판의 팀원 모집 글</button>을 둘러보세요.
+                팀을 찾고 있다면 <button type="button" onClick={() => setTab("board")} className="font-700 underline" style={{ color: "var(--primary-text)" }}>게시판의 팀원 모집 글</button>을 둘러보세요.
               </p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setJoinOpen(true)} className="flex-1 py-2.5 text-sm font-700" style={{ background: "#22c55e18", color: "#22c55e", borderRadius: "40px" }}>

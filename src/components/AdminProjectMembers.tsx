@@ -112,7 +112,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
                       <div className="text-sm font-700 truncate flex items-center gap-1.5">
                         {m.name}
                         {m.isViceLeader && (
-                          <span className="text-xs font-600 px-1.5 py-0.5 shrink-0" style={{ background: "#4a74b518", color: "#4a74b5", borderRadius: "20px" }}>
+                          <span className="text-xs font-600 px-1.5 py-0.5 shrink-0" style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "20px" }}>
                             부팀장
                           </span>
                         )}
@@ -133,7 +133,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
                         disabled={busyMemberId === m.id}
                         onClick={() => { if (window.confirm(m.isViceLeader ? `${m.name}님을 부팀장에서 해임하시겠습니까?` : `${m.name}님을 부팀장으로 임명하시겠습니까?`)) toggleViceLeader(m.id, !m.isViceLeader); }}
                         className="text-xs font-700 px-3 py-1.5 transition-all"
-                        style={{ background: "#4a74b518", color: "#4a74b5", borderRadius: "20px" }}
+                        style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "20px" }}
                       >
                         {m.isViceLeader ? "부팀장 해임" : "부팀장 임명"}
                       </button>

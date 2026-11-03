@@ -364,7 +364,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
               {sel.evalCount > 0 ? (
                 <>
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-4xl font-300" style={{ color: "var(--primary)", fontFamily: "var(--font-outfit)" }}>
+                    <span className="text-4xl font-300" style={{ color: "var(--primary-text)", fontFamily: "var(--font-outfit)" }}>
                       {sel.score.toFixed(2)}
                     </span>
                     <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>/ 10.0</span>

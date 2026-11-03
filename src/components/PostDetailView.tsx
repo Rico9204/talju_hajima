@@ -122,7 +122,7 @@ export default function PostDetailView({
               <button
                 onClick={() => onEditPost(post)}
                 className="text-xs font-700 px-3.5 py-2 transition-all"
-                style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "20px" }}
+                style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "20px" }}
               >
                 ✏️ 게시글 수정
               </button>
@@ -193,7 +193,7 @@ export default function PostDetailView({
                   onClick={() => onTagClick?.(tag)}
                   disabled={!onTagClick}
                   className="text-xs font-600 px-2 py-0.5 hover:opacity-80"
-                  style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "6px" }}
+                  style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "6px" }}
                   title={`#${tag} 글만 보기`}
                 >
                   #{tag}
@@ -340,7 +340,7 @@ export default function PostDetailView({
                               else { setReplyingTarget({ commentId: c.id, targetAuthor: c.author }); setReplyText(""); }
                             }}
                             className="text-[11px] font-600 px-2 py-0.5 transition-all hover:bg-blue-500/10"
-                            style={{ color: "var(--primary)", borderRadius: "6px" }}
+                            style={{ color: "var(--primary-text)", borderRadius: "6px" }}
                           >
                             💬 답글
                           </button>
@@ -365,7 +365,7 @@ export default function PostDetailView({
 
                     {isReplyingToParent && (
                       <div className="mt-3 p-3 border-l-2 space-y-2" style={{ borderColor: "var(--primary)", background: "var(--card)", borderRadius: "8px" }}>
-                        <div className="text-[11px] font-700 flex items-center gap-1" style={{ color: "var(--primary)" }}>
+                        <div className="text-[11px] font-700 flex items-center gap-1" style={{ color: "var(--primary-text)" }}>
                           <span>↳</span>
                           <span>@{c.author}님에게 답글 작성</span>
                         </div>
@@ -394,7 +394,7 @@ export default function PostDetailView({
                               <div className="pl-3.5 border-l-2 space-y-1 py-1 text-xs" style={{ borderColor: "var(--border)" }}>
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5 font-700">
-                                    <span style={{ color: "var(--primary)" }}>↳</span>
+                                    <span style={{ color: "var(--primary-text)" }}>↳</span>
                                     <span>{r.author}</span>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -406,7 +406,7 @@ export default function PostDetailView({
                                           else { setReplyingTarget({ commentId: c.id, targetAuthor: r.author, replyId: r.id }); setReplyText(""); }
                                         }}
                                         className="text-[10px] font-600 px-1.5 py-0.5 transition-all hover:bg-blue-500/10"
-                                        style={{ color: "var(--primary)", borderRadius: "6px" }}
+                                        style={{ color: "var(--primary-text)", borderRadius: "6px" }}
                                       >
                                         💬 답글
                                       </button>
@@ -431,7 +431,7 @@ export default function PostDetailView({
 
                               {isReplyingToThisReply && (
                                 <div className="ml-4 p-3 border-l-2 space-y-2" style={{ borderColor: "var(--primary)", background: "var(--card)", borderRadius: "8px" }}>
-                                  <div className="text-[11px] font-700 flex items-center gap-1" style={{ color: "var(--primary)" }}>
+                                  <div className="text-[11px] font-700 flex items-center gap-1" style={{ color: "var(--primary-text)" }}>
                                     <span>↳</span>
                                     <span>@{r.author}님에게 답글 작성</span>
                                   </div>

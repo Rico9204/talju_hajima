@@ -527,7 +527,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 onClick={() => setMonth((m) => shiftMonth(m, -1))}
                 aria-label="이전 달"
                 className="w-7 h-7 flex items-center justify-center text-sm font-700"
-                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "50%" }}
+                style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "50%" }}
               >
                 ‹
               </button>
@@ -536,7 +536,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 onClick={() => setMonth((m) => shiftMonth(m, 1))}
                 aria-label="다음 달"
                 className="w-7 h-7 flex items-center justify-center text-sm font-700"
-                style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "50%" }}
+                style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "50%" }}
               >
                 ›
               </button>
@@ -546,7 +546,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 <button
                   onClick={() => setSelectedDay(null)}
                   className="text-xs font-600 px-3 py-1.5"
-                  style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+                  style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}
                 >
                   전체 보기
                 </button>

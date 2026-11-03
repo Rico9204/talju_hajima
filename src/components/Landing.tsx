@@ -59,7 +59,7 @@ const Bubble = ({ mine, children }: { mine?: boolean; children: ReactNode }) => 
 const Avatars = () => (
   <div className="flex -space-x-2">
     {["정", "황", "홍"].map((n) => (
-      <span key={n} className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-600" style={{ background: "var(--secondary)", color: "var(--primary)", border: "2px solid var(--card)" }}>{n}</span>
+      <span key={n} className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-600" style={{ background: "var(--secondary)", color: "var(--primary-text)", border: "2px solid var(--card)" }}>{n}</span>
     ))}
   </div>
 );
@@ -209,7 +209,7 @@ export default function Landing() {
 
         <div className={`${section} relative pb-16 pt-12 text-center md:pt-20`}>
           <h1 className="font-300" style={heading(48, 100)}>
-            <span style={{ color: "var(--primary)" }}>팀플,</span>
+            <span style={{ color: "var(--primary-text)" }}>팀플,</span>
             <br />
             한곳에서 끝내요
           </h1>
@@ -260,8 +260,8 @@ export default function Landing() {
           <Tile glyph="◎" color={C.purple} tint={C.purpleTint} title="팀 정보" desc="팀원과 역할을 한눈에" className="lg:col-span-2">
             {[["김", "김민준", "팀장"], ["이", "이서연", "팀원"], ["박", "박지후", "팀원"]].map(([i, n, r]) => (
               <div key={n} className="mb-2 flex items-center gap-3 rounded-xl px-3 py-2 text-sm" style={{ background: "var(--muted)" }}>
-                <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs" style={{ background: "var(--secondary)", color: "var(--primary)" }}>{i}</span>
-                {n}<span className="ml-auto text-xs" style={{ color: "var(--primary)" }}>{r}</span>
+                <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs" style={{ background: "var(--secondary)", color: "var(--primary-text)" }}>{i}</span>
+                {n}<span className="ml-auto text-xs" style={{ color: "var(--primary-text)" }}>{r}</span>
               </div>
             ))}
           </Tile>
@@ -287,7 +287,7 @@ export default function Landing() {
             </div>
           </Tile>
           <Tile glyph="≡" color={C.green} tint={C.greenTint} title="과제 보드" desc="해야 할 일을 카드로 정리">
-            <div className="mb-1 text-xs" style={{ color: "var(--primary)" }}>진행 · 4개</div>
+            <div className="mb-1 text-xs" style={{ color: "var(--primary-text)" }}>진행 · 4개</div>
             {["화면 설계", "발표 자료"].map((t) => <div key={t} className="mb-1.5 rounded-lg px-3 py-2 text-xs" style={{ background: "var(--muted)" }}>{t}</div>)}
           </Tile>
           <Tile glyph="▤" color="var(--accent)" tint={C.amberTint} title="일정" desc="마감과 회의를 한 달력에">
@@ -329,7 +329,7 @@ export default function Landing() {
             <Step n={2} color={C.purple} title="참여 코드로 합류" desc="받은 코드를 입력하면 바로 입장">
               <div className="mb-1 text-xs" style={{ color: "var(--muted-foreground)" }}>참여 코드</div>
               <div className="mb-3 flex gap-1.5">
-                {["A", "7", "K", "9", "Q", "X"].map((c) => <span key={c} className="flex h-9 w-9 items-center justify-center rounded-lg text-sm" style={{ background: "var(--secondary)", color: "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>{c}</span>)}
+                {["A", "7", "K", "9", "Q", "X"].map((c) => <span key={c} className="flex h-9 w-9 items-center justify-center rounded-lg text-sm" style={{ background: "var(--secondary)", color: "var(--primary-text)", fontFamily: "var(--font-jetbrains)" }}>{c}</span>)}
               </div>
               <div className="mb-3 rounded-lg px-3 py-2 text-xs" style={{ background: "var(--muted)" }}>발급 후 6시간 유효</div>
               <div className="rounded-full py-2.5 text-center text-sm font-600" style={{ background: C.purple, color: "#fff" }}>참여하기</div>
@@ -356,7 +356,7 @@ export default function Landing() {
           <div className="relative hidden h-[260px] lg:block" aria-hidden>
             <Mock className="absolute -top-24 left-0 w-[240px] !p-4 text-left">
               <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>전체 진행률</div>
-              <div className="text-3xl font-300" style={{ color: "var(--primary)" }}>67<span className="text-sm">%</span></div>
+              <div className="text-3xl font-300" style={{ color: "var(--primary-text)" }}>67<span className="text-sm">%</span></div>
               <div className="mt-2 h-1.5 rounded-full" style={{ background: "var(--secondary)" }}><div className="h-full w-[67%] rounded-full" style={{ background: "var(--primary)" }} /></div>
             </Mock>
             <div className="absolute right-0 top-0 rounded-2xl px-4 py-2 text-sm" style={{ background: "#fff", color: "#0f1235" }}>내일 회의 몇 시?</div>

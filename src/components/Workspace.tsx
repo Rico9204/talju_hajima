@@ -22,13 +22,13 @@ import { useAccountBackground } from "../lib/useAccountBackground";
 
 const typeColors: Record<string, { bg: string; color: string; label: string }> = {
   pdf: { bg: "#ef444418", color: "#ef4444", label: "PDF" },
-  doc: { bg: "#3d52d518", color: "#3d52d5", label: "DOC" },
+  doc: { bg: "#3d52d518", color: "var(--file-doc)", label: "DOC" },
   ppt: { bg: "#f0a50018", color: "#f0a500", label: "PPT" },
   xls: { bg: "#22c55e18", color: "#22c55e", label: "XLS" },
   zip: { bg: "#8b5cf618", color: "#8b5cf6", label: "ZIP" },
   img: { bg: "#06b6d418", color: "#06b6d4", label: "IMG" },
   code: { bg: "#0d948818", color: "#0d9488", label: "CODE" },
-  text: { bg: "#64748b18", color: "#64748b", label: "TXT" },
+  text: { bg: "#64748b18", color: "var(--file-text)", label: "TXT" },
 };
 // 텍스트·코드·이미지 파일은 DOC·IMG 대신 확장자 이름(TXT, CSV, JAVA, PNG …)으로 표시한다. 색은 코드 / CSV(표) / 이미지 / 그 밖의 글로 나눈다.
 function fileBadge(f: { name: string; type: string }) {
@@ -822,7 +822,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 <span className="truncate">{f.name}</span>
               </span>
             ) : (
-              <button onClick={() => openFolder(f.id)} {...(!locked ? dropHandlers(f.id) : {})} className="font-600 truncate min-w-0" style={{ color: "var(--primary)", ...dropStyle(f.id) }}>
+              <button onClick={() => openFolder(f.id)} {...(!locked ? dropHandlers(f.id) : {})} className="font-600 truncate min-w-0" style={{ color: "var(--primary-text)", ...dropStyle(f.id) }}>
                 {f.name}
               </button>
             )}
@@ -913,7 +913,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               className="text-xs font-700 px-3 py-1.5 transition-colors hover:bg-[var(--secondary)]"
               style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "20px" }}
             >
-              💻 동기화{syncCount > 0 && <span className="ml-1.5 font-600" style={{ color: "var(--primary)" }}>{syncCount}</span>}
+              💻 동기화{syncCount > 0 && <span className="ml-1.5 font-600" style={{ color: "var(--primary-text)" }}>{syncCount}</span>}
             </button>
           )}
           {visibleSelected.some(canDeleteFile) && (

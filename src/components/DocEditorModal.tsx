@@ -149,7 +149,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
         .rich-doc-prose blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted-foreground); margin: 0.4em 0; }
         .rich-doc-prose pre { background: var(--card); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-family: var(--font-jetbrains); font-size: 12px; }
         .rich-doc-prose code { font-family: var(--font-jetbrains); }
-        .rich-doc-prose a { color: var(--primary); text-decoration: underline; }
+        .rich-doc-prose a { color: var(--primary-text); text-decoration: underline; }
         .collab-cursor-caret { position: relative; margin-left: -1px; margin-right: -1px; border-left: 2px solid; pointer-events: none; word-break: normal; }
         .collab-cursor-label { position: absolute; bottom: 100%; left: -2px; font-size: 11px; font-weight: 700; line-height: 1; padding: 2px 5px; border-radius: 4px 4px 4px 0; color: #fff; white-space: nowrap; user-select: none; }
         .workspace-image { margin: 0.6em 0; }
@@ -164,7 +164,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
       <section className="w-[min(96vw,900px)] h-[min(88vh,760px)] flex flex-col border" aria-label="문서 편집" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", color: "var(--foreground)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0 flex-wrap" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
-            <div className="text-xs font-700" style={{ color: "var(--primary)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "📄 문서 (함께 편집)"}</div>
+            <div className="text-xs font-700" style={{ color: "var(--primary-text)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "📄 문서 (함께 편집)"}</div>
             <div className="text-sm font-700 truncate mt-0.5">{file.name}</div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

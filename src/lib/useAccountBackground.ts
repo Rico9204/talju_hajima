@@ -64,7 +64,7 @@ export function useAccountBackground() {
     "--panel-blur-px": `${backgroundBlur}px`,
     // Re-declare here so the account opacity resolves in this scope.
     "--card-glass": isDark
-      ? "rgba(18, 22, 41, var(--glass-alpha))"
+      ? "rgba(25, 29, 39, var(--glass-alpha))"
       : "rgba(255, 255, 255, var(--glass-alpha))",
     "--panel-blur": "none",
   } as CSSProperties;

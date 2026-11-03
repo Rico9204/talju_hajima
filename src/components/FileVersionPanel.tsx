@@ -200,12 +200,12 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
     {!locked && onQuickEdit && currentVersion?.storagePath && (isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) || isRichDocName(currentVersion.originalName ?? file.name) || isSlidesName(currentVersion.originalName ?? file.name)) && (
-      <button type="button" disabled={busy} onClick={() => onQuickEdit("main")} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
+      <button type="button" disabled={busy} onClick={() => onQuickEdit("main")} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary-text)" }}>
         {isRichDocName(currentVersion.originalName ?? file.name) ? "📄 문서 열기 (여러 명이 함께)" : isSlidesName(currentVersion.originalName ?? file.name) ? "🖼️ 슬라이드 열기 (여러 명이 함께)" : "✏️ 바로 수정 (여러 명이 함께)"}{editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
       </button>
     )}
     {officeEnabled && currentVersion?.storagePath && isOfficeEditable(currentVersion.originalName ?? file.name) && (
-      <button type="button" disabled={busy} onClick={() => setOfficeOpen(true)} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
+      <button type="button" disabled={busy} onClick={() => setOfficeOpen(true)} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary-text)" }}>
         {locked ? "📑 오피스에서 보기" : "📑 오피스에서 편집 (여러 명이 함께)"}
       </button>
     )}
@@ -223,7 +223,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
     <label className="flex items-center gap-2 text-xs mb-3"><input type="checkbox" checked={onlyPinned} onChange={(e) => setOnlyPinned(e.target.checked)} />핀한 버전만 보기</label>
     <div className="space-y-3 max-h-[560px] overflow-auto" aria-label="파일 버전 트리">
       {tree.map(({ version: v, depth }) => <div key={v.id} className="border-l-2 pl-3 py-1" style={{ marginLeft: Math.min(depth, 6) * 12, borderColor: v.current ? "var(--primary)" : "var(--border)" }}>
-        <div className="flex flex-wrap items-center gap-2 text-xs font-700"><span>{v.version}</span>{v.current && <span style={{ color: "var(--primary)" }}>현재</span>}{v.pinned && <span>📌 핀</span>}</div>
+        <div className="flex flex-wrap items-center gap-2 text-xs font-700"><span>{v.version}</span>{v.current && <span style={{ color: "var(--primary-text)" }}>현재</span>}{v.pinned && <span>📌 핀</span>}</div>
         <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>{v.uploadedBy} · {formatUploadTime(v.uploadedAt, v.date)} · {v.size}</p>
         <p className="text-xs break-all mt-1">{v.originalName ?? file.name}</p>
         {v.parentVersionId !== null && <p className="text-xs mt-1" style={{ color: "var(--muted-foreground)" }}>↳ {file.versions.find((parent) => parent.id === v.parentVersionId)?.version ?? "이전 버전"}에서 파생</p>}
@@ -245,7 +245,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       <section className="w-[min(96vw,1400px)] h-[min(88vh,900px)] flex flex-col border" aria-label="버전 미리보기" style={{ background: "var(--card-glass)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
           <div className="min-w-0">
-            <div className="text-xs font-700" style={{ color: "var(--primary)" }}>파일 미리보기</div>
+            <div className="text-xs font-700" style={{ color: "var(--primary-text)" }}>파일 미리보기</div>
             <div className="text-sm font-700 truncate mt-0.5">{preview.name}</div>
           </div>
           <div className="flex items-center gap-1 shrink-0">

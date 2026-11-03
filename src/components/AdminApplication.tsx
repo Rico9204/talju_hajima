@@ -120,7 +120,7 @@ export default function AdminApplication() {
           <Card>
             <div role="alert" className="text-sm mb-3" style={{ color: "#ef4444" }}>{loadError}</div>
             <p className="text-xs mb-3" style={{ color: "var(--muted-foreground)" }}>관리자 신청 기능이 아직 준비되지 않았거나 연결에 문제가 있을 수 있어요.</p>
-            <button onClick={load} className="text-xs font-700 px-4 py-2" style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}>
+            <button onClick={load} className="text-xs font-700 px-4 py-2" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}>
               다시 시도
             </button>
           </Card>

@@ -153,7 +153,7 @@ export default function AdminReports({ onOpenCountChange }: { onOpenCountChange?
                     <>
                       {preview.text && !body && <p className="text-xs mt-1 line-clamp-3" style={{ color: "var(--muted-foreground)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{preview.text}</p>}
                       {r.postId !== null && (
-                        <button type="button" onClick={() => void toggleBody(r.postId as number)} className="text-xs font-700 mt-1.5 underline underline-offset-2" style={{ color: "var(--primary)" }}>
+                        <button type="button" onClick={() => void toggleBody(r.postId as number)} className="text-xs font-700 mt-1.5 underline underline-offset-2" style={{ color: "var(--primary-text)" }}>
                           {body && body !== "error" ? "본문 접기" : "본문 전체 보기"}
                         </button>
                       )}

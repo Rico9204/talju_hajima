@@ -651,6 +651,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -685,6 +686,8 @@
   --panel-blur: blur(var(--panel-blur-px)) saturate(1.7) brightness(1.05);
   --primary: #4a74b5;
   --primary-foreground: #ffffff;
+  /* 글자용 파랑. 버튼 배경(--primary)은 흰 글자가 읽혀야 해서 어두운 화면에서 글자로 쓰기엔 어둡다. */
+  --primary-text: var(--primary);
   --primary-glow: rgba(74, 116, 181, 0.25);
   --secondary: #e6eefa;
   --secondary-foreground: #4a74b5;
@@ -712,6 +715,15 @@
   --nav-active-icon-bg: rgba(255, 255, 255, 0.2);
   --status-inprogress: #4a74b5;
   --status-inprogress-bg: rgba(74, 116, 181, 0.4);
+  --neutral-text: #454b6e;
+  --status-todo-text: #3a4357;
+  --status-inprogress-text: #2f4e80;
+  --status-review-text: #7a4f12;
+  --status-done-text: #2f6b4a;
+  --warning-text: #b45309;
+  --mention-text: #e11d48;
+  --file-doc: #3d52d5;
+  --file-text: #64748b;
   --font-outfit: 'Outfit', sans-serif;
   --font-fraunces: 'Fraunces', serif;
   --font-jetbrains: 'JetBrains Mono', monospace;
@@ -741,41 +753,52 @@
 :root[data-theme="dark"],
 .dark {
   color-scheme: dark;
-  --background: #090c15;
-  --foreground: #f1f5f9;
-  --card: #121629;
-  --card-foreground: #f1f5f9;
-  --surface-opaque: #171c34;
+  /* 거의 검정 + 거의 흰색 조합은 눈이 부시고 짙은 남색은 면끼리 구분이 안 돼서, 채도를 낮춘 회남색으로 층을 나눈다. */
+  --background: #10131a;
+  --foreground: #e6e9ef;
+  --card: #191d27;
+  --card-foreground: #e6e9ef;
+  --surface-opaque: #212632;
   --glass-alpha: 0.52;
   --panel-blur-px: 3px;
-  --card-glass: rgba(18, 22, 41, var(--glass-alpha));
+  --card-glass: rgba(25, 29, 39, var(--glass-alpha)); /* useAccountBackground.ts와 같은 값 */
   --panel-blur: blur(var(--panel-blur-px)) saturate(1.8) brightness(0.95);
   --primary: #3b6fd9;
   --primary-foreground: #ffffff;
+  --primary-text: #86aef5;
   --primary-glow: rgba(0, 0, 0, 0.35);
-  --secondary: #16203c;
-  --secondary-foreground: #93bbfd;
-  --muted: #171c33;
-  --muted-foreground: #94a3b8;
+  --secondary: #1e2a42;
+  --secondary-foreground: #a9c4f7;
+  --muted: #212632;
+  --muted-foreground: #a7afbd;
   --accent: #f59e0b;
   --accent-foreground: #ffffff;
-  --border: #232b49;
-  --ring: #3b6fd9;
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.3);
-  --shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
-  --hero-banner-bg: linear-gradient(135deg, #172242 0%, #121a33 50%, #0d1325 100%);
-  --hero-banner-border: 1px solid rgba(96, 165, 250, 0.22);
-  --hero-banner-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 24px rgba(59, 130, 246, 0.07);
-  --hero-banner-btn-bg: #f8fafc;
-  --hero-banner-btn-text: #0f172a;
-  --hero-banner-circle-bg: rgba(96, 165, 250, 0.04);
-  --nav-active-bg: linear-gradient(135deg, #253d79 0%, #1b2e5c 100%);
+  --border: #3a4150;
+  --ring: #6e9bf0;
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.25);
+  --shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --hero-banner-bg: linear-gradient(135deg, #1f2c48 0%, #1a2338 50%, #161b28 100%);
+  --hero-banner-border: 1px solid rgba(134, 174, 245, 0.22);
+  --hero-banner-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 24px rgba(59, 130, 246, 0.05);
+  --hero-banner-btn-bg: #f1f4f9;
+  --hero-banner-btn-text: #161b28;
+  --hero-banner-circle-bg: rgba(134, 174, 245, 0.05);
+  --nav-active-bg: linear-gradient(135deg, #2c4679 0%, #243a64 100%);
   --nav-active-text: #ffffff;
-  --nav-active-border: 1px solid rgba(96, 165, 250, 0.32);
-  --nav-active-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --nav-active-border: 1px solid rgba(134, 174, 245, 0.32);
+  --nav-active-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
   --nav-active-icon-bg: rgba(255, 255, 255, 0.15);
   --status-inprogress: #60a5fa;
   --status-inprogress-bg: rgba(96, 165, 250, 0.2);
+  --neutral-text: #a7afbd;
+  --status-todo-text: #a7afbd;
+  --status-inprogress-text: #86aef5;
+  --status-review-text: #fbbf24;
+  --status-done-text: #4ade80;
+  --warning-text: #fbbf24;
+  --mention-text: #fb7185;
+  --file-doc: #8f9ff5;
+  --file-text: #a7afbd;
 }
 
 html, body, #root {
@@ -847,3 +870,6 @@ html, body, #root {
 :root[data-theme="dark"] .code-meta, .dark .code-meta { color: #f9a8d4; }
 :root[data-theme="dark"] .code-tag, .dark .code-tag { color: #93c5fd; }
 :root[data-theme="dark"] .code-attr, .dark .code-attr { color: #fcd34d; }
+
+/* 오류 문구(text-red-600)는 어두운 화면에서 대비가 모자라 밝은 빨강으로 바꾼다. */
+:root[data-theme="dark"] .text-red-600, .dark .text-red-600 { color: #f87171; }

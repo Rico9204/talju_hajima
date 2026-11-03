@@ -129,7 +129,7 @@ export default function ChatPollCard({
               className="px-2 py-0.5 rounded-full text-[11px]"
               style={{
                 background: "rgba(74, 116, 181, 0.12)",
-                color: "#4a74b5",
+                color: "var(--primary-text)",
               }}
             >
               복수 선택

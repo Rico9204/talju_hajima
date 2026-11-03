@@ -91,7 +91,7 @@ export default function CreateProjectModal({
       >
         <div
           className="w-10 h-10 flex items-center justify-center text-lg font-700 mb-3"
-          style={{ background: "#4a74b518", color: "var(--primary)", borderRadius: "12px" }}
+          style={{ background: "#4a74b518", color: "var(--primary-text)", borderRadius: "12px" }}
         >
           +
         </div>

@@ -458,7 +458,7 @@ export default function TeamChat({
           name: "팀 채팅",
           avatar: "⬡",
           avatarUrl: null as string | null,
-          color: "var(--primary)",
+          color: "var(--primary-text)",
           online: undefined as boolean | undefined,
           role: undefined as string | undefined,
           memberId: undefined as string | undefined,
@@ -965,7 +965,7 @@ export default function TeamChat({
                         title="팀원을 골라 단체 채팅방 만들기"
                         aria-label="단체방 만들기"
                         className="w-5 h-5 flex items-center justify-center text-sm font-700 leading-none"
-                        style={{ color: "var(--primary)" }}
+                        style={{ color: "var(--primary-text)" }}
                       >
                         ＋
                       </button>
@@ -1127,7 +1127,7 @@ export default function TeamChat({
                     title="이 방에 팀원 초대"
                     aria-label="이 방에 팀원 초대"
                     className="text-xs font-700 px-2.5 py-1.5 whitespace-nowrap"
-                    style={{ background: "var(--secondary)", color: "var(--primary)", borderRadius: "20px" }}
+                    style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "20px" }}
                   >
                     + 초대
                   </button>
@@ -1419,7 +1419,7 @@ export default function TeamChat({
                                   {isMentioned && (
                                     <div
                                       className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 mb-1 rounded select-none"
-                                      style={{ background: "rgba(74, 116, 181, 0.2)", color: "var(--primary)" }}
+                                      style={{ background: "rgba(74, 116, 181, 0.2)", color: "var(--primary-text)" }}
                                     >
                                       @ 나를 멘션함
                                     </div>
@@ -1453,7 +1453,7 @@ export default function TeamChat({
                                 className="text-xs font-700 px-2 py-1 shrink-0"
                                 style={{
                                   background: "var(--secondary)",
-                                  color: "var(--primary)",
+                                  color: "var(--primary-text)",
                                   borderRadius: "6px",
                                 }}
                               >
@@ -1468,7 +1468,7 @@ export default function TeamChat({
                                 </div>
                                 <div
                                   className="text-xs"
-                                  style={{ color: "var(--primary)" }}
+                                  style={{ color: "var(--primary-text)" }}
                                 >
                                   {fileRef.folderName} · 워크스페이스에서 보기 →
                                 </div>
@@ -1577,7 +1577,7 @@ export default function TeamChat({
                               readers.length > 0 && (
                                 <span
                                   className="text-xs font-600"
-                                  style={{ color: "var(--primary)" }}
+                                  style={{ color: "var(--primary-text)" }}
                                 >
                                   읽음
                                 </span>
@@ -1773,7 +1773,7 @@ export default function TeamChat({
                       className="text-xs font-700 px-2 py-1 shrink-0"
                       style={{
                         background: "var(--secondary)",
-                        color: "var(--primary)",
+                        color: "var(--primary-text)",
                         borderRadius: "6px",
                       }}
                     >
@@ -1812,7 +1812,7 @@ export default function TeamChat({
                   className="text-xs font-700 px-2 py-1 shrink-0"
                   style={{
                     background: "var(--card)",
-                    color: "var(--primary)",
+                    color: "var(--primary-text)",
                     borderRadius: "6px",
                   }}
                 >
@@ -2041,7 +2041,7 @@ export default function TeamChat({
                             className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
                             style={{
                               background: "rgba(244, 63, 94, 0.12)",
-                              color: "#e11d48",
+                              color: "var(--mention-text)",
                             }}
                           >
                             3종
@@ -2059,7 +2059,7 @@ export default function TeamChat({
                       className="text-[11px] font-bold px-2 py-0.5 rounded-md"
                       style={{
                         background: "rgba(244, 63, 94, 0.1)",
-                        color: "#e11d48",
+                        color: "var(--mention-text)",
                       }}
                     >
                       게임 선택 ›
@@ -2107,7 +2107,7 @@ export default function TeamChat({
                       className="text-[11px] font-bold px-2 py-0.5 rounded-md"
                       style={{
                         background: "var(--secondary)",
-                        color: "var(--primary)",
+                        color: "var(--primary-text)",
                       }}
                     >
                       만들기
