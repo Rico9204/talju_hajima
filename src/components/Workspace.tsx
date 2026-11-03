@@ -161,7 +161,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   useEffect(() => {
     if (!currentMember) return;
-    const presence = joinCollabPresence(project.id, { id: currentMember.id, name: currentMember.name }, setEditors);
+    const presence = joinCollabPresence(project.id, { id: currentMember?.id || currentMember?.userId || "me", name: currentMember?.name || "테스트 팀원" }, setEditors);
     presenceRef.current = presence;
     return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps

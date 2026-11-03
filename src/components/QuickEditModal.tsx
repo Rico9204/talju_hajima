@@ -4,6 +4,7 @@ import EditorAvatars from "./EditorAvatars";
 import CodeHighlight from "./CodeHighlight";
 import { codeLanguageOf } from "../lib/codeHighlight";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta, type RemoteCursor } from "../lib/collab";
+import { fileOriginalAuthor } from "../lib/workspaceFiles";
 
 const AUTOSAVE_MS = 5 * 60 * 1000;
 
@@ -41,6 +42,32 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const [scrollTop, setScrollTop] = useState(0);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const language = codeLanguageOf(file.name); // 코드 파일이면 글자는 투명하게 두고 위에 색칠한 글을 겹쳐 그린다
+
+  // 원작자 정보 및 타인 수정 여부
+  const originalAuthor = fileOriginalAuthor(file);
+  const currentVersion = file.versions.find((v) => v.id === room) ?? file.versions.find((v) => v.current);
+  const latestEditor = currentVersion?.uploadedBy?.trim() || originalAuthor;
+  const isOtherEditor = Boolean(latestEditor && originalAuthor && latestEditor !== originalAuthor);
+
+  // 타인 수정 표시 온/오프 상태
+  const [showOtherEditorMarks, setShowOtherEditorMarks] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("talju:workspace:showOtherEditorMarks");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  function toggleOtherEditorMarks() {
+    setShowOtherEditorMarks((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("talju:workspace:showOtherEditorMarks", String(next));
+      } catch {}
+      return next;
+    });
+  }
 
   const refreshDirty = () => {
     const doc = docRef.current;
@@ -104,29 +131,30 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
 
   // 저장하지 않은 변경이 있을 때 탭을 닫거나 새로고침하면 브라우저가 한 번 물어본다.
   useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    function beforeUnload(e: BeforeUnloadEvent) {
+      if (!dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [dirty]);
 
   useLayoutEffect(() => {
-    const sel = pendingSel.current;
-    if (sel && areaRef.current) { areaRef.current.setSelectionRange(sel[0], sel[1]); pendingSel.current = null; }
-    // 글이 바뀌면 다른 사람 커서의 글자 위치도 바뀐다(상대 위치 → 지금 글 기준 위치로 다시 계산).
-    if (docRef.current) setCursors(docRef.current.cursors());
-    measureBox();
-  }, [value]);
+    if (pendingSel.current && areaRef.current) {
+      const [s, e] = pendingSel.current;
+      areaRef.current.setSelectionRange(s, e);
+      pendingSel.current = null;
+    }
+  });
 
-  // 겹쳐 그리는 커서 층은 스크롤 막대를 뺀 textarea 안쪽 크기와 같아야 줄바꿈 위치가 맞는다.
-  function measureBox() {
-    const el = areaRef.current;
-    if (el) setBox((cur) => (cur.width === el.clientWidth && cur.height === el.clientHeight ? cur : { width: el.clientWidth, height: el.clientHeight }));
-  }
-  useEffect(() => {
+  // textarea 크기 측정(겹쳐 그리는 코드 색칠·커서 위치 맞춤용).
+  useLayoutEffect(() => {
     const el = areaRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(measureBox);
+    const update = () => setBox({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -179,13 +207,12 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
       if (el.value !== value) setValue(el.value);
     }
     refreshDirty();
-    docRef.current?.setCursor(selStart, selEnd);
+    shareCursor(el);
   }
 
-  // 저장 안 한 변경이 있으면 저장 후 닫기 / 저장 없이 닫기 / 계속 수정 중에서 고르게 한다.
   function requestClose() {
-    if (dirty) setConfirmClose(true);
-    else onClose();
+    if (dirty) { setConfirmClose(true); return; }
+    onClose();
   }
 
   async function saveAndClose() {
@@ -205,8 +232,26 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
             <div className="text-xs font-700" style={{ color: "var(--primary)" }}>{mode === "pin" ? "📌 핀 버전에서 분기해 수정" : "바로 수정 (함께 편집)"}</div>
             <div className="text-sm font-700 truncate mt-0.5">{file.name}</div>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <span className="text-xs" style={{ color: status === "error" ? "#ef4444" : "var(--muted-foreground)" }} role="status">{statusText}</span>
+            {isOtherEditor && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showOtherEditorMarks}
+                onClick={toggleOtherEditorMarks}
+                className="h-8 px-2.5 rounded-full text-xs font-600 flex items-center gap-1.5 border transition-all"
+                style={{
+                  background: showOtherEditorMarks ? "rgba(245, 158, 11, 0.15)" : "var(--muted)",
+                  borderColor: showOtherEditorMarks ? "rgba(245, 158, 11, 0.4)" : "var(--border)",
+                  color: showOtherEditorMarks ? "#d97706" : "var(--muted-foreground)",
+                }}
+                title="원작자가 아닌 다른 사람이 수정한 내용 표시를 켜거나 끕니다"
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: showOtherEditorMarks ? "#ea580c" : "var(--muted-foreground)" }} />
+                <span>타인({latestEditor}) 수정 표시 {showOtherEditorMarks ? "ON" : "OFF"}</span>
+              </button>
+            )}
             <button type="button" onClick={() => void runSave()} disabled={!dirty || status === "saving"} title="Ctrl/⌘+S" className="h-8 px-3 rounded-full text-xs font-700 disabled:opacity-40" style={{ background: "var(--primary)", color: "#fff" }}>{status === "saving" ? "저장 중…" : "저장"}</button>
             <button type="button" onClick={requestClose} className="h-8 px-3 rounded-full text-xs font-700" style={{ background: "var(--muted)", color: "var(--foreground)" }}>닫기</button>
           </div>
@@ -215,6 +260,28 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           <EditorAvatars editors={roomEditors} size={26} max={6} />
           <span>{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중 · 사진을 누르면 이름이 보여요` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}</span>
         </div>
+        {isOtherEditor && showOtherEditorMarks && (
+          <div
+            className="mx-5 mt-2 px-3 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 border shrink-0"
+            style={{
+              background: "rgba(245, 158, 11, 0.1)",
+              borderColor: "rgba(245, 158, 11, 0.25)",
+              color: "#b45309",
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <span>✏️</span>
+              <span>원작자 <strong>{originalAuthor}</strong> 님이 아닌 <strong>{latestEditor}</strong> 님이 수정한 파일입니다.</span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleOtherEditorMarks}
+              className="text-[11px] underline underline-offset-2 opacity-80 hover:opacity-100"
+            >
+              표시 끄기
+            </button>
+          </div>
+        )}
         {confirmClose && (
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
             <span className="flex-1 min-w-48">저장하지 않은 변경사항이 있어요.{lastEditor && " 지금 나가면 지금까지 수정한 내용이 사라질 수 있어요."}</span>

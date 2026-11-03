@@ -161,3 +161,66 @@ export function isEditableTextFile(name: string, byteSize: number | null): boole
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return EDITABLE_TEXT_EXTENSIONS.includes(ext) && (byteSize ?? 0) <= MAX_EDITABLE_BYTES;
 }
+
+/**
+ * 파일의 원작자(최초 생성·업로더)를 반환합니다.
+ */
+export function fileOriginalAuthor(file: WorkspaceFile): string {
+  if (file.uploader && file.uploader.trim()) return file.uploader.trim();
+  if (file.versions && file.versions.length > 0) {
+    const sorted = [...file.versions].sort((a, b) => a.id - b.id);
+    const first = sorted[0];
+    if (first.uploadedBy && first.uploadedBy.trim()) return first.uploadedBy.trim();
+  }
+  return "작성자";
+}
+
+export interface FileEditorStatus {
+  /** 최초 작성자/원작자 */
+  originalAuthor: string;
+  /** 최신(현재) 버전을 작성한 사람 */
+  currentEditor: string;
+  /** 최신 버전이 원작자가 아닌 다른 사용자에 의해 저장되었는지 여부 */
+  isCurrentModifiedByOther: boolean;
+  /** 최신 버전 또는 과거 이력에 원작자가 아닌 다른 사람이 수정한 적이 있는지 여부 */
+  isModifiedByOther: boolean;
+  /** 원작자가 아닌 수정자 이름 목록(중복 없음) */
+  otherEditors: string[];
+}
+
+/**
+ * 파일의 원작자와 수정자 상태를 판별합니다.
+ */
+export function getFileEditorStatus(file: WorkspaceFile): FileEditorStatus {
+  const originalAuthor = fileOriginalAuthor(file);
+  const currentVersion = file.versions.find((v) => v.current) ?? [...file.versions].sort((a, b) => b.id - a.id)[0];
+  const currentEditor = currentVersion?.uploadedBy?.trim() || originalAuthor;
+
+  // 원작자 외에 버전을 업로드한 다른 멤버 목록
+  const otherEditors = Array.from(
+    new Set(
+      file.versions
+        .map((v) => v.uploadedBy?.trim())
+        .filter((name): name is string => Boolean(name && name !== originalAuthor))
+    )
+  );
+
+  const isCurrentModifiedByOther = Boolean(currentVersion && currentVersion.uploadedBy?.trim() && currentVersion.uploadedBy.trim() !== originalAuthor);
+  const isModifiedByOther = isCurrentModifiedByOther || otherEditors.length > 0;
+
+  return {
+    originalAuthor,
+    currentEditor,
+    isCurrentModifiedByOther,
+    isModifiedByOther,
+    otherEditors,
+  };
+}
+
+/**
+ * 특정 버전이 원작자가 아닌 타인에 의해 저장된 버전인지 확인합니다.
+ */
+export function isVersionModifiedByOther(version: FileVersion, originalAuthor: string): boolean {
+  const uploader = version.uploadedBy?.trim();
+  return Boolean(uploader && originalAuthor && uploader !== originalAuthor);
+}

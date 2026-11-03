@@ -9,4 +9,10 @@ if (new URLSearchParams(location.search).has("opfs")) {
 }
 // ?nofs=1: 폴더 동기화를 지원하지 않는 브라우저(사파리 등)처럼 보이게 한다.
 if (new URLSearchParams(location.search).has("nofs")) delete (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+import { dataRepository } from "../../src/api";
+
+// Fixture 환경에서 오피스 편집기/뷰어 활성화
+dataRepository.getOfficeEditorStatus = async () => ({ enabled: true });
+dataRepository.getOfficeEditorConfig = async () => ({});
+
 createRoot(document.getElementById("root")!).render(<Fixture><Workspace /></Fixture>);

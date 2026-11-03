@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { workspaceFileType,versionTree,workspaceStoragePath,parseFileTags,validateFileTags } from '../src/lib/workspaceFiles.ts';
+import { workspaceFileType,versionTree,workspaceStoragePath,parseFileTags,validateFileTags,fileOriginalAuthor,getFileEditorStatus,isVersionModifiedByOther } from '../src/lib/workspaceFiles.ts';
 test('tags normalize duplicates and images require a nonempty tag list',()=> {
   assert.deepEqual(parseFileTags(' 사진, 디자인,사진, , '),['사진','디자인']);
   assert.throws(()=>validateFileTags([],true),/하나 이상/);
@@ -53,4 +53,75 @@ test('직접 정렬·폴더 순서·끌어 놓은 순서·하위 폴더 계산',
   const tree = [{ id: 1, parentId: null }, { id: 2, parentId: 1 }, { id: 3, parentId: 2 }, { id: 4, parentId: null }, { id: 5, parentId: 4 }];
   assert.deepEqual([...folderSubtree(tree, 1)].sort(), [1, 2, 3]);
   assert.deepEqual([...folderSubtree(tree, 5)], [5]);
+});
+test('원작자 및 타인 수정 상태 판별: 원작자 A 외 다른 사람 B, C가 수정해 저장할 때 상태 판별', () => {
+  // 1. 원작자 A만 작성한 파일
+  const fileA = {
+    id: 1,
+    name: '기획서.rtdoc',
+    uploader: '홍길동',
+    versions: [
+      { id: 10, version: 'v1.0', uploadedBy: '홍길동', current: true },
+    ],
+  };
+  assert.equal(fileOriginalAuthor(fileA), '홍길동');
+  const statusA = getFileEditorStatus(fileA);
+  assert.equal(statusA.originalAuthor, '홍길동');
+  assert.equal(statusA.currentEditor, '홍길동');
+  assert.equal(statusA.isCurrentModifiedByOther, false);
+  assert.equal(statusA.isModifiedByOther, false);
+  assert.deepEqual(statusA.otherEditors, []);
+
+  // 2. 다른 사람 B(김철수)가 수정해서 v1.1로 현재 버전 저장
+  const fileB = {
+    id: 2,
+    name: '기획서.rtdoc',
+    uploader: '홍길동',
+    versions: [
+      { id: 10, version: 'v1.0', uploadedBy: '홍길동', current: false },
+      { id: 11, version: 'v1.1', uploadedBy: '김철수', current: true },
+    ],
+  };
+  const statusB = getFileEditorStatus(fileB);
+  assert.equal(statusB.originalAuthor, '홍길동');
+  assert.equal(statusB.currentEditor, '김철수');
+  assert.equal(statusB.isCurrentModifiedByOther, true);
+  assert.equal(statusB.isModifiedByOther, true);
+  assert.deepEqual(statusB.otherEditors, ['김철수']);
+  assert.equal(isVersionModifiedByOther(fileB.versions[0], '홍길동'), false);
+  assert.equal(isVersionModifiedByOther(fileB.versions[1], '홍길동'), true);
+
+  // 3. 또 다른 사람 C(이영희)가 추가로 수정하여 v1.2 저장
+  const fileC = {
+    id: 3,
+    name: '기획서.rtdoc',
+    uploader: '홍길동',
+    versions: [
+      { id: 10, version: 'v1.0', uploadedBy: '홍길동', current: false },
+      { id: 11, version: 'v1.1', uploadedBy: '김철수', current: false },
+      { id: 12, version: 'v1.2', uploadedBy: '이영희', current: true },
+    ],
+  };
+  const statusC = getFileEditorStatus(fileC);
+  assert.equal(statusC.currentEditor, '이영희');
+  assert.equal(statusC.isCurrentModifiedByOther, true);
+  assert.equal(statusC.isModifiedByOther, true);
+  assert.deepEqual(statusC.otherEditors, ['김철수', '이영희']);
+
+  // 4. 원작자 A가 다시 수정하여 현재 버전으로 덮어씀 (v1.3)
+  const fileD = {
+    id: 4,
+    name: '기획서.rtdoc',
+    uploader: '홍길동',
+    versions: [
+      { id: 10, version: 'v1.0', uploadedBy: '홍길동', current: false },
+      { id: 11, version: 'v1.1', uploadedBy: '김철수', current: false },
+      { id: 13, version: 'v1.3', uploadedBy: '홍길동', current: true },
+    ],
+  };
+  const statusD = getFileEditorStatus(fileD);
+  assert.equal(statusD.currentEditor, '홍길동');
+  assert.equal(statusD.isCurrentModifiedByOther, false);
+  assert.equal(statusD.isModifiedByOther, true); // 과거 이력에 김철수의 수정이 있음
+  assert.deepEqual(statusD.otherEditors, ['김철수']);
 });

@@ -209,7 +209,7 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
         {locked ? "📑 오피스에서 보기" : "📑 오피스에서 편집 (여러 명이 함께)"}
       </button>
     )}
-    {officeOpen && <OfficeEditorModal fileId={file.id} fileName={file.name} readOnly={locked} presence={presence} editors={editors} onClose={() => setOfficeOpen(false)} />}
+    {officeOpen && <OfficeEditorModal file={file} fileId={file.id} fileName={file.name} readOnly={locked} presence={presence} editors={editors} onClose={() => setOfficeOpen(false)} />}
     <div className="flex gap-1.5 mb-3" role="tablist" aria-label="버전 보기 방식">
       {([["page", "페이지"], ["tree", "버전 트리"], ["calendar", "달력"]] as const).map(([mode, label]) => <button key={mode} role="tab" aria-selected={viewMode === mode} onClick={() => setViewMode(mode)} className="text-xs font-700 px-3 py-1.5 rounded-full" style={{ background: viewMode === mode ? "var(--primary)" : "var(--muted)", color: viewMode === mode ? "#fff" : "var(--foreground)" }}>{label}</button>)}
     </div>

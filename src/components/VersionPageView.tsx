@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { buildFullTextDiff } from "../lib/textDiff";
-import { formatUploadTime, isEditableTextFile } from "../lib/workspaceFiles";
+import { formatUploadTime, isEditableTextFile, fileOriginalAuthor } from "../lib/workspaceFiles";
 import { isRichDocName } from "../lib/richDoc";
 import { isSlidesName } from "../lib/slidesDoc";
 
@@ -29,6 +29,26 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
   const [index, setIndex] = useState(currentIndex);
   const [expanded, setExpanded] = useState(true);
   const [texts, setTexts] = useState<{ id: number; cur: string | null; prev: string | null } | null>(null);
+
+  // 파일 내 타인 수정 표시 온/오프 (기본값: true, localStorage에 저장)
+  const [showOtherEditorMarks, setShowOtherEditorMarks] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("talju:workspace:showOtherEditorMarks");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  function toggleOtherEditorMarks() {
+    setShowOtherEditorMarks((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("talju:workspace:showOtherEditorMarks", String(next));
+      } catch {}
+      return next;
+    });
+  }
 
   useEffect(() => { setIndex(currentIndex); }, [currentIndex, pages.length]);
 
@@ -61,6 +81,10 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
 
   if (!version) return <p className="text-xs py-4">아직 버전이 없습니다.</p>;
 
+  const originalAuthor = fileOriginalAuthor(file);
+  const editor = version.uploadedBy?.trim() || originalAuthor;
+  const isOtherEditor = Boolean(editor && originalAuthor && editor !== originalAuthor);
+
   const isCurrent = version.current;
   const actionClass = "text-xs px-2.5 py-1.5 rounded-lg border disabled:opacity-40";
   const summary = !ready ? "불러오는 중…"
@@ -86,20 +110,92 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
           </div>
         </div>
         {version.note && <p className="text-xs italic mb-1.5 whitespace-pre-wrap break-words" style={{ opacity: 0.85 }}>“{version.note}”</p>}
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-600 mb-1.5" style={{ color: isCurrent ? "#fff" : "var(--primary)" }}>
-          {summary} {expanded ? "▲" : "▼"}
-        </button>
+        <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+          <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-600" style={{ color: isCurrent ? "#fff" : "var(--primary)" }}>
+            {summary} {expanded ? "▲" : "▼"}
+          </button>
+          {isOtherEditor && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showOtherEditorMarks}
+              onClick={toggleOtherEditorMarks}
+              className="text-[11px] font-600 px-2 py-0.5 rounded-full flex items-center gap-1 transition-all border"
+              style={{
+                background: showOtherEditorMarks ? (isCurrent ? "rgba(255,255,255,0.25)" : "#fef3c7") : (isCurrent ? "rgba(0,0,0,0.15)" : "var(--card)"),
+                borderColor: showOtherEditorMarks ? (isCurrent ? "rgba(255,255,255,0.4)" : "#fde68a") : "var(--border)",
+                color: showOtherEditorMarks ? (isCurrent ? "#fff" : "#b45309") : (isCurrent ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)"),
+              }}
+              title="원작자가 아닌 다른 사람이 수정한 내용의 파일 내 강조 표시를 켜거나 끕니다"
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: showOtherEditorMarks ? (isCurrent ? "#fde047" : "#ea580c") : "currentColor" }} />
+              <span>타인({editor}) 수정 표시 {showOtherEditorMarks ? "ON" : "OFF"}</span>
+            </button>
+          )}
+        </div>
+        {expanded && isOtherEditor && showOtherEditorMarks && (
+          <div
+            className="text-[11px] px-2.5 py-1 mb-1.5 rounded-md flex items-center justify-between gap-1"
+            style={{
+              background: isCurrent ? "rgba(255,255,255,0.15)" : "rgba(245, 158, 11, 0.12)",
+              color: isCurrent ? "#fff" : "#b45309",
+              border: isCurrent ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(245, 158, 11, 0.25)",
+            }}
+          >
+            <span>✏️ 원작자 <strong>{originalAuthor}</strong> 님이 아닌 <strong>{editor}</strong> 님이 수정한 버전입니다.</span>
+            <span className="opacity-80">파일 내 변경 줄에 표시됨</span>
+          </div>
+        )}
         {expanded && ready?.cur != null && !tooLong && (
           <div className="text-xs whitespace-pre-wrap break-words p-2 mb-2 max-h-72 overflow-y-auto rounded-lg" style={{ background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--card)", fontFamily: "var(--font-jetbrains)" }}>
-            {lines.map((line, i) => (
-              <div
-                key={i}
-                title={canCompare && line.changed ? (line.oldText != null ? `수정 전: ${line.oldText || "(빈 줄)"}` : "새로 추가된 줄") : undefined}
-                style={line.changed && canCompare ? { background: isCurrent ? "rgba(253,224,71,0.35)" : "#fef08a", color: isCurrent ? "#fff" : "#422006", borderRadius: 3 } : undefined}
-              >
-                {line.text || " "}
-              </div>
-            ))}
+            {lines.map((line, i) => {
+              const isOtherChange = isOtherEditor && line.changed && canCompare;
+              return (
+                <div
+                  key={i}
+                  title={
+                    canCompare && line.changed
+                      ? isOtherChange && showOtherEditorMarks
+                        ? `[${editor}] 님이 수정한 줄 (원작자: ${originalAuthor}${line.oldText != null ? ` · 수정 전: ${line.oldText || "(빈 줄)"}` : " · 새로 추가된 줄"})`
+                        : (line.oldText != null ? `수정 전: ${line.oldText || "(빈 줄)"}` : "새로 추가된 줄")
+                      : undefined
+                  }
+                  style={
+                    line.changed && canCompare
+                      ? isOtherChange && showOtherEditorMarks
+                        ? {
+                            background: isCurrent ? "rgba(249, 115, 22, 0.4)" : "#ffedd5",
+                            color: isCurrent ? "#fff" : "#9a3412",
+                            borderRadius: 3,
+                            borderLeft: isCurrent ? "3px solid #fdba74" : "3px solid #ea580c",
+                            paddingLeft: 4,
+                            marginBottom: 1,
+                          }
+                        : {
+                            background: isCurrent ? "rgba(253,224,71,0.35)" : "#fef08a",
+                            color: isCurrent ? "#fff" : "#422006",
+                            borderRadius: 3,
+                            marginBottom: 1,
+                          }
+                      : undefined
+                  }
+                >
+                  {isOtherChange && showOtherEditorMarks && (
+                    <span
+                      className="inline-block mr-1.5 px-1 py-0.2 text-[10px] font-700 rounded select-none"
+                      style={{
+                        background: isCurrent ? "rgba(255, 255, 255, 0.25)" : "rgba(234, 88, 12, 0.15)",
+                        color: isCurrent ? "#ffedd5" : "#c2410c",
+                      }}
+                      title={`원작자: ${originalAuthor} → 수정자: ${editor}`}
+                    >
+                      {editor} 수정
+                    </span>
+                  )}
+                  {line.text || " "}
+                </div>
+              );
+            })}
             {lines.length === 0 && <span style={{ opacity: 0.7 }}>(빈 파일)</span>}
           </div>
         )}

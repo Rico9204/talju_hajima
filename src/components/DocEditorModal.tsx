@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Extension } from "@tiptap/core";
+import { Extension, Decoration } from "@tiptap/core";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -13,12 +13,54 @@ import { RICH_DOC_FIELD, richDocKey, richDocText } from "../lib/richDoc";
 import { exportElementAsPdf, exportRichDocAsDocx } from "../lib/exportRichDoc";
 import { collabImageError, COLLAB_IMAGE_TYPES, createCollabImageLoader, type CollabImageStore } from "../lib/collabImages";
 import { WorkspaceImage } from "../lib/workspaceImageNode";
+import { fileOriginalAuthor } from "../lib/workspaceFiles";
 
 // 워크스페이스 "문서"(.rtdoc) 편집기: 서식 있는 글을 여러 명이 함께 쓴다(TipTap + Yjs, Supabase Realtime으로 동기화).
 // 저장 방식은 "바로 수정"과 같다 — 저장 버튼(Ctrl/⌘+S)이나 5분 자동 저장 때 지금 합쳐진 문서가 새 버전으로 올라가고,
 // 이미 같은 내용이 저장돼 있으면 건너뛴다. 원본: Temporary_Merge a068d15(NestJS 웹소켓 대신 Supabase로 이식).
 // 이미지는 워크스페이스 파일로 따로 올리고 문서에는 버전 번호만 둔다(collabImages.ts) — 이미지를 문서에 통째로 넣으면
 // 실시간 전송 한도를 넘을 수 있다. 🖼 버튼, 붙여넣기, 끌어 놓기로 넣는다.
+
+// 문서 본문 내 타인 수정 내용 하이라이트 확장
+function otherEditorHighlightExtension(getHighlightInfo: () => {
+  isOtherEditor: boolean;
+  originalLines: string[];
+  latestEditor: string;
+}) {
+  return Extension.create({
+    name: "otherEditorHighlight",
+    addDecorations() {
+      return {
+        create: ({ state }) => {
+          const { isOtherEditor, originalLines, latestEditor } = getHighlightInfo();
+          if (!isOtherEditor || originalLines.length === 0) return [];
+
+          const decs: any[] = [];
+          state.doc.descendants((node, pos) => {
+            if (node.isTextblock) {
+              const text = (node.textContent || "").replace(/[\u00A0\s]+/g, " ").trim();
+              if (!text) return;
+
+              const isOriginal = originalLines.some(
+                (orig) => orig === text || (orig.length > 6 && text.includes(orig))
+              );
+
+              if (!isOriginal) {
+                decs.push(
+                  Decoration.Node(pos, pos + node.nodeSize, {
+                    class: "other-editor-highlight",
+                    "data-editor-label": `${latestEditor} 수정`,
+                  })
+                );
+              }
+            }
+          });
+          return decs;
+        },
+      };
+    },
+  });
+}
 
 // 다른 사람의 커서·선택 영역: Collaboration과 같은 @tiptap/y-tiptap의 yCursorPlugin을 쓴다(플러그인 키가 맞아야 한다 —
 // extension-collaboration-cursor는 옛 y-prosemirror를 봐서 섞으면 편집기가 열리지 않는다). 이름은 textContent로만 넣는다.
@@ -61,6 +103,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   const [imageBusy, setImageBusy] = useState(false);
   const [loader] = useState(() => createCollabImageLoader(images.load));
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
   const insertImagesRef = useRef<(files: File[], at?: number) => Promise<void>>(async () => {});
   // 닫을 때 이미지 blob 주소를 정리한다. 개발 모드(StrictMode)의 시험용 정리→재연결에서는 예약을 취소해 그려 둔 이미지가 깨지지 않게.
   const disposeTimer = useRef<number | undefined>(undefined);
@@ -71,9 +114,48 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
   const baseName = file.name.replace(/\.rtdoc$/i, "") || "문서";
 
+  // 원작자 정보 및 타인 수정 상태 판별
+  const originalAuthor = fileOriginalAuthor(file);
+  const currentVersion = file.versions.find((v) => v.id === room) ?? file.versions.find((v) => v.current);
+  const latestEditor = currentVersion?.uploadedBy?.trim() || originalAuthor;
+  const isOtherEditor = Boolean(latestEditor && originalAuthor && latestEditor !== originalAuthor);
+
+  const firstVersion = [...file.versions].sort((a, b) => a.id - b.id)[0];
+  const originalText = firstVersion?.searchText || "";
+
+  // 타인 수정 표시 온/오프 상태
+  const [showOtherEditorMarks, setShowOtherEditorMarks] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem("talju:workspace:showOtherEditorMarks");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
+
+  function toggleOtherEditorMarks() {
+    setShowOtherEditorMarks((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("talju:workspace:showOtherEditorMarks", String(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  const cleanText = (str: string) => str.replace(/[\u00A0\s]+/g, " ").trim();
+  const originalLines = originalText
+    .split(/\r\n|\r|\n/)
+    .map(cleanText)
+    .filter(Boolean);
+
+  const highlightInfoRef = useRef({ isOtherEditor, originalLines, latestEditor });
+  highlightInfoRef.current = { isOtherEditor, originalLines, latestEditor };
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ undoRedo: false, link: { openOnClick: false, protocols: ["http", "https", "mailto"] } }),
+      otherEditorHighlightExtension(() => highlightInfoRef.current),
       Collaboration.configure({ document: doc, field: RICH_DOC_FIELD }),
       collabCursor(awareness),
       WorkspaceImage.configure({ loader }),
@@ -160,6 +242,41 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
         .rich-doc-export, .rich-doc-export * { color: #111827 !important; background: #fff !important; }
         .rich-doc-export a { color: #2563eb !important; }
         .rich-doc-export pre { background: #f3f4f6 !important; }
+
+        /* 파일 내 타인 수정 강조 스타일 */
+        .other-editor-highlight {
+          background-color: rgba(249, 115, 22, 0.16) !important;
+          border-left: 4px solid #ea580c !important;
+          padding-left: 10px !important;
+          border-radius: 4px;
+          margin-top: 6px !important;
+          margin-bottom: 6px !important;
+          transition: all 0.2s ease;
+          position: relative;
+        }
+        .other-editor-highlight::before {
+          content: attr(data-editor-label);
+          display: inline-block;
+          margin-right: 8px;
+          padding: 1px 6px;
+          font-size: 11px;
+          font-weight: 700;
+          line-height: 1.4;
+          border-radius: 4px;
+          background: rgba(234, 88, 12, 0.25);
+          color: #c2410c;
+          border: 1px solid rgba(234, 88, 12, 0.4);
+          user-select: none;
+          vertical-align: middle;
+        }
+        .hide-other-edits .other-editor-highlight {
+          background-color: transparent !important;
+          border-left: none !important;
+          padding-left: 0 !important;
+        }
+        .hide-other-edits .other-editor-highlight::before {
+          display: none !important;
+        }
       `}</style>
       <section className="w-[min(96vw,900px)] h-[min(88vh,760px)] flex flex-col border" aria-label="문서 편집" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", color: "var(--foreground)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0 flex-wrap" style={{ borderColor: "var(--border)" }}>
@@ -175,10 +292,52 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
             <button type="button" onClick={() => requestClose(onClose)} className={pill} style={{ background: "var(--muted)", color: "var(--foreground)" }}>닫기</button>
           </div>
         </div>
-        <div className="px-5 py-2 text-xs border-b shrink-0 flex items-center gap-2" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
-          <EditorAvatars editors={roomEditors} size={26} max={6} />
-          <span>{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중 · 사진을 누르면 이름이 보여요` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}</span>
+        <div className="px-5 py-2 text-xs border-b shrink-0 flex items-center justify-between gap-2 flex-wrap" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
+          <div className="flex items-center gap-2">
+            <EditorAvatars editors={roomEditors} size={26} max={6} />
+            <span>{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중 · 사진을 누르면 이름이 보여요` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}</span>
+          </div>
+          {isOtherEditor && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showOtherEditorMarks}
+              onClick={toggleOtherEditorMarks}
+              className="text-xs font-600 px-3 py-1 rounded-full flex items-center gap-1.5 border transition-all"
+              style={{
+                background: showOtherEditorMarks ? "rgba(245, 158, 11, 0.15)" : "var(--muted)",
+                borderColor: showOtherEditorMarks ? "rgba(245, 158, 11, 0.4)" : "var(--border)",
+                color: showOtherEditorMarks ? "#d97706" : "var(--muted-foreground)",
+              }}
+              title="원작자가 아닌 다른 사람이 수정한 내용의 문서 내 강조 표시를 켜거나 끕니다"
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: showOtherEditorMarks ? "#ea580c" : "var(--muted-foreground)" }} />
+              <span>타인({latestEditor}) 수정 표시 {showOtherEditorMarks ? "ON" : "OFF"}</span>
+            </button>
+          )}
         </div>
+        {isOtherEditor && showOtherEditorMarks && (
+          <div
+            className="mx-5 mt-2 px-3 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 border shrink-0"
+            style={{
+              background: "rgba(245, 158, 11, 0.1)",
+              borderColor: "rgba(245, 158, 11, 0.25)",
+              color: "#b45309",
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <span>✏️</span>
+              <span>원작자 <strong>{originalAuthor}</strong> 님이 아닌 <strong>{latestEditor}</strong> 님이 수정한 내용이 본문 내에 강조 표시됩니다.</span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleOtherEditorMarks}
+              className="text-[11px] underline underline-offset-2 opacity-80 hover:opacity-100"
+            >
+              표시 끄기
+            </button>
+          </div>
+        )}
         {confirmClose && (
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
             <span className="flex-1 min-w-48">저장하지 않은 변경사항이 있어요.{lastEditor && " 지금 나가면 지금까지 수정한 내용이 사라질 수 있어요."}</span>
@@ -188,11 +347,12 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
           </div>
         )}
         {error && <p role="alert" className="mx-5 mt-2 text-xs rounded-lg bg-red-500/10 text-red-500 p-2">{error}</p>}
-        <Toolbar editor={editor} imageBusy={imageBusy} onPickImage={() => imageInputRef.current?.click()} />
+        <Toolbar editor={editor} imageBusy={imageBusy} onPickImage={() => imageInputRef.current?.click()} isOtherEditor={isOtherEditor} showOtherEditorMarks={showOtherEditorMarks} onToggleOtherEdits={toggleOtherEditorMarks} latestEditor={latestEditor} />
         <input ref={imageInputRef} type="file" accept={COLLAB_IMAGE_TYPES.join(",")} multiple hidden aria-label="넣을 이미지"
           onChange={(e) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; if (files.length) void insertImages(files); }} />
         <div
-          className="flex-1 min-h-0 overflow-auto mx-5 mb-5 rounded-[10px] border"
+          ref={editorContainerRef}
+          className={`flex-1 min-h-0 overflow-auto mx-5 mb-5 rounded-[10px] border ${showOtherEditorMarks ? "" : "hide-other-edits"}`}
           style={{ background: "var(--muted)", borderColor: "var(--border)" }}
           onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); } }}
         >
@@ -203,7 +363,15 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   );
 }
 
-function Toolbar({ editor, imageBusy, onPickImage }: { editor: Editor | null; imageBusy: boolean; onPickImage: () => void }) {
+function Toolbar({ editor, imageBusy, onPickImage, isOtherEditor, showOtherEditorMarks, onToggleOtherEdits, latestEditor }: {
+  editor: Editor | null;
+  imageBusy: boolean;
+  onPickImage: () => void;
+  isOtherEditor?: boolean;
+  showOtherEditorMarks?: boolean;
+  onToggleOtherEdits?: () => void;
+  latestEditor?: string;
+}) {
   if (!editor) return <div className="h-11 px-5" />;
   const chain = () => editor.chain().focus();
   const items: { key: string; label: string; title: string; active: boolean; run: () => void }[] = [
@@ -242,6 +410,24 @@ function Toolbar({ editor, imageBusy, onPickImage }: { editor: Editor | null; im
       <span className="w-px h-5 mx-1" style={{ background: "var(--border)" }} />
       <button type="button" onClick={() => editor.commands.undo()} title="실행 취소" aria-label="실행 취소" className={btn} style={{ background: "var(--muted)", color: "var(--foreground)" }}>↺</button>
       <button type="button" onClick={() => editor.commands.redo()} title="다시 실행" aria-label="다시 실행" className={btn} style={{ background: "var(--muted)", color: "var(--foreground)" }}>↻</button>
+      {isOtherEditor && onToggleOtherEdits && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showOtherEditorMarks}
+          onClick={onToggleOtherEdits}
+          className="h-8 px-2.5 ml-auto rounded-md text-xs font-600 flex items-center gap-1.5 border transition-all"
+          style={{
+            background: showOtherEditorMarks ? "rgba(245, 158, 11, 0.15)" : "var(--muted)",
+            borderColor: showOtherEditorMarks ? "rgba(245, 158, 11, 0.4)" : "var(--border)",
+            color: showOtherEditorMarks ? "#d97706" : "var(--muted-foreground)",
+          }}
+          title="원작자가 아닌 다른 사람이 수정한 내용의 본문 내 강조 표시를 켜거나 끕니다"
+        >
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: showOtherEditorMarks ? "#ea580c" : "var(--muted-foreground)" }} />
+          <span>타인 수정 표시 {showOtherEditorMarks ? "ON" : "OFF"}</span>
+        </button>
+      )}
     </div>
   );
 }
