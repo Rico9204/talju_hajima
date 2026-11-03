@@ -16,6 +16,15 @@ import { collabImageName, type CollabImageStore } from "../lib/collabImages";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
 import { joinCollabPresence, type CollabEditor, type CollabMode, type CollabPresence } from "../lib/collab";
+import OfficeEditorModal, { isOfficeEditable, officeEditorEnabled } from "./OfficeEditorModal";
+import { type OfficeFileKind, OFFICE_FILE_CONFIG, createEmptyOfficeBytes } from "../lib/newOfficeFiles.ts";
+
+export type NewItemKind = CollabFileKind | OfficeFileKind;
+
+export interface NewItemState {
+  kind: NewItemKind;
+  name: string;
+}
 import { useProject, type FileVersion, type Folder, type WorkspaceFile } from "../context/ProjectContext";
 import { useAccountBackground } from "../lib/useAccountBackground";
 
@@ -71,6 +80,82 @@ export interface WorkspaceFocus {
   folderId: number | null;
 }
 
+export interface FileClipboard {
+  action: "copy" | "cut";
+  files: WorkspaceFile[];
+}
+
+function createDragGhost(name: string, count: number, isCollab: boolean): HTMLElement {
+  const ghost = document.createElement("div");
+  ghost.style.position = "fixed";
+  ghost.style.top = "-9999px";
+  ghost.style.left = "-9999px";
+  ghost.style.zIndex = "99999";
+  ghost.style.display = "flex";
+  ghost.style.alignItems = "center";
+  ghost.style.gap = "8px";
+  ghost.style.padding = "8px 14px";
+  ghost.style.borderRadius = "12px";
+  ghost.style.background = "#1e293b";
+  ghost.style.color = "#ffffff";
+  ghost.style.boxShadow = "0 10px 25px -3px rgba(0, 0, 0, 0.45), 0 0 0 2px #3b82f6";
+  ghost.style.fontFamily = "system-ui, -apple-system, sans-serif";
+  ghost.style.fontSize = "13px";
+  ghost.style.fontWeight = "600";
+  ghost.style.pointerEvents = "none";
+  ghost.style.whiteSpace = "nowrap";
+
+  const icon = document.createElement("span");
+  icon.style.fontSize = "16px";
+  icon.textContent = count > 1 ? "📑" : (isCollab ? "📝" : "📄");
+  ghost.appendChild(icon);
+
+  const nameSpan = document.createElement("span");
+  nameSpan.style.maxWidth = "220px";
+  nameSpan.style.overflow = "hidden";
+  nameSpan.style.textOverflow = "ellipsis";
+  nameSpan.textContent = count > 1 ? (name + " 외 " + (count - 1) + "개") : name;
+  ghost.appendChild(nameSpan);
+
+  if (count > 1) {
+    const badge = document.createElement("span");
+    badge.style.background = "#3b82f6";
+    badge.style.color = "#ffffff";
+    badge.style.padding = "1px 7px";
+    badge.style.borderRadius = "999px";
+    badge.style.fontSize = "11px";
+    badge.style.fontWeight = "700";
+    badge.textContent = "+" + (count - 1);
+    ghost.appendChild(badge);
+  }
+
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+function getCopyFileName(originalName: string, existingNames: Set<string>, isSameFolder: boolean): string {
+  const dotIndex = originalName.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
+  const ext = dotIndex > 0 ? originalName.slice(dotIndex) : "";
+
+  // 다른 폴더로 복사할 때 동일한 이름의 파일이 없다면 기존 이름 유지
+  if (!isSameFolder && !existingNames.has(originalName)) {
+    return originalName;
+  }
+
+  // 동일한 폴더이거나 대상 폴더에 이미 동일 이름이 있는 경우 " - 복사본" 추가
+  const firstCandidate = `${baseName} - 복사본${ext}`;
+  if (!existingNames.has(firstCandidate)) {
+    return firstCandidate;
+  }
+
+  let counter = 2;
+  while (existingNames.has(`${baseName} - 복사본 (${counter})${ext}`)) {
+    counter++;
+  }
+  return `${baseName} - 복사본 (${counter})${ext}`;
+}
+
 function getFileTypeDescription(f: WorkspaceFile): string {
   const ext = (f.name.split(".").pop() || "").toLowerCase();
   if (isRichDocName(f.name)) return "문서 (Slackerspace Doc)";
@@ -111,8 +196,74 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const presenceRef = useRef<CollabPresence | null>(null);
   const [editing, setEditing] = useState<{ fileId: number; room: number; mode: CollabMode; initialText: string } | null>(null);
   const [docEditing, setDocEditing] = useState<{ kind: CollabFileKind; fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
-  const [newDoc, setNewDoc] = useState<{ kind: CollabFileKind; name: string } | null>(null); // null = 새 문서·슬라이드 입력창 닫힘
+  const [newItem, setNewItem] = useState<NewItemState | null>(null); // null = 새 항목 입력창 닫힘
   const [docBusy, setDocBusy] = useState(false);
+  const [officeEnabled, setOfficeEnabled] = useState(false);
+  const [officeEditingFile, setOfficeEditingFile] = useState<{ id: number; name: string } | null>(null);
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
+  const newItemInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    void officeEditorEnabled().then((on) => { if (active) setOfficeEnabled(on); });
+    return () => { active = false; };
+  }, []);
+
+  function startCreatingFolder() {
+    setNewItem(null);
+    setNewFolderName("");
+    setFolderError("");
+    setCreatingFolder(true);
+    setTimeout(() => newFolderInputRef.current?.focus(), 0);
+  }
+
+  function startCreatingItem(kind: NewItemKind) {
+    setCreatingFolder(false);
+    setNewFolderName("");
+    setFolderError("");
+    setNewItem({ kind, name: "" });
+    setTimeout(() => newItemInputRef.current?.focus(), 0);
+  }
+
+  function cancelCreation() {
+    setCreatingFolder(false);
+    setNewFolderName("");
+    setFolderError("");
+    setNewItem(null);
+  }
+
+  function getItemMeta(kind: NewItemKind) {
+    if (kind === "doc") {
+      return {
+        icon: "📄",
+        placeholder: "새 문서 이름 (예: 회의록)",
+        label: "문서 (Slackerspace Doc)",
+        ext: "rtdoc",
+        defaultName: "새 문서",
+        isOffice: false,
+      };
+    }
+    if (kind === "slides") {
+      return {
+        icon: "🖼️",
+        placeholder: "새 슬라이드 이름 (예: 중간발표)",
+        label: "슬라이드 (Slackerspace Slides)",
+        ext: "rtslides",
+        defaultName: "새 슬라이드",
+        isOffice: false,
+      };
+    }
+    const cfg = OFFICE_FILE_CONFIG[kind];
+    return {
+      icon: cfg.icon,
+      placeholder: cfg.placeholder,
+      label: cfg.label,
+      ext: cfg.ext,
+      defaultName: cfg.defaultName,
+      mime: cfg.mime,
+      isOffice: true,
+    };
+  }
   // 끌어서 옮기기·순서 바꾸기: 끌고 있는 것(파일 여러 개 또는 폴더 하나)과 지금 놓으려는 곳.
   // into = 그 폴더 안으로("root" = 워크스페이스 루트), before/after = 같은 목록에서 그 항목 앞/뒤로(순서 바꾸기).
   const [dragging, setDragging] = useState<DragItem | null>(null);
@@ -151,6 +302,31 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const newMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
+  // 파일 클립보드 (복사 / 잘라내기 / 붙여넣기)
+  const [clipboard, setClipboard] = useState<FileClipboard | null>(null);
+  const [clipboardBusy, setClipboardBusy] = useState(false);
+  const [clipboardMessage, setClipboardMessage] = useState<string | null>(null);
+
+  const handleCopyRef = useRef<(file?: WorkspaceFile) => void>(() => {});
+  const handleCutRef = useRef<(file?: WorkspaceFile) => void>(() => {});
+  const handlePasteRef = useRef<(targetFolderId: number | null) => Promise<void>>(async () => {});
+  const currentFolderIdRef = useRef<number | null>(null);
+  currentFolderIdRef.current = currentFolderId;
+  const clipboardRef = useRef<FileClipboard | null>(null);
+  clipboardRef.current = clipboard;
+
+  // 프로젝트 변경 시 클립보드 초기화
+  useEffect(() => {
+    setClipboard(null);
+  }, [project.id]);
+
+  // 클립보드 알림 메시지 3초 후 자동 소멸
+  useEffect(() => {
+    if (!clipboardMessage) return;
+    const t = setTimeout(() => setClipboardMessage(null), 3000);
+    return () => clearTimeout(t);
+  }, [clipboardMessage]);
+
   // 폴더 이동 히스토리 (뒤로 / 앞으로)
   const [folderHistory, setFolderHistory] = useState<{ past: (number | null)[]; future: (number | null)[] }>({
     past: [],
@@ -168,17 +344,45 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        setContextMenu(null);
+        if (contextMenu) {
+          setContextMenu(null);
+        } else if (clipboardRef.current) {
+          setClipboard(null);
+        }
         setShowNewMenu(false);
+        return;
+      }
+      // 입력 폼이나 텍스트 편집 중에는 단축키 가로채지 않음
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      // 모달 편집창 열려있을 때 방지
+      if (editing || docEditing || presentingFile) {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        handleCopyRef.current();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        handleCutRef.current();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        void handlePasteRef.current(currentFolderIdRef.current);
       }
     }
-    window.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("pointerdown", handleClickOutside, true);
+    window.addEventListener("mousedown", handleClickOutside, true);
+    window.addEventListener("click", handleClickOutside, true);
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("pointerdown", handleClickOutside, true);
+      window.removeEventListener("mousedown", handleClickOutside, true);
+      window.removeEventListener("click", handleClickOutside, true);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [contextMenu, showNewMenu]);
+  }, [contextMenu, showNewMenu, editing, docEditing, presentingFile]);
 
   // Keep enough scrollable space when filters, deletion or a shorter detail
   // panel remove content. Observe child-driven changes as well as React renders.
@@ -200,9 +404,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       if (element.style.minHeight !== minimum) element.style.minHeight = minimum;
     }
     retainHeight();
-    const observer = new ResizeObserver(retainHeight);
+    let rafId: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(retainHeight);
+    });
     observer.observe(element);
-    return () => { observer.disconnect(); element.style.minHeight = ""; };
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+      element.style.minHeight = "";
+    };
   }, [project.id]);
 
   useEffect(() => {
@@ -212,8 +424,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     setSelected(null);
     setFilterTag(null);
     setSortBy("manual");
-    setCreatingFolder(false);
-    setFolderError("");
+    cancelCreation();
     setSelectMode(false);
     setSelectedIds(new Set());
     setBulkDeleteError("");
@@ -221,7 +432,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   useEffect(() => {
     if (!currentMember) return;
-    const presence = joinCollabPresence(project.id, { id: currentMember.id, name: currentMember.name }, setEditors);
+    const memberId = String(currentMember.id ?? (currentMember as unknown as { userId?: string }).userId ?? "1");
+    const memberName = currentMember.name ?? "나";
+    const presence = joinCollabPresence(project.id, { id: memberId, name: memberName }, setEditors);
     presenceRef.current = presence;
     return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -273,28 +486,152 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     };
   }
 
-  // 새 문서·슬라이드: 빈 파일을 지금 폴더에 올리고 바로 편집기를 연다.
-  async function createCollabFile() {
-    if (!newDoc || locked || docBusy) return;
-    const { ext, mime, label, newBytes } = COLLAB_FILE[newDoc.kind];
-    const name = newDoc.name.trim().replace(/[\\/]/g, "") || `새 ${label}`;
-    setDocBusy(true); setEditError("");
+  // 새 문서·슬라이드 또는 MS 오피스 파일: 빈 파일을 지금 폴더에 올리고 바로 편집기를 연다.
+  async function handleCreateItem() {
+    if (!newItem || locked || docBusy) return;
+    const meta = getItemMeta(newItem.kind);
+    const rawName = newItem.name.trim().replace(/[\\/]/g, "") || meta.defaultName;
+    const finalName = rawName.toLowerCase().endsWith(`.${meta.ext}`) ? rawName : `${rawName}.${meta.ext}`;
+
+    setDocBusy(true);
+    setEditError("");
     try {
-      const bytes = newBytes();
-      const result = await uploadWorkspaceFile({
-        file: new File([new Uint8Array(bytes)], `${name}.${ext}`, { type: mime }),
-        folderId: currentFolderId, note: `새 ${label}`, tags: [], extractedText: { text: "", status: "ready" },
-      });
-      const kind = newDoc.kind;
-      setNewDoc(null);
-      setSelected(result.fileId); setDetailTab("versions");
-      setDocEditing({ kind, fileId: result.fileId, room: result.versionId, mode: "main", bytes });
+      if (meta.isOffice) {
+        const bytes = createEmptyOfficeBytes(newItem.kind as OfficeFileKind);
+        const result = await uploadWorkspaceFile({
+          file: new File([bytes as unknown as BlobPart], finalName, { type: meta.mime }),
+          folderId: currentFolderId,
+          note: `새 ${meta.label}`,
+          tags: [],
+          extractedText: { text: "", status: "ready" },
+        });
+        cancelCreation();
+        setSelected(result.fileId);
+        setDetailTab("versions");
+        if (officeEnabled) {
+          setOfficeEditingFile({ id: result.fileId, name: finalName });
+        }
+      } else {
+        const kind = newItem.kind as CollabFileKind;
+        const { mime, label, newBytes } = COLLAB_FILE[kind];
+        const bytes = newBytes();
+        const result = await uploadWorkspaceFile({
+          file: new File([new Uint8Array(bytes)], finalName, { type: mime }),
+          folderId: currentFolderId,
+          note: `새 ${label}`,
+          tags: [],
+          extractedText: { text: "", status: "ready" },
+        });
+        cancelCreation();
+        setSelected(result.fileId);
+        setDetailTab("versions");
+        setDocEditing({ kind, fileId: result.fileId, room: result.versionId, mode: "main", bytes });
+      }
     } catch (e) {
-      setEditError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? `${label}를 만들지 못했습니다.`);
-    } finally { setDocBusy(false); }
+      setEditError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? `${meta.label}를 만들지 못했습니다.`);
+    } finally {
+      setDocBusy(false);
+    }
   }
 
   const errorText = (e: unknown, fallback: string) => (e instanceof Error ? e.message : (e as { message?: string })?.message ?? fallback);
+
+  // 복사 (Ctrl+C / 우클릭 메뉴)
+  function handleCopy(targetFile?: WorkspaceFile) {
+    let toCopy: WorkspaceFile[] = [];
+    if (targetFile) {
+      if (selectedIds.has(targetFile.id) && visibleSelected.length > 1) {
+        toCopy = visibleSelected;
+      } else {
+        toCopy = [targetFile];
+      }
+    } else if (visibleSelected.length > 0) {
+      toCopy = visibleSelected;
+    } else if (selected) {
+      const f = files.find((x) => x.id === selected);
+      if (f) toCopy = [f];
+    }
+    if (toCopy.length === 0) return;
+
+    setClipboard({ action: "copy", files: toCopy });
+    setClipboardMessage(`${toCopy.length === 1 ? `"${toCopy[0].name}"` : `${toCopy.length}개 파일`} 복사됨`);
+  }
+  handleCopyRef.current = handleCopy;
+
+  // 잘라내기 (Ctrl+X / 우클릭 메뉴)
+  function handleCut(targetFile?: WorkspaceFile) {
+    let toCut: WorkspaceFile[] = [];
+    if (targetFile) {
+      if (selectedIds.has(targetFile.id) && visibleSelected.length > 1) {
+        toCut = visibleSelected;
+      } else {
+        toCut = [targetFile];
+      }
+    } else if (visibleSelected.length > 0) {
+      toCut = visibleSelected;
+    } else if (selected) {
+      const f = files.find((x) => x.id === selected);
+      if (f) toCut = [f];
+    }
+    if (toCut.length === 0) return;
+
+    setClipboard({ action: "cut", files: toCut });
+    setClipboardMessage(`${toCut.length === 1 ? `"${toCut[0].name}"` : `${toCut.length}개 파일`} 잘라내기됨`);
+  }
+  handleCutRef.current = handleCut;
+
+  // 붙여넣기 (Ctrl+V / 우클릭 메뉴 / 인라인 바)
+  async function handlePaste(targetFolderId: number | null) {
+    if (!clipboard || clipboard.files.length === 0 || clipboardBusy || locked) return;
+
+    setClipboardBusy(true);
+    setMoveError("");
+    try {
+      if (clipboard.action === "cut") {
+        const actuallyMoving = clipboard.files.filter((f) => f.folderId !== targetFolderId);
+        if (actuallyMoving.length > 0) {
+          const failed = await moveWorkspaceFiles(actuallyMoving.map((f) => f.id), targetFolderId);
+          if (failed > 0) {
+            setMoveError(`${failed}개 파일을 옮기지 못했습니다.`);
+          } else {
+            setClipboardMessage(`${actuallyMoving.length === 1 ? `"${actuallyMoving[0].name}"` : `${actuallyMoving.length}개 파일`} 이동 완료`);
+          }
+        }
+        setClipboard(null);
+      } else if (clipboard.action === "copy") {
+        const existingNames = new Set(
+          files.filter((f) => f.folderId === targetFolderId).map((f) => f.name)
+        );
+
+        for (const file of clipboard.files) {
+          const cur = file.versions.find((v) => v.current) ?? file.versions[0];
+          if (!cur) continue;
+
+          const blob = await downloadFileVersion(cur.id);
+          const isSameFolder = file.folderId === targetFolderId;
+          const newName = getCopyFileName(cur.originalName ?? file.name, existingNames, isSameFolder);
+          existingNames.add(newName);
+
+          const newFile = new File([blob], newName, { type: blob.type || "application/octet-stream" });
+          await uploadWorkspaceFile({
+            file: newFile,
+            folderId: targetFolderId,
+            note: `${file.name} 복사본`,
+            tags: file.tags,
+          });
+        }
+
+        setClipboardMessage(
+          `${clipboard.files.length === 1 ? `"${clipboard.files[0].name}"` : `${clipboard.files.length}개 파일`} 복사 완료`
+        );
+      }
+    } catch (e) {
+      setMoveError(errorText(e, "붙여넣기에 실패했습니다."));
+    } finally {
+      setClipboardBusy(false);
+    }
+  }
+  handlePasteRef.current = handlePaste;
 
   // 파일들을 다른 폴더(null = 워크스페이스 루트)로 옮긴다. 끌어서 놓기와 상세 패널의 "폴더 이동"이 함께 쓴다.
   async function moveFiles(ids: number[], folderId: number | null) {
@@ -362,7 +699,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     };
   }
   const isInto = (target: number | "root") => !!dropSpot && "into" in dropSpot && dropSpot.into === target;
-  const dropStyle = (target: number | "root") => (isInto(target) ? { outline: "2px dashed var(--primary)", outlineOffset: "2px" } : {});
+  const dropStyle = (target: number | "root") =>
+    isInto(target)
+      ? {
+          outline: "2px solid var(--primary)",
+          outlineOffset: "-2px",
+          background: "color-mix(in srgb, var(--primary) 22%, var(--card))",
+          boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.35)",
+          transform: "scale(1.015)",
+          transition: "all 0.15s ease",
+        }
+      : {};
   const isSpot = (kind: "folder" | "file", id: number, place: "before" | "after") => !!dropSpot && !("into" in dropSpot) && dropSpot.kind === kind && dropSpot.id === id && dropSpot.place === place;
 
   // 폴더 카드: 폴더를 끌어 카드 왼쪽·오른쪽 가장자리에 놓으면 순서 바꾸기, 가운데(또는 파일)는 그 폴더 안으로.
@@ -408,20 +755,15 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const ids = selectedIds.has(f.id) && visibleSelected.length > 1 ? visibleSelected.map((x) => x.id) : [f.id];
     e.dataTransfer.setData(ITEM_DRAG_TYPE, "files");
     e.dataTransfer.effectAllowed = "move";
-    if (ids.length > 1) {
-      // 여러 개를 끌 때는 "파일 N개" 표를 끌리는 모양으로 쓴다.
-      const ghost = document.createElement("div");
-      ghost.textContent = `📄 파일 ${ids.length}개`;
-      Object.assign(ghost.style, { position: "fixed", top: "-100px", left: "0", padding: "6px 12px", borderRadius: "999px", background: "#2563eb", color: "#fff", font: "600 13px sans-serif" });
-      document.body.appendChild(ghost);
-      e.dataTransfer.setDragImage(ghost, 10, 10);
-      setTimeout(() => ghost.remove(), 0);
-    }
+    const ghost = createDragGhost(f.name, ids.length, !!collabKindOf(f.name));
+    e.dataTransfer.setDragImage(ghost, 20, 20);
+    setTimeout(() => ghost.remove(), 0);
     setDragging({ kind: "files", ids });
   }
 
   // 파일 누르기: 그냥 누르면 하나만 열고, Ctrl/⌘는 하나씩 더하거나 빼고, Shift는 마지막으로 누른 파일부터 범위로 고른다.
   function clickFile(e: React.MouseEvent, f: WorkspaceFile, deletable: boolean) {
+    if (contextMenu) setContextMenu(null);
     if (selectMode) { if (deletable) toggleSelected(f.id); return; }
     if (e.shiftKey && anchorRef.current !== null) {
       const order = sortedFiles.map((x) => x.id);
@@ -443,9 +785,22 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   // 목록의 빈 곳(파일 사이·아래)에서 끌기 시작하면 사각형으로 여러 파일을 고른다. Ctrl/⌘/Shift를 누르고 있으면 기존 선택에 더한다.
   function startBand(e: React.PointerEvent<HTMLDivElement>) {
+    if (contextMenu) {
+      setContextMenu(null);
+      return;
+    }
     const list = listRef.current;
-    // 마우스로만(터치로 시작하면 목록을 스크롤할 수 없다). 파일 줄·버튼 위에서 누른 것은 제외.
-    if (e.pointerType !== "mouse" || e.button !== 0 || !list || (e.target as HTMLElement).closest("[data-file-row], button")) return;
+    // 마우스로만(터치로 시작하면 목록을 스크롤할 수 없다). 파일 줄·폴더 줄·새로만들기 줄·버튼·입력창 위에서 누른 것은 제외.
+    const target = e.target as HTMLElement | null;
+    if (
+      e.pointerType !== "mouse" ||
+      e.button !== 0 ||
+      !list ||
+      !target ||
+      target.closest("[data-file-row], [data-folder-row], [data-creation-row], input, textarea, button, a, select")
+    ) {
+      return;
+    }
     const rect = list.getBoundingClientRect();
     if (e.clientX - rect.left >= list.clientWidth) return; // 스크롤 막대
     e.preventDefault();
@@ -535,6 +890,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   }, [files, currentFolderId, filterTag, searchQuery]);
 
   function openFolder(id: number | null, recordHistory = true) {
+    if (contextMenu) setContextMenu(null);
+    cancelCreation();
     if (recordHistory && id !== currentFolderId) {
       setFolderHistory((prev) => ({
         past: [...prev.past, currentFolderId],
@@ -860,33 +1217,65 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               >
                 <button
                   type="button"
-                  onClick={() => { setShowNewMenu(false); setCreatingFolder(true); }}
+                  onClick={() => { setShowNewMenu(false); startCreatingFolder(); }}
                   disabled={!canNestFolder}
                   className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors disabled:opacity-40 cursor-pointer"
                 >
                   <span className="text-base">📁</span>
                   <span className="flex-1">새 폴더</span>
                 </button>
+                <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
+                <div className="px-3.5 py-1 text-[10px] font-700 text-muted-foreground uppercase tracking-wider">
+                  웹 실시간 협업
+                </div>
                 <button
                   type="button"
-                  onClick={() => { setShowNewMenu(false); setNewDoc({ kind: "doc", name: "" }); }}
+                  onClick={() => { setShowNewMenu(false); startCreatingItem("doc"); }}
                   className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                 >
                   <span className="text-base">📄</span>
-                  <span className="flex-1">새 문서 만들기 (Doc)</span>
+                  <span className="flex-1">새 문서 (Slackerspace Doc)</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setShowNewMenu(false); setNewDoc({ kind: "slides", name: "" }); }}
+                  onClick={() => { setShowNewMenu(false); startCreatingItem("slides"); }}
                   className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                 >
                   <span className="text-base">🖼️</span>
-                  <span className="flex-1">새 슬라이드 만들기 (Slides)</span>
+                  <span className="flex-1">새 슬라이드 (Slackerspace Slides)</span>
+                </button>
+                <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
+                <div className="px-3.5 py-1 text-[10px] font-700 text-muted-foreground uppercase tracking-wider">
+                  MS 오피스
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewMenu(false); startCreatingItem("docx"); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                >
+                  <span className="text-base">📘</span>
+                  <span className="flex-1">Word 문서 (.docx)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewMenu(false); startCreatingItem("xlsx"); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                >
+                  <span className="text-base">📗</span>
+                  <span className="flex-1">Excel 스프레드시트 (.xlsx)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewMenu(false); startCreatingItem("pptx"); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                >
+                  <span className="text-base">📙</span>
+                  <span className="flex-1">PowerPoint 프레젠테이션 (.pptx)</span>
                 </button>
                 <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
                 <button
                   type="button"
-                  onClick={() => { setShowNewMenu(false); fileInputRef.current?.click(); }}
+                  onClick={() => { setShowNewMenu(false); cancelCreation(); fileInputRef.current?.click(); }}
                   className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                 >
                   <span className="text-base">⬆</span>
@@ -1071,6 +1460,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       {/* Error & Status messages */}
       {folderError && <p role="alert" className="mb-3 text-xs text-red-500 bg-red-500/10 p-2.5 rounded-lg">{folderError}</p>}
       {moveError && <p role="alert" className="mb-3 text-xs text-red-500 bg-red-500/10 p-2.5 rounded-lg">{moveError}</p>}
+      {clipboardMessage && (
+        <div className="mb-3 flex items-center gap-2 text-xs text-primary bg-primary/10 border border-primary/20 p-2.5 rounded-lg font-600 animate-fadeIn">
+          <span>✨</span>
+          <span>{clipboardMessage}</span>
+        </div>
+      )}
       {bulkDeleteError && <p role="alert" className="mb-3 text-xs text-red-500 bg-red-500/10 p-2.5 rounded-lg">{bulkDeleteError}</p>}
       {uploading && <p role="status" className="mb-3 text-xs text-primary bg-primary/10 p-2.5 rounded-lg">파일을 업로드하고 있습니다…</p>}
 
@@ -1086,6 +1481,51 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             WebkitBackdropFilter: "var(--panel-blur)",
           }}
         >
+          {/* Clipboard Notification Bar */}
+          {clipboard && (
+            <div
+              className="flex items-center justify-between px-4 py-2 border-b text-xs font-semibold animate-fadeIn"
+              style={{
+                background: "color-mix(in srgb, var(--primary) 12%, var(--card))",
+                borderColor: "var(--border)",
+                color: "var(--foreground)",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span>{clipboard.action === "cut" ? "✂️" : "📋"}</span>
+                <span>
+                  {clipboard.files.length === 1 ? `"${clipboard.files[0].name}"` : `${clipboard.files.length}개 파일`}
+                  {clipboard.action === "cut" ? " 잘라내기됨" : " 복사됨"}
+                  <span className="font-normal opacity-70 ml-1.5 hidden sm:inline">
+                    (원하는 위치에서 붙여넣기 또는 Ctrl+V)
+                  </span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={clipboardBusy || locked}
+                  onClick={() => void handlePaste(currentFolderId)}
+                  className="px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                  style={{
+                    background: "var(--primary)",
+                    color: "white",
+                  }}
+                >
+                  {clipboardBusy ? "붙여넣는 중…" : "여기에 붙여넣기"}
+                </button>
+                <button
+                  type="button"
+                  disabled={clipboardBusy}
+                  onClick={() => setClipboard(null)}
+                  className="px-2 py-1 rounded-md text-xs hover:bg-[var(--secondary)] transition-colors cursor-pointer text-muted-foreground"
+                >
+                  취소 (Esc)
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Table Header */}
           <div
             className="flex items-center px-4 py-2.5 text-xs font-700 border-b select-none sticky top-0 z-10"
@@ -1164,24 +1604,32 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
             {/* Inline Creating Folder Row */}
             {creatingFolder && (
-              <div className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5">
-                <span className="text-xl shrink-0">📁</span>
+              <div
+                data-creation-row="folder"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => newFolderInputRef.current?.focus()}
+                className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5 cursor-text"
+              >
+                <span className="text-xl shrink-0 select-none">📁</span>
                 <input
+                  ref={newFolderInputRef}
                   autoFocus
                   disabled={folderBusy}
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleAddFolder();
-                    if (e.key === "Escape") { setCreatingFolder(false); setNewFolderName(""); setFolderError(""); }
+                    if (e.key === "Escape") cancelCreation();
                   }}
                   placeholder="새 폴더 이름"
-                  className="flex-1 text-xs px-2.5 py-1.5 border outline-none rounded"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-opaque)" }}
+                  className="flex-1 text-xs px-2.5 py-1.5 border outline-none rounded bg-[var(--surface-opaque)] text-foreground cursor-text"
+                  style={{ borderColor: "var(--border)" }}
                 />
                 <button
                   type="button"
-                  onClick={handleAddFolder}
+                  onClick={(e) => { e.stopPropagation(); void handleAddFolder(); }}
                   disabled={folderBusy || !newFolderName.trim()}
                   className="text-xs font-700 px-3 py-1.5 rounded cursor-pointer"
                   style={{
@@ -1194,7 +1642,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 <button
                   type="button"
                   disabled={folderBusy}
-                  onClick={() => { setCreatingFolder(false); setNewFolderName(""); setFolderError(""); }}
+                  onClick={(e) => { e.stopPropagation(); cancelCreation(); }}
                   className="text-xs font-600 px-2.5 py-1.5 rounded cursor-pointer"
                   style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
                 >
@@ -1203,27 +1651,35 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               </div>
             )}
 
-            {/* Inline Creating Collab Doc Row */}
-            {newDoc !== null && (
-              <div className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5">
-                <span className="text-xl shrink-0">{newDoc.kind === "doc" ? "📄" : "🖼️"}</span>
+            {/* Inline Creating Item Row (Doc / Slides / MS Office) */}
+            {newItem !== null && (
+              <div
+                data-creation-row="item"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => newItemInputRef.current?.focus()}
+                className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5 cursor-text"
+              >
+                <span className="text-xl shrink-0 select-none">{getItemMeta(newItem.kind).icon}</span>
                 <input
+                  ref={newItemInputRef}
                   autoFocus
                   disabled={docBusy}
-                  value={newDoc.name}
-                  onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
+                  value={newItem.name}
+                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.nativeEvent.isComposing) void createCollabFile();
-                    if (e.key === "Escape") setNewDoc(null);
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) void handleCreateItem();
+                    if (e.key === "Escape") cancelCreation();
                   }}
-                  placeholder={newDoc.kind === "doc" ? "새 문서 이름 (예: 회의록)" : "새 슬라이드 이름 (예: 중간발표)"}
+                  placeholder={getItemMeta(newItem.kind).placeholder}
                   maxLength={100}
-                  className="flex-1 text-xs px-2.5 py-1.5 border outline-none rounded"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-opaque)" }}
+                  className="flex-1 text-xs px-2.5 py-1.5 border outline-none rounded bg-[var(--surface-opaque)] text-foreground cursor-text"
+                  style={{ borderColor: "var(--border)" }}
                 />
                 <button
                   type="button"
-                  onClick={() => void createCollabFile()}
+                  onClick={(e) => { e.stopPropagation(); void handleCreateItem(); }}
                   disabled={docBusy}
                   className="text-xs font-700 px-3 py-1.5 rounded cursor-pointer"
                   style={{ background: "var(--primary)", color: "#fff" }}
@@ -1232,7 +1688,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNewDoc(null)}
+                  onClick={(e) => { e.stopPropagation(); cancelCreation(); }}
                   disabled={docBusy}
                   className="text-xs font-600 px-2.5 py-1.5 rounded cursor-pointer"
                   style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
@@ -1250,6 +1706,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               return (
                 <div
                   key={`folder:${f.id}`}
+                  data-folder-row={f.id}
                   onClick={() => openFolder(f.id)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -1262,6 +1719,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   onDragStart={(e) => {
                     e.dataTransfer.setData(ITEM_DRAG_TYPE, "folder");
                     e.dataTransfer.effectAllowed = "move";
+                    const ghost = createDragGhost(f.name, 1, false);
+                    e.dataTransfer.setDragImage(ghost, 20, 20);
+                    setTimeout(() => ghost.remove(), 0);
                     setDragging({ kind: "folder", id: f.id });
                   }}
                   onDragEnd={endDrag}
@@ -1272,9 +1732,13 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer hover:bg-[var(--secondary)]/60"
                   style={{
                     ...dropStyle(f.id),
-                    borderTop: isSpot("folder", f.id, "before") ? "2px solid var(--primary)" : undefined,
-                    borderBottom: isSpot("folder", f.id, "after") ? "2px solid var(--primary)" : undefined,
-                    opacity: dragging?.kind === "folder" && dragging.id === f.id ? 0.4 : 1,
+                    borderTop: isSpot("folder", f.id, "before") ? "3px solid var(--primary)" : undefined,
+                    borderBottom: isSpot("folder", f.id, "after") ? "3px solid var(--primary)" : undefined,
+                    boxShadow: dragging?.kind === "folder" && dragging.id === f.id
+                      ? "0 0 0 2px var(--primary), inset 0 0 12px rgba(37, 99, 235, 0.2)"
+                      : dropStyle(f.id).boxShadow,
+                    borderRadius: dragging?.kind === "folder" && dragging.id === f.id ? 8 : undefined,
+                    opacity: dragging?.kind === "folder" && dragging.id === f.id ? 0.75 : 1,
                   }}
                 >
                   {selectMode && <div className="w-6 shrink-0" />}
@@ -1290,6 +1754,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     <span className="font-600 truncate text-[13px] text-foreground group-hover:underline">
                       <SearchHighlight text={f.name} query={searchQuery} />
                     </span>
+                    {isInto(f.id) && (
+                      <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--primary)] text-white animate-bounce shadow-xs">
+                        📥 여기에 넣기
+                      </span>
+                    )}
+                    {dragging?.kind === "folder" && dragging.id === f.id && (
+                      <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--primary)] text-white animate-pulse">
+                        이동 중
+                      </span>
+                    )}
                   </div>
 
                   {/* Date Column */}
@@ -1329,6 +1803,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   onDoubleClick={() => {
                     const collabKind = collabKindOf(f.name);
                     if (collabKind || isCodeFile(f.name)) void startQuickEdit(f, "main");
+                    else if (isOfficeEditable(f.name)) {
+                      if (officeEnabled) {
+                        setOfficeEditingFile({ id: f.id, name: f.name });
+                      } else {
+                        setSelected(f.id);
+                        setDetailTab("versions");
+                        setShowDetailsPane(true);
+                        setClipboardMessage("오피스 웹 편집기(OnlyOffice)가 설정되지 않아 미리보기 패널을 열었습니다.");
+                      }
+                    }
                     else if (isPresentationFile(f.name)) setPresentingFile(f);
                   }}
                   onContextMenu={(e) => {
@@ -1342,11 +1826,28 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   title={!locked && !selectMode ? (isPresentationFile(f.name) ? "클릭하여 선택 · 더블클릭하여 발표 모드 · 우클릭하여 메뉴 열기" : "클릭하여 선택 · 더블클릭하여 편집 · 우클릭하여 메뉴 열기") : "클릭하여 선택"}
                   className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer"
                   style={{
-                    background: isSelected ? "var(--primary)15" : "transparent",
+                    background: (dragging?.kind === "files" && dragging.ids.includes(f.id))
+                      ? "color-mix(in srgb, var(--primary) 24%, var(--card))"
+                      : isSelected
+                      ? "color-mix(in srgb, var(--primary) 15%, var(--card))"
+                      : "transparent",
                     color: "var(--foreground)",
-                    borderTop: isSpot("file", f.id, "before") ? "2px solid var(--primary)" : undefined,
-                    borderBottom: isSpot("file", f.id, "after") ? "2px solid var(--primary)" : undefined,
-                    opacity: (selectMode && !deletable) || (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? 0.4 : 1,
+                    borderTop: isSpot("file", f.id, "before") ? "3px solid var(--primary)" : undefined,
+                    borderBottom: isSpot("file", f.id, "after") ? "3px solid var(--primary)" : undefined,
+                    boxShadow: (dragging?.kind === "files" && dragging.ids.includes(f.id))
+                      ? "0 0 0 2px var(--primary), inset 0 0 14px rgba(37, 99, 235, 0.22)"
+                      : isSpot("file", f.id, "before") || isSpot("file", f.id, "after")
+                      ? "0 0 8px rgba(37, 99, 235, 0.45)"
+                      : isSelected
+                      ? "inset 3px 0 0 var(--primary)"
+                      : undefined,
+                    borderRadius: (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? 8 : undefined,
+                    transform: (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? "scale(0.99)" : undefined,
+                    opacity: (dragging?.kind === "files" && dragging.ids.includes(f.id))
+                      ? 0.78
+                      : (selectMode && !deletable) || (clipboard?.action === "cut" && clipboard.files.some((cf) => cf.id === f.id))
+                      ? 0.45
+                      : 1,
                   }}
                 >
                   {/* Select Checkbox */}
@@ -1384,6 +1885,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                         <span className={`font-600 truncate text-[13px] ${isSelected ? "text-[var(--primary)] font-700" : "text-foreground group-hover:underline"}`}>
                           <SearchHighlight text={f.name} query={searchQuery} />
                         </span>
+                        {dragging?.kind === "files" && dragging.ids.includes(f.id) && (
+                          <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--primary)] text-white animate-pulse shadow-xs">
+                            이동 중
+                          </span>
+                        )}
                         {f.tags.map((t) => (
                           <span
                             key={t}
@@ -1429,7 +1935,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             })}
 
             {/* Empty State */}
-            {displayFolders.length === 0 && sortedFiles.length === 0 && !creatingFolder && newDoc === null && (
+            {displayFolders.length === 0 && sortedFiles.length === 0 && !creatingFolder && newItem === null && (
               <div className="p-12 text-center text-xs" style={{ color: "var(--muted-foreground)", ...lineSafeStyle }}>
                 <div className="text-3xl mb-2">📂</div>
                 <div className="font-600 text-sm mb-1">
@@ -1445,15 +1951,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             {band && (
               <div
                 aria-hidden="true"
-                className="absolute pointer-events-none"
+                className="absolute pointer-events-none transition-none z-20"
                 style={{
                   left: Math.min(band.x0, band.x1),
                   top: Math.min(band.y0, band.y1),
                   width: Math.abs(band.x1 - band.x0),
                   height: Math.abs(band.y1 - band.y0),
-                  background: "rgba(37,99,235,0.12)",
-                  border: "1px solid rgba(37,99,235,0.6)",
-                  borderRadius: 4,
+                  background: "color-mix(in srgb, var(--primary) 20%, transparent)",
+                  border: "2px solid var(--primary)",
+                  borderRadius: 6,
+                  boxShadow: "0 0 12px rgba(37, 99, 235, 0.35)",
                 }}
               />
             )}
@@ -1676,8 +2183,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
       {/* Floating Windows Context Menu (우클릭 메뉴) */}
       {contextMenu && (
-        <div
-          ref={contextMenuRef}
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-transparent cursor-default"
+            onPointerDown={(e) => {
+              if (e.button === 0) setContextMenu(null);
+            }}
+            onClick={() => setContextMenu(null)}
+            onContextMenu={() => setContextMenu(null)}
+          />
+          <div
+            ref={contextMenuRef}
           className="fixed z-50 py-1 border shadow-2xl min-w-56 text-xs rounded-xl"
           style={{
             left: contextMenu.x,
@@ -1695,37 +2211,78 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 <>
                   <button
                     type="button"
-                    onClick={() => { setContextMenu(null); setCreatingFolder(true); }}
+                    onClick={() => { setContextMenu(null); startCreatingFolder(); }}
                     disabled={!canNestFolder}
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                   >
                     <span className="text-sm">📁</span>
                     <span>새 폴더 만들기</span>
                   </button>
+                  <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
                   <button
                     type="button"
-                    onClick={() => { setContextMenu(null); setNewDoc({ kind: "doc", name: "" }); }}
+                    onClick={() => { setContextMenu(null); startCreatingItem("doc"); }}
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                   >
                     <span className="text-sm">📄</span>
-                    <span>새 문서 만들기 (Doc)</span>
+                    <span>새 문서 (Doc)</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setContextMenu(null); setNewDoc({ kind: "slides", name: "" }); }}
+                    onClick={() => { setContextMenu(null); startCreatingItem("slides"); }}
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                   >
                     <span className="text-sm">🖼️</span>
-                    <span>새 슬라이드 만들기 (Slides)</span>
+                    <span>새 슬라이드 (Slides)</span>
+                  </button>
+                  <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); startCreatingItem("docx"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                  >
+                    <span className="text-sm">📘</span>
+                    <span>Word 문서 (.docx)</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setContextMenu(null); fileInputRef.current?.click(); }}
+                    onClick={() => { setContextMenu(null); startCreatingItem("xlsx"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                  >
+                    <span className="text-sm">📗</span>
+                    <span>Excel 스프레드시트 (.xlsx)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); startCreatingItem("pptx"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                  >
+                    <span className="text-sm">📙</span>
+                    <span>PowerPoint (.pptx)</span>
+                  </button>
+                  <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); cancelCreation(); fileInputRef.current?.click(); }}
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
                   >
                     <span className="text-sm">⬆</span>
                     <span>파일 업로드</span>
                   </button>
+                  {clipboard && (
+                    <button
+                      type="button"
+                      disabled={clipboardBusy}
+                      onClick={() => { setContextMenu(null); void handlePaste(currentFolderId); }}
+                      className="w-full flex items-center justify-between px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-primary"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">📄</span>
+                        <span>붙여넣기</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground opacity-60">Ctrl+V</span>
+                    </button>
+                  )}
                   <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
                 </>
               )}
@@ -1760,6 +2317,20 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <span>📂</span>
                   <span>폴더 열기</span>
                 </button>
+                {!locked && clipboard && (
+                  <>
+                    <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
+                    <button
+                      type="button"
+                      disabled={clipboardBusy}
+                      onClick={() => { setContextMenu(null); void handlePaste(folder.id); }}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-primary"
+                    >
+                      <span>📄</span>
+                      <span>이 폴더에 붙여넣기</span>
+                    </button>
+                  </>
+                )}
                 {canDeleteFolder(folder) && (
                   <>
                     <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
@@ -1810,6 +2381,26 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     <span>공동 편집 열기</span>
                   </button>
                 )}
+                {isOfficeEditable(file.name) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContextMenu(null);
+                      if (officeEnabled) {
+                        setOfficeEditingFile({ id: file.id, name: file.name });
+                      } else {
+                        setSelected(file.id);
+                        setDetailTab("versions");
+                        setShowDetailsPane(true);
+                        setClipboardMessage("오피스 웹 편집기(OnlyOffice)가 설정되지 않아 미리보기 창을 열었습니다. PC에서 편집하려면 다운로드하세요.");
+                      }
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-primary"
+                  >
+                    <span>✏️</span>
+                    <span>{officeEnabled ? "오피스 편집기로 열기" : "문서 열기 (미리보기)"}</span>
+                  </button>
+                )}
                 {!collabKind && isCodeFile(file.name) && (
                   <button
                     type="button"
@@ -1841,6 +2432,49 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <span>⬇</span>
                   <span>다운로드</span>
                 </button>
+
+                <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
+
+                {!locked && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setContextMenu(null); handleCopy(file); }}
+                      className="w-full flex items-center justify-between px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span>📋</span>
+                        <span>복사</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground opacity-60">Ctrl+C</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setContextMenu(null); handleCut(file); }}
+                      className="w-full flex items-center justify-between px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span>✂️</span>
+                        <span>잘라내기</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground opacity-60">Ctrl+X</span>
+                    </button>
+                    {clipboard && (
+                      <button
+                        type="button"
+                        disabled={clipboardBusy}
+                        onClick={() => { setContextMenu(null); void handlePaste(file.folderId); }}
+                        className="w-full flex items-center justify-between px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-primary"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span>📄</span>
+                          <span>붙여넣기</span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground opacity-60">Ctrl+V</span>
+                      </button>
+                    )}
+                  </>
+                )}
                 {canDeleteFile(file) && (
                   <>
                     <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
@@ -1858,9 +2492,20 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             );
           })()}
         </div>
+        </>
       )}
 
       {/* Collab Modals */}
+      {officeEditingFile && (
+        <OfficeEditorModal
+          fileId={officeEditingFile.id}
+          fileName={officeEditingFile.name}
+          readOnly={locked}
+          presence={presenceRef.current}
+          editors={editors}
+          onClose={() => setOfficeEditingFile(null)}
+        />
+      )}
       {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-500/10 text-red-500 p-3">{editError}</p>}
       {editing && presenceRef.current && files.find((f) => f.id === editing.fileId) && (
         <QuickEditModal
