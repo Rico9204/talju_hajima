@@ -184,7 +184,7 @@ export default function Landing() {
   const section = "mx-auto w-full max-w-[1200px] px-6";
 
   return (
-    <div className="h-full w-full scroll-smooth overflow-y-auto overflow-x-hidden" style={{ background: "var(--background)", color: "var(--foreground)", fontFamily: FONT }}>
+    <div className="theme-light h-full w-full scroll-smooth overflow-y-auto overflow-x-hidden" style={{ background: "var(--background)", color: "var(--foreground)", fontFamily: FONT }}>
       {/* 내비 + 히어로 */}
       <header
         className="relative"

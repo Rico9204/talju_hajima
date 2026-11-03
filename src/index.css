@@ -669,7 +669,8 @@
   --font-mono: var(--font-jetbrains);
 }
 
-:root {
+:root,
+.theme-light { /* 소개 페이지처럼 사용자 테마와 상관없이 라이트로 보여 줄 영역 */
   color-scheme: light; /* 드롭다운 펼친 목록·날짜 선택 창·스크롤바 등 브라우저 기본 입력창 색 */
   --background: #f3f5f9;
   --foreground: #222a3a;
