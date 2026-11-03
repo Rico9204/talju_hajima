@@ -293,7 +293,7 @@ function MenuOrderSettings() {
             className="flex-1 py-2 px-3 rounded-lg text-xs font-700 transition-all flex items-center justify-center gap-2 cursor-pointer"
             style={{
               background: activeTab === "home" ? "var(--card)" : "transparent",
-              color: activeTab === "home" ? "var(--primary)" : "var(--muted-foreground)",
+              color: activeTab === "home" ? "var(--primary-text)" : "var(--muted-foreground)",
               boxShadow: activeTab === "home" ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
             }}
           >
@@ -306,7 +306,7 @@ function MenuOrderSettings() {
             className="flex-1 py-2 px-3 rounded-lg text-xs font-700 transition-all flex items-center justify-center gap-2 cursor-pointer"
             style={{
               background: activeTab === "sidebar" ? "var(--card)" : "transparent",
-              color: activeTab === "sidebar" ? "var(--primary)" : "var(--muted-foreground)",
+              color: activeTab === "sidebar" ? "var(--primary-text)" : "var(--muted-foreground)",
               boxShadow: activeTab === "sidebar" ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
             }}
           >
@@ -343,7 +343,7 @@ function MenuOrderSettings() {
                   style={{
                     background: isHomeDefault ? "transparent" : "var(--card)",
                     borderColor: isHomeDefault ? "var(--border)" : "var(--primary)",
-                    color: isHomeDefault ? "var(--muted-foreground)" : "var(--primary)",
+                    color: isHomeDefault ? "var(--muted-foreground)" : "var(--primary-text)",
                   }}
                   title="원래 기본 순서로 되돌립니다"
                 >
@@ -495,7 +495,7 @@ function MenuOrderSettings() {
                   style={{
                     background: isSidebarDefault ? "transparent" : "var(--card)",
                     borderColor: isSidebarDefault ? "var(--border)" : "var(--primary)",
-                    color: isSidebarDefault ? "var(--muted-foreground)" : "var(--primary)",
+                    color: isSidebarDefault ? "var(--muted-foreground)" : "var(--primary-text)",
                   }}
                   title="원래 기본 순서로 되돌립니다"
                 >

@@ -70,7 +70,7 @@ export default function VersionCalendar({ file, files, onSelectFile }: {
         <button
           onClick={() => { setScope((s) => (s === "file" ? "all" : "file")); setSelectedDay(null); }}
           className="text-xs font-600 px-3 py-1.5 rounded-full"
-          style={{ background: "var(--muted)", color: scope === "all" ? "var(--primary)" : "var(--foreground)" }}
+          style={{ background: "var(--muted)", color: scope === "all" ? "var(--primary-text)" : "var(--foreground)" }}
         >
           {scope === "file" ? "전체 보기" : "이 파일만"}
         </button>
@@ -99,7 +99,7 @@ export default function VersionCalendar({ file, files, onSelectFile }: {
               style={{ background: selected ? "var(--primary)" : day === today ? "var(--secondary)" : "transparent", opacity: monthKey(day) === month ? 1 : 0.3, cursor: count ? "pointer" : "default" }}
             >
               <span className="text-xs font-600" style={{ color: selected ? "#fff" : "var(--foreground)" }}>{Number(day.slice(8))}</span>
-              <span className="text-[10px] leading-none mt-0.5 h-2.5" style={{ color: selected ? "#fff" : "var(--primary)" }}>{count > 1 ? count : count === 1 ? "•" : ""}</span>
+              <span className="text-[10px] leading-none mt-0.5 h-2.5" style={{ color: selected ? "#fff" : "var(--primary-text)" }}>{count > 1 ? count : count === 1 ? "•" : ""}</span>
             </button>
           );
         })}

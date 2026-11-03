@@ -157,7 +157,7 @@ export default function SchoolSearchCombobox({
                 className="w-full text-left px-2.5 py-1.5 text-xs font-700 rounded-lg flex items-center justify-between cursor-pointer transition-colors"
                 style={{
                   background: selectedSchool === mySchool ? "rgba(99, 102, 241, 0.12)" : "transparent",
-                  color: selectedSchool === mySchool ? "var(--primary)" : "var(--foreground)",
+                  color: selectedSchool === mySchool ? "var(--primary-text)" : "var(--foreground)",
                 }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--muted)")}
                 onMouseLeave={(e) =>
@@ -205,7 +205,7 @@ export default function SchoolSearchCombobox({
                         : isSelected
                         ? "rgba(99, 102, 241, 0.1)"
                         : "transparent",
-                      color: isSelected ? "var(--primary)" : "var(--foreground)",
+                      color: isSelected ? "var(--primary-text)" : "var(--foreground)",
                       fontWeight: isSelected ? 700 : 500,
                     }}
                   >
@@ -227,7 +227,7 @@ export default function SchoolSearchCombobox({
                         className="text-[10px] px-1.5 py-0.5 rounded"
                         style={{
                           background: isPlatform ? "rgba(99, 102, 241, 0.1)" : "var(--muted)",
-                          color: isPlatform ? "var(--primary)" : "var(--muted-foreground)",
+                          color: isPlatform ? "var(--primary-text)" : "var(--muted-foreground)",
                           fontWeight: isPlatform ? 700 : 500,
                         }}
                       >

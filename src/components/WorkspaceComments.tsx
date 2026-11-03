@@ -42,7 +42,7 @@ export default function WorkspaceComments({ file, focusedVersionId }: { file: Wo
           disabled={!member}
           title={member ? `${name} 프로필 보기` : name}
           className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-700 shrink-0"
-          style={{ background: "var(--secondary)", color: member?.color ?? "var(--primary)" }}
+          style={{ background: "var(--secondary)", color: member?.color ?? "var(--primary-text)" }}
         >
           {member?.avatarUrl ? <StillImg src={member.avatarUrl} alt={`${name} 프로필`} className="w-full h-full object-cover" /> : member?.avatar || comment.avatar || name.slice(0, 1)}
         </button>

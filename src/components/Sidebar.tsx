@@ -547,7 +547,7 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
                     style={{ background: isCurrent ? "var(--secondary)" : "transparent", borderRadius: "8px" }}
                   >
                     <div className="min-w-0">
-                      <div className="text-xs font-700 truncate" style={{ color: isCurrent ? "var(--primary)" : "var(--foreground)" }}>
+                      <div className="text-xs font-700 truncate" style={{ color: isCurrent ? "var(--primary-text)" : "var(--foreground)" }}>
                         {p.name}
                       </div>
                       <div className="text-xs truncate" style={{ color: "var(--muted-foreground)" }}>

@@ -41,7 +41,7 @@ export default function MyEvaluationSummary({ chart = false, embedded = false }:
           <div><div className={labelSize}>내 협업 신뢰도</div>
             <strong className={`${valueSize} inline-flex items-center gap-1.5`} style={{ color: "var(--primary-text)" }}>{result.score === null ? "공개 대기" : result.score.toFixed(2) + " / 10"}{result.score !== null && scoreCca && <CcaBadge />}</strong>
             {result.score !== null && <p className={labelSize}>{trust?.label} · {trust?.evidence}</p>}
-            {caption && <p className={`${labelSize} font-700`} style={{ color: percentiles?.available ? "var(--primary)" : "var(--muted-foreground)" }}>{caption}</p>}</div>
+            {caption && <p className={`${labelSize} font-700`} style={{ color: percentiles?.available ? "var(--primary-text)" : "var(--muted-foreground)" }}>{caption}</p>}</div>
           <div><div className={labelSize}>프로젝트 참여 횟수</div><strong className={valueSize}>{result.projectCount}회</strong></div>
           <div className="col-span-2"><div className={labelSize}>참여한 동료</div><strong className={valueSize}>{result.collaboratorCount}명</strong></div>
         </div>

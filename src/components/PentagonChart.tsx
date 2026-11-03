@@ -89,7 +89,7 @@ export default function PentagonChart({
   gridColor = "var(--border)",
   fillColor = "var(--primary)",
   labelColor = "var(--foreground)",
-  valueColor = "var(--primary)",
+  valueColor = "var(--primary-text)",
   onValueChange, limits, disabled = false,
 }: PentagonChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { requestPasswordReset, resendConfirmation } from "../api/rest/authApi";
 import { useAuth } from "../context/AuthContext";
 import { adminApplicationSeenKey } from "../lib/adminApplication";
@@ -88,7 +88,8 @@ export default function Login() {
         className="w-[24rem] max-w-[92vw] p-6 my-auto"
         style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}
       >
-        <img src="/slackerspace_icon.png" alt="Slackerspace" className="w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
+        <Link to="/" className="inline-block text-xs font-600 mb-3 hover:underline" style={{ color: "var(--muted-foreground)" }}>← 소개 페이지로</Link>
+        <img src="/slackerspace_icon.png" alt="Slackerspace" className="block w-10 h-10 mb-3" style={{ borderRadius: "20%" }} />
         <h3 className="font-700 mb-1">{mode === "signin" ? "로그인" : mode === "admin" ? "관리자 회원가입" : "회원가입"}</h3>
         <p className="text-sm mb-4" style={{ color: "var(--muted-foreground)" }}>
           {mode === "admin" ? "교수·교원 등 프로젝트를 관리하는 분을 위한 가입입니다." : "팀 프로젝트에 참여하려면 계정이 필요합니다."}
@@ -108,7 +109,7 @@ export default function Login() {
               className="flex-1 text-xs font-600 px-2.5 py-1.5 transition-all"
               style={{
                 background: mode === m ? "var(--card)" : "transparent",
-                color: mode === m ? "var(--primary)" : "var(--muted-foreground)",
+                color: mode === m ? "var(--primary-text)" : "var(--muted-foreground)",
                 borderRadius: "16px",
                 boxShadow: mode === m ? "var(--shadow-card)" : "none",
               }}
@@ -164,7 +165,7 @@ export default function Login() {
               onClick={() => recover(resendConfirmation)}
               disabled={!email.trim() || submitting}
               className="w-full py-2.5 text-sm font-600 mb-3"
-              style={{ background: "transparent", color: email.trim() && !submitting ? "var(--primary)" : "var(--muted-foreground)", border: "2px solid var(--border)", borderRadius: "40px", cursor: email.trim() && !submitting ? "pointer" : "not-allowed" }}
+              style={{ background: "transparent", color: email.trim() && !submitting ? "var(--primary-text)" : "var(--muted-foreground)", border: "2px solid var(--border)", borderRadius: "40px", cursor: email.trim() && !submitting ? "pointer" : "not-allowed" }}
             >
               가입 인증 메일 다시 받기
             </button>

@@ -77,7 +77,7 @@ function Dashboard() {
   const stats = [
     { n: "6", t: "완료 과제", s: "전체 9개 중", bg: C.greenTint, c: C.green, i: "✓" },
     { n: "2", t: "남은 마감", s: "마감일 있는 미완료 과제", bg: C.redTint, c: C.red, i: "◷" },
-    { n: "대기", t: "내 평가", s: "프로토타입 검증", bg: "var(--secondary)", c: "var(--primary)", i: "◎" },
+    { n: "대기", t: "내 평가", s: "프로토타입 검증", bg: "var(--secondary)", c: "var(--primary-text)", i: "◎" },
   ];
   const tasks = ["중간 발표 자료 만들기", "화면 설계 문서 정리", "API 명세서 작성", "사용자 테스트 계획"];
   return (
@@ -126,7 +126,7 @@ function Dashboard() {
             </div>
             <div className="hidden rounded-2xl p-4 md:block" style={{ background: "var(--card)" }}>
               <div className="mb-2 text-sm font-500">다가오는 마감</div>
-              {[["중간 발표", "D-2", C.red], ["팀 회의", "D-4", "var(--primary)"], ["최종 발표", "D-46", "var(--accent)"]].map(([t, d, c]) => (
+              {[["중간 발표", "D-2", C.red], ["팀 회의", "D-4", "var(--primary-text)"], ["최종 발표", "D-46", "var(--accent)"]].map(([t, d, c]) => (
                 <div key={t} className="mb-1.5 flex items-center justify-between rounded-lg px-3 py-2 text-xs" style={{ background: "var(--muted)" }}>
                   <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />{t}</span>
                   <span style={{ color: c, fontFamily: "var(--font-jetbrains)" }}>{d}</span>
@@ -265,7 +265,7 @@ export default function Landing() {
               </div>
             ))}
           </Tile>
-          <Tile glyph="◐" color="var(--primary)" tint="var(--secondary)" title="채팅" desc="팀 채널과 그룹 대화" className="lg:row-span-2">
+          <Tile glyph="◐" color="var(--primary-text)" tint="var(--secondary)" title="채팅" desc="팀 채널과 그룹 대화" className="lg:row-span-2">
             <div className="space-y-2">
               <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>황성환</div>
               <Bubble>회의 자료 올렸어요</Bubble>
@@ -298,7 +298,7 @@ export default function Landing() {
               ))}
             </div>
           </Tile>
-          <Tile glyph="⬡" color="var(--primary)" tint="var(--secondary)" title="워크스페이스" desc="문서와 파일을 함께 편집">
+          <Tile glyph="⬡" color="var(--primary-text)" tint="var(--secondary)" title="워크스페이스" desc="문서와 파일을 함께 편집">
             <div className="rounded-xl border border-dashed p-3 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--muted-foreground)" }}>
               <div style={{ color: "var(--foreground)" }}>드래그하거나 클릭해서 업로드</div>
               PDF, DOCX, XLSX, 이미지 지원

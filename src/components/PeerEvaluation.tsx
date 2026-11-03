@@ -100,7 +100,7 @@ function ScoreTrack({
             style={{ left: `${pctForIndex(v)}%`, top: 8, transform: "translateX(-50%)", opacity: locked ? 0.35 : 1 }}
           >
             <div style={{ width: 1, height: 8, background: isSel ? "var(--primary)" : locked ? "#ef4444" : "var(--border)" }} />
-            <div className="text-[10px] font-700 mt-1" style={{ color: isSel ? "var(--primary)" : locked ? "#ef4444" : "var(--muted-foreground)" }}>{v}</div>
+            <div className="text-[10px] font-700 mt-1" style={{ color: isSel ? "var(--primary-text)" : locked ? "#ef4444" : "var(--muted-foreground)" }}>{v}</div>
           </div>
         );
       })}
@@ -501,7 +501,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                         <div className="flex items-center gap-2">
                           <span className="w-6 h-6 flex items-center justify-center text-xs shrink-0" style={{ background: "var(--secondary)", borderRadius: "7px", color: "var(--primary-text)" }}>{c.icon}</span>
                           <span className="text-sm font-700 truncate">{c.label}</span>
-                          <span className="ml-auto text-xs font-700 shrink-0" style={{ color: current === null ? "var(--warning-text)" : "var(--primary)", fontFamily: "var(--font-jetbrains)" }}>
+                          <span className="ml-auto text-xs font-700 shrink-0" style={{ color: current === null ? "var(--warning-text)" : "var(--primary-text)", fontFamily: "var(--font-jetbrains)" }}>
                             {current === null ? "미선택" : `${current}점`}
                           </span>
                         </div>

@@ -755,7 +755,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 aria-label="팀 일정"
                 aria-pressed={showTeam}
                 className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
-                style={{ background: showTeam ? "var(--secondary)" : "var(--muted)", color: showTeam ? "var(--primary)" : "var(--muted-foreground)", borderRadius: "50%" }}
+                style={{ background: showTeam ? "var(--secondary)" : "var(--muted)", color: showTeam ? "var(--primary-text)" : "var(--muted-foreground)", borderRadius: "50%" }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -770,7 +770,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                 aria-label="개인 일정"
                 aria-pressed={showPersonal}
                 className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
-                style={{ background: showPersonal ? "var(--secondary)" : "var(--muted)", color: showPersonal ? "var(--primary)" : "var(--muted-foreground)", borderRadius: "50%" }}
+                style={{ background: showPersonal ? "var(--secondary)" : "var(--muted)", color: showPersonal ? "var(--primary-text)" : "var(--muted-foreground)", borderRadius: "50%" }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -985,7 +985,7 @@ export default function Schedule({ focusEventId }: { focusEventId?: number } = {
                           className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
                           style={{
                             background: visibility === v ? "var(--secondary)" : "var(--muted)",
-                            color: visibility === v ? "var(--primary)" : "var(--muted-foreground)",
+                            color: visibility === v ? "var(--primary-text)" : "var(--muted-foreground)",
                             borderRadius: "50%",
                           }}
                         >

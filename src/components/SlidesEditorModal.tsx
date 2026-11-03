@@ -195,7 +195,7 @@ export default function SlidesEditorModal({ projectId, file, room, mode, initial
                       </div>
                     ))}
                   </div>
-                  <div className="text-[10px] text-center mt-1" style={{ color: i === current ? "var(--primary)" : "var(--muted-foreground)" }}>{i + 1}</div>
+                  <div className="text-[10px] text-center mt-1" style={{ color: i === current ? "var(--primary-text)" : "var(--muted-foreground)" }}>{i + 1}</div>
                 </button>
                 {slides.length > 1 && (
                   <button type="button" onClick={() => deleteSlide(i)} title="슬라이드 삭제" aria-label={`${i + 1}번 슬라이드 삭제`} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-[9px] flex items-center justify-center" style={{ background: "#ef4444", color: "#fff" }}>×</button>

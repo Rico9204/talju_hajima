@@ -19,7 +19,7 @@ export function renderMentionText(text: string, mine: boolean, myName?: string, 
         className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded font-700 text-xs transition-all"
         style={{
           background: mine ? "rgba(255, 255, 255, 0.28)" : isMe ? "rgba(239, 68, 68, 0.18)" : "rgba(74, 116, 181, 0.15)",
-          color: mine ? "#fff" : isMe ? "#ef4444" : "var(--primary)",
+          color: mine ? "#fff" : isMe ? "#ef4444" : "var(--primary-text)",
           boxShadow: isMe && !mine ? "0 0 0 1px rgba(239, 68, 68, 0.3)" : undefined,
         }}
       >
@@ -61,7 +61,7 @@ export default function ChatMessageText({ text, mine, myName, mentionNames = [] 
         type="button"
         onClick={() => setOpen(true)}
         className="block mt-1.5 text-xs font-700 underline underline-offset-2"
-        style={{ color: mine ? "rgba(255,255,255,0.9)" : "var(--primary)" }}
+        style={{ color: mine ? "rgba(255,255,255,0.9)" : "var(--primary-text)" }}
       >
         전체보기
       </button>
@@ -71,7 +71,7 @@ export default function ChatMessageText({ text, mine, myName, mentionNames = [] 
             <div className="flex items-center justify-between px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
               <span className="text-sm font-700">메시지 전체보기</span>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => void copyAll()} aria-label="전체 복사" title="전체 복사" className="h-8 px-2 flex items-center gap-1 text-xs font-700 rounded-lg" style={{ color: copied ? "var(--primary)" : "var(--foreground)" }}>
+                <button type="button" onClick={() => void copyAll()} aria-label="전체 복사" title="전체 복사" className="h-8 px-2 flex items-center gap-1 text-xs font-700 rounded-lg" style={{ color: copied ? "var(--primary-text)" : "var(--foreground)" }}>
                   {copied ? (
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
                   ) : (

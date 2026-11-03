@@ -371,7 +371,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                           const d = deadlineById.get(task.id);
                           return (
                             <li key={task.id}>
-                              <Link to={`/tasks/${task.id}`} className="flex items-center justify-between gap-2 text-sm py-1 transition-colors hover:text-[var(--primary)]">
+                              <Link to={`/tasks/${task.id}`} className="flex items-center justify-between gap-2 text-sm py-1 transition-colors hover:text-[var(--primary-text)]">
                                 <span className="truncate">{task.title}</span>
                                 {d && d.days <= 7 && <span className="text-[11px] font-700 shrink-0" style={{ color: d.color, fontFamily: "var(--font-jetbrains)" }}>{d.badge}</span>}
                               </Link>
@@ -436,7 +436,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                   const d = deadlineById.get(task.id);
                   return (
                     <li key={task.id} style={{ borderTop: "1px solid var(--border)" }} className="first:border-t-0">
-                      <Link to={`/tasks/${task.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-[var(--primary)]">
+                      <Link to={`/tasks/${task.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm transition-colors hover:text-[var(--primary-text)]">
                         <span className="truncate">{task.title}</span>
                         {d && <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: `${d.color}20`, color: d.color, borderRadius: "20px", fontFamily: "var(--font-jetbrains)" }}>{d.badge}</span>}
                       </Link>

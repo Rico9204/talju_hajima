@@ -809,7 +809,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           onClick={() => openFolder(null)}
           {...(!locked && currentFolder ? dropHandlers("root") : {})}
           className="font-600"
-          style={{ color: currentFolder ? "var(--primary)" : "var(--foreground)", ...dropStyle("root") }}
+          style={{ color: currentFolder ? "var(--primary-text)" : "var(--foreground)", ...dropStyle("root") }}
         >
           ⬡ 워크스페이스
         </button>
@@ -1025,7 +1025,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   >
                     {f.tags.join(" · ") || "태그 없음"}
                   </span>
-                  <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary)" }}>
+                  <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary-text)" }}>
                     {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
                   </span>
                   {editors.some((e) => e.fileId === f.id) && (
@@ -1093,7 +1093,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     className="flex-1 text-xs font-700 py-1.5 transition-all"
                     style={{
                       background: detailTab === t ? "var(--card)" : "transparent",
-                      color: detailTab === t ? "var(--primary)" : "var(--muted-foreground)",
+                      color: detailTab === t ? "var(--primary-text)" : "var(--muted-foreground)",
                       borderRadius: "7px",
                       boxShadow: detailTab === t ? "var(--shadow-card)" : "none",
                     }}

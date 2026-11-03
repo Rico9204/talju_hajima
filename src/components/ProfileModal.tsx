@@ -660,7 +660,7 @@ export default function ProfileModal() {
                       </div>
                       <p className="text-xs mb-1" style={{ color: "var(--muted-foreground)" }}>{collaborationTrust(viewedMember.score, viewedMember.evalCount).evidence}</p>
                       {otherPercentiles && (
-                        <p className="text-xs font-700 mb-3" style={{ color: otherPercentiles.available ? "var(--primary)" : "var(--muted-foreground)" }}>
+                        <p className="text-xs font-700 mb-3" style={{ color: otherPercentiles.available ? "var(--primary-text)" : "var(--muted-foreground)" }}>
                           {percentileCaption(otherPercentiles)}
                         </p>
                       )}

@@ -86,7 +86,7 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
           </div>
         </div>
         {version.note && <p className="text-xs italic mb-1.5 whitespace-pre-wrap break-words" style={{ opacity: 0.85 }}>“{version.note}”</p>}
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-600 mb-1.5" style={{ color: isCurrent ? "#fff" : "var(--primary)" }}>
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-600 mb-1.5" style={{ color: isCurrent ? "#fff" : "var(--primary-text)" }}>
           {summary} {expanded ? "▲" : "▼"}
         </button>
         {expanded && ready?.cur != null && !tooLong && (

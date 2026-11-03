@@ -1944,7 +1944,7 @@ export default function TeamChat({
                                     background: isSelected
                                       ? "rgba(255,255,255,0.2)"
                                       : "rgba(99, 102, 241, 0.15)",
-                                    color: isSelected ? "#fff" : "var(--primary)",
+                                    color: isSelected ? "#fff" : "var(--primary-text)",
                                   }}
                                 >
                                   부팀장
