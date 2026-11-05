@@ -182,3 +182,59 @@ test('hwpxCollab: End-to-end HWPX ZIP editing round trip with tables and equatio
   assert.ok(finalXml.includes('수정된 세부내용'));
   assert.ok(finalXml.includes('<hp:tbl rowCnt="2" colCnt="2"'));
 });
+
+
+test('hwpxCollab: isolates header/footer controls and preserves document title and styling', () => {
+  const sampleHeaderXml = `<?xml version="1.0" encoding="UTF-8"?>
+<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head">
+  <hh:paraProperties>
+    <hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/></hh:paraPr>
+    <hh:paraPr id="20"><hh:align horizontal="CENTER"/></hh:paraPr>
+  </hh:paraProperties>
+  <hh:charProperties>
+    <hh:charPr id="0" height="1000"/>
+    <hh:charPr id="8" height="1600"><hh:bold/></hh:charPr>
+  </hh:charProperties>
+</hh:head>`;
+
+  const sampleSectionWithFooter = `<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p id="0" paraPrIDRef="20">
+    <hp:run charPrIDRef="0">
+      <hp:secPr><hp:grid/></hp:secPr>
+      <hp:ctrl>
+        <hp:footer id="1"><hp:subList><hp:p id="f1"><hp:run><hp:t>- 1 -</hp:t></hp:run></hp:p></hp:subList></hp:footer>
+      </hp:ctrl>
+    </hp:run>
+    <hp:run charPrIDRef="8">
+      <hp:t>고밀도 소금-후추 노이즈 환경 논문 제목</hp:t>
+    </hp:run>
+  </hp:p>
+  <hp:p id="1" paraPrIDRef="20">
+    <hp:run charPrIDRef="0"><hp:t>저자: 홍길동, 이순신</hp:t></hp:run>
+  </hp:p>
+</hs:sec>`;
+
+  const blocks = parseHwpxXmlToBlocks(sampleSectionWithFooter, sampleHeaderXml);
+  assert.equal(blocks.length, 2);
+
+  // Assert footer "- 1 -" did not replace the title!
+  assert.equal(blocks[0].type, 'paragraph');
+  if (blocks[0].type === 'paragraph') {
+    assert.equal(blocks[0].text, '고밀도 소금-후추 노이즈 환경 논문 제목');
+    assert.equal(blocks[0].align, 'center');
+    assert.equal(blocks[0].sizePt, 16);
+    assert.equal(blocks[0].bold, true);
+  }
+
+  assert.equal(blocks[1].type, 'paragraph');
+  if (blocks[1].type === 'paragraph') {
+    assert.equal(blocks[1].text, '저자: 홍길동, 이순신');
+    assert.equal(blocks[1].align, 'center');
+  }
+
+  // Round-trip serialization preserves preamble footer control
+  const serialized = serializeBlocksToHwpxXml(blocks, sampleSectionWithFooter);
+  assert.ok(serialized.includes('<hp:footer id="1">'));
+  assert.ok(serialized.includes('고밀도 소금-후추 노이즈 환경 논문 제목'));
+});

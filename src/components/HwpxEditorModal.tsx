@@ -40,7 +40,7 @@ export default function HwpxEditorModal({
   const [originalXml, setOriginalXml] = useState("");
   const [initialBlocks, setInitialBlocks] = useState<HwpxCollabBlock[] | null>(null);
 
-  // 1. HWPX 원본 파싱 및 초기 블록 추출
+  // 1. HWPX 원본 파싱 및 초기 블록 추출 (header.xml 스타일 동시 분석)
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -49,7 +49,12 @@ export default function HwpxEditorModal({
         const secKey = Array.from(entries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
         const secBytes = entries.get(secKey);
         const xml = secBytes ? new TextDecoder().decode(secBytes) : "";
-        const blocks = parseHwpxXmlToBlocks(xml);
+
+        const headerKey = Array.from(entries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k));
+        const headerBytes = headerKey ? entries.get(headerKey) : undefined;
+        const headerXml = headerBytes ? new TextDecoder().decode(headerBytes) : "";
+
+        const blocks = parseHwpxXmlToBlocks(xml, headerXml);
         if (active) {
           setZipEntries(entries);
           setOriginalXml(xml);
@@ -144,11 +149,11 @@ function HwpxEditorModalInner({
       // Y.Doc의 최신 블록 트리로부터 OWPML XML을 재직렬화하여 HWPX ZIP 생성
       const currentBlocks = extractBlocksFromYDoc(doc);
       const newSectionXml = serializeBlocksToHwpxXml(currentBlocks, originalXml);
-      
+
       const newEntries = new Map(zipEntries);
       const secKey = Array.from(newEntries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
       newEntries.set(secKey, new TextEncoder().encode(newSectionXml));
-      
+
       const updatedHwpxBytes = await writeZipEntries(newEntries);
       return save(updatedHwpxBytes, text, baseVersionId, auto);
     },
@@ -214,9 +219,9 @@ function HwpxEditorModalInner({
   };
 
   // 수식 스크립트 변경 (Yjs 실시간 반영)
-  const updateEquation = (index: number, newScript: string) => {
+  const updateEquation = (blockIndex: number, newScript: string) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-    const yBlock = yBlocks.get(index);
+    const yBlock = yBlocks.get(blockIndex);
     if (!yBlock) return;
     const yScript = yBlock.get("script") as Y.Text | undefined;
     if (yScript) {
@@ -228,13 +233,23 @@ function HwpxEditorModalInner({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5" style={{ background: "rgba(15,18,53,0.6)", backdropFilter: "blur(6px)" }}>
-      <div className="w-full max-w-5xl h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden animate-fade-in" style={{ background: "var(--card-bg, #181926)", borderColor: "var(--card-border, #363a4f)", color: "var(--primary-text, #cad3f5)" }}>
-        
-        {/* 상단 툴바 */}
-        <header className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--card-border, #363a4f)", background: "rgba(0,0,0,0.15)" }}>
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-xl">📝</span>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-5xl h-[92vh] flex flex-col rounded-2xl shadow-2xl border overflow-hidden"
+        style={{
+          background: "var(--card-bg, #1e1e2e)",
+          borderColor: "var(--card-border, #313244)",
+          color: "var(--primary-text, #cdd6f4)",
+        }}
+      >
+        {/* 상단 툴바 / 상태바 */}
+        <header className="flex items-center justify-between px-5 py-3 border-b shrink-0" style={{ borderColor: "var(--card-border, #313244)", background: "rgba(0,0,0,0.25)" }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-xl">📄</span>
             <div className="min-w-0">
               <h2 className="text-sm font-bold truncate flex items-center gap-2">
                 <span>{file.name}</span>
@@ -285,20 +300,46 @@ function HwpxEditorModalInner({
         )}
 
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center bg-black/10">
-          <div className="w-full max-w-3xl min-h-[800px] p-8 sm:p-12 rounded-xl shadow-lg border" style={{ background: "#ffffff", color: "#1f2937", borderColor: "#e5e7eb", fontFamily: "'Noto Serif KR', serif" }}>
-            
+        <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center bg-[#181825]/90">
+          <div
+            className="w-full max-w-[800px] min-h-[1050px] px-10 sm:px-16 py-12 sm:py-16 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200"
+            style={{
+              fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
+              boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
+            }}
+          >
             {blocks.map((block, idx) => {
               if (block.type === "paragraph") {
+                const alignClass = block.align === "center" ? "text-center" : block.align === "right" ? "text-right" : block.align === "justify" ? "text-justify" : "text-left";
+                const isTitle = (block.sizePt && block.sizePt >= 15) || (block.bold && idx < 5);
+                const isHeading = block.sizePt && block.sizePt >= 11 && block.sizePt < 15;
+                const fontSize = block.sizePt ? `${block.sizePt}pt` : "10pt";
+
+                // 빈 줄은 불필요한 placeholder 없이 깔끔한 자연 여백으로 렌더링
+                if (!block.text) {
+                  return (
+                    <div
+                      key={block.id}
+                      onClick={() => updateParagraph(idx, " ")}
+                      className="h-5 w-full cursor-text hover:bg-blue-50/20 rounded transition"
+                      title="클릭하여 내용 입력"
+                    />
+                  );
+                }
+
                 return (
-                  <div key={block.id} className="relative group mb-3">
+                  <div key={block.id} className={`w-full group ${isTitle ? "my-2" : isHeading ? "my-1" : "my-0.5"}`}>
                     <textarea
                       value={block.text}
                       onChange={(e) => updateParagraph(idx, e.target.value)}
-                      placeholder="내용을 입력하세요..."
                       rows={Math.max(1, block.text.split("\n").length)}
-                      className="w-full resize-none border-none outline-none p-1 rounded hover:bg-neutral-50 focus:bg-blue-50/30 transition text-sm leading-relaxed"
-                      style={{ color: "#1f2937" }}
+                      className={`w-full resize-none border-none outline-none bg-transparent p-0 transition leading-relaxed ${alignClass}`}
+                      style={{
+                        fontSize,
+                        fontWeight: block.bold ? "bold" : "normal",
+                        color: "#111827",
+                        lineHeight: isTitle ? 1.4 : 1.65,
+                      }}
                     />
                   </div>
                 );
@@ -306,27 +347,26 @@ function HwpxEditorModalInner({
 
               if (block.type === "table") {
                 return (
-                  <div key={block.id} className="my-5 overflow-x-auto border border-neutral-300 rounded-lg p-2 bg-neutral-50/50">
-                    <div className="text-[11px] font-bold text-neutral-500 mb-2 flex items-center gap-1.5">
-                      <span>📊</span>
-                      <span>표 (실시간 동시편집 지원)</span>
-                    </div>
-                    <table className="w-full border-collapse border border-neutral-400 text-xs text-neutral-900 bg-white">
+                  <div key={block.id} className="my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white">
+                    <table className="w-full border-collapse border-b border-neutral-800 text-xs text-neutral-900 bg-white">
                       <tbody>
-                        {block.rows.map((row, rIdx) => (
-                          <tr key={rIdx}>
-                            {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="border border-neutral-300 p-1.5 min-w-[80px]">
-                                <input
-                                  type="text"
-                                  value={cell.text}
-                                  onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
-                                  className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-100/50 font-sans"
-                                />
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
+                        {block.rows.map((row, rIdx) => {
+                          const isHeaderRow = rIdx === 0;
+                          return (
+                            <tr key={rIdx} className={isHeaderRow ? "border-b border-neutral-800 bg-neutral-50/60 font-semibold" : "border-b border-neutral-200"}>
+                              {row.map((cell, cIdx) => (
+                                <td key={cIdx} className="border-r border-neutral-200 last:border-r-0 p-1.5 min-w-[70px]">
+                                  <input
+                                    type="text"
+                                    value={cell.text}
+                                    onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
+                                    className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -335,16 +375,13 @@ function HwpxEditorModalInner({
 
               if (block.type === "equation") {
                 return (
-                  <div key={block.id} className="my-4 p-3 rounded-lg border border-indigo-200 bg-indigo-50/40 text-xs font-mono">
-                    <div className="text-[11px] font-bold text-indigo-700 mb-1 flex items-center gap-1.5">
-                      <span>📐</span>
-                      <span>한글 수식 (Equation)</span>
-                    </div>
+                  <div key={block.id} className="my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3">
+                    <span className="text-xs font-bold text-neutral-500 select-none">∑ 수식</span>
                     <input
                       type="text"
                       value={block.script}
                       onChange={(e) => updateEquation(idx, e.target.value)}
-                      className="w-full bg-white border border-indigo-300 rounded px-2 py-1 text-indigo-900 outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                      className="flex-1 bg-white border border-neutral-300 rounded px-2 py-1 text-xs text-neutral-800 outline-none focus:border-blue-500 font-mono"
                       placeholder="수식 스크립트..."
                     />
                   </div>

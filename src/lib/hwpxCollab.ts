@@ -10,11 +10,16 @@ export interface HwpxParagraphBlock {
   type: "paragraph";
   id: string;
   text: string;
+  align?: "left" | "center" | "right" | "justify";
+  sizePt?: number;
+  bold?: boolean;
   rawAttrs?: string;
 }
 
 export interface HwpxTableCell {
   text: string;
+  align?: "left" | "center" | "right" | "justify";
+  bold?: boolean;
   colSpan?: number;
   rowSpan?: number;
   rawAttrs?: string;
@@ -37,11 +42,45 @@ export interface HwpxEquationBlock {
 export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock;
 
 // ── OWPML XML을 구조화된 협업 블록 목록으로 파싱 ──
-export function parseHwpxXmlToBlocks(xmlStr: string): HwpxCollabBlock[] {
+export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollabBlock[] {
+  // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드) 사전 추출
+  const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
+  const charStyles = new Map<string, { sizePt: number; bold: boolean }>();
+
+  if (headerXml) {
+    const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = paraPrRegex.exec(headerXml)) !== null) {
+      const idMatch = pm[0].match(/\bid="(\d+)"/);
+      if (!idMatch) continue;
+      const id = idMatch[1];
+      const alignMatch = pm[0].match(/horizontal="([^"]+)"/);
+      const alignVal = alignMatch ? alignMatch[1].toLowerCase() : "left";
+      paraStyles.set(id, {
+        align: alignVal === "center" || alignVal === "right" || alignVal === "justify" ? alignVal : "left",
+      });
+    }
+
+    const charPrRegex = /<hh:charPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:charPr>)/g;
+    let cm: RegExpExecArray | null;
+    while ((cm = charPrRegex.exec(headerXml)) !== null) {
+      const idMatch = cm[0].match(/\bid="(\d+)"/);
+      if (!idMatch) continue;
+      const id = idMatch[1];
+      const sizeMatch = cm[0].match(/height="(\d+)"/);
+      const boldMatch = /<hh:bold\s*\/?>/.test(cm[0]);
+      charStyles.set(id, {
+        sizePt: sizeMatch ? parseInt(sizeMatch[1], 10) / 100 : 10,
+        bold: boldMatch,
+      });
+    }
+  }
+
   const blocks: HwpxCollabBlock[] = [];
   const tokenRegex = /<(\/)?([a-zA-Z0-9_:]+)((?:\s+[^>]*)?)(\/?)>|([^<]+)/g;
   let match: RegExpExecArray | null;
 
+  let ctrlDepth = 0; // 머리말, 꼬리말, 각주, 미주 등 제어 태그 깊이 (본문 문단과 분리)
   let inTable = false;
   let currentTable: HwpxTableBlock | null = null;
   let currentRow: HwpxTableCell[] | null = null;
@@ -57,6 +96,8 @@ export function parseHwpxXmlToBlocks(xmlStr: string): HwpxCollabBlock[] {
   let hasObjectInP = false;
   let currentPText: string[] = [];
   let currentPAttrs = "";
+  let currentParaPrId = "0";
+  let currentCharPrId = "0";
   let inT = false;
 
   let blockIndex = 0;
@@ -70,6 +111,21 @@ export function parseHwpxXmlToBlocks(xmlStr: string): HwpxCollabBlock[] {
 
     if (tagName) {
       const localName = tagName.split(":").pop()!;
+
+      // 머리말 / 꼬리말 / 각주 / 미주 분리 격리
+      if (localName === "header" || localName === "footer" || localName === "footnote" || localName === "endnote") {
+        if (!isClosing && !isSelfClosing) {
+          ctrlDepth++;
+        } else if (isClosing) {
+          ctrlDepth = Math.max(0, ctrlDepth - 1);
+        }
+        continue;
+      }
+
+      // 제어 요소 내부 내용이면 무시 (본문 오염 방지)
+      if (ctrlDepth > 0) {
+        continue;
+      }
 
       // 표 (tbl)
       if (localName === "tbl") {
@@ -119,20 +175,40 @@ export function parseHwpxXmlToBlocks(xmlStr: string): HwpxCollabBlock[] {
       } else if (localName === "script" && inEquation) {
         inScript = !isClosing && !isSelfClosing;
       }
-      // 문단 (p)
+      // 본문 문단 (p)
       else if (localName === "p" && !inTable) {
         if (!isClosing && !isSelfClosing) {
           inP = true;
           hasObjectInP = false;
           currentPText = [];
           currentPAttrs = attrs.trim();
+          const paraMatch = attrs.match(/paraPrIDRef="(\d+)"/);
+          currentParaPrId = paraMatch ? paraMatch[1] : "0";
+          currentCharPrId = "0";
         } else if (isClosing) {
           inP = false;
           if (!hasObjectInP) {
-            blocks.push({ type: "paragraph", id: `p_${blockIndex++}`, text: currentPText.join(""), rawAttrs: currentPAttrs });
+            const pStyle = paraStyles.get(currentParaPrId);
+            const cStyle = charStyles.get(currentCharPrId);
+            blocks.push({
+              type: "paragraph",
+              id: `p_${blockIndex++}`,
+              text: currentPText.join(""),
+              align: pStyle?.align ?? "left",
+              sizePt: cStyle?.sizePt,
+              bold: cStyle?.bold,
+              rawAttrs: currentPAttrs,
+            });
           }
           currentPText = [];
           currentPAttrs = "";
+        }
+      }
+      // 글자 런 (run) 스타일 추적
+      else if (localName === "run" && inP) {
+        const charMatch = attrs.match(/charPrIDRef="(\d+)"/);
+        if (charMatch && charMatch[1] !== "0") {
+          currentCharPrId = charMatch[1];
         }
       }
       // 텍스트런 (t)
@@ -147,7 +223,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string): HwpxCollabBlock[] {
         if (inTable && currentCell) currentCell.push("\n");
         else if (inP) currentPText.push("\n");
       }
-    } else if (textContent) {
+    } else if (textContent && ctrlDepth === 0) {
       if (inScript) {
         currentEquationScript += decodeXmlEntities(textContent);
       } else if (inT) {
@@ -166,12 +242,30 @@ export function parseHwpxXmlToBlocks(xmlStr: string): HwpxCollabBlock[] {
 
 // ── 블록 배열을 OWPML XML로 복원 직렬화 (표·수식 구조 100% 보존) ──
 export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml = ""): string {
-  const secPrMatch = originalXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
-  const secPr = secPrMatch ? secPrMatch[0] : "";
+  // paragraph 0의 설정 런(secPr, ctrl, footer 등) 보존
+  let preambleRuns = "";
+  const firstPMatch = originalXml.match(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/);
+  if (firstPMatch) {
+    const inner = firstPMatch[1];
+    const firstTRunIdx = inner.indexOf("<hp:t");
+    if (firstTRunIdx !== -1) {
+      const runOpenIdx = inner.lastIndexOf("<hp:run", firstTRunIdx);
+      preambleRuns = runOpenIdx > 0 ? inner.slice(0, runOpenIdx) : "";
+    } else {
+      preambleRuns = inner;
+    }
+  }
+  if (!preambleRuns) {
+    const secPrMatch = originalXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
+    if (secPrMatch) {
+      preambleRuns = `<hp:run charPrIDRef="0">${secPrMatch[0]}</hp:run>`;
+    }
+  }
+
   const rootOpen = '<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">';
 
   const paragraphsXml = blocks.map((block, idx) => {
-    const secPrBlock = (idx === 0 && secPr) ? `<hp:run charPrIDRef="0">${secPr}</hp:run>` : "";
+    const lead = (idx === 0 && preambleRuns) ? preambleRuns : "";
 
     if (block.type === "table") {
       const rowsXml = block.rows.map((row, rIdx) => {
@@ -183,17 +277,17 @@ export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml 
       }).join("\n");
 
       const tblAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" pageBreak="cell" repeatHeader="true"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${secPrBlock}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
       const eqAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` version="1.0" baseLine="0" textColor="#000000" baseUnit="1000"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${secPrBlock}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단
     const pAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" paraPrIDRef="0" styleIDRef="0"`;
-    return `    <hp:p${pAttrs}>\n      ${secPrBlock}<hp:run charPrIDRef="0"><hp:t>${escapeXml(block.text)}</hp:t></hp:run>\n    </hp:p>`;
+    return `    <hp:p${pAttrs}>\n      ${lead}<hp:run charPrIDRef="0"><hp:t>${escapeXml(block.text)}</hp:t></hp:run>\n    </hp:p>`;
   }).join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
@@ -216,6 +310,9 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
       if (block.type === "paragraph") {
         const yText = new Y.Text(block.text);
         yBlock.set("text", yText);
+        if (block.align) yBlock.set("align", block.align);
+        if (block.sizePt) yBlock.set("sizePt", block.sizePt);
+        if (block.bold !== undefined) yBlock.set("bold", block.bold);
       } else if (block.type === "table") {
         const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
         for (const row of block.rows) {
@@ -224,6 +321,8 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
             const yCell = new Y.Map<unknown>();
             yCell.set("text", new Y.Text(cell.text));
             if (cell.rawAttrs) yCell.set("rawAttrs", cell.rawAttrs);
+            if (cell.align) yCell.set("align", cell.align);
+            if (cell.bold !== undefined) yCell.set("bold", cell.bold);
             yRow.push([yCell]);
           }
           yRows.push([yRow]);
@@ -251,10 +350,16 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
 
     if (type === "paragraph") {
       const yText = yBlock.get("text") as Y.Text | undefined;
+      const align = yBlock.get("align") as "left" | "center" | "right" | "justify" | undefined;
+      const sizePt = yBlock.get("sizePt") as number | undefined;
+      const bold = yBlock.get("bold") as boolean | undefined;
       blocks.push({
         type: "paragraph",
         id,
         text: yText ? yText.toString() : "",
+        align,
+        sizePt,
+        bold,
         rawAttrs,
       });
     } else if (type === "table") {
@@ -268,7 +373,9 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
             const yCell = yRow.get(c);
             const yText = yCell.get("text") as Y.Text | undefined;
             const cellAttrs = yCell.get("rawAttrs") as string | undefined;
-            cells.push({ text: yText ? yText.toString() : "", rawAttrs: cellAttrs });
+            const align = yCell.get("align") as "left" | "center" | "right" | "justify" | undefined;
+            const bold = yCell.get("bold") as boolean | undefined;
+            cells.push({ text: yText ? yText.toString() : "", rawAttrs: cellAttrs, align, bold });
           }
           rows.push(cells);
         }
