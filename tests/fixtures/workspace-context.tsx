@@ -314,3 +314,11 @@ export function Fixture({ children }: { children: ReactNode }) {
 
 export function useProject() { return useContext(Context); }
 export function useOptionalProject() { return useContext(Context); }
+export function useProjectManagement() { return { isAdmin: false, isOperator: false }; }
+export function useAuth() {
+  return {
+    user: { id: "user-test", email: "test@example.com", user_metadata: { name: "테스터", avatar: "테" } },
+    signOut: () => {},
+    session: { access_token: "mock-token" },
+  };
+}

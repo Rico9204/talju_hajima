@@ -231,6 +231,69 @@ const apiPlugin = () => ({
         return;
       }
 
+      // 6. 게시판 목록 (미리보기용 목업 데이터)
+      if (url.pathname === "/fixture-api/board/posts" && req.method === "GET") {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Cache-Control", "no-cache, no-store");
+        res.end(JSON.stringify([
+          {
+            id: 1,
+            title: "2026학년도 2학기 캡스톤 디자인 인공지능 프로젝트 팀원 모집합니다",
+            content: "<p>웹 브라우저 기반 협업 도구 및 HWPX 실시간 편집 플랫폼을 개발할 팀원을 구합니다!</p>",
+            category: "recruit",
+            author: "홍길동",
+            authorId: "u1",
+            authorEmail: "hong@example.com",
+            createdAt: new Date(Date.now() - 3600000).toISOString(),
+            updatedAt: new Date(Date.now() - 3600000).toISOString(),
+            views: 128,
+            likes: 19,
+            commentsCount: 6,
+            tags: ["캡스톤", "AI", "리액트"],
+            pinned: true,
+            likedByMe: false,
+            attachments: []
+          },
+          {
+            id: 2,
+            title: "한글(HWPX) 웹 편집기 및 Windows 11 탐색기 UI 개선 사항 안내",
+            content: "<p>게시판 너비가 1560px로 시원하게 확장되었고, 워크스페이스 마우스 드래그 선택 박스 좌우 여백이 추가되었습니다.</p>",
+            category: "notice",
+            author: "운영자",
+            authorId: "u0",
+            authorEmail: "admin@example.com",
+            createdAt: new Date(Date.now() - 7200000).toISOString(),
+            updatedAt: new Date(Date.now() - 7200000).toISOString(),
+            views: 342,
+            likes: 45,
+            commentsCount: 12,
+            tags: ["공지", "업데이트", "워크스페이스"],
+            pinned: false,
+            likedByMe: true,
+            attachments: []
+          },
+          {
+            id: 3,
+            title: "드래그 박스로 파일 여러 개 선택해서 한 번에 복사/이동하는 꿀팁",
+            content: "<p>파일 좌우 빈 여백에서 마우스를 긁으면 파란색 선택 박스가 바로 나타납니다!</p>",
+            category: "free",
+            author: "김민수",
+            authorId: "u2",
+            authorEmail: "kim@example.com",
+            createdAt: new Date(Date.now() - 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - 86400000).toISOString(),
+            views: 89,
+            likes: 15,
+            commentsCount: 3,
+            tags: ["꿀팁", "단축키"],
+            pinned: false,
+            likedByMe: false,
+            attachments: []
+          }
+        ]));
+        return;
+      }
+
       next();
     });
   },
@@ -245,8 +308,10 @@ const server = await createServer({
   resolve: {
     alias: [
       { find: /^(\.\.\/|\.\.\/\.\.\/|@\/)?context\/ProjectContext$/, replacement: fixture("workspace-context.tsx") },
+      { find: /^(\.\.\/|\.\.\/\.\.\/|@\/)?context\/AuthContext$/, replacement: fixture("workspace-context.tsx") },
       { find: /^(\.\.\/|\.\.\/\.\.\/|@\/)?api\/rest\/realtimeClient$/, replacement: fixture("realtime-bus.ts") },
       { find: "../context/ProjectContext", replacement: fixture("workspace-context.tsx") },
+      { find: "../context/AuthContext", replacement: fixture("workspace-context.tsx") },
       { find: "../api/rest/realtimeClient", replacement: fixture("realtime-bus.ts") },
     ],
   },
