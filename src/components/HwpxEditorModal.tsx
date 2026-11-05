@@ -6,6 +6,7 @@ import type { CollabEditor, CollabMode, CollabPresence } from "../lib/collab";
 import { useCollabFile } from "../lib/useCollabFile";
 import {
   extractBlocksFromYDoc,
+  extractHwpxImageMap,
   HwpxCollabBlock,
   HwpxImageBlock,
   HwpxParagraphBlock,
@@ -80,7 +81,8 @@ export default function HwpxEditorModal({
         const headerBytes = headerKey ? entries.get(headerKey) : undefined;
         const headerXml = headerBytes ? new TextDecoder().decode(headerBytes) : "";
 
-        const blocks = parseHwpxXmlToBlocks(xml, headerXml);
+        const imageMap = extractHwpxImageMap(entries);
+        const blocks = parseHwpxXmlToBlocks(xml, headerXml, imageMap);
         if (active) {
           setZipEntries(entries);
           setOriginalXml(xml);

@@ -55,6 +55,31 @@ export interface HwpxImageBlock {
   align?: "left" | "center" | "right";
   caption?: string;
   rawAttrs?: string;
+  rawXml?: string;
+}
+
+export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [path, bytes] of entries.entries()) {
+    if (path.startsWith("BinData/")) {
+      const ext = path.split(".").pop()?.toLowerCase() || "png";
+      const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "gif" ? "image/gif" : ext === "bmp" ? "image/bmp" : "image/png";
+
+      let binary = "";
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const b64 = btoa(binary);
+      const dataUrl = `data:${mime};base64,${b64}`;
+      const filename = path.replace(/^BinData\//, "");
+      const idWithoutExt = filename.replace(/\.[^.]+$/, "");
+      map.set(path, dataUrl);
+      map.set(filename, dataUrl);
+      map.set(idWithoutExt, dataUrl);
+    }
+  }
+  return map;
 }
 
 export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock;
@@ -163,7 +188,7 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
   return runs.length > 0 ? runs : [{ text: stripHtmlTags(html), ...baseStyle }];
 }
 
-export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollabBlock[] {
+export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: Map<string, string>): HwpxCollabBlock[] {
   // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드) 사전 추출
   const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
   const charStyles = new Map<string, { sizePt: number; bold: boolean }>();
@@ -219,9 +244,12 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
   let currentPAttrs = "";
   let currentPStartIndex = -1;
   let pEquationCount = 0;
+  let pPicCount = 0;
   let pHasNormalText = false;
   let lastEquationScript = "";
   let lastEquationAttrs = "";
+  let lastPicBinId = "";
+  let lastPicAttrs = "";
   let currentParaPrId = "0";
   let currentCharPrId = "0";
   let currentPageBreak = false;
@@ -316,7 +344,16 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
       // 그림 (pic)
       else if (localName === "pic" && inP) {
         if (!isClosing && !isSelfClosing) {
+          pPicCount++;
+          lastPicAttrs = attrs.trim();
           currentPText.push(" [그림] ");
+        }
+      }
+      // 이미지 바이너리 참조 (img)
+      else if ((localName === "img" || localName === "hc:img") && inP) {
+        const binMatch = attrs.match(/binaryItemIDRef="([^"]+)"/);
+        if (binMatch) {
+          lastPicBinId = binMatch[1];
         }
       }
       // 본문 문단 (p)
@@ -328,9 +365,12 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
           currentPText = [];
           currentPAttrs = attrs.trim();
           pEquationCount = 0;
+          pPicCount = 0;
           pHasNormalText = false;
           lastEquationScript = "";
           lastEquationAttrs = "";
+          lastPicBinId = "";
+          lastPicAttrs = "";
           const paraMatch = attrs.match(/paraPrIDRef="(\d+)"/);
           currentParaPrId = paraMatch ? paraMatch[1] : "0";
           const pageBreakMatch = attrs.match(/pageBreak="(\d+)"/);
@@ -346,6 +386,18 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
                 id: `eq_${blockIndex++}`,
                 script: lastEquationScript,
                 rawAttrs: lastEquationAttrs,
+              });
+            } else if (pPicCount === 1 && !pHasNormalText) {
+              const imgSrc = (imageMap && lastPicBinId ? imageMap.get(lastPicBinId) : "") || "";
+              blocks.push({
+                type: "image",
+                id: `img_${blockIndex++}`,
+                src: imgSrc,
+                widthPercent: 75,
+                align: "center",
+                caption: "그림",
+                rawAttrs: lastPicAttrs,
+                rawXml,
               });
             } else {
               const fullText = currentPText.join("");
@@ -371,9 +423,12 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
           currentPageBreak = false;
           currentPStartIndex = -1;
           pEquationCount = 0;
+          pPicCount = 0;
           pHasNormalText = false;
           lastEquationScript = "";
           lastEquationAttrs = "";
+          lastPicBinId = "";
+          lastPicAttrs = "";
         }
       }
       // 글자 런 (run) 스타일 추적
@@ -666,6 +721,9 @@ export function serializeBlocksToHwpxPackage(
     }
 
     if (block.type === "image") {
+      if (block.rawXml) {
+        return block.rawXml;
+      }
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
@@ -831,6 +889,8 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
         if (block.align) yBlock.set("align", block.align);
         if (block.caption) yBlock.set("caption", block.caption);
+        if (block.rawXml) yBlock.set("rawXml", block.rawXml);
+        if (block.rawAttrs) yBlock.set("rawAttrs", block.rawAttrs);
       }
       yBlocks.push([yBlock]);
     }
@@ -910,6 +970,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const widthPercent = (yBlock.get("widthPercent") as number) || 100;
       const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
       const caption = (yBlock.get("caption") as string) || "";
+      const rawXml = yBlock.get("rawXml") as string | undefined;
       blocks.push({
         type: "image",
         id,
@@ -918,6 +979,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         align,
         caption,
         rawAttrs,
+        rawXml,
       });
     }
   }

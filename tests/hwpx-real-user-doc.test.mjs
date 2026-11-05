@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import * as fflate from "fflate";
 import * as Y from "yjs";
-import { initHwpxYDoc, extractBlocksFromYDoc, serializeBlocksToHwpxPackage, parseHwpxXmlToBlocks } from "../src/lib/hwpxCollab.ts";
+import { initHwpxYDoc, extractBlocksFromYDoc, serializeBlocksToHwpxPackage, parseHwpxXmlToBlocks, extractHwpxImageMap } from "../src/lib/hwpxCollab.ts";
 
 test("hwpxCollab: 대용량 논문 문서(인라인 수식 54개, 이미지 5개) 편집 시 수식·그림 무손실 보존 및 서식 ID 유지", async () => {
   if (!fs.existsSync("f11.hwpx")) {
@@ -14,11 +14,25 @@ test("hwpxCollab: 대용량 논문 문서(인라인 수식 54개, 이미지 5개
   const sec0Str = new TextDecoder().decode(unzipped["Contents/section0.xml"]);
   const headerStr = new TextDecoder().decode(unzipped["Contents/header.xml"]);
 
+  // 0. 이미지 맵 추출
+  const entriesMap = new Map();
+  for (const [k, v] of Object.entries(unzipped)) {
+    entriesMap.set(k, v);
+  }
+  const imageMap = extractHwpxImageMap(entriesMap);
+
   // 1. 파싱 (인라인 수식이 문단을 찢지 않고 자연스럽게 139개 문단으로 통합됨)
-  const blocks = parseHwpxXmlToBlocks(sec0Str, headerStr);
+  const blocks = parseHwpxXmlToBlocks(sec0Str, headerStr, imageMap);
   assert.equal(blocks.length, 139, "인라인 수식이 문단을 찢지 않고 정상적으로 139개 문단으로 유지되어야 합니다");
   assert.equal(blocks[0].charPrId, "8", "논문 제목의 charPrId는 원본 8이어야 합니다");
   assert.equal(blocks[1].charPrId, "9", "저자 문단의 charPrId는 원본 9여야 합니다");
+
+  const imageBlocks = blocks.filter(b => b.type === "image");
+  assert.equal(imageBlocks.length, 5, "논문 내 5개 이미지가 모두 image 블록으로 추출되어야 합니다");
+  for (const img of imageBlocks) {
+    assert.ok(img.src.startsWith("data:image/"), "추출된 이미지에 유효한 base64 Data URL이 설정되어야 합니다");
+    assert.ok(img.rawXml, "이미지 블록에 원본 rawXml이 유지되어야 합니다");
+  }
 
   // 2. Y.Doc 편집
   const ydoc = new Y.Doc();
