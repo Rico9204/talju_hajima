@@ -1,0 +1,328 @@
+// HWPX(한글 표준 문서, KS X 6101 OWPML) 읽기·수정·생성 모듈.
+// HWPX 파일은 ZIP 컨테이너 구조로, 본문은 Contents/section0.xml에 저장된다.
+// 웹 표준 CompressionStream / DecompressionStream을 사용하여 별도 무거운 외부 의존성 없이
+// HWPX 본문 텍스트 추출, 수정 후 ZIP 재패키징, 빈 HWPX 템플릿 생성을 지원한다.
+
+export const HWPX_EXT = "hwpx";
+export const HWPX_MIME = "application/hnc+zip";
+
+export function isHwpxName(name: string): boolean {
+  return name.toLowerCase().endsWith(`.${HWPX_EXT}`);
+}
+
+// ── CRC32 계산 ──
+const crcTable = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let c = i;
+  for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+  crcTable[i] = c;
+}
+
+function crc32(buf: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// ── Raw Deflate / Inflate ──
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const ds = new DecompressionStream("deflate-raw");
+  const writer = ds.writable.getWriter();
+  writer.write(data as unknown as BufferSource);
+  void writer.close();
+  const reader = ds.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  const total = chunks.reduce((acc, c) => acc + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
+}
+
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream("deflate-raw");
+  const writer = cs.writable.getWriter();
+  writer.write(data as unknown as BufferSource);
+  void writer.close();
+  const reader = cs.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  const total = chunks.reduce((acc, c) => acc + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
+}
+
+// ── ZIP 읽기 ──
+export async function readZipEntries(buffer: ArrayBuffer | Uint8Array): Promise<Map<string, Uint8Array>> {
+  const view = new DataView(buffer instanceof Uint8Array ? buffer.buffer : buffer, buffer instanceof Uint8Array ? buffer.byteOffset : 0, buffer.byteLength);
+  const bytes = new Uint8Array(buffer instanceof Uint8Array ? buffer.buffer : buffer, buffer instanceof Uint8Array ? buffer.byteOffset : 0, buffer.byteLength);
+
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd === -1) throw new Error("올바른 ZIP(HWPX) 파일이 아닙니다.");
+
+  const count = view.getUint16(eocd + 10, true);
+  const cdOffset = view.getUint32(eocd + 16, true);
+  const entries = new Map<string, Uint8Array>();
+  let p = cdOffset;
+
+  for (let i = 0; i < count; i++) {
+    if (view.getUint32(p, true) !== 0x02014b50) break;
+    const method = view.getUint16(p + 10, true);
+    const compSize = view.getUint32(p + 20, true);
+    const nameLen = view.getUint16(p + 28, true);
+    const extraLen = view.getUint16(p + 30, true);
+    const commentLen = view.getUint16(p + 32, true);
+    const localHeaderOffset = view.getUint32(p + 42, true);
+
+    const nameBytes = bytes.subarray(p + 46, p + 46 + nameLen);
+    const name = new TextDecoder().decode(nameBytes).replace(/\\/g, "/");
+
+    const localNameLen = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
+    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    const rawData = bytes.subarray(dataStart, dataStart + compSize);
+
+    let fileData: Uint8Array;
+    if (method === 0) {
+      fileData = rawData.slice();
+    } else if (method === 8) {
+      fileData = await inflateRaw(rawData);
+    } else {
+      fileData = rawData.slice();
+    }
+    entries.set(name, fileData);
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+// ── ZIP 생성 ──
+export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  const cdParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const [name, content] of entries) {
+    const nameBytes = new TextEncoder().encode(name);
+    const isMimetype = name === "mimetype";
+    let compData = content;
+    let method = 0; // Stored
+
+    if (!isMimetype && content.length > 0) {
+      const deflated = await deflateRaw(content);
+      if (deflated.length < content.length) {
+        compData = deflated;
+        method = 8; // Deflated
+      }
+    }
+
+    const crc = crc32(content);
+
+    // Local Header (30 + nameBytes.length)
+    const lh = new Uint8Array(30 + nameBytes.length);
+    const lhView = new DataView(lh.buffer);
+    lhView.setUint32(0, 0x04034b50, true);
+    lhView.setUint16(4, 20, true);
+    lhView.setUint16(6, 0, true);
+    lhView.setUint16(8, method, true);
+    lhView.setUint16(10, 0, true);
+    lhView.setUint16(12, 0, true);
+    lhView.setUint32(14, crc, true);
+    lhView.setUint32(18, compData.length, true);
+    lhView.setUint32(22, content.length, true);
+    lhView.setUint16(26, nameBytes.length, true);
+    lhView.setUint16(28, 0, true);
+    lh.set(nameBytes, 30);
+
+    parts.push(lh);
+    parts.push(compData);
+
+    // Central Directory Header (46 + nameBytes.length)
+    const cdh = new Uint8Array(46 + nameBytes.length);
+    const cdhView = new DataView(cdh.buffer);
+    cdhView.setUint32(0, 0x02014b50, true);
+    cdhView.setUint16(4, 20, true);
+    cdhView.setUint16(6, 20, true);
+    cdhView.setUint16(8, 0, true);
+    cdhView.setUint16(10, method, true);
+    cdhView.setUint16(12, 0, true);
+    cdhView.setUint16(14, 0, true);
+    cdhView.setUint32(16, crc, true);
+    cdhView.setUint32(20, compData.length, true);
+    cdhView.setUint32(24, content.length, true);
+    cdhView.setUint16(28, nameBytes.length, true);
+    cdhView.setUint16(30, 0, true);
+    cdhView.setUint16(32, 0, true);
+    cdhView.setUint16(34, 0, true);
+    cdhView.setUint16(36, 0, true);
+    cdhView.setUint32(38, 0, true);
+    cdhView.setUint32(42, offset, true);
+    cdh.set(nameBytes, 46);
+
+    cdParts.push(cdh);
+    offset += lh.length + compData.length;
+  }
+
+  const cdOffset = offset;
+  let cdSize = 0;
+  for (const c of cdParts) cdSize += c.length;
+
+  // EOCD (22 bytes)
+  const eocd = new Uint8Array(22);
+  const eocdView = new DataView(eocd.buffer);
+  eocdView.setUint32(0, 0x06054b50, true);
+  eocdView.setUint16(4, 0, true);
+  eocdView.setUint16(6, 0, true);
+  eocdView.setUint16(8, entries.size, true);
+  eocdView.setUint16(10, entries.size, true);
+  eocdView.setUint32(12, cdSize, true);
+  eocdView.setUint32(16, cdOffset, true);
+  eocdView.setUint16(20, 0, true);
+
+  const totalSize = offset + cdSize + 22;
+  const result = new Uint8Array(totalSize);
+  let pos = 0;
+  for (const part of parts) { result.set(part, pos); pos += part.length; }
+  for (const part of cdParts) { result.set(part, pos); pos += part.length; }
+  result.set(eocd, pos);
+  return result;
+}
+
+// ── XML 문자열 이스케이프 ──
+function escapeXml(unsafe: string): string {
+  return unsafe.replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case "&": return "&amp;";
+      case "'": return "&apos;";
+      case '"': return "&quot;";
+      default: return c;
+    }
+  });
+}
+
+function unescapeXml(safe: string): string {
+  return safe.replace(/&(?:lt|gt|amp|apos|quot);/g, (entity) => {
+    switch (entity) {
+      case "&lt;": return "<";
+      case "&gt;": return ">";
+      case "&amp;": return "&";
+      case "&apos;": return "'";
+      case "&quot;": return '"';
+      default: return entity;
+    }
+  });
+}
+
+// ── HWPX XML 본문 파싱 ──
+export function extractHwpxSectionText(xmlStr: string): string {
+  const paragraphs: string[] = [];
+  const pMatches = xmlStr.matchAll(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/g);
+  for (const pMatch of pMatches) {
+    const pContent = pMatch[1];
+    const tMatches = pContent.matchAll(/<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g);
+    const runs: string[] = [];
+    for (const t of tMatches) {
+      runs.push(unescapeXml(t[1]));
+    }
+    paragraphs.push(runs.join(""));
+  }
+  return paragraphs.join("\n");
+}
+
+// ── HWPX 파일 전체 텍스트 추출 ──
+export async function extractHwpxText(input: Blob | Uint8Array | ArrayBuffer): Promise<string> {
+  const buf = input instanceof Blob ? await input.arrayBuffer() : input;
+  const entries = await readZipEntries(buf);
+  const sections: string[] = [];
+
+  // section0.xml, section1.xml 등 순서대로 수집
+  const sectionKeys = Array.from(entries.keys())
+    .filter((k) => /^Contents\/section\d+\.xml$/i.test(k))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  if (sectionKeys.length === 0) {
+    // fallback: 혹시 경로가 다른 섹션이 있는 경우
+    for (const [k, v] of entries) {
+      if (/section.*\.xml$/i.test(k)) {
+        const text = extractHwpxSectionText(new TextDecoder().decode(v));
+        if (text) sections.push(text);
+      }
+    }
+  } else {
+    for (const k of sectionKeys) {
+      const v = entries.get(k);
+      if (v) sections.push(extractHwpxSectionText(new TextDecoder().decode(v)));
+    }
+  }
+
+  return sections.join("\n\n");
+}
+
+// ── HWPX 섹션 XML 본문 업데이트 ──
+export function updateHwpxSectionXml(originalXml: string, newText: string): string {
+  // 용지 여백, 페이지 설정(<hp:secPr>) 보존
+  const secPrMatch = originalXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
+  const secPr = secPrMatch ? secPrMatch[0] : "";
+
+  // 루트 태그 네임스페이스 보존
+  const rootOpenMatch = originalXml.match(/<hs:sec\b[^>]*>/);
+  const rootOpen = rootOpenMatch ? rootOpenMatch[0] : '<hs:sec xmlns:hs="http://www.hancom.co.kr/schema/2011/hwpx" xmlns:hp="http://www.hancom.co.kr/schema/2011/hp" xmlns:hc="http://www.hancom.co.kr/schema/2011/hc">';
+
+  const lines = newText.split(/\r?\n/);
+  const newParagraphs = lines.map((line, idx) => {
+    const secPrBlock = (idx === 0 && secPr) ? `<hp:run charPrIDRef="0">${secPr}</hp:run>` : "";
+    const textBlock = `<hp:run charPrIDRef="0"><hp:t>${escapeXml(line)}</hp:t></hp:run>`;
+    return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${secPrBlock}${textBlock}\n    </hp:p>`;
+  }).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${newParagraphs}\n</hs:sec>`;
+}
+
+// ── 기존 HWPX 파일의 본문 수정 후 ZIP 재패키징 ──
+export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, newText: string): Promise<Uint8Array> {
+  const entries = await readZipEntries(originalHwpx);
+  const sectionKey = Array.from(entries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
+  const existingSection = entries.get(sectionKey);
+  const originalXml = existingSection ? new TextDecoder().decode(existingSection) : "";
+
+  const updatedXml = updateHwpxSectionXml(originalXml, newText);
+  entries.set(sectionKey, new TextEncoder().encode(updatedXml));
+
+  return writeZipEntries(entries);
+}
+
+// ── 새 빈 HWPX 템플릿 생성 ──
+export async function newHwpxBytes(initialText = ""): Promise<Uint8Array> {
+  const entries = new Map<string, Uint8Array>();
+  entries.set("mimetype", new TextEncoder().encode("application/hnc+zip"));
+  entries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hcf/2011/version" major="1" minor="0" micro="0" buildNumber="0" os="1" application="1"/>`));
+  entries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container">\n  <ocf:rootfiles>\n    <ocf:rootfile ocf:full-path="Contents/content.hpf" ocf:media-type="application/hnc+zip"/>\n  </ocf:rootfiles>\n</ocf:container>`));
+  entries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata>\n    <opf:title>문서</opf:title>\n    <opf:language>ko</opf:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="section0"/>\n  </opf:spine>\n</opf:package>`));
+  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" version="1.0">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="1">\n      <hh:fontface lang="hangul" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="ttf"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000" fontRef="0"/>\n    </hh:charProperties>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0" align="left"/>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n</hh:head>`));
+
+  const lines = (initialText || "").split(/\r?\n/);
+  const pList = lines.map((line, idx) => {
+    const secPr = idx === 0 ? '<hp:run charPrIDRef="0"><hp:secPr/></hp:run>' : "";
+    return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${secPr}<hp:run charPrIDRef="0"><hp:t>${escapeXml(line)}</hp:t></hp:run>\n    </hp:p>`;
+  }).join("\n");
+
+  entries.set("Contents/section0.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hs:sec xmlns:hs="http://www.hancom.co.kr/schema/2011/hwpx" xmlns:hp="http://www.hancom.co.kr/schema/2011/hp" xmlns:hc="http://www.hancom.co.kr/schema/2011/hc">\n${pList}\n</hs:sec>`));
+
+  return writeZipEntries(entries);
+}

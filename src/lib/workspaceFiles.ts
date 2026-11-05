@@ -151,7 +151,7 @@ export const EDITABLE_TEXT_EXTENSIONS = ["txt", "md", "csv", "json", "log", "xml
 const EXT_BADGE_SHORT: Record<string, string> = { properties: "PROP", gradle: "GRDL" };
 export function extBadgeLabel(name: string): string | null {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return EDITABLE_TEXT_EXTENSIONS.includes(ext) || IMAGE_EXTENSIONS.includes(ext) ? EXT_BADGE_SHORT[ext] ?? ext.toUpperCase() : null;
+  return EDITABLE_TEXT_EXTENSIONS.includes(ext) || IMAGE_EXTENSIONS.includes(ext) || ext === "hwpx" || ext === "hwp" ? EXT_BADGE_SHORT[ext] ?? ext.toUpperCase() : null;
 }
 export function isCodeFile(name: string): boolean {
   return CODE_EXTENSIONS.includes(name.split(".").pop()?.toLowerCase() ?? "");

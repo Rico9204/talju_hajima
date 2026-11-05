@@ -28,6 +28,8 @@ const OFFICE_TYPES: Record<string, { documentType: "word" | "cell" | "slide"; mi
   docx: { documentType: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
   xlsx: { documentType: "cell", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
   pptx: { documentType: "slide", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+  hwpx: { documentType: "word", mime: "application/hnc+zip" },
+  hwp: { documentType: "word", mime: "application/x-hwp" },
 };
 export const officeTypeOf = (name: string) => OFFICE_TYPES[name.split(".").pop()?.toLowerCase() ?? ""] ?? null;
 
@@ -77,7 +79,7 @@ export class OnlyofficeService {
       return { file, version, me: await myProfile(query) };
     });
     const type = officeTypeOf(found.version.original_name ?? found.file.name) ?? officeTypeOf(found.file.name);
-    if (!type) throw new BadRequestException("워드(docx)·엑셀(xlsx)·파워포인트(pptx) 파일만 오피스 편집기로 열 수 있습니다.");
+    if (!type) throw new BadRequestException("워드(docx)·엑셀(xlsx)·파워포인트(pptx)·한글(hwpx) 파일만 오피스 편집기로 열 수 있습니다.");
     const editable = found.file.status !== "done";
     const versionId = Number(found.version.id);
     const session = this.sessions.get(fileId);
@@ -149,7 +151,7 @@ export class OnlyofficeService {
       return file;
     });
     const type = officeTypeOf(saved.name);
-    const searchText = await extractOfficeText(bytes);
+    const searchText = await extractOfficeText(bytes, saved.name);
     const result = await saveWorkspaceVersion(this.db, this.store, claims.u, saved.project_id,
       { buffer: bytes, size: bytes.length, mimetype: type?.mime ?? "application/octet-stream", originalname: saved.name, displayName: saved.name },
       {
@@ -164,7 +166,52 @@ export class OnlyofficeService {
 }
 
 // 검색·버전 비교용 글자(화면 업로드 때와 같은 officeparser). 읽지 못하면 null.
-async function extractOfficeText(bytes: Buffer): Promise<string | null> {
+async function extractHwpxBufferText(bytes: Buffer): Promise<string | null> {
+  try {
+    const { inflateRawSync } = await import("node:zlib");
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= 0; i--) {
+      if (bytes.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd === -1) return null;
+    const count = bytes.readUInt16LE(eocd + 10);
+    const cdOffset = bytes.readUInt32LE(eocd + 16);
+    let p = cdOffset;
+    const paragraphs: string[] = [];
+    for (let i = 0; i < count; i++) {
+      if (bytes.readUInt32LE(p) !== 0x02014b50) break;
+      const method = bytes.readUInt16LE(p + 10);
+      const compSize = bytes.readUInt32LE(p + 20);
+      const nameLen = bytes.readUInt16LE(p + 28);
+      const extraLen = bytes.readUInt16LE(p + 30);
+      const commentLen = bytes.readUInt16LE(p + 32);
+      const localHeaderOffset = bytes.readUInt32LE(p + 42);
+      const name = bytes.subarray(p + 46, p + 46 + nameLen).toString("utf8");
+      if (/section\d*\.xml$/i.test(name)) {
+        const localNameLen = bytes.readUInt16LE(localHeaderOffset + 26);
+        const localExtraLen = bytes.readUInt16LE(localHeaderOffset + 28);
+        const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+        const raw = bytes.subarray(dataStart, dataStart + compSize);
+        const decompressed = method === 8 ? inflateRawSync(raw) : raw;
+        const xml = decompressed.toString("utf8");
+        const tMatches = xml.matchAll(/<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g);
+        for (const m of tMatches) {
+          paragraphs.push(m[1].replace(/&(?:lt|gt|amp|apos|quot);/g, (e) => ({ "&lt;": "<", "&gt;": ">", "&amp;": "&", "&apos;": "'", "&quot;": '"' }[e] ?? e)));
+        }
+      }
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    return paragraphs.length > 0 ? paragraphs.join(" ") : null;
+  } catch {
+    return extractHwpxBufferText(bytes);
+  }
+}
+
+async function extractOfficeText(bytes: Buffer, name?: string): Promise<string | null> {
+  if (name?.toLowerCase().endsWith(".hwpx")) {
+    const hwpxText = await extractHwpxBufferText(bytes);
+    if (hwpxText) return hwpxText;
+  }
   try {
     const { parseOffice } = await import("officeparser");
     const document = await parseOffice(bytes, { includeRawContent: false } as never);

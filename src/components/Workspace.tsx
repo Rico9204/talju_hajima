@@ -12,6 +12,7 @@ import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
 import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/slidesDoc";
+import { extractHwpxText, HWPX_EXT, HWPX_MIME, isHwpxName, newHwpxBytes, updateHwpxBytes } from "../lib/hwpx";
 import { collabImageName, type CollabImageStore } from "../lib/collabImages";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
@@ -53,10 +54,11 @@ const DocEditorModal = lazy(() => import("./DocEditorModal"));
 const SlidesEditorModal = lazy(() => import("./SlidesEditorModal"));
 
 // 앱 안에서 함께 편집하는 파일 종류: 문서(.rtdoc), 슬라이드(.slides)
-type CollabFileKind = "doc" | "slides";
+type CollabFileKind = "doc" | "slides" | "hwpx";
 const COLLAB_FILE = {
   doc: { ext: RICH_DOC_EXT, mime: RICH_DOC_MIME, label: "문서", newBytes: newRichDocBytes },
   slides: { ext: SLIDES_EXT, mime: SLIDES_MIME, label: "슬라이드", newBytes: newSlidesBytes },
+  hwpx: { ext: HWPX_EXT, mime: HWPX_MIME, label: "한글 문서", newBytes: newHwpxBytes },
 } as const;
 const collabKindOf = (name: string): CollabFileKind | null => (isRichDocName(name) ? "doc" : isSlidesName(name) ? "slides" : null);
 
@@ -199,6 +201,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         setDocEditing({ kind, fileId: f.id, room: base.id, mode, bytes: new Uint8Array(await blob.arrayBuffer()) });
         return;
       }
+      const fileName = base.originalName ?? f.name;
+      if (isHwpxName(fileName)) {
+        const text = await extractHwpxText(blob);
+        setEditing({ fileId: f.id, room: base.id, mode, initialText: text });
+        return;
+      }
       setEditing({ fileId: f.id, room: base.id, mode, initialText: await blob.text() });
     } catch (e) {
       setEditError(e instanceof Error ? e.message : "바로 수정을 시작하지 못했습니다.");
@@ -238,7 +246,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const name = newDoc.name.trim().replace(/[\\/]/g, "") || `새 ${label}`;
     setDocBusy(true); setEditError("");
     try {
-      const bytes = newBytes();
+      const bytes = await newBytes();
       const result = await uploadWorkspaceFile({
         file: new File([new Uint8Array(bytes)], `${name}.${ext}`, { type: mime }),
         folderId: currentFolderId, note: `새 ${label}`, tags: [], extractedText: { text: "", status: "ready" },
@@ -246,7 +254,11 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       const kind = newDoc.kind;
       setNewDoc(null);
       setSelected(result.fileId); setDetailTab("versions");
-      setDocEditing({ kind, fileId: result.fileId, room: result.versionId, mode: "main", bytes });
+      if (kind === "hwpx") {
+        setEditing({ fileId: result.fileId, room: result.versionId, mode: "main", initialText: "" });
+      } else {
+        setDocEditing({ kind, fileId: result.fileId, room: result.versionId, mode: "main", bytes: new Uint8Array(bytes) });
+      }
     } catch (e) {
       setEditError(e instanceof Error ? e.message : (e as { message?: string })?.message ?? `${label}를 만들지 못했습니다.`);
     } finally { setDocBusy(false); }
@@ -444,6 +456,21 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number, auto: boolean): Promise<number> {
     const base = f.versions.find((v) => v.id === room);
+    const fileName = base?.originalName ?? f.name;
+    if (isHwpxName(fileName)) {
+      const baseBlob = await downloadFileVersion(room);
+      const updatedHwpxBytes = await updateHwpxBytes(await baseBlob.arrayBuffer(), text);
+      const result = await uploadWorkspaceFile({
+        file: new File([new Uint8Array(updatedHwpxBytes)], fileName, { type: HWPX_MIME }),
+        fileId: f.id,
+        folderId: f.folderId,
+        baseVersionId,
+        note: auto ? "한글 문서 바로 수정 자동 저장" : "한글 문서 바로 수정으로 저장",
+        tags: f.tags,
+        extractedText: { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" },
+      });
+      return result.versionId;
+    }
     const result = await uploadWorkspaceFile({
       file: new File([text], base?.originalName ?? f.name, { type: base?.mimeType ?? "text/plain" }),
       fileId: f.id, folderId: f.folderId, baseVersionId, note: auto ? "바로 수정 자동 저장" : "바로 수정으로 저장", tags: f.tags,
@@ -675,6 +702,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             <button type="button" onClick={() => setNewDoc({ kind: "slides", name: "" })} className="text-xs font-700 px-3.5 py-2.5" style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "40px" }}>
               ＋ 새 슬라이드
             </button>
+            <button type="button" onClick={() => setNewDoc({ kind: "hwpx", name: "" })} className="text-xs font-700 px-3.5 py-2.5" style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "40px" }}>
+              ＋ 새 한글 (.hwpx)
+            </button>
             <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()} className="text-xs font-700 px-5 py-2.5 disabled:opacity-60" style={{ background: "var(--primary)", color: "#fff", borderRadius: "40px", boxShadow: "0 4px 12px var(--primary-glow)" }}>
               ⬆ 업로드
             </button>
@@ -692,8 +722,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             value={newDoc.name}
             onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) void createCollabFile(); if (e.key === "Escape") setNewDoc(null); }}
-            placeholder={newDoc.kind === "doc" ? "문서 이름 (예: 회의록)" : "슬라이드 이름 (예: 중간발표)"}
-            aria-label={newDoc.kind === "doc" ? "새 문서 이름" : "새 슬라이드 이름"}
+            placeholder={newDoc.kind === "doc" ? "문서 이름 (예: 회의록)" : newDoc.kind === "slides" ? "슬라이드 이름 (예: 중간발표)" : "한글 문서 이름 (예: 과제보고서)"}
+            aria-label={newDoc.kind === "doc" ? "새 문서 이름" : newDoc.kind === "slides" ? "새 슬라이드 이름" : "새 한글 문서 이름"}
             maxLength={100}
             className="flex-1 min-w-40 text-sm px-3 py-2 border outline-none"
             style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-opaque)", fontFamily: "var(--font-outfit)" }}
