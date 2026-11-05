@@ -39,9 +39,9 @@ export function joinCollabPresence(projectId: string, me: { id: string; name: st
 // 커서 색: 사람마다 늘 같은 색(편집기 커서 플러그인이 #rrggbb 형식만 받는다).
 const CURSOR_COLORS = ["#ef4444", "#f97316", "#d97706", "#16a34a", "#0d9488", "#0284c7", "#4f46e5", "#9333ea", "#db2777", "#65a30d"];
 export function cursorColor(id?: string | null): string {
-  if (!id) return CURSOR_COLORS[0];
+  const str = String(id || "default");
   let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   return CURSOR_COLORS[hash % CURSOR_COLORS.length];
 }
 export interface CursorUser { name: string; color: string; }
