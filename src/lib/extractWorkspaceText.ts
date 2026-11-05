@@ -1,5 +1,5 @@
-import { MAX_SEARCH_TEXT, type ExtractedText } from "./workspaceSearch";
-import { EDITABLE_TEXT_EXTENSIONS } from "./workspaceFiles";
+import { MAX_SEARCH_TEXT, type ExtractedText } from "./workspaceSearch.ts";
+import { EDITABLE_TEXT_EXTENSIONS } from "./workspaceFiles.ts";
 
 export async function extractWorkspaceText(file: File): Promise<ExtractedText> {
   if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
@@ -19,6 +19,13 @@ export async function extractWorkspaceText(file: File): Promise<ExtractedText> {
       return { text: text.slice(0, MAX_SEARCH_TEXT).replace(/\0/g, ""), status: pages < pdf.numPages || text.length > MAX_SEARCH_TEXT ? "partial" : "ready" };
     } catch { return { text: "", status: "failed" }; }
     finally { window.clearTimeout(timeout); await task.destroy(); }
+  }
+  if (/\.hwpx$/i.test(file.name)) {
+    try {
+      const { extractHwpxText } = await import("./hwpx.ts");
+      const text = (await extractHwpxText(file)).replace(/\0/g, "");
+      return { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" };
+    } catch { return { text: "", status: "failed" }; }
   }
   if (/\.(docx|xlsx|xlsm|pptx)$/i.test(file.name)) {
     try {

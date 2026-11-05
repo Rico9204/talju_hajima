@@ -12,6 +12,7 @@ import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
 import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/slidesDoc";
+import { extractHwpxText, HWPX_EXT, HWPX_MIME, inspectHwpx, isHwpxName, newHwpxBytes, updateHwpxBytes } from "../lib/hwpx";
 import { collabImageName, type CollabImageStore } from "../lib/collabImages";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
@@ -60,14 +61,16 @@ const tagColors: Record<string, string> = {
 // 문서 편집기(TipTap)는 무거워서 문서를 열 때만 불러온다.
 const DocEditorModal = lazy(() => import("./DocEditorModal"));
 const SlidesEditorModal = lazy(() => import("./SlidesEditorModal"));
+const HwpxEditorModal = lazy(() => import("./HwpxEditorModal"));
 const PresentationModal = lazy(() => import("./PresentationModal"));
 import { isPresentationFile } from "./PresentationModal";
 
 // 앱 안에서 함께 편집하는 파일 종류: 문서(.rtdoc), 슬라이드(.slides)
-type CollabFileKind = "doc" | "slides";
+type CollabFileKind = "doc" | "slides" | "hwpx";
 const COLLAB_FILE = {
   doc: { ext: RICH_DOC_EXT, mime: RICH_DOC_MIME, label: "문서", newBytes: newRichDocBytes },
   slides: { ext: SLIDES_EXT, mime: SLIDES_MIME, label: "슬라이드", newBytes: newSlidesBytes },
+  hwpx: { ext: HWPX_EXT, mime: HWPX_MIME, label: "한글 문서", newBytes: newHwpxBytes },
 } as const;
 const collabKindOf = (name: string): CollabFileKind | null => (isRichDocName(name) ? "doc" : isSlidesName(name) ? "slides" : null);
 
@@ -199,8 +202,9 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const presenceRef = useRef<CollabPresence | null>(null);
   const [editing, setEditing] = useState<{ fileId: number; room: number; mode: CollabMode; initialText: string } | null>(null);
   const [docEditing, setDocEditing] = useState<{ kind: CollabFileKind; fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
+  const [hwpxEditing, setHwpxEditing] = useState<{ fileId: number; room: number; mode: CollabMode; bytes: Uint8Array } | null>(null);
   // 편집 중인 파일. 팀원이 지워 목록에서 사라져도 마지막 정보로 편집기를 유지해, 쓰던 내용을 잃지 않게 한다.
-  const editFileId = editing?.fileId ?? docEditing?.fileId;
+  const editFileId = editing?.fileId ?? docEditing?.fileId ?? hwpxEditing?.fileId;
   const lastEditFile = useRef<WorkspaceFile | null>(null);
   const liveEditFile = files.find((f) => f.id === editFileId);
   if (liveEditFile) lastEditFile.current = liveEditFile;
@@ -259,6 +263,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         label: "슬라이드 (Slackerspace Slides)",
         ext: "rtslides",
         defaultName: "새 슬라이드",
+        isOffice: false,
+      };
+    }
+    if (kind === "hwpx") {
+      return {
+        icon: "한",
+        placeholder: "한글 문서 이름 (예: 과제보고서)",
+        label: "한글 문서 (.hwpx)",
+        ext: "hwpx",
+        defaultName: "새 한글 문서",
         isOffice: false,
       };
     }
@@ -445,7 +459,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const memberName = currentMember.name ?? "나";
     const presence = joinCollabPresence(project.id, { id: memberId, name: memberName }, setEditors);
     presenceRef.current = presence;
-    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); };
+    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); setHwpxEditing(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, currentMember?.id]);
 
@@ -463,10 +477,30 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         setDocEditing({ kind, fileId: f.id, room: base.id, mode, bytes: new Uint8Array(await blob.arrayBuffer()) });
         return;
       }
+      const fileName = base.originalName ?? f.name;
+      if (isHwpxName(fileName)) {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        setHwpxEditing({ fileId: f.id, room: base.id, mode, bytes });
+        return;
+      }
       setEditing({ fileId: f.id, room: base.id, mode, initialText: await blob.text() });
     } catch (e) {
       setEditError(e instanceof Error ? e.message : "바로 수정을 시작하지 못했습니다.");
     }
+  }
+
+  // 한글(HWPX) 문서 저장: 표·수식 및 ZIP 패키징을 온전히 보존한 바이트를 새 버전으로 올린다.
+  async function saveHwpxCollab(f: WorkspaceFile, bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean): Promise<number> {
+    const result = await uploadWorkspaceFile({
+      file: new File([new Uint8Array(bytes)], f.name, { type: HWPX_MIME }),
+      fileId: f.id,
+      folderId: f.folderId,
+      baseVersionId,
+      note: auto ? "한글 문서 자동 저장" : "한글 문서 수정",
+      tags: f.tags,
+      extractedText: { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" },
+    });
+    return result.versionId;
   }
 
   // 문서·슬라이드 저장: 문서 상태 바이트를 새 버전으로 올리고, 검색·버전 비교용 글자를 함께 넘긴다.
@@ -520,8 +554,22 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         if (officeEnabled) {
           setOfficeEditingFile({ id: result.fileId, name: finalName });
         }
+      } else if (newItem.kind === "hwpx") {
+        const { mime, label, newBytes } = COLLAB_FILE.hwpx;
+        const bytes = await newBytes();
+        const result = await uploadWorkspaceFile({
+          file: new File([new Uint8Array(bytes)], finalName, { type: mime }),
+          folderId: currentFolderId,
+          note: `새 ${label}`,
+          tags: [],
+          extractedText: { text: "", status: "ready" },
+        });
+        cancelCreation();
+        setSelected(result.fileId);
+        setDetailTab("versions");
+        setHwpxEditing({ fileId: result.fileId, room: result.versionId, mode: "main", bytes: new Uint8Array(bytes) });
       } else {
-        const kind = newItem.kind as CollabFileKind;
+        const kind = newItem.kind as "doc" | "slides";
         const { mime, label, newBytes } = COLLAB_FILE[kind];
         const bytes = newBytes();
         const result = await uploadWorkspaceFile({
@@ -850,6 +898,21 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   async function saveQuickEdit(f: WorkspaceFile, room: number, text: string, baseVersionId: number, auto: boolean): Promise<number> {
     const base = f.versions.find((v) => v.id === room);
+    const fileName = base?.originalName ?? f.name;
+    if (isHwpxName(fileName)) {
+      const baseBlob = await downloadFileVersion(room);
+      const updatedHwpxBytes = await updateHwpxBytes(await baseBlob.arrayBuffer(), text, true);
+      const result = await uploadWorkspaceFile({
+        file: new File([new Uint8Array(updatedHwpxBytes)], fileName, { type: HWPX_MIME }),
+        fileId: f.id,
+        folderId: f.folderId,
+        baseVersionId,
+        note: auto ? "한글 문서 바로 수정 자동 저장" : "한글 문서 바로 수정으로 저장",
+        tags: f.tags,
+        extractedText: { text: text.slice(0, MAX_SEARCH_TEXT), status: text.length > MAX_SEARCH_TEXT ? "partial" : "ready" },
+      });
+      return result.versionId;
+    }
     const result = await uploadWorkspaceFile({
       file: new File([text], base?.originalName ?? f.name, { type: base?.mimeType ?? "text/plain" }),
       fileId: f.id, folderId: f.folderId, baseVersionId, note: auto ? "바로 수정 자동 저장" : "바로 수정으로 저장", tags: f.tags,
@@ -1825,7 +1888,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   onClick={(e) => clickFile(e, f, deletable)}
                   onDoubleClick={() => {
                     const collabKind = collabKindOf(f.name);
-                    if (collabKind || isCodeFile(f.name)) void startQuickEdit(f, "main");
+                    if (collabKind || isHwpxName(f.name) || isCodeFile(f.name)) void startQuickEdit(f, "main");
                     else if (isOfficeEditable(f.name)) {
                       if (officeEnabled) {
                         setOfficeEditingFile({ id: f.id, name: f.name });
@@ -2193,6 +2256,29 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           </div>
         </div>
       )}
+      {editError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md p-6 rounded-2xl shadow-2xl border" style={{ background: "var(--card-bg, #181926)", borderColor: "var(--card-border, #363a4f)", color: "var(--primary-text, #cad3f5)" }}>
+            <div className="flex items-center gap-3 mb-3 text-amber-400">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-base font-bold">문서 수정 안내</h3>
+            </div>
+            <p className="text-sm leading-relaxed mb-6 whitespace-pre-line text-neutral-300">
+              {editError}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditError("")}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer"
+                style={{ background: "var(--primary, #8aadf4)", color: "#181926" }}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Windows Context Menu (우클릭 메뉴) */}
       {contextMenu && (
@@ -2247,6 +2333,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   >
                     <span className="text-sm">🖼️</span>
                     <span>새 슬라이드 (Slides)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); startCreatingItem("hwpx"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                  >
+                    <span className="text-sm font-bold">한</span>
+                    <span>한글 문서 (.hwpx)</span>
                   </button>
                   <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
                   <button
@@ -2519,7 +2613,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           onClose={() => setOfficeEditingFile(null)}
         />
       )}
-      {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-500/10 text-red-500 p-3">{editError}</p>}
       {editing && presenceRef.current && editFile && (
         <QuickEditModal
           key={`${editing.fileId}:${editing.room}:${editing.mode}`}
@@ -2554,6 +2647,22 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               />
             );
           })()}
+        </Suspense>
+      )}
+      {hwpxEditing && presenceRef.current && editFile && (
+        <Suspense fallback={<div role="status" className="fixed inset-0 z-50 flex items-center justify-center text-sm" style={{ background: "rgba(15,18,53,0.48)", color: "#fff" }}>한글 편집기를 불러오는 중…</div>}>
+          <HwpxEditorModal
+            key={`${hwpxEditing.fileId}:${hwpxEditing.room}:${hwpxEditing.mode}`}
+            projectId={project.id}
+            file={editFile}
+            room={hwpxEditing.room}
+            mode={hwpxEditing.mode}
+            rawHwpxBytes={hwpxEditing.bytes}
+            presence={presenceRef.current}
+            editors={editors}
+            save={(bytes, text, base, auto) => saveHwpxCollab(editFile, bytes, text, base, auto)}
+            onClose={() => setHwpxEditing(null)}
+          />
         </Suspense>
       )}
 

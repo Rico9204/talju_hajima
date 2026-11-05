@@ -33,7 +33,7 @@ const isNgrok = (() => { try { return /\.(ngrok-free\.dev|ngrok-free\.app|ngrok\
 
 const FULL_KEY = "collabpeer.office-editor-full";
 
-export const OFFICE_EXTENSIONS = ["docx", "xlsx", "pptx"];
+export const OFFICE_EXTENSIONS = ["docx", "xlsx", "pptx", "hwpx", "hwp"];
 export const isOfficeEditable = (name: string) => OFFICE_EXTENSIONS.includes(name.split(".").pop()?.toLowerCase() ?? "");
 
 // 서버에 오피스 편집이 켜져 있는지(한 번만 묻는다).

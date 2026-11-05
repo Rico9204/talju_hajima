@@ -17,6 +17,7 @@ import { useProject } from "../context/ProjectContext";
 import { EDITABLE_TEXT_EXTENSIONS, formatUploadTime, isEditableTextFile, versionTree } from "../lib/workspaceFiles";
 import { isRichDocName } from "../lib/richDoc";
 import { isSlidesName } from "../lib/slidesDoc";
+import { isHwpxName } from "../lib/hwpx";
 import { formatZipSize, listZipEntries, zipEntriesText, type ZipEntry } from "../lib/zipEntries";
 
 function highlightOfficeHtml(html: string, query: string): string {
@@ -153,6 +154,17 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       if (mounted.current) {
         setPreview({ html, text: text || "이 Office 파일에서 미리 볼 수 있는 텍스트를 찾지 못했습니다.", kind: html ? "office" : "text", name });
       }
+    } else if (ext === "hwpx") {
+      let text = "";
+      try {
+        const { extractHwpxText } = await import("../lib/hwpx");
+        text = await extractHwpxText(blob);
+      } catch {
+        text = v.searchText ?? "";
+      }
+      if (mounted.current) {
+        setPreview({ text: text || "이 한글(HWPX) 파일에서 미리 볼 수 있는 텍스트가 없습니다.", kind: "text", name });
+      }
     } else if (ext === "zip") {
       try {
         const entries = await listZipEntries(blob);
@@ -169,6 +181,14 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
     let text: string | null = null;
     if (EDITABLE_TEXT_EXTENSIONS.includes(ext) && v.storagePath) text = await (await downloadFileVersion(v.id)).text();
     else if (ext === "zip" && v.storagePath) text = zipEntriesText(await listZipEntries(await downloadFileVersion(v.id)).catch(() => [])) || null; // 들어 있는 파일 목록끼리 비교
+    else if (ext === "hwpx" && v.storagePath) {
+      try {
+        const { extractHwpxText } = await import("../lib/hwpx");
+        text = await extractHwpxText(await downloadFileVersion(v.id));
+      } catch {
+        text = v.searchText ?? null;
+      }
+    }
     else if (v.searchText) text = v.searchText; // docx/pptx/pdf 등은 검색용 추출 텍스트로 비교
     textCache.current.set(v.id, text);
     return text;
@@ -202,9 +222,9 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
       <button disabled={busy} onClick={() => input.current?.click()} className="w-full py-2 rounded-lg text-xs font-600 disabled:opacity-40" style={{ background: "var(--primary)", color: "white" }}>{busy ? "처리 중…" : "+ 실제 파일로 새 버전 업로드"}</button>
       <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>현재 버전이 아닌 이력에서 올리면 분기로 저장됩니다. 최대 50MB.</p>
     </div>}
-    {!locked && onQuickEdit && currentVersion?.storagePath && (isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) || isRichDocName(currentVersion.originalName ?? file.name) || isSlidesName(currentVersion.originalName ?? file.name)) && (
+    {!locked && onQuickEdit && currentVersion?.storagePath && (isEditableTextFile(currentVersion.originalName ?? file.name, currentVersion.byteSize) || isRichDocName(currentVersion.originalName ?? file.name) || isSlidesName(currentVersion.originalName ?? file.name) || isHwpxName(currentVersion.originalName ?? file.name)) && (
       <button type="button" disabled={busy} onClick={() => onQuickEdit("main")} className="w-full mb-3 py-2 rounded-lg text-xs font-700 disabled:opacity-40" style={{ background: "var(--secondary)", color: "var(--primary-text)" }}>
-        {isRichDocName(currentVersion.originalName ?? file.name) ? "📄 문서 열기 (여러 명이 함께)" : isSlidesName(currentVersion.originalName ?? file.name) ? "🖼️ 슬라이드 열기 (여러 명이 함께)" : "✏️ 바로 수정 (여러 명이 함께)"}{editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
+        {isRichDocName(currentVersion.originalName ?? file.name) ? "📄 문서 열기 (여러 명이 함께)" : isSlidesName(currentVersion.originalName ?? file.name) ? "🖼️ 슬라이드 열기 (여러 명이 함께)" : isHwpxName(currentVersion.originalName ?? file.name) ? "📝 한글 문서 수정 (여러 명이 함께)" : "✏️ 바로 수정 (여러 명이 함께)"}{editorNames.length > 0 && ` · 지금 ${editorNames.length}명 수정 중`}
       </button>
     )}
     {officeEnabled && currentVersion?.storagePath && isOfficeEditable(currentVersion.originalName ?? file.name) && (
