@@ -18,6 +18,36 @@ import {
   serializeBlocksToHwpxXml,
 } from "../lib/hwpxCollab";
 import { readZipEntries, writeZipEntries } from "../lib/hwpx";
+import {
+  SaveIcon,
+  CutIcon,
+  CopyIcon,
+  PasteIcon,
+  FormatPainterIcon,
+  SearchIcon,
+  ShapesIcon,
+  ImageIcon,
+  TableIcon,
+  EquationIcon,
+  SymbolIcon,
+  CharShapeIcon,
+  ParaShapeIcon,
+  HeaderIcon,
+  FooterIcon,
+  ParaMarkIcon,
+  GridIcon,
+  UndoIcon,
+  RedoIcon,
+  AlignJustifyIcon,
+  AlignLeftIcon,
+  AlignCenterIcon,
+  AlignRightIcon,
+  HighlighterIcon,
+  LineSpacingIcon,
+  IndentDecIcon,
+  IndentIncIcon,
+  TrashIcon,
+} from "./HwpxIcons";
 
 const FONT_FAMILIES = [
   { label: "바탕체 / 명조", value: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif" },
@@ -891,10 +921,10 @@ function HwpxEditorModalInner({
                 type="button"
                 onClick={() => void runSave()}
                 disabled={status === "saving" || !dirty}
-                className="px-2.5 py-1 rounded text-xs font-semibold bg-[#0066cc] hover:bg-[#0055aa] text-white disabled:opacity-40 transition cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 rounded text-xs font-semibold bg-[#0066cc] hover:bg-[#0055aa] text-white disabled:opacity-40 transition cursor-pointer flex items-center gap-1.5"
                 title="클라우드 저장 (Ctrl+S)"
               >
-                <span>💾</span>
+                <SaveIcon className="w-3.5 h-3.5" />
                 <span>{status === "saving" ? "저장 중" : "저장"}</span>
               </button>
 
@@ -973,7 +1003,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
                 title="문서 저장 (Ctrl+S)"
               >
-                <span className="text-lg">💾</span>
+                <SaveIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">저장하기</span>
               </button>
 
@@ -986,7 +1016,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
                 title="오려두기 (Ctrl+X)"
               >
-                <span className="text-base">✂️</span>
+                <CutIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">오려두기</span>
               </button>
               <button
@@ -995,7 +1025,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
                 title="복사하기 (Ctrl+C)"
               >
-                <span className="text-base">📋</span>
+                <CopyIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">복사하기</span>
               </button>
               <button
@@ -1007,7 +1037,7 @@ function HwpxEditorModalInner({
                 }`}
                 title="복사한 모양 적용하기"
               >
-                <span className="text-base">📥</span>
+                <PasteIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">붙이기</span>
               </button>
               <button
@@ -1018,7 +1048,7 @@ function HwpxEditorModalInner({
                 }`}
                 title="현재 문단/글자 서식 모양 복사 (스포이드)"
               >
-                <span className="text-base">🖌️</span>
+                <FormatPainterIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">모양 복사</span>
               </button>
 
@@ -1031,7 +1061,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="문서 내 단어 찾기 (Ctrl+F)"
               >
-                <span className="text-base">🔍</span>
+                <SearchIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">찾기</span>
               </button>
 
@@ -1044,7 +1074,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="구분선 / 문단 삽입"
               >
-                <span className="text-base">⬡</span>
+                <ShapesIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">도형</span>
               </button>
               <button
@@ -1053,7 +1083,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="이미지 파일 삽입"
               >
-                <span className="text-base">🖼️</span>
+                <ImageIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">그림</span>
               </button>
               <button
@@ -1062,7 +1092,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="새 표 삽입"
               >
-                <span className="text-base">⊞</span>
+                <TableIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">표</span>
               </button>
               <button
@@ -1071,7 +1101,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="수식 삽입 (Ctrl+N, M)"
               >
-                <span className="text-base">∑</span>
+                <EquationIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">수식</span>
               </button>
               <button
@@ -1080,7 +1110,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="특수문자 문자표 (Ctrl+F10)"
               >
-                <span className="text-base">※</span>
+                <SymbolIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">문자표</span>
               </button>
 
@@ -1093,7 +1123,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
                 title="글자 모양 설정 (Alt+L)"
               >
-                <span className="text-base">🔤</span>
+                <CharShapeIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">글자 모양</span>
               </button>
               <button
@@ -1102,7 +1132,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
                 title="문단 모양 설정 (Alt+T)"
               >
-                <span className="text-base">📑</span>
+                <ParaShapeIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">문단 모양</span>
               </button>
 
@@ -1117,7 +1147,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="문서 맨 위로 이동"
               >
-                <span className="text-base">🔝</span>
+                <HeaderIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">머리말</span>
               </button>
               <button
@@ -1129,7 +1159,7 @@ function HwpxEditorModalInner({
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                 title="문서 맨 아래로 이동"
               >
-                <span className="text-base">🔚</span>
+                <FooterIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">꼬리말</span>
               </button>
               <button
@@ -1140,7 +1170,7 @@ function HwpxEditorModalInner({
                 }`}
                 title="문단 끝 기호(↵) 보이기 / 숨기기"
               >
-                <span className="text-base">¶</span>
+                <ParaMarkIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">문단 부호</span>
               </button>
               <button
@@ -1151,7 +1181,7 @@ function HwpxEditorModalInner({
                 }`}
                 title="모눈 격자 보이기 / 숨기기"
               >
-                <span className="text-base">▦</span>
+                <GridIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">격자 보기</span>
               </button>
             </div>
@@ -1166,7 +1196,7 @@ function HwpxEditorModalInner({
               className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 transition"
               title="실행 취소 (Ctrl+Z)"
             >
-              ↶
+              <UndoIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -1174,7 +1204,7 @@ function HwpxEditorModalInner({
               className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 transition"
               title="다시 실행 (Ctrl+Y)"
             >
-              ↷
+              <RedoIcon className="w-3.5 h-3.5" />
             </button>
 
             <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
@@ -1344,7 +1374,7 @@ function HwpxEditorModalInner({
                 className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
                 title="형광펜 (배경색)"
               >
-                <span>🖍️</span>
+                <HighlighterIcon className="w-3.5 h-3.5" />
                 <span className="text-[8px]">▾</span>
               </button>
               {showHighlightPalette && (
@@ -1383,7 +1413,7 @@ function HwpxEditorModalInner({
               } disabled:opacity-40`}
               title="양쪽 맞춤"
             >
-              ☶
+              <AlignJustifyIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -1395,7 +1425,7 @@ function HwpxEditorModalInner({
               } disabled:opacity-40`}
               title="왼쪽 정렬"
             >
-              ☰
+              <AlignLeftIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -1407,7 +1437,7 @@ function HwpxEditorModalInner({
               } disabled:opacity-40`}
               title="가운데 정렬"
             >
-              ☷
+              <AlignCenterIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -1419,14 +1449,16 @@ function HwpxEditorModalInner({
               } disabled:opacity-40`}
               title="오른쪽 정렬"
             >
-              ☵
+              <AlignRightIcon className="w-3.5 h-3.5" />
             </button>
 
             <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
 
             {/* 줄 간격 (160%) */}
             <div className="flex items-center gap-1 text-xs text-neutral-700">
-              <span title="줄 간격">↕</span>
+              <span title="줄 간격">
+                <LineSpacingIcon className="w-3.5 h-3.5" />
+              </span>
               <select
                 defaultValue="160"
                 className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1 py-0.5 text-xs outline-none cursor-pointer"
@@ -1451,7 +1483,7 @@ function HwpxEditorModalInner({
               className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
               title="내어쓰기 (공백 제거)"
             >
-              ⇤
+              <IndentDecIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -1460,7 +1492,7 @@ function HwpxEditorModalInner({
               className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
               title="들여쓰기 (문단 시작 공백 추가)"
             >
-              ⇥
+              <IndentIncIcon className="w-3.5 h-3.5" />
             </button>
 
             {/* 문단 추가 / 삭제 */}
@@ -1481,7 +1513,7 @@ function HwpxEditorModalInner({
                 className="p-1 rounded text-red-600 hover:bg-red-50 text-xs transition disabled:opacity-30 cursor-pointer"
                 title="현재 블록 삭제"
               >
-                🗑️
+                <TrashIcon className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -1540,10 +1572,10 @@ function HwpxEditorModalInner({
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
             <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
               <span className="flex items-center gap-1.5">
-                <span>🔍</span>
+                <SearchIcon className="w-4 h-4 text-[#0066cc]" />
                 <span>문서 내 단어 찾기</span>
               </span>
-              <button type="button" onClick={() => setShowSearchModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+              <button type="button" onClick={() => setShowSearchModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
             </h4>
             <div className="flex items-center gap-2">
               <input
@@ -1670,10 +1702,10 @@ function HwpxEditorModalInner({
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
             <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
               <span className="flex items-center gap-1.5">
-                <span>🔤</span>
+                <CharShapeIcon className="w-4 h-4" />
                 <span>글자 모양 (Alt+L)</span>
               </span>
-              <button type="button" onClick={() => setShowCharShapeModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+              <button type="button" onClick={() => setShowCharShapeModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
             </h4>
             <div className="flex flex-col gap-2 text-xs">
               <div className="flex items-center justify-between">
@@ -1750,10 +1782,10 @@ function HwpxEditorModalInner({
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
             <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
               <span className="flex items-center gap-1.5">
-                <span>📑</span>
+                <ParaShapeIcon className="w-4 h-4" />
                 <span>문단 모양 (Alt+T)</span>
               </span>
-              <button type="button" onClick={() => setShowParaShapeModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+              <button type="button" onClick={() => setShowParaShapeModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
             </h4>
             <div className="flex flex-col gap-2 text-xs">
               <div className="flex items-center justify-between">
@@ -1988,7 +2020,10 @@ function HwpxEditorModalInner({
                     >
                       {/* 이미지 제어 바 (hover 시 노출) */}
                       <div className="mb-2 flex items-center justify-between text-[11px] bg-neutral-100 px-3 py-1 rounded-md border border-neutral-300 w-full max-w-lg">
-                        <span className="font-semibold text-neutral-600">🖼️ 이미지</span>
+                        <span className="flex items-center gap-1.5 font-semibold text-neutral-600">
+                          <ImageIcon className="w-4 h-4 text-emerald-600" />
+                          <span>이미지</span>
+                        </span>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
