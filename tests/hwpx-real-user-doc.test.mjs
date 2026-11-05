@@ -41,3 +41,4 @@ test("hwpxCollab: 대용량 논문 문서(각주, 꼬리말, 170개 블록) 편�
   const reloadedBlocks = parseHwpxXmlToBlocks(newSec0, newHeader);
   assert.equal(reloadedBlocks.length, 170, "직렬화 후 재파싱 시에도 170개 블록이 온전히 유지되어야 합니다");
 });
+
