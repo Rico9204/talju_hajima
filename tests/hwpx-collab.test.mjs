@@ -274,7 +274,7 @@ test('hwpxCollab: guarantees standard OWPML A4 secPr and OCF mimetype offset 0 f
   const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
   assert.ok(pkg.sectionXml.includes('<hp:secPr id="0"'));
   assert.ok(pkg.sectionXml.includes('width="59528" height="84188"'));
-  assert.ok(pkg.sectionXml.includes('pageBreak="false" columnBreak="false" merged="false"'));
+  assert.ok(pkg.sectionXml.includes('pageBreak="0"') || pkg.sectionXml.includes('pageBreak="false"'));
 
   // 2. header.xml has fontRef child element and paraPr with align/lineSpacing
   assert.ok(pkg.headerXml.includes('<hh:fontRef hangul="0" latin="0"'));

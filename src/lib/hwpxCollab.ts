@@ -19,6 +19,7 @@ export interface HwpxParagraphBlock {
   fontFamily?: string;
   pageBreak?: boolean;
   rawAttrs?: string;
+  charPrId?: string;
 }
 
 export interface HwpxTableCell {
@@ -320,6 +321,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
               bold: cStyle?.bold,
               pageBreak: currentPageBreak,
               rawAttrs: currentPAttrs,
+              charPrId: currentCharPrId,
             });
           }
           currentPText = [];
@@ -330,8 +332,10 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
       // 글자 런 (run) 스타일 추적
       else if (localName === "run" && inP) {
         const charMatch = attrs.match(/charPrIDRef="(\d+)"/);
-        if (charMatch && charMatch[1] !== "0") {
-          currentCharPrId = charMatch[1];
+        if (charMatch) {
+          if (currentCharPrId === "0" || charMatch[1] !== "0") {
+            currentCharPrId = charMatch[1];
+          }
         }
       }
       // 텍스트런 (t)
@@ -440,6 +444,15 @@ export function serializeBlocksToHwpxPackage(
   const existingCharIds: number[] = [];
   const existingParaIds: number[] = [];
 
+  interface ExistingCharStyle {
+    colorHex: string;
+    sizePt: number;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+  }
+  const existingCharStyleMap = new Map<string, ExistingCharStyle>();
+
   if (originalHeaderXml) {
     const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
     let pm: RegExpExecArray | null;
@@ -459,7 +472,24 @@ export function serializeBlocksToHwpxPackage(
     let cm: RegExpExecArray | null;
     while ((cm = charPrRegex.exec(originalHeaderXml)) !== null) {
       const idMatch = cm[0].match(/\bid="(\d+)"/);
-      if (idMatch) existingCharIds.push(parseInt(idMatch[1], 10));
+      if (!idMatch) continue;
+      const id = parseInt(idMatch[1], 10);
+      existingCharIds.push(id);
+
+      const heightMatch = cm[0].match(/height="(\d+)"/);
+      const colorMatch = cm[0].match(/textColor="([^"]+)"/);
+      const boldMatch = /<hh:bold\s*\/?>/.test(cm[0]);
+      const italicMatch = /<hh:italic\s*\/?>/.test(cm[0]);
+      const underlineMatch = /<hh:underline\b[^>]*type="([^"]+)"/.exec(cm[0]);
+      const hasUnderline = !!(underlineMatch && underlineMatch[1].toUpperCase() !== "NONE");
+
+      existingCharStyleMap.set(String(id), {
+        sizePt: heightMatch ? Math.round(parseInt(heightMatch[1], 10) / 100) : 10,
+        colorHex: colorMatch ? colorToHex(colorMatch[1]) : "#000000",
+        bold: boldMatch,
+        italic: italicMatch,
+        underline: hasUnderline,
+      });
     }
   }
 
@@ -481,6 +511,14 @@ export function serializeBlocksToHwpxPackage(
     ["#000000_10_0_0_0", 0],
   ]);
 
+  // 원본 문서에 이미 정의된 charPr들을 key에 등록하여 중복 생성 방지 및 원본 서식 100% 재사용
+  for (const [idStr, style] of existingCharStyleMap.entries()) {
+    const k = `${style.colorHex}_${style.sizePt}_${style.bold ? 1 : 0}_${style.italic ? 1 : 0}_${style.underline ? 1 : 0}`;
+    if (!charPrKeyToId.has(k)) {
+      charPrKeyToId.set(k, parseInt(idStr, 10));
+    }
+  }
+
   const getOrCreateCharPr = (style: { color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean }): number => {
     const colorHex = colorToHex(style.color);
     const sizePt = style.sizePt ? Math.round(style.sizePt) : 10;
@@ -497,6 +535,25 @@ export function serializeBlocksToHwpxPackage(
     newCharDefs.push({ id: newId, colorHex, sizePt, bold, italic, underline });
     charPrKeyToId.set(key, newId);
     return newId;
+  };
+
+  // 한컴 OWPML 표준 규격의 완전한 charPr XML 생성 (누락 없는 필수 자식 노드 순서 보장)
+  const renderCharPrXml = (def: CharPrDef): string => {
+    const children: string[] = [
+      '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
+      '<hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>',
+      '<hh:spacing hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
+      '<hh:relSz hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>',
+      '<hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
+    ];
+    if (def.bold) children.push("<hh:bold/>");
+    if (def.italic) children.push("<hh:italic/>");
+    if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
+    else children.push('<hh:underline type="NONE" shape="SOLID" color="#000000"/>');
+    children.push('<hh:strikeout shape="NONE" color="#000000"/>');
+    children.push('<hh:outline type="NONE"/>');
+    children.push('<hh:shadow type="NONE" color="#C0C0C0" offsetX="10" offsetY="10"/>');
+    return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="2">\n        ${children.join("")}\n      </hh:charPr>`;
   };
 
   // 문단 정렬(paraPr) 매핑: 원본의 paraPrIDRef를 최대한 유지하여 문서 고유 여백/줄간격 손실 방지
@@ -546,22 +603,22 @@ export function serializeBlocksToHwpxPackage(
           const tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="${rIdx}_${cIdx}"`;
           const cellCharPr = getOrCreateCharPr({ bold: cell.bold });
           const cellParaPr = getParaPrForAlign(cell.align || "left", cell.rawAttrs);
-          return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
+          return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
         }).join("\n");
         return `      <hp:tr>\n${cellsXml}\n      </hp:tr>`;
       }).join("\n");
 
       const tblAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" pageBreak="cell" repeatHeader="true"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
       const eqAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` version="1.0" baseLine="0" textColor="#000000" baseUnit="1000"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "image") {
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
@@ -574,11 +631,27 @@ export function serializeBlocksToHwpxPackage(
     });
 
     const runsXml = runs.map((run) => {
-      const charPrId = getOrCreateCharPr(run);
+      let charPrId: number;
+      if (runs.length === 1 && block.charPrId && existingCharStyleMap.has(block.charPrId)) {
+        const orig = existingCharStyleMap.get(block.charPrId)!;
+        const rColor = colorToHex(run.color);
+        const rSize = run.sizePt ? Math.round(run.sizePt) : 10;
+        const rBold = !!run.bold;
+        const rItalic = !!run.italic;
+        const rUnderline = !!run.underline;
+        if (orig.colorHex === rColor && orig.sizePt === rSize && orig.bold === rBold && orig.italic === rItalic && orig.underline === rUnderline) {
+          charPrId = parseInt(block.charPrId, 10);
+        } else {
+          charPrId = getOrCreateCharPr(run);
+        }
+      } else {
+        charPrId = getOrCreateCharPr(run);
+      }
       return `<hp:run charPrIDRef="${charPrId}"><hp:t>${escapeXml(run.text)}</hp:t></hp:run>`;
     }).join("");
 
-    return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}${runsXml || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>'}\n    </hp:p>`;
+    const pageBreakStr = block.pageBreak ? "1" : "0";
+    return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="${pageBreakStr}" columnBreak="0" merged="0">\n      ${lead}${runsXml || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>'}\n    </hp:p>`;
   }).join("\n");
 
   const sectionXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
@@ -587,13 +660,7 @@ export function serializeBlocksToHwpxPackage(
   let headerXml = originalHeaderXml;
   if (headerXml && headerXml.includes("<hh:charProperties")) {
     if (newCharDefs.length > 0) {
-      const newCharXml = newCharDefs.map((def) => {
-        const children = ['<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'];
-        if (def.bold) children.push("<hh:bold/>");
-        if (def.italic) children.push("<hh:italic/>");
-        if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
-        return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}">\n        ${children.join("")}\n      </hh:charPr>`;
-      }).join("\n");
+      const newCharXml = newCharDefs.map(renderCharPrXml).join("\n");
 
       headerXml = headerXml.replace(/<\/hh:charProperties>/, `${newCharXml}\n    </hh:charProperties>`);
       const cntMatch = headerXml.match(/<hh:charProperties\s+itemCnt="(\d+)"/);
@@ -604,15 +671,20 @@ export function serializeBlocksToHwpxPackage(
     }
   } else {
     // 원본 헤더가 없는 경우에만 완전한 표준 OWPML 기본 헤더 생성
+    const defaultChar0 = `      <hh:charPr id="0" height="1000" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="2">\n` +
+      `        <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n` +
+      `        <hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>\n` +
+      `        <hh:spacing hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n` +
+      `        <hh:relSz hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>\n` +
+      `        <hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n` +
+      `        <hh:underline type="NONE" shape="SOLID" color="#000000"/>\n` +
+      `        <hh:strikeout shape="NONE" color="#000000"/>\n` +
+      `        <hh:outline type="NONE"/>\n` +
+      `        <hh:shadow type="NONE" color="#C0C0C0" offsetX="10" offsetY="10"/>\n` +
+      `      </hh:charPr>`;
+
     const charPropertiesXml = `    <hh:charProperties itemCnt="${newCharDefs.length + 1}">\n` +
-      `      <hh:charPr id="0" height="1000" textColor="#000000">\n        <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n      </hh:charPr>\n` +
-      newCharDefs.map((def) => {
-        const children = ['<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'];
-        if (def.bold) children.push("<hh:bold/>");
-        if (def.italic) children.push("<hh:italic/>");
-        if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
-        return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}">\n        ${children.join("")}\n      </hh:charPr>`;
-      }).join("\n") +
+      defaultChar0 + (newCharDefs.length > 0 ? "\n" + newCharDefs.map(renderCharPrXml).join("\n") : "") +
       `\n    </hh:charProperties>`;
 
     const paraPropertiesXml = `    <hh:paraProperties itemCnt="4">\n` +
@@ -672,6 +744,7 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.color) yBlock.set("color", block.color);
         if (block.fontFamily) yBlock.set("fontFamily", block.fontFamily);
         if (block.pageBreak !== undefined) yBlock.set("pageBreak", block.pageBreak);
+        if (block.charPrId) yBlock.set("charPrId", block.charPrId);
       } else if (block.type === "table") {
         const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
         for (const row of block.rows) {
@@ -722,6 +795,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const color = yBlock.get("color") as string | undefined;
       const fontFamily = yBlock.get("fontFamily") as string | undefined;
       const pageBreak = yBlock.get("pageBreak") as boolean | undefined;
+      const charPrId = yBlock.get("charPrId") as string | undefined;
       blocks.push({
         type: "paragraph",
         id,
@@ -735,6 +809,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         fontFamily,
         pageBreak,
         rawAttrs,
+        charPrId,
       });
     } else if (type === "table") {
       const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
