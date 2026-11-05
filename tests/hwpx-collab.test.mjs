@@ -295,3 +295,51 @@ test('hwpxCollab: guarantees standard OWPML A4 secPr and OCF mimetype offset 0 f
   const fileName = new TextDecoder().decode(zipBytes.subarray(30, 30 + nameLen));
   assert.equal(fileName, 'mimetype');
 });
+
+test('hwpxCollab: parses and serializes shape blocks (rect, ellipse, line) with text and styling for Hancom compatibility', () => {
+  const shapeXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p id="0">
+    <hp:run>
+      <hp:rect id="rect1">
+        <hp:lineShape color="#2563EB" width="150"/>
+        <hp:fillBrush><hp:winBrush faceColor="#EFF6FF"/></hp:fillBrush>
+        <hp:drawText><hp:t>직사각형 글상자 텍스트</hp:t></hp:drawText>
+      </hp:rect>
+    </hp:run>
+  </hp:p>
+  <hp:p id="1">
+    <hp:run>
+      <hp:line id="line1">
+        <hp:lineShape color="#D97706" width="200"/>
+      </hp:line>
+    </hp:run>
+  </hp:p>
+</hs:sec>`;
+
+  const blocks = parseHwpxXmlToBlocks(shapeXml);
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].type, 'shape');
+  assert.equal(blocks[0].shapeType, 'rect');
+  assert.equal(blocks[0].strokeColor, '#2563EB');
+  assert.equal(blocks[0].fillColor, '#EFF6FF');
+  assert.equal(blocks[0].text, '직사각형 글상자 텍스트');
+
+  assert.equal(blocks[1].type, 'shape');
+  assert.equal(blocks[1].shapeType, 'line');
+  assert.equal(blocks[1].strokeColor, '#D97706');
+
+  // Y.Doc CRDT round-trip
+  const doc = new Y.Doc();
+  initHwpxYDoc(doc, blocks);
+  const extracted = extractBlocksFromYDoc(doc);
+  assert.equal(extracted.length, 2);
+  assert.equal(extracted[0].type, 'shape');
+  assert.equal(extracted[0].text, '직사각형 글상자 텍스트');
+
+  // Serialization to standard OWPML
+  const pkg = serializeBlocksToHwpxPackage(extracted);
+  assert.ok(pkg.sectionXml.includes('<hp:rect'));
+  assert.ok(pkg.sectionXml.includes('<hp:line'));
+  assert.ok(pkg.sectionXml.includes('직사각형 글상자 텍스트'));
+});

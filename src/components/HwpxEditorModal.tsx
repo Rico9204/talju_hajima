@@ -10,6 +10,7 @@ import {
   HwpxCollabBlock,
   HwpxImageBlock,
   HwpxParagraphBlock,
+  HwpxShapeBlock,
   hwpxCollabKey,
   hwpxCollabText,
   initHwpxYDoc,
@@ -333,6 +334,12 @@ function HwpxEditorModalInner({
   const [showTableModal, setShowTableModal] = useState(false);
   const [newTableRows, setNewTableRows] = useState(3);
   const [newTableCols, setNewTableCols] = useState(3);
+  const [showShapeModal, setShowShapeModal] = useState(false);
+  const [newShapeType, setNewShapeType] = useState<"rect" | "roundRect" | "ellipse" | "line">("rect");
+  const [newShapeText, setNewShapeText] = useState("");
+  const [newShapeFill, setNewShapeFill] = useState("#EFF6FF");
+  const [newShapeStroke, setNewShapeStroke] = useState("#2563EB");
+  const [newShapeWidth, setNewShapeWidth] = useState(75);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -832,6 +839,61 @@ function HwpxEditorModalInner({
     });
   };
 
+  // 도형 추가
+  const addShape = (
+    shapeType: "rect" | "roundRect" | "ellipse" | "line",
+    text: string,
+    fillColor: string,
+    strokeColor: string,
+    widthPercent: number,
+    afterIdx: number
+  ) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = new Y.Map<unknown>();
+    yBlock.set("id", `shape_${Date.now()}`);
+    yBlock.set("type", "shape");
+    yBlock.set("shapeType", shapeType);
+    yBlock.set("widthPercent", widthPercent);
+    yBlock.set("heightPt", shapeType === "line" ? 2 : 60);
+    yBlock.set("fillColor", fillColor);
+    yBlock.set("strokeColor", strokeColor);
+    yBlock.set("strokeWidth", 1.5);
+    yBlock.set("text", new Y.Text(text));
+    yBlock.set("align", "center");
+
+    doc.transact(() => {
+      yBlocks.insert(afterIdx + 1, [yBlock]);
+    });
+    setSelectedIdx(afterIdx + 1);
+    setShowShapeModal(false);
+    setNewShapeText("");
+  };
+
+  // 도형 속성 수정
+  const updateShapeBlock = (index: number, patch: Partial<HwpxShapeBlock>) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(index);
+    if (!yBlock) return;
+    doc.transact(() => {
+      if (patch.shapeType !== undefined) yBlock.set("shapeType", patch.shapeType);
+      if (patch.widthPercent !== undefined) yBlock.set("widthPercent", patch.widthPercent);
+      if (patch.heightPt !== undefined) yBlock.set("heightPt", patch.heightPt);
+      if (patch.fillColor !== undefined) yBlock.set("fillColor", patch.fillColor);
+      if (patch.strokeColor !== undefined) yBlock.set("strokeColor", patch.strokeColor);
+      if (patch.strokeWidth !== undefined) yBlock.set("strokeWidth", patch.strokeWidth);
+      if (patch.align !== undefined) yBlock.set("align", patch.align);
+      if (patch.text !== undefined) {
+        let yText = yBlock.get("text") as Y.Text | undefined;
+        if (!yText) {
+          yText = new Y.Text();
+          yBlock.set("text", yText);
+        }
+        yText.delete(0, yText.length);
+        yText.insert(0, patch.text);
+      }
+    });
+  };
+
   // 블록 삭제
   const deleteBlock = (index: number) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
@@ -1070,9 +1132,9 @@ function HwpxEditorModalInner({
               {/* 삽입 개체 그룹 (도형, 그림, 표, 수식, 문자표) */}
               <button
                 type="button"
-                onClick={() => addParagraph(selectedIdx)}
+                onClick={() => setShowShapeModal(true)}
                 className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="구분선 / 문단 삽입"
+                title="도형 삽입 (직사각형, 둥근 사각형, 타원, 가로선)"
               >
                 <ShapesIcon className="w-5 h-5" />
                 <span className="text-[10px] mt-0.5">도형</span>
@@ -1518,6 +1580,143 @@ function HwpxEditorModalInner({
             </div>
           </div>
         </header>
+
+        {/* 도형 삽입 팝업 모달 */}
+        {showShapeModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3.5 w-80 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <ShapesIcon className="w-4 h-4 text-[#0066cc]" />
+                <span>도형 만들기</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowShapeModal(false)}
+                className="text-neutral-400 hover:text-neutral-700 cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </h4>
+
+            {/* 1. 도형 형태 선택 */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-semibold text-neutral-600">도형 종류:</span>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { type: "rect" as const, label: "직사각형", icon: "▭" },
+                  { type: "roundRect" as const, label: "둥근 사각형", icon: "▢" },
+                  { type: "ellipse" as const, label: "타원 / 원", icon: "◯" },
+                  { type: "line" as const, label: "가로선", icon: "─" },
+                ].map((s) => (
+                  <button
+                    key={s.type}
+                    type="button"
+                    onClick={() => setNewShapeType(s.type)}
+                    className={`flex flex-col items-center justify-center p-2 rounded-lg border text-xs transition cursor-pointer ${
+                      newShapeType === s.type
+                        ? "border-[#0066cc] bg-blue-50 text-[#0066cc] font-bold shadow-xs"
+                        : "border-neutral-200 hover:bg-neutral-50 text-neutral-700"
+                    }`}
+                  >
+                    <span className="text-lg leading-none mb-1">{s.icon}</span>
+                    <span className="text-[10px] text-center">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. 테마 색상 프리셋 */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-semibold text-neutral-600">색상 스타일:</span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { name: "한컴 블루", fill: "#EFF6FF", stroke: "#2563EB" },
+                  { name: "앰버 골드", fill: "#FEF3C7", stroke: "#D97706" },
+                  { name: "에메랄드", fill: "#DCFCE7", stroke: "#16A34A" },
+                  { name: "소프트 그레이", fill: "#F1F5F9", stroke: "#64748B" },
+                  { name: "클린 화이트", fill: "#FFFFFF", stroke: "#94A3B8" },
+                  { name: "투명 배경", fill: "transparent", stroke: "#2563EB" },
+                ].map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => {
+                      setNewShapeFill(c.fill);
+                      setNewShapeStroke(c.stroke);
+                    }}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] transition cursor-pointer ${
+                      newShapeFill === c.fill && newShapeStroke === c.stroke
+                        ? "border-[#0066cc] bg-blue-50/50 font-bold"
+                        : "border-neutral-200 hover:bg-neutral-50"
+                    }`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded border shrink-0"
+                      style={{
+                        background: c.fill === "transparent" ? "#ffffff" : c.fill,
+                        borderColor: c.stroke,
+                        borderWidth: "1.5px",
+                      }}
+                    />
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. 너비 비율 */}
+            <div className="flex items-center justify-between text-xs text-neutral-700">
+              <span className="text-[11px] font-semibold text-neutral-600">너비 크기:</span>
+              <div className="flex items-center gap-1">
+                {[25, 50, 75, 100].map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => setNewShapeWidth(w)}
+                    className={`px-2 py-0.5 rounded text-[11px] border transition cursor-pointer ${
+                      newShapeWidth === w
+                        ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
+                        : "bg-neutral-50 text-neutral-700 border-neutral-300 hover:bg-neutral-100"
+                    }`}
+                  >
+                    {w}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 4. 도형 안 글자 입력 (선이 아닐 때) */}
+            {newShapeType !== "line" && (
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold text-neutral-600">글상자 텍스트 (선택):</span>
+                <input
+                  type="text"
+                  value={newShapeText}
+                  onChange={(e) => setNewShapeText(e.target.value)}
+                  placeholder="도형 안에 표시할 내용을 입력하세요..."
+                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowShapeModal(false)}
+                className="px-3 py-1 rounded text-xs text-neutral-600 hover:bg-neutral-100 cursor-pointer"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => addShape(newShapeType, newShapeText, newShapeFill, newShapeStroke, newShapeWidth, selectedIdx)}
+                className="px-3 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+              >
+                도형 만들기
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 표 삽입 팝업 모달 */}
         {showTableModal && (
@@ -2101,6 +2300,138 @@ function HwpxEditorModalInner({
                         placeholder="그림 캡션 입력..."
                         className="mt-2 text-center text-xs text-neutral-600 bg-transparent border-b border-transparent focus:border-neutral-400 outline-none w-1/2 font-sans"
                       />
+                    </div>
+                  );
+                }
+
+                if (block.type === "shape") {
+                  const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
+                  const widthStyle = `${block.widthPercent || 75}%`;
+                  const isLine = block.shapeType === "line";
+                  const borderRadius = block.shapeType === "roundRect" ? "12px" : block.shapeType === "ellipse" ? "9999px" : "2px";
+
+                  return (
+                    <div
+                      key={`${block.id}_${idx}`}
+                      onClick={() => setSelectedIdx(idx)}
+                      className={`my-5 flex flex-col items-center group/shape rounded p-2 transition ${
+                        isSelected ? "ring-2 ring-blue-500 bg-blue-50/10" : ""
+                      }`}
+                    >
+                      {/* 도형 제어 바 (hover 시 또는 선택 시 노출) */}
+                      <div className="mb-2 flex items-center justify-between text-[11px] bg-neutral-100 px-3 py-1 rounded-md border border-neutral-300 w-full max-w-lg">
+                        <span className="flex items-center gap-1.5 font-semibold text-neutral-600">
+                          <ShapesIcon className="w-4 h-4 text-[#0066cc]" />
+                          <span>
+                            {block.shapeType === "rect"
+                              ? "직사각형"
+                              : block.shapeType === "roundRect"
+                              ? "둥근 사각형"
+                              : block.shapeType === "ellipse"
+                              ? "타원"
+                              : "가로선"}
+                          </span>
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { widthPercent: 25 })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 25 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            25%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { widthPercent: 50 })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 50 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            50%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { widthPercent: 75 })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 75 || !block.widthPercent ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            75%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { widthPercent: 100 })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 100 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            100%
+                          </button>
+
+                          <div className="w-[1px] h-3.5 bg-neutral-300 mx-1" />
+
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { align: "left" })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.align === "left" ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            좌
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { align: "center" })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.align === "center" || !block.align ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            중
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateShapeBlock(idx, { align: "right" })}
+                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.align === "right" ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
+                          >
+                            우
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteBlock(idx)}
+                            className="px-2 py-0.5 rounded bg-red-100 text-red-700 font-bold ml-1 text-[10px] cursor-pointer hover:bg-red-200"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 도형 시각 표현 */}
+                      <div className={`w-full flex ${alignClass}`}>
+                        {isLine ? (
+                          <div
+                            style={{
+                              width: widthStyle,
+                              height: `${Math.max(1, block.strokeWidth || 2)}px`,
+                              backgroundColor: block.strokeColor || "#2563EB",
+                            }}
+                            className="my-3 transition-all"
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: widthStyle,
+                              minHeight: `${block.heightPt || 60}px`,
+                              backgroundColor: block.fillColor === "transparent" ? "transparent" : block.fillColor || "#EFF6FF",
+                              borderColor: block.strokeColor || "#2563EB",
+                              borderWidth: `${block.strokeWidth || 1.5}px`,
+                              borderStyle: "solid",
+                              borderRadius,
+                            }}
+                            className="p-3 shadow-xs flex items-center justify-center transition-all"
+                          >
+                            <input
+                              type="text"
+                              value={block.text || ""}
+                              onChange={(e) => updateShapeBlock(idx, { text: e.target.value })}
+                              onFocus={() => setSelectedIdx(idx)}
+                              placeholder="도형 안 글상자 텍스트 입력..."
+                              className="w-full bg-transparent border-none outline-none text-center text-xs text-neutral-900 font-sans"
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 }

@@ -58,6 +58,21 @@ export interface HwpxImageBlock {
   rawXml?: string;
 }
 
+export interface HwpxShapeBlock {
+  type: "shape";
+  id: string;
+  shapeType: "rect" | "roundRect" | "ellipse" | "line";
+  widthPercent?: number;
+  heightPt?: number;
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+  text?: string;
+  align?: "left" | "center" | "right";
+  rawAttrs?: string;
+  rawXml?: string;
+}
+
 export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<string, string> {
   const map = new Map<string, string>();
   for (const [path, bytes] of entries.entries()) {
@@ -82,7 +97,7 @@ export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<strin
   return map;
 }
 
-export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock;
+export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock | HwpxShapeBlock;
 
 // ── OWPML XML을 구조화된 협업 블록 목록으로 파싱 ──
 export function stripHtmlTags(str: string): string {
@@ -267,11 +282,18 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
   let currentPStartIndex = -1;
   let pEquationCount = 0;
   let pPicCount = 0;
+  let pShapeCount = 0;
   let pHasNormalText = false;
   let lastEquationScript = "";
   let lastEquationAttrs = "";
   let lastPicBinId = "";
   let lastPicAttrs = "";
+  let lastShapeType: "rect" | "roundRect" | "ellipse" | "line" = "rect";
+  let lastShapeAttrs = "";
+  let lastShapeFill = "#EFF6FF";
+  let lastShapeStroke = "#2563EB";
+  let lastShapeStrokeWidth = 1.5;
+  let lastShapeText = "";
   let currentParaPrId = "0";
   let currentCharPrId = "0";
   let currentPageBreak = false;
@@ -378,6 +400,30 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
           lastPicBinId = binMatch[1];
         }
       }
+      // 도형 (rect, ellipse, line)
+      else if ((localName === "rect" || localName === "ellipse" || localName === "line") && inP) {
+        if (!isClosing && !isSelfClosing) {
+          pShapeCount++;
+          lastShapeType = localName === "ellipse" ? "ellipse" : localName === "line" ? "line" : (attrs.includes("ROUND") ? "roundRect" : "rect");
+          lastShapeAttrs = attrs.trim();
+        }
+      }
+      // 도형 채우기 (winBrush)
+      else if ((localName === "winbrush" || localName === "winBrush") && inP && pShapeCount > 0) {
+        const faceMatch = attrs.match(/faceColor="([^"]+)"/i);
+        if (faceMatch && faceMatch[1].toLowerCase() !== "none") {
+          lastShapeFill = colorToHex(faceMatch[1]);
+        } else if (faceMatch && faceMatch[1].toLowerCase() === "none") {
+          lastShapeFill = "transparent";
+        }
+      }
+      // 도형 선 (lineShape)
+      else if ((localName === "lineshape" || localName === "lineShape") && inP && pShapeCount > 0) {
+        const colMatch = attrs.match(/color="([^"]+)"/i);
+        if (colMatch) lastShapeStroke = colorToHex(colMatch[1]);
+        const wMatch = attrs.match(/width="(\d+)"/i);
+        if (wMatch) lastShapeStrokeWidth = Math.max(1, parseInt(wMatch[1], 10) / 100);
+      }
       // 본문 문단 (p)
       else if (localName === "p" && !inTable) {
         if (!isClosing && !isSelfClosing) {
@@ -388,11 +434,18 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
           currentPAttrs = attrs.trim();
           pEquationCount = 0;
           pPicCount = 0;
+          pShapeCount = 0;
           pHasNormalText = false;
           lastEquationScript = "";
           lastEquationAttrs = "";
           lastPicBinId = "";
           lastPicAttrs = "";
+          lastShapeType = "rect";
+          lastShapeAttrs = "";
+          lastShapeFill = "#EFF6FF";
+          lastShapeStroke = "#2563EB";
+          lastShapeStrokeWidth = 1.5;
+          lastShapeText = "";
           const paraMatch = attrs.match(/paraPrIDRef="(\d+)"/);
           currentParaPrId = paraMatch ? paraMatch[1] : "0";
           const pageBreakMatch = attrs.match(/pageBreak="(\d+)"/);
@@ -421,6 +474,21 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 rawAttrs: lastPicAttrs,
                 rawXml,
               });
+            } else if (pShapeCount === 1 && !pHasNormalText) {
+              blocks.push({
+                type: "shape",
+                id: `shape_${blockIndex++}`,
+                shapeType: lastShapeType,
+                widthPercent: 75,
+                heightPt: lastShapeType === "line" ? 2 : 60,
+                fillColor: lastShapeFill,
+                strokeColor: lastShapeStroke,
+                strokeWidth: lastShapeStrokeWidth,
+                text: lastShapeText.trim(),
+                align: "center",
+                rawAttrs: lastShapeAttrs,
+                rawXml,
+              });
             } else {
               const fullText = currentPText.join("");
               const pStyle = paraStyles.get(currentParaPrId);
@@ -447,11 +515,18 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
           currentPStartIndex = -1;
           pEquationCount = 0;
           pPicCount = 0;
+          pShapeCount = 0;
           pHasNormalText = false;
           lastEquationScript = "";
           lastEquationAttrs = "";
           lastPicBinId = "";
           lastPicAttrs = "";
+          lastShapeType = "rect";
+          lastShapeAttrs = "";
+          lastShapeFill = "#EFF6FF";
+          lastShapeStroke = "#2563EB";
+          lastShapeStrokeWidth = 1.5;
+          lastShapeText = "";
         }
       }
       // 글자 런 (run) 스타일 추적
@@ -483,8 +558,12 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
         if (inTable && currentCell) {
           currentCell.push(decoded);
         } else if (inP) {
-          currentPText.push(decoded);
-          if (decoded.trim()) pHasNormalText = true;
+          if (pShapeCount > 0) {
+            lastShapeText += decoded;
+          } else {
+            currentPText.push(decoded);
+            if (decoded.trim()) pHasNormalText = true;
+          }
         }
       }
     }
@@ -750,6 +829,32 @@ export function serializeBlocksToHwpxPackage(
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
+    if (block.type === "shape") {
+      if (block.rawXml) {
+        return block.rawXml;
+      }
+      const shapeType = block.shapeType || "rect";
+      const align = block.align || "center";
+      const widthPct = block.widthPercent || 75;
+      const widthHw = Math.round((42520 * widthPct) / 100);
+      const heightHw = shapeType === "line" ? 100 : Math.round((block.heightPt || 60) * 100);
+      const strokeColor = colorToHex(block.strokeColor || "#2563EB");
+      const fillColor = block.fillColor === "transparent" ? "none" : colorToHex(block.fillColor || "#EFF6FF");
+      const strokeWidthHw = Math.max(50, Math.round((block.strokeWidth || 1.5) * 100));
+      const horzAlign = align === "left" ? "LEFT" : align === "right" ? "RIGHT" : "CENTER";
+
+      if (shapeType === "line") {
+        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${idx}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES"><hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="100" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="LINE" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="283" bottom="283"/><hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="FLAT" tailStyle="FLAT" headfill="1" tailfill="1"/></hp:line></hp:run>\n    </hp:p>`;
+      }
+
+      const tagName = shapeType === "ellipse" ? "hp:ellipse" : "hp:rect";
+      const cornerRadiusAttr = shapeType === "roundRect" ? ' arcType="ROUND"' : "";
+      const textSubList = block.text ? `<hp:drawText textWidth="${widthHw}" textHeight="${heightHw}"><hp:subList><hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(block.text)}</hp:t></hp:run></hp:p></hp:subList></hp:drawText>` : "";
+      const fillBrushXml = fillColor === "none" ? `<hp:fillBrush><hp:winBrush faceColor="none" hatchColor="#FFFFFF" alpha="0"/></hp:fillBrush>` : `<hp:fillBrush><hp:winBrush faceColor="${fillColor}" hatchColor="#FFFFFF" alpha="0"/></hp:fillBrush>`;
+
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${idx}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES"${cornerRadiusAttr}><hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/><hp:pos treatAsChar="1" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="LINE" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="566" bottom="566"/><hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="FLAT" tailStyle="FLAT" headfill="1" tailfill="1"/>${fillBrushXml}${textSubList}</${tagName}></hp:run>\n    </hp:p>`;
+    }
+
     // 일반 문단
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
     if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
@@ -914,6 +1019,18 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.caption) yBlock.set("caption", block.caption);
         if (block.rawXml) yBlock.set("rawXml", block.rawXml);
         if (block.rawAttrs) yBlock.set("rawAttrs", block.rawAttrs);
+      } else if (block.type === "shape") {
+        yBlock.set("shapeType", block.shapeType);
+        if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
+        if (block.heightPt) yBlock.set("heightPt", block.heightPt);
+        if (block.fillColor) yBlock.set("fillColor", block.fillColor);
+        if (block.strokeColor) yBlock.set("strokeColor", block.strokeColor);
+        if (block.strokeWidth) yBlock.set("strokeWidth", block.strokeWidth);
+        const yText = new Y.Text(block.text || "");
+        yBlock.set("text", yText);
+        if (block.align) yBlock.set("align", block.align);
+        if (block.rawXml) yBlock.set("rawXml", block.rawXml);
+        if (block.rawAttrs) yBlock.set("rawAttrs", block.rawAttrs);
       }
       yBlocks.push([yBlock]);
     }
@@ -927,7 +1044,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
 
   for (let i = 0; i < yBlocks.length; i++) {
     const yBlock = yBlocks.get(i);
-    const type = yBlock.get("type") as "paragraph" | "table" | "equation" | "image";
+    const type = yBlock.get("type") as "paragraph" | "table" | "equation" | "image" | "shape";
     const id = (yBlock.get("id") as string) || `block_${i}`;
     const rawAttrs = yBlock.get("rawAttrs") as string | undefined;
 
@@ -1004,6 +1121,30 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         rawAttrs,
         rawXml,
       });
+    } else if (type === "shape") {
+      const shapeType = (yBlock.get("shapeType") as "rect" | "roundRect" | "ellipse" | "line") || "rect";
+      const widthPercent = (yBlock.get("widthPercent") as number) || 75;
+      const heightPt = (yBlock.get("heightPt") as number) || (shapeType === "line" ? 2 : 60);
+      const fillColor = (yBlock.get("fillColor") as string) || "#EFF6FF";
+      const strokeColor = (yBlock.get("strokeColor") as string) || "#2563EB";
+      const strokeWidth = (yBlock.get("strokeWidth") as number) || 1.5;
+      const yText = yBlock.get("text") as Y.Text | undefined;
+      const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const rawXml = yBlock.get("rawXml") as string | undefined;
+      blocks.push({
+        type: "shape",
+        id,
+        shapeType,
+        widthPercent,
+        heightPt,
+        fillColor,
+        strokeColor,
+        strokeWidth,
+        text: yText ? yText.toString() : "",
+        align,
+        rawAttrs,
+        rawXml,
+      });
     }
   }
 
@@ -1028,6 +1169,9 @@ export function hwpxCollabText(doc: Y.Doc): string {
       if (block.script) lines.push(`[수식] ${block.script}`);
     } else if (block.type === "image") {
       lines.push(`[그림] ${block.caption || "이미지"}`);
+    } else if (block.type === "shape") {
+      if (block.text) lines.push(`[도형] ${block.text}`);
+      else lines.push(`[도형: ${block.shapeType}]`);
     }
   }
 
