@@ -181,7 +181,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
   useEffect(() => {
     if (!currentMember) return;
-    const presence = joinCollabPresence(project.id, { id: currentMember.id, name: currentMember.name }, setEditors);
+    const presence = joinCollabPresence(project.id, { id: currentMember.id ?? currentMember.userId, name: currentMember.name ?? "팀원" }, setEditors);
     presenceRef.current = presence;
     return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -833,32 +833,32 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
         {/* 파일 목록 */}
         <WindowPanel id="workspace-files" title={`${currentFolder ? currentFolder.name : "워크스페이스"} · ${filtered.length}`} collapsible={false} style={cardStyle} bodyClassName="p-4">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 mb-3 text-sm flex-wrap">
-        <button
-          onClick={() => openFolder(null)}
-          {...(!locked && currentFolder ? dropHandlers("root") : {})}
-          className="font-600"
-          style={{ color: currentFolder ? "var(--primary-text)" : "var(--foreground)", ...dropStyle("root") }}
-        >
-          ⬡ 워크스페이스
-        </button>
-        {folderPath.map((f) => (
-          <span key={f.id} className="contents">
-            <span style={{ color: "var(--muted-foreground)" }}>/</span>
-            {f.id === currentFolder?.id ? (
-              <span className="font-700 flex items-center gap-1.5 min-w-0">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: f.color }} />
-                <span className="truncate">{f.name}</span>
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 mb-3 text-sm flex-wrap">
+            <button
+              onClick={() => openFolder(null)}
+              {...(!locked && currentFolder ? dropHandlers("root") : {})}
+              className="font-600"
+              style={{ color: currentFolder ? "var(--primary-text)" : "var(--foreground)", ...dropStyle("root") }}
+            >
+              ⬡ 워크스페이스
+            </button>
+            {folderPath.map((f) => (
+              <span key={f.id} className="contents">
+                <span style={{ color: "var(--muted-foreground)" }}>/</span>
+                {f.id === currentFolder?.id ? (
+                  <span className="font-700 flex items-center gap-1.5 min-w-0">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: f.color }} />
+                    <span className="truncate">{f.name}</span>
+                  </span>
+                ) : (
+                  <button onClick={() => openFolder(f.id)} {...(!locked ? dropHandlers(f.id) : {})} className="font-600 truncate min-w-0" style={{ color: "var(--primary-text)", ...dropStyle(f.id) }}>
+                    {f.name}
+                  </button>
+                )}
               </span>
-            ) : (
-              <button onClick={() => openFolder(f.id)} {...(!locked ? dropHandlers(f.id) : {})} className="font-600 truncate min-w-0" style={{ color: "var(--primary-text)", ...dropStyle(f.id) }}>
-                {f.name}
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
+            ))}
+          </div>
 
           {!locked && (
             <div
@@ -872,222 +872,222 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               {currentFolder ? `“${currentFolder.name}” 폴더에 업로드` : "워크스페이스 루트에 업로드"} — 파일을 끌어다 놓거나 클릭 · 파일당 최대 50MB
             </div>
           )}
-      <label className="block mb-3"><span className="sr-only">파일 검색</span>
-        <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full text-sm px-4 py-2 rounded-full border outline-none" style={{ background: "var(--card-glass)", borderColor: "var(--border)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }} />
-        {searchQuery.trim() && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>검색 결과 {filtered.length}개 · 본문은 현재 버전 기준</span>}
-      </label>
-      {/* Filter */}
-      <div className="flex gap-2 mb-3 flex-wrap">
-        {tags.map((t) => (
-          <button
-            key={t === null ? "all-tags" : `tag:${t}`}
-            onClick={() => setFilterTag(t)}
-            className="text-xs font-600 px-3 py-1.5 border transition-all"
-            style={{
-              background: filterTag === t ? "var(--primary)" : "var(--card)",
-              borderColor: filterTag === t ? "var(--primary)" : "var(--border)",
-              color: filterTag === t ? "#fff" : "var(--foreground)",
-              borderRadius: "var(--radius-sm)",
-            }}
-          >
-            {t ?? "전체"}
-            {t !== null && (
-              <span
-                className="ml-1.5 px-1 py-0.5 text-xs"
-                style={{ background: filterTag === t ? "rgba(255,255,255,0.25)" : "var(--muted)", borderRadius: "2px" }}
+          <label className="block mb-3"><span className="sr-only">파일 검색</span>
+            <input type="search" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setFilterTag(null); }} placeholder="프로젝트 전체 파일명·본문·태그·댓글 검색" className="block w-full text-sm px-4 py-2 rounded-full border outline-none" style={{ background: "var(--card-glass)", borderColor: "var(--border)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }} />
+            {searchQuery.trim() && <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>검색 결과 {filtered.length}개 · 본문은 현재 버전 기준</span>}
+          </label>
+          {/* Filter */}
+          <div className="flex gap-2 mb-3 flex-wrap">
+            {tags.map((t) => (
+              <button
+                key={t === null ? "all-tags" : `tag:${t}`}
+                onClick={() => setFilterTag(t)}
+                className="text-xs font-600 px-3 py-1.5 border transition-all"
+                style={{
+                  background: filterTag === t ? "var(--primary)" : "var(--card)",
+                  borderColor: filterTag === t ? "var(--primary)" : "var(--border)",
+                  color: filterTag === t ? "#fff" : "var(--foreground)",
+                  borderRadius: "var(--radius-sm)",
+                }}
               >
-                {searchScope.filter((f) => f.tags.includes(t)).length}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+                {t ?? "전체"}
+                {t !== null && (
+                  <span
+                    className="ml-1.5 px-1 py-0.5 text-xs"
+                    style={{ background: filterTag === t ? "rgba(255,255,255,0.25)" : "var(--muted)", borderRadius: "2px" }}
+                  >
+                    {searchScope.filter((f) => f.tags.includes(t)).length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
 
-      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>
-            파일 {filtered.length}개
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>
+                파일 {filtered.length}개
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label htmlFor="workspace-file-sort" className="text-xs shrink-0 font-600" style={{ color: "var(--muted-foreground)" }}>
+                  정렬
+                </label>
+                <select
+                  id="workspace-file-sort"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as FileSortOption)}
+                  className="text-xs px-2.5 py-1 border rounded-lg outline-none cursor-pointer transition-all"
+                  style={{
+                    background: "var(--card-glass)",
+                    borderColor: "var(--border)",
+                    color: "var(--foreground)",
+                    fontFamily: "var(--font-outfit)",
+                  }}
+                >
+                  <option value="manual">직접 정렬 (끌어서 순서 변경)</option>
+                  <option value="latest">최신순</option>
+                  <option value="oldest">오래된순</option>
+                  <option value="nameAsc">이름 오름차순</option>
+                  <option value="nameDesc">이름 내림차순</option>
+                  <option value="sizeDesc">크기 큰순</option>
+                  <option value="sizeAsc">크기 작은순</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {currentMember && (
+                <button
+                  type="button"
+                  onClick={() => setSyncOpen(true)}
+                  title="내 컴퓨터 폴더와 파일을 자동으로 맞춰요"
+                  className="text-xs font-700 px-3 py-1.5 transition-colors hover:bg-[var(--secondary)]"
+                  style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "20px" }}
+                >
+                  💻 동기화{syncCount > 0 && <span className="ml-1.5 font-600" style={{ color: "var(--primary-text)" }}>{syncCount}</span>}
+                </button>
+              )}
+              {visibleSelected.some(canDeleteFile) && (
+                <button
+                  onClick={() => void bulkDelete()}
+                  disabled={bulkDeleting}
+                  className="text-xs font-700 px-3 py-1.5 disabled:opacity-50"
+                  style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
+                >
+                  {bulkDeleting ? "삭제 중…" : `선택 삭제 (${visibleSelected.filter(canDeleteFile).length})`}
+                </button>
+              )}
+              {filtered.some(canDeleteFile) && (
+                <button
+                  onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); setBulkDeleteError(""); }}
+                  title={selectMode ? "선택 취소" : "여러 파일 선택해서 삭제"}
+                  aria-label={selectMode ? "선택 취소" : "여러 파일 선택해서 삭제"}
+                  className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
+                  style={{ background: selectMode ? "#ef4444" : "#ef444418", borderRadius: "20px" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={selectMode ? "#fff" : "#ef4444"} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <label htmlFor="workspace-file-sort" className="text-xs shrink-0 font-600" style={{ color: "var(--muted-foreground)" }}>
-              정렬
-            </label>
-            <select
-              id="workspace-file-sort"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as FileSortOption)}
-              className="text-xs px-2.5 py-1 border rounded-lg outline-none cursor-pointer transition-all"
-              style={{
-                background: "var(--card-glass)",
-                borderColor: "var(--border)",
-                color: "var(--foreground)",
-                fontFamily: "var(--font-outfit)",
-              }}
-            >
-              <option value="manual">직접 정렬 (끌어서 순서 변경)</option>
-              <option value="latest">최신순</option>
-              <option value="oldest">오래된순</option>
-              <option value="nameAsc">이름 오름차순</option>
-              <option value="nameDesc">이름 내림차순</option>
-              <option value="sizeDesc">크기 큰순</option>
-              <option value="sizeAsc">크기 작은순</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {currentMember && (
-            <button
-              type="button"
-              onClick={() => setSyncOpen(true)}
-              title="내 컴퓨터 폴더와 파일을 자동으로 맞춰요"
-              className="text-xs font-700 px-3 py-1.5 transition-colors hover:bg-[var(--secondary)]"
-              style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "20px" }}
-            >
-              💻 동기화{syncCount > 0 && <span className="ml-1.5 font-600" style={{ color: "var(--primary-text)" }}>{syncCount}</span>}
-            </button>
-          )}
-          {visibleSelected.some(canDeleteFile) && (
-            <button
-              onClick={() => void bulkDelete()}
-              disabled={bulkDeleting}
-              className="text-xs font-700 px-3 py-1.5 disabled:opacity-50"
-              style={{ background: "#ef444418", color: "#ef4444", borderRadius: "20px" }}
-            >
-              {bulkDeleting ? "삭제 중…" : `선택 삭제 (${visibleSelected.filter(canDeleteFile).length})`}
-            </button>
-          )}
-          {filtered.some(canDeleteFile) && (
-            <button
-              onClick={() => { setSelectMode((v) => !v); setSelectedIds(new Set()); setBulkDeleteError(""); }}
-              title={selectMode ? "선택 취소" : "여러 파일 선택해서 삭제"}
-              aria-label={selectMode ? "선택 취소" : "여러 파일 선택해서 삭제"}
-              className="w-8 h-8 flex items-center justify-center shrink-0 transition-all"
-              style={{ background: selectMode ? "#ef4444" : "#ef444418", borderRadius: "20px" }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={selectMode ? "#fff" : "#ef4444"} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                <path d="M10 11v6" />
-                <path d="M14 11v6" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-      {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
+          {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
           {bulkDeleteError && <p role="alert" className="mb-3 text-sm text-red-500">{bulkDeleteError}</p>}
           {confirmDialog}
 
-        <div
-          ref={listRef}
-          onPointerDown={startBand}
-          className="relative flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 pb-12"
-          style={{ userSelect: band ? "none" : undefined }}
-        >
-          {visibleSelected.length > 0 && !selectMode && (
-            <div className="sticky top-0 z-10 flex items-center gap-2 flex-wrap px-3 py-2 text-xs font-600" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }} role="status">
-              <span>파일 {visibleSelected.length}개 선택됨 · 끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요</span>
-              <button type="button" onClick={() => syncRef.current?.addDownload(visibleSelected.map((f) => f.id))} className="ml-auto px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }} title="고른 파일만 내 컴퓨터 폴더에 받아 두고, 새 버전이 생기면 다시 받아요">💻 로컬로 동기화</button>
-              <button type="button" onClick={() => setSelectedIds(new Set())} className="px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>선택 해제</button>
-            </div>
-          )}
-          {sortedFiles.map((f) => {
-            const tc = fileBadge(f);
-            const deletable = canDeleteFile(f);
-            const isSelected = selectMode || visibleSelected.length > 0 ? selectedIds.has(f.id) : selected === f.id;
-            return (
-              <button
-                key={f.id}
-                data-file-row={f.id}
-                draggable={!locked && !selectMode}
-                onDragStart={(e) => startFileDrag(e, f)}
-                onDragEnd={endDrag}
-                onDragOver={(e) => fileRowDragOver(e, f)}
-                onDragLeave={() => setDropSpot((cur) => (cur && !("into" in cur) && cur.kind === "file" && cur.id === f.id ? null : cur))}
-                onDrop={(e) => fileRowDrop(e, f)}
-                title={!locked && !selectMode ? "끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요 · Ctrl/⌘·Shift+클릭이나 빈 곳에서 끌어 여러 개 선택" : undefined}
-                onClick={(e) => clickFile(e, f, deletable)}
-                className="flex items-center gap-3 p-4 border text-left transition-all group"
-                style={{
-                  background: isSelected ? "var(--primary)" : "var(--card)",
-                  borderColor: isSelected ? "var(--primary)" : "var(--border)",
-                  color: isSelected ? "#fff" : "var(--foreground)",
-                  borderRadius: "var(--radius)",
-                  opacity: (selectMode && !deletable) || (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? 0.5 : 1,
-                  boxShadow: isSpot("file", f.id, "before") ? "0 -3px 0 var(--primary)" : isSpot("file", f.id, "after") ? "0 3px 0 var(--primary)" : undefined,
-                }}
-              >
-                {selectMode && (
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    disabled={!deletable}
-                    onChange={() => deletable && toggleSelected(f.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-4 h-4 shrink-0"
-                    aria-label={`${f.name} 선택`}
-                  />
-                )}
-                {/* Type badge */}
-                <div
-                  className="w-9 h-9 flex items-center justify-center text-xs font-700 shrink-0"
-                  style={{ background: isSelected ? "rgba(255,255,255,0.2)" : tc.bg, color: isSelected ? "#fff" : tc.color, borderRadius: "var(--radius-sm)", fontSize: tc.label.length > 4 ? 10 : undefined }}
+          <div
+            ref={listRef}
+            onPointerDown={startBand}
+            className="relative flex flex-col gap-2 max-h-[580px] overflow-y-auto pr-1 pb-12"
+            style={{ userSelect: band ? "none" : undefined }}
+          >
+            {visibleSelected.length > 0 && !selectMode && (
+              <div className="sticky top-0 z-10 flex items-center gap-2 flex-wrap px-3 py-2 text-xs font-600" style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }} role="status">
+                <span>파일 {visibleSelected.length}개 선택됨 · 끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요</span>
+                <button type="button" onClick={() => syncRef.current?.addDownload(visibleSelected.map((f) => f.id))} className="ml-auto px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }} title="고른 파일만 내 컴퓨터 폴더에 받아 두고, 새 버전이 생기면 다시 받아요">💻 로컬로 동기화</button>
+                <button type="button" onClick={() => setSelectedIds(new Set())} className="px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>선택 해제</button>
+              </div>
+            )}
+            {sortedFiles.map((f) => {
+              const tc = fileBadge(f);
+              const deletable = canDeleteFile(f);
+              const isSelected = selectMode || visibleSelected.length > 0 ? selectedIds.has(f.id) : selected === f.id;
+              return (
+                <button
+                  key={f.id}
+                  data-file-row={f.id}
+                  draggable={!locked && !selectMode}
+                  onDragStart={(e) => startFileDrag(e, f)}
+                  onDragEnd={endDrag}
+                  onDragOver={(e) => fileRowDragOver(e, f)}
+                  onDragLeave={() => setDropSpot((cur) => (cur && !("into" in cur) && cur.kind === "file" && cur.id === f.id ? null : cur))}
+                  onDrop={(e) => fileRowDrop(e, f)}
+                  title={!locked && !selectMode ? "끌어서 폴더로 옮기거나 순서를 바꿀 수 있어요 · Ctrl/⌘·Shift+클릭이나 빈 곳에서 끌어 여러 개 선택" : undefined}
+                  onClick={(e) => clickFile(e, f, deletable)}
+                  className="flex items-center gap-3 p-4 border text-left transition-all group"
+                  style={{
+                    background: isSelected ? "var(--primary)" : "var(--card)",
+                    borderColor: isSelected ? "var(--primary)" : "var(--border)",
+                    color: isSelected ? "#fff" : "var(--foreground)",
+                    borderRadius: "var(--radius)",
+                    opacity: (selectMode && !deletable) || (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? 0.5 : 1,
+                    boxShadow: isSpot("file", f.id, "before") ? "0 -3px 0 var(--primary)" : isSpot("file", f.id, "after") ? "0 3px 0 var(--primary)" : undefined,
+                  }}
                 >
-                  {tc.label}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-600 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
-                  {searchQuery.trim() && contentSnippet(currentFileText(f), searchQuery) && <p className="text-xs mt-1 line-clamp-2 break-words"><SearchHighlight text={contentSnippet(currentFileText(f), searchQuery)} query={searchQuery} /></p>}
-                  <div className="flex items-center gap-x-2 gap-y-0 flex-wrap mt-0.5 whitespace-nowrap" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
-                    <span className="text-xs">{f.uploader}</span>
-                    <span className="text-xs">·</span>
-                    <span className="text-xs" style={{ fontFamily: "var(--font-jetbrains)" }}>{latestFileUploadTime(f)}</span>
-                    <span className="text-xs">·</span>
-                    <span className="text-xs">{f.size}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <span
-                    className="text-xs px-1.5 py-0.5 font-600"
-                    style={{ background: isSelected ? "rgba(255,255,255,0.2)" : `${tagColors[f.tag] || "#6b7280"}18`, color: isSelected ? "#fff" : tagColors[f.tag] || "#6b7280", borderRadius: "3px" }}
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={!deletable}
+                      onChange={() => deletable && toggleSelected(f.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 shrink-0"
+                      aria-label={`${f.name} 선택`}
+                    />
+                  )}
+                  {/* Type badge */}
+                  <div
+                    className="w-9 h-9 flex items-center justify-center text-xs font-700 shrink-0"
+                    style={{ background: isSelected ? "rgba(255,255,255,0.2)" : tc.bg, color: isSelected ? "#fff" : tc.color, borderRadius: "var(--radius-sm)", fontSize: tc.label.length > 4 ? 10 : undefined }}
                   >
-                    {f.tags.join(" · ") || "태그 없음"}
-                  </span>
-                  <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary-text)" }}>
-                    {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
-                  </span>
-                  {editors.some((e) => e.fileId === f.id) && (
-                    <span className="flex items-center gap-1 text-xs font-600" style={{ color: isSelected ? "#fde68a" : "#d97706" }}>
-                      ✏️ <EditorAvatars editors={editors.filter((e) => e.fileId === f.id)} size={20} />
-                    </span>
-                  )}
-                  {f.comments.length > 0 && (
-                    <span
-                      className="text-xs font-600 flex items-center gap-1"
-                      style={{ color: isSelected ? "rgba(255,255,255,0.8)" : "var(--muted-foreground)" }}
-                    >
-                      💬 {f.comments.length}
-                    </span>
-                  )}
-                </div>
-              </button>
-            );
-          })}
+                    {tc.label}
+                  </div>
 
-          {filtered.length === 0 && (
-            <div className="border-2 border-dashed p-8 text-center" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
-              {searchQuery.trim() ? "검색 결과가 없습니다" : currentFolder ? "이 폴더에는 파일이 없습니다" : "루트에 저장된 파일이 없습니다 (위 폴더를 열어보세요)"}
-            </div>
-          )}
-          {band && (
-            <div aria-hidden="true" className="absolute pointer-events-none" style={{
-              left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0),
-              background: "rgba(74,116,181,0.12)", border: "1px solid rgba(74,116,181,0.6)", borderRadius: 4,
-            }} />
-          )}
-        </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-600 truncate"><SearchHighlight text={f.name} query={searchQuery} /></div>
+                    {searchQuery.trim() && contentSnippet(currentFileText(f), searchQuery) && <p className="text-xs mt-1 line-clamp-2 break-words"><SearchHighlight text={contentSnippet(currentFileText(f), searchQuery)} query={searchQuery} /></p>}
+                    <div className="flex items-center gap-x-2 gap-y-0 flex-wrap mt-0.5 whitespace-nowrap" style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "var(--muted-foreground)" }}>
+                      <span className="text-xs">{f.uploader}</span>
+                      <span className="text-xs">·</span>
+                      <span className="text-xs" style={{ fontFamily: "var(--font-jetbrains)" }}>{latestFileUploadTime(f)}</span>
+                      <span className="text-xs">·</span>
+                      <span className="text-xs">{f.size}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className="text-xs px-1.5 py-0.5 font-600"
+                      style={{ background: isSelected ? "rgba(255,255,255,0.2)" : `${tagColors[f.tag] || "#6b7280"}18`, color: isSelected ? "#fff" : tagColors[f.tag] || "#6b7280", borderRadius: "3px" }}
+                    >
+                      {f.tags.join(" · ") || "태그 없음"}
+                    </span>
+                    <span className="text-xs font-600" style={{ fontFamily: "var(--font-jetbrains)", color: isSelected ? "rgba(255,255,255,0.8)" : "var(--primary-text)" }}>
+                      {f.versions.find((v) => v.current)?.version ?? "버전 없음"}
+                    </span>
+                    {editors.some((e) => e.fileId === f.id) && (
+                      <span className="flex items-center gap-1 text-xs font-600" style={{ color: isSelected ? "#fde68a" : "#d97706" }}>
+                        ✏️ <EditorAvatars editors={editors.filter((e) => e.fileId === f.id)} size={20} />
+                      </span>
+                    )}
+                    {f.comments.length > 0 && (
+                      <span
+                        className="text-xs font-600 flex items-center gap-1"
+                        style={{ color: isSelected ? "rgba(255,255,255,0.8)" : "var(--muted-foreground)" }}
+                      >
+                        💬 {f.comments.length}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+
+            {filtered.length === 0 && (
+              <div className="border-2 border-dashed p-8 text-center" style={{ borderColor: "var(--border)", borderRadius: "var(--radius)", color: "var(--muted-foreground)", ...lineSafeStyle }}>
+                {searchQuery.trim() ? "검색 결과가 없습니다" : currentFolder ? "이 폴더에는 파일이 없습니다" : "루트에 저장된 파일이 없습니다 (위 폴더를 열어보세요)"}
+              </div>
+            )}
+            {band && (
+              <div aria-hidden="true" className="absolute pointer-events-none" style={{
+                left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0),
+                background: "rgba(74,116,181,0.12)", border: "1px solid rgba(74,116,181,0.6)", borderRadius: 4,
+              }} />
+            )}
+          </div>
         </WindowPanel>
 
         {/* 파일 상세 */}
@@ -1186,22 +1186,22 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 <button type="button" onClick={() => setSyncOpen(false)} className="text-xs font-600 px-2.5 py-1" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>닫기</button>
               </div>
               <WorkspaceLocalSync
-          ref={syncRef}
-          projectId={project.id}
-          userId={currentMember.userId ?? currentMember.id}
-          locked={locked}
-          ready={!loading}
-          files={files}
-          folders={folders}
-          currentFolderId={currentFolderId}
-          folderLabel={(id) => { const f = id === null ? null : folderById.get(id) ?? null; return f ? pathOf(f).map((x) => x.name).join(" / ") : "워크스페이스 루트"; }}
-          upload={uploadWorkspaceFile}
-          createFolder={addFolder}
-          load={downloadFileVersion}
-          embedded
-          onRequestOpen={() => setSyncOpen(true)}
-          onLinksChange={setSyncCount}
-        />
+                ref={syncRef}
+                projectId={project.id}
+                userId={currentMember.userId ?? currentMember.id}
+                locked={locked}
+                ready={!loading}
+                files={files}
+                folders={folders}
+                currentFolderId={currentFolderId}
+                folderLabel={(id) => { const f = id === null ? null : folderById.get(id) ?? null; return f ? pathOf(f).map((x) => x.name).join(" / ") : "워크스페이스 루트"; }}
+                upload={uploadWorkspaceFile}
+                createFolder={addFolder}
+                load={downloadFileVersion}
+                embedded
+                onRequestOpen={() => setSyncOpen(true)}
+                onLinksChange={setSyncCount}
+              />
             </WindowPanel>
           </div>
         </div>

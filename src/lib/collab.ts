@@ -38,7 +38,8 @@ export function joinCollabPresence(projectId: string, me: { id: string; name: st
 
 // 커서 색: 사람마다 늘 같은 색(편집기 커서 플러그인이 #rrggbb 형식만 받는다).
 const CURSOR_COLORS = ["#ef4444", "#f97316", "#d97706", "#16a34a", "#0d9488", "#0284c7", "#4f46e5", "#9333ea", "#db2777", "#65a30d"];
-export function cursorColor(id: string): string {
+export function cursorColor(id?: string | null): string {
+  if (!id) return CURSOR_COLORS[0];
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return CURSOR_COLORS[hash % CURSOR_COLORS.length];
@@ -51,7 +52,7 @@ export interface CursorUser { name: string; color: string; }
 export interface CollabRoom { awareness: Awareness; head: () => number; savedKey: () => string; markSaved: (head: number, key: string) => void; destroy: () => void; }
 export function connectCollabRoom(doc: Y.Doc, opts: { projectId: string; fileId: number; room: number; mode: CollabMode; initialKey: string; me?: { id: string; name: string }; awareness?: Awareness; onSaved: () => void }): CollabRoom {
   const awareness = opts.awareness ?? new Awareness(doc);
-  const user: CursorUser | null = opts.me ? { name: opts.me.name, color: cursorColor(opts.me.id) } : null;
+  const user: CursorUser | null = opts.me ? { name: opts.me.name || "익명", color: cursorColor(opts.me.id) } : null;
   if (user) awareness.setLocalState({ ...awareness.getLocalState(), user });
   let head = opts.room; let saved = opts.initialKey; const topic = `collab_doc:${opts.projectId}:${opts.fileId}:${opts.room}:${opts.mode}`;
   let pending: Uint8Array[] = []; let flushTimer: number | undefined;

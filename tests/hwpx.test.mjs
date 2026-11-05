@@ -50,3 +50,4 @@ test('extractWorkspaceText: .hwpx 파일에서 텍스트를 검색용으로 정�
   assert.equal(result.status, 'ready');
   assert.equal(result.text, '프로젝트 협업 워크스페이스 한글 문서');
 });
+
