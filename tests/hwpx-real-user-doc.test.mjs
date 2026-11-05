@@ -1,24 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "fs";
-import * as fflate from "fflate";
 import * as Y from "yjs";
 import { initHwpxYDoc, extractBlocksFromYDoc, serializeBlocksToHwpxPackage, parseHwpxXmlToBlocks, extractHwpxImageMap } from "../src/lib/hwpxCollab.ts";
+import { readZipEntries } from "../src/lib/hwpx.ts";
 
 test("hwpxCollab: 대용량 논문 문서(인라인 수식 54개, 이미지 5개) 편집 시 수식·그림 무손실 보존 및 서식 ID 유지", async () => {
   if (!fs.existsSync("f11.hwpx")) {
     return; // 파일이 없으면 스킵
   }
   const f11Bytes = fs.readFileSync("f11.hwpx");
-  const unzipped = fflate.unzipSync(new Uint8Array(f11Bytes));
-  const sec0Str = new TextDecoder().decode(unzipped["Contents/section0.xml"]);
-  const headerStr = new TextDecoder().decode(unzipped["Contents/header.xml"]);
-
-  // 0. 이미지 맵 추출
-  const entriesMap = new Map();
-  for (const [k, v] of Object.entries(unzipped)) {
-    entriesMap.set(k, v);
-  }
+  const entriesMap = await readZipEntries(new Uint8Array(f11Bytes));
+  const sec0Str = new TextDecoder().decode(entriesMap.get("Contents/section0.xml"));
+  const headerStr = new TextDecoder().decode(entriesMap.get("Contents/header.xml"));
   const imageMap = extractHwpxImageMap(entriesMap);
 
   // 1. 파싱 (인라인 수식이 문단을 찢지 않고 자연스럽게 139개 문단으로 통합됨)
