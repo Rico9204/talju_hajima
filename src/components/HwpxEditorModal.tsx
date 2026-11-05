@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
@@ -115,7 +115,7 @@ function AutoResizeTextarea({
     el.style.height = `${el.scrollHeight}px`;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     resize();
   }, [value]);
 
@@ -129,7 +129,7 @@ function AutoResizeTextarea({
       }}
       rows={1}
       placeholder={placeholder}
-      className={`${className ?? ""} overflow-hidden resize-none whitespace-pre-wrap break-words`}
+      className={`${className ?? ""} overflow-hidden resize-none whitespace-pre-wrap break-words block`}
       style={{
         ...style,
         boxSizing: "border-box",
@@ -347,9 +347,9 @@ function HwpxEditorModalInner({
         )}
 
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center bg-[#181825]/90">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90">
           <div
-            className="w-full max-w-[800px] min-h-[1050px] px-10 sm:px-16 py-12 sm:py-16 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200"
+            className="w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0"
             style={{
               fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
               boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
