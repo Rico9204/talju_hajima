@@ -126,6 +126,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const anchorRef = useRef<number | null>(null); // Shift+클릭 범위 선택의 시작 파일
   const [moveError, setMoveError] = useState("");
   const [editError, setEditError] = useState("");
+  const [hwpxWarning, setHwpxWarning] = useState<{ message: string; file: WorkspaceFile; room: number; mode: "main" | "pin"; text: string } | null>(null);
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const [detailPanelHeight, setDetailPanelHeight] = useState<{ key: string; height: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -205,7 +206,13 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       if (isHwpxName(fileName)) {
         const inspection = await inspectHwpx(blob);
         if (!inspection.canQuickEdit) {
-          setEditError(inspection.reason ?? "복합 서식 보호를 위해 바로 수정을 지원하지 않는 문서입니다.");
+          setHwpxWarning({
+            message: inspection.reason ?? "표, 그림, 수식 등 복합 서식이 포함된 한글 문서는 바로 수정 시 서식이 손상될 수 있습니다.",
+            file: f,
+            room: base.id,
+            mode,
+            text: inspection.text,
+          });
           return;
         }
         setEditing({ fileId: f.id, room: base.id, mode, initialText: inspection.text });
@@ -463,7 +470,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const fileName = base?.originalName ?? f.name;
     if (isHwpxName(fileName)) {
       const baseBlob = await downloadFileVersion(room);
-      const updatedHwpxBytes = await updateHwpxBytes(await baseBlob.arrayBuffer(), text);
+      const updatedHwpxBytes = await updateHwpxBytes(await baseBlob.arrayBuffer(), text, true);
       const result = await uploadWorkspaceFile({
         file: new File([new Uint8Array(updatedHwpxBytes)], fileName, { type: HWPX_MIME }),
         fileId: f.id,
@@ -1207,6 +1214,43 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 onLinksChange={setSyncCount}
               />
             </WindowPanel>
+          </div>
+        </div>
+      )}
+      {hwpxWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md p-6 rounded-2xl shadow-2xl border" style={{ background: "var(--card-bg, #181926)", borderColor: "var(--card-border, #363a4f)", color: "var(--primary-text, #cad3f5)" }}>
+            <div className="flex items-center gap-3 mb-3 text-amber-400">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-base font-bold">복합 서식 한글 문서 안내</h3>
+            </div>
+            <p className="text-sm leading-relaxed mb-4 whitespace-pre-line text-neutral-300">
+              {hwpxWarning.message}
+            </p>
+            <p className="text-xs leading-relaxed mb-6 text-neutral-400 bg-black/20 p-3 rounded-lg border border-neutral-700/50">
+              💡 <b>권장:</b> 표나 수식 서식을 그대로 보존하려면 <b>[취소]</b> 후 원본을 다운로드하여 한컴오피스 프로그램에서 편집하세요.<br/><br/>
+              서식 손상을 감수하고 텍스트 내용만 급하게 수정하시려면 아래 <b>[계속 수정하기]</b>를 누르세요.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setHwpxWarning(null)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer border border-neutral-600 hover:bg-neutral-700/40"
+              >
+                취소 (서식 보존)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const warn = hwpxWarning;
+                  setHwpxWarning(null);
+                  setEditing({ fileId: warn.file.id, room: warn.room, mode: warn.mode, initialText: warn.text });
+                }}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer bg-amber-500 hover:bg-amber-400 text-black font-bold"
+              >
+                계속 수정하기
+              </button>
+            </div>
           </div>
         </div>
       )}

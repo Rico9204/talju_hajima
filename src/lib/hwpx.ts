@@ -403,9 +403,9 @@ export function updateHwpxSectionXml(originalXml: string, newText: string): stri
 }
 
 // ── 기존 HWPX 파일의 본문 수정 후 ZIP 재패키징 ──
-export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, newText: string): Promise<Uint8Array> {
+export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, newText: string, force = false): Promise<Uint8Array> {
   const inspection = await inspectHwpx(originalHwpx);
-  if (!inspection.canQuickEdit) {
+  if (!inspection.canQuickEdit && !force) {
     throw new Error(inspection.reason ?? "복합 서식 또는 다중 섹션이 포함된 HWPX 문서는 빠른 편집을 지원하지 않습니다.");
   }
 
@@ -413,6 +413,15 @@ export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, ne
   const sectionKey = Array.from(entries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
   const existingSection = entries.get(sectionKey);
   const originalXml = existingSection ? new TextDecoder().decode(existingSection) : "";
+
+  // 다중 섹션 강제 덮어쓰기 시 섹션 간 내용 중복 증식 방지
+  if (force && inspection.sectionCount > 1) {
+    for (const k of Array.from(entries.keys())) {
+      if (/^Contents\/section\d+\.xml$/i.test(k) && !k.toLowerCase().endsWith("section0.xml")) {
+        entries.delete(k);
+      }
+    }
+  }
 
   const updatedXml = updateHwpxSectionXml(originalXml, newText);
   entries.set(sectionKey, new TextEncoder().encode(updatedXml));
