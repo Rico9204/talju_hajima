@@ -164,9 +164,10 @@ function HwpxEditorModalInner({
   save: (bytes: Uint8Array, text: string, baseVersionId: number, auto: boolean) => Promise<number>;
   onClose: () => void;
 }) {
-  // Yjs 상태 바이트를 생성하여 useCollabFile에 공급
+  // Yjs 상태 바이트를 생성하여 useCollabFile에 공급 (모든 참여자가 고정 clientID=1로 초기화하여 CRDT 중복 시드 방지)
   const [seedBytes] = useState(() => {
     const seed = new Y.Doc();
+    seed.clientID = 1;
     initHwpxYDoc(seed, initialBlocks);
     return Y.encodeStateAsUpdate(seed);
   });
@@ -367,7 +368,7 @@ function HwpxEditorModalInner({
                   const fontSize = block.sizePt ? `${block.sizePt}pt` : isTitle ? "16pt" : "10pt";
 
                   return (
-                    <div key={block.id} className="w-full">
+                    <div key={`${block.id}_${idx}`} className="w-full">
                       {showPageBreak && (
                         <div className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none">
                           <div className="h-[1px] flex-1 bg-neutral-300" />
@@ -405,7 +406,7 @@ function HwpxEditorModalInner({
 
                 if (block.type === "table") {
                   return (
-                    <div key={block.id} className="my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white">
+                    <div key={`${block.id}_${idx}`} className="my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white">
                       <table className="w-full border-collapse border-b border-neutral-800 text-xs text-neutral-900 bg-white">
                         <tbody>
                           {block.rows.map((row, rIdx) => {
@@ -433,7 +434,7 @@ function HwpxEditorModalInner({
 
                 if (block.type === "equation") {
                   return (
-                    <div key={block.id} className="my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3">
+                    <div key={`${block.id}_${idx}`} className="my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3">
                       <span className="text-xs font-bold text-neutral-500 select-none">∑ 수식</span>
                       <input
                         type="text"
