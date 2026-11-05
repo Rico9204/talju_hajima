@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { Fixture } from "./workspace-context";
+import Sidebar from "../../src/components/Sidebar";
 import Workspace from "../../src/components/Workspace";
 import BoardView from "../../src/components/BoardView";
 import "../../src/index.css";
@@ -18,48 +19,59 @@ function LocalPreviewApp() {
   const [tab, setTab] = useState<"workspace" | "board">("workspace");
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-foreground flex flex-col">
-      <header className="px-6 py-2.5 border-b border-[var(--border)] bg-[var(--card)] flex items-center justify-between sticky top-0 z-40 shadow-xs">
+    <div className="h-screen w-screen bg-[var(--background)] text-foreground flex flex-col overflow-hidden">
+      {/* Top Banner with Quick Switcher */}
+      <header className="px-6 py-2 border-b border-[var(--border)] bg-[var(--card)] flex items-center justify-between shrink-0 z-40 shadow-xs">
         <div className="flex items-center gap-3">
-          <span className="font-800 text-sm tracking-tight flex items-center gap-1.5">
-            <span className="w-6 h-6 rounded-md bg-[var(--primary)] text-white flex items-center justify-center text-xs font-bold">SP</span>
-            오프라인 로컬 테스트
+          <span className="font-800 text-xs tracking-tight flex items-center gap-1.5">
+            <span className="w-5 h-5 rounded bg-[var(--primary)] text-white flex items-center justify-center text-[10px] font-bold">SP</span>
+            실제 사이드바 포함 로컬 테스트
           </span>
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 font-semibold border border-emerald-500/20">
-            🟢 백엔드 서버 없이 브라우저에서 100% 동작 중
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 font-semibold border border-emerald-500/20">
+            🟢 백엔드 서버 없이 브라우저에서 100% 동작
           </span>
         </div>
-        <div className="flex items-center gap-1.5 bg-[var(--surface-opaque)] p-1 rounded-xl border border-[var(--border)]">
+        <div className="flex items-center gap-1 bg-[var(--surface-opaque)] p-1 rounded-xl border border-[var(--border)]">
           <button
             type="button"
             onClick={() => setTab("workspace")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               tab === "workspace" ? "bg-[var(--primary)] text-white shadow-xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            📁 워크스페이스 (드래그 박스 여백 & HWPX)
+            📁 워크스페이스 (실제 사이드바 + 드래그 여백)
           </button>
           <button
             type="button"
             onClick={() => setTab("board")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               tab === "board" ? "bg-[var(--primary)] text-white shadow-xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            💬 게시판 (1560px 와이드 너비)
+            💬 게시판 (실제 사이드바 + 1560px 와이드)
           </button>
         </div>
       </header>
 
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
-        {tab === "workspace" ? (
-          <Workspace />
-        ) : (
-          <div className="max-w-[1560px] mx-auto w-full transition-all">
-            <BoardView />
-          </div>
-        )}
-      </main>
+      {/* Real Application Shell: Left Sidebar (w-60) + Main Content on Right */}
+      <div className="relative flex flex-1 h-full w-full overflow-hidden">
+        <Sidebar
+          currentPage={tab === "workspace" ? "workspace" : ("dashboard" as any)}
+          onNavigate={(p) => {
+            if (p === "workspace") setTab("workspace");
+          }}
+          onHome={() => setTab("board")}
+        />
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 md:p-8">
+          {tab === "workspace" ? (
+            <Workspace />
+          ) : (
+            <div className="max-w-[1560px] mx-auto w-full transition-all">
+              <BoardView />
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
