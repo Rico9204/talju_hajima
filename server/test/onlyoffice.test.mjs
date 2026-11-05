@@ -159,3 +159,21 @@ test('설정이 없으면 꺼져 있다', async () => {
     await off.app.close();
   }
 });
+
+test('1-3: extractHwpxBufferText 손상된 버퍼 입력 시 무한 루프 없이 null 반환', async () => {
+  const { extractHwpxBufferText } = await import('../dist/onlyoffice.js');
+  // 1. 완전히 깨진 임의의 바이트
+  const corrupted = Buffer.from('PK\x03\x04 corrupt zip payload that will fail inflate');
+  const res1 = await extractHwpxBufferText(corrupted);
+  assert.equal(res1, null);
+
+  // 2. 빈 버퍼
+  const res2 = await extractHwpxBufferText(Buffer.alloc(0));
+  assert.equal(res2, null);
+
+  // 3. EOCD만 있고 레코드가 깨진 버퍼
+  const fakeEocd = Buffer.alloc(30);
+  fakeEocd.writeUInt32LE(0x06054b50, 0); // EOCD signature
+  const res3 = await extractHwpxBufferText(fakeEocd);
+  assert.equal(res3, null);
+});

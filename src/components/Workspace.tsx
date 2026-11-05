@@ -12,7 +12,7 @@ import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
 import { isSlidesName, newSlidesBytes, SLIDES_EXT, SLIDES_MIME } from "../lib/slidesDoc";
-import { extractHwpxText, HWPX_EXT, HWPX_MIME, isHwpxName, newHwpxBytes, updateHwpxBytes } from "../lib/hwpx";
+import { extractHwpxText, HWPX_EXT, HWPX_MIME, inspectHwpx, isHwpxName, newHwpxBytes, updateHwpxBytes } from "../lib/hwpx";
 import { collabImageName, type CollabImageStore } from "../lib/collabImages";
 import { MAX_SEARCH_TEXT } from "../lib/workspaceSearch";
 import EditorAvatars from "./EditorAvatars";
@@ -203,8 +203,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
       }
       const fileName = base.originalName ?? f.name;
       if (isHwpxName(fileName)) {
-        const text = await extractHwpxText(blob);
-        setEditing({ fileId: f.id, room: base.id, mode, initialText: text });
+        const inspection = await inspectHwpx(blob);
+        if (!inspection.canQuickEdit) {
+          setEditError(inspection.reason ?? "복합 서식 보호를 위해 바로 수정을 지원하지 않는 문서입니다.");
+          return;
+        }
+        setEditing({ fileId: f.id, room: base.id, mode, initialText: inspection.text });
         return;
       }
       setEditing({ fileId: f.id, room: base.id, mode, initialText: await blob.text() });

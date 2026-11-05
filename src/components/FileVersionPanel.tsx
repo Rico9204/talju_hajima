@@ -152,12 +152,12 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
         setPreview({ html, text: text || "이 Office 파일에서 미리 볼 수 있는 텍스트를 찾지 못했습니다.", kind: html ? "office" : "text", name });
       }
     } else if (ext === "hwpx") {
-      let text = v.searchText ?? "";
-      if (!text) {
-        try {
-          const { extractHwpxText } = await import("../lib/hwpx");
-          text = await extractHwpxText(blob);
-        } catch { /* ignore */ }
+      let text = "";
+      try {
+        const { extractHwpxText } = await import("../lib/hwpx");
+        text = await extractHwpxText(blob);
+      } catch {
+        text = v.searchText ?? "";
       }
       if (mounted.current) {
         setPreview({ text: text || "이 한글(HWPX) 파일에서 미리 볼 수 있는 텍스트가 없습니다.", kind: "text", name });
@@ -179,10 +179,11 @@ export default function FileVersionPanel({ file, searchQuery = "", onViewingVers
     if (EDITABLE_TEXT_EXTENSIONS.includes(ext) && v.storagePath) text = await (await downloadFileVersion(v.id)).text();
     else if (ext === "zip" && v.storagePath) text = zipEntriesText(await listZipEntries(await downloadFileVersion(v.id)).catch(() => [])) || null; // 들어 있는 파일 목록끼리 비교
     else if (ext === "hwpx" && v.storagePath) {
-      if (v.searchText) text = v.searchText;
-      else {
+      try {
         const { extractHwpxText } = await import("../lib/hwpx");
-        text = await extractHwpxText(await downloadFileVersion(v.id)).catch(() => null);
+        text = await extractHwpxText(await downloadFileVersion(v.id));
+      } catch {
+        text = v.searchText ?? null;
       }
     }
     else if (v.searchText) text = v.searchText; // docx/pptx/pdf 등은 검색용 추출 텍스트로 비교

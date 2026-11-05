@@ -1,7 +1,7 @@
 // HWPX(한글 표준 문서, KS X 6101 OWPML) 읽기·수정·생성 모듈.
-// HWPX 파일은 ZIP 컨테이너 구조로, 본문은 Contents/section0.xml에 저장된다.
+// HWPX 파일은 ZIP 컨테이너 구조로, 본문은 Contents/section*.xml에 저장된다.
 // 웹 표준 CompressionStream / DecompressionStream을 사용하여 별도 무거운 외부 의존성 없이
-// HWPX 본문 텍스트 추출, 수정 후 ZIP 재패키징, 빈 HWPX 템플릿 생성을 지원한다.
+// HWPX 본문 텍스트 추출, 복합 서식 보호, 수정 후 ZIP 재패키징, 빈 HWPX 템플릿 생성을 지원한다.
 
 export const HWPX_EXT = "hwpx";
 export const HWPX_MIME = "application/hnc+zip";
@@ -28,8 +28,8 @@ function crc32(buf: Uint8Array): number {
 async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream("deflate-raw");
   const writer = ds.writable.getWriter();
-  writer.write(data as unknown as BufferSource);
-  void writer.close();
+  await writer.write(data as unknown as BufferSource);
+  await writer.close();
   const reader = ds.readable.getReader();
   const chunks: Uint8Array[] = [];
   while (true) {
@@ -47,8 +47,8 @@ async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
 async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
   const cs = new CompressionStream("deflate-raw");
   const writer = cs.writable.getWriter();
-  writer.write(data as unknown as BufferSource);
-  void writer.close();
+  await writer.write(data as unknown as BufferSource);
+  await writer.close();
   const reader = cs.readable.getReader();
   const chunks: Uint8Array[] = [];
   while (true) {
@@ -202,8 +202,8 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
   return result;
 }
 
-// ── XML 문자열 이스케이프 ──
-function escapeXml(unsafe: string): string {
+// ── XML 문자열 엔티티 인코딩 / 디코딩 ──
+export function escapeXml(unsafe: string): string {
   return unsafe.replace(/[<>&'"]/g, (c) => {
     switch (c) {
       case "<": return "&lt;";
@@ -216,33 +216,93 @@ function escapeXml(unsafe: string): string {
   });
 }
 
-function unescapeXml(safe: string): string {
-  return safe.replace(/&(?:lt|gt|amp|apos|quot);/g, (entity) => {
-    switch (entity) {
-      case "&lt;": return "<";
-      case "&gt;": return ">";
-      case "&amp;": return "&";
-      case "&apos;": return "'";
-      case "&quot;": return '"';
-      default: return entity;
+export function decodeXmlEntities(str: string): string {
+  return str.replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|(amp|lt|gt|quot|apos));/g, (_, hex, dec, named) => {
+    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    if (dec) return String.fromCodePoint(parseInt(dec, 10));
+    switch (named) {
+      case "amp": return "&";
+      case "lt": return "<";
+      case "gt": return ">";
+      case "quot": return '"';
+      case "apos": return "'";
+      default: return _;
     }
   });
 }
 
-// ── HWPX XML 본문 파싱 ──
-export function extractHwpxSectionText(xmlStr: string): string {
-  const paragraphs: string[] = [];
-  const pMatches = xmlStr.matchAll(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/g);
-  for (const pMatch of pMatches) {
-    const pContent = pMatch[1];
-    const tMatches = pContent.matchAll(/<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g);
-    const runs: string[] = [];
-    for (const t of tMatches) {
-      runs.push(unescapeXml(t[1]));
+// ── HWPX XML 본문 파싱 (표·셀프클로징·엔티티·자식태그 완벽 지원) ──
+export interface HwpxSectionParseResult {
+  text: string;
+  hasComplexElements: boolean;
+}
+
+export function parseHwpxSectionXml(xmlStr: string): HwpxSectionParseResult {
+  const paragraphStack: string[][] = [];
+  const finishedParagraphs: string[] = [];
+  let insideTextRun = false;
+  let hasComplexElements = false;
+
+  // 태그 매칭: <tag ...>, </tag>, <tag ... />, 또는 텍스트 노드
+  const tokenRegex = /<(\/)?([a-zA-Z0-9_:]+)((?:\s+[^>]*)?)(\/?)>|([^<]+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenRegex.exec(xmlStr)) !== null) {
+    const isClosing = !!match[1];
+    const tagName = match[2]?.toLowerCase();
+    const attrs = match[3] || "";
+    const isSelfClosing = !!match[4] || attrs.trim().endsWith("/");
+    const textContent = match[5];
+
+    if (tagName) {
+      const localName = tagName.split(":").pop()!;
+
+      // 표, 그림, 도형, 수식, 차트, 비디오 등 복합 서식 요소 감지
+      if ([
+        "tbl", "pic", "drawobj", "equation", "ole", "chart",
+        "rect", "ellipse", "line", "curve", "polygon", "arc",
+        "container", "video", "media", "formobject", "linesegarray"
+      ].includes(localName)) {
+        hasComplexElements = true;
+      }
+
+      if (localName === "p") {
+        if (!isClosing && !isSelfClosing) {
+          paragraphStack.push([]);
+        } else if (isClosing) {
+          const cur = paragraphStack.pop();
+          if (cur) finishedParagraphs.push(cur.join(""));
+        }
+      } else if (localName === "t") {
+        if (!isClosing && !isSelfClosing) {
+          insideTextRun = true;
+        } else if (isClosing || isSelfClosing) {
+          insideTextRun = false;
+        }
+      } else if (localName === "tab" && insideTextRun && paragraphStack.length > 0) {
+        paragraphStack[paragraphStack.length - 1].push("\t");
+      } else if (localName === "linebreak" && insideTextRun && paragraphStack.length > 0) {
+        paragraphStack[paragraphStack.length - 1].push("\n");
+      }
+    } else if (textContent && insideTextRun && paragraphStack.length > 0) {
+      paragraphStack[paragraphStack.length - 1].push(decodeXmlEntities(textContent));
     }
-    paragraphs.push(runs.join(""));
   }
-  return paragraphs.join("\n");
+
+  // 닫히지 않은 문단 스택 정리
+  while (paragraphStack.length > 0) {
+    const cur = paragraphStack.pop();
+    if (cur) finishedParagraphs.push(cur.join(""));
+  }
+
+  return {
+    text: finishedParagraphs.join("\n"),
+    hasComplexElements,
+  };
+}
+
+export function extractHwpxSectionText(xmlStr: string): string {
+  return parseHwpxSectionXml(xmlStr).text;
 }
 
 // ── HWPX 파일 전체 텍스트 추출 ──
@@ -251,13 +311,12 @@ export async function extractHwpxText(input: Blob | Uint8Array | ArrayBuffer): P
   const entries = await readZipEntries(buf);
   const sections: string[] = [];
 
-  // section0.xml, section1.xml 등 순서대로 수집
+  // section0.xml, section1.xml 등 순서대로 자연 정렬
   const sectionKeys = Array.from(entries.keys())
     .filter((k) => /^Contents\/section\d+\.xml$/i.test(k))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   if (sectionKeys.length === 0) {
-    // fallback: 혹시 경로가 다른 섹션이 있는 경우
     for (const [k, v] of entries) {
       if (/section.*\.xml$/i.test(k)) {
         const text = extractHwpxSectionText(new TextDecoder().decode(v));
@@ -274,15 +333,91 @@ export async function extractHwpxText(input: Blob | Uint8Array | ArrayBuffer): P
   return sections.join("\n\n");
 }
 
-// ── HWPX 섹션 XML 본문 업데이트 ──
+// ── HWPX 구조 검사 및 빠른 편집 가능 여부 진단 ──
+export interface HwpxInspection {
+  isHwpx: boolean;
+  sectionCount: number;
+  hasComplexElements: boolean;
+  canQuickEdit: boolean;
+  reason?: string;
+  text: string;
+}
+
+export async function inspectHwpx(input: Blob | Uint8Array | ArrayBuffer): Promise<HwpxInspection> {
+  const buf = input instanceof Blob ? await input.arrayBuffer() : input;
+  const entries = await readZipEntries(buf);
+
+  const sectionKeys = Array.from(entries.keys())
+    .filter((k) => /^Contents\/section\d+\.xml$/i.test(k))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  if (sectionKeys.length === 0) {
+    for (const [k] of entries) {
+      if (/section.*\.xml$/i.test(k)) sectionKeys.push(k);
+    }
+    sectionKeys.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+
+  const sections: string[] = [];
+  let hasComplexElements = false;
+
+  for (const k of sectionKeys) {
+    const v = entries.get(k);
+    if (!v) continue;
+    const xml = new TextDecoder().decode(v);
+    const parsed = parseHwpxSectionXml(xml);
+    if (parsed.hasComplexElements) {
+      hasComplexElements = true;
+    }
+    sections.push(parsed.text);
+  }
+
+  const sectionCount = sectionKeys.length;
+  let canQuickEdit = true;
+  let reason: string | undefined;
+
+  if (sectionCount > 1) {
+    canQuickEdit = false;
+    reason = "다중 구역(섹션)으로 구성된 한글 문서는 서식 손상을 방지하기 위해 바로 수정이 제한됩니다.";
+  } else if (hasComplexElements) {
+    canQuickEdit = false;
+    reason = "표, 그림, 도형 또는 수식이 포함된 한글 문서는 서식 손상을 방지하기 위해 바로 수정이 제한됩니다.";
+  }
+
+  return {
+    isHwpx: true,
+    sectionCount,
+    hasComplexElements,
+    canQuickEdit,
+    reason,
+    text: sections.join("\n\n"),
+  };
+}
+
+export async function canQuickEditHwpx(input: Blob | Uint8Array | ArrayBuffer): Promise<{ allowed: boolean; reason?: string }> {
+  try {
+    const inspection = await inspectHwpx(input);
+    return {
+      allowed: inspection.canQuickEdit,
+      reason: inspection.reason,
+    };
+  } catch {
+    return {
+      allowed: false,
+      reason: "한글 문서 구조를 읽을 수 없습니다.",
+    };
+  }
+}
+
+// ── HWPX 단일 섹션 XML 본문 업데이트 (단순 텍스트 문서 전용) ──
 export function updateHwpxSectionXml(originalXml: string, newText: string): string {
   // 용지 여백, 페이지 설정(<hp:secPr>) 보존
   const secPrMatch = originalXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
   const secPr = secPrMatch ? secPrMatch[0] : "";
 
-  // 루트 태그 네임스페이스 보존
+  // 루트 태그 네임스페이스 보존 (표준 OWPML 네임스페이스 사용)
   const rootOpenMatch = originalXml.match(/<hs:sec\b[^>]*>/);
-  const rootOpen = rootOpenMatch ? rootOpenMatch[0] : '<hs:sec xmlns:hs="http://www.hancom.co.kr/schema/2011/hwpx" xmlns:hp="http://www.hancom.co.kr/schema/2011/hp" xmlns:hc="http://www.hancom.co.kr/schema/2011/hc">';
+  const rootOpen = rootOpenMatch ? rootOpenMatch[0] : '<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">';
 
   const lines = newText.split(/\r?\n/);
   const newParagraphs = lines.map((line, idx) => {
@@ -296,6 +431,11 @@ export function updateHwpxSectionXml(originalXml: string, newText: string): stri
 
 // ── 기존 HWPX 파일의 본문 수정 후 ZIP 재패키징 ──
 export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, newText: string): Promise<Uint8Array> {
+  const inspection = await inspectHwpx(originalHwpx);
+  if (!inspection.canQuickEdit) {
+    throw new Error(inspection.reason ?? "복합 서식 또는 다중 섹션이 포함된 HWPX 문서는 빠른 편집을 지원하지 않습니다.");
+  }
+
   const entries = await readZipEntries(originalHwpx);
   const sectionKey = Array.from(entries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
   const existingSection = entries.get(sectionKey);
@@ -307,22 +447,25 @@ export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, ne
   return writeZipEntries(entries);
 }
 
-// ── 새 빈 HWPX 템플릿 생성 ──
+// ── 새 빈 HWPX 템플릿 생성 (표준 OWPML 및 A4 용지 규격 준수) ──
 export async function newHwpxBytes(initialText = ""): Promise<Uint8Array> {
   const entries = new Map<string, Uint8Array>();
   entries.set("mimetype", new TextEncoder().encode("application/hnc+zip"));
   entries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hcf/2011/version" major="1" minor="0" micro="0" buildNumber="0" os="1" application="1"/>`));
   entries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container">\n  <ocf:rootfiles>\n    <ocf:rootfile ocf:full-path="Contents/content.hpf" ocf:media-type="application/hnc+zip"/>\n  </ocf:rootfiles>\n</ocf:container>`));
   entries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata>\n    <opf:title>문서</opf:title>\n    <opf:language>ko</opf:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="section0"/>\n  </opf:spine>\n</opf:package>`));
-  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" version="1.0">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="1">\n      <hh:fontface lang="hangul" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="ttf"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000" fontRef="0"/>\n    </hh:charProperties>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0" align="left"/>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n</hh:head>`));
+  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="1">\n      <hh:fontface lang="hangul" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="ttf"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000" fontRef="0"/>\n    </hh:charProperties>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0" align="left"/>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n</hh:head>`));
+
+  // 표준 A4 용지 규격 (210mm x 297mm = 59528 x 84188 HWPUNIT, 여백 포함)
+  const defaultSecPr = `<hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr>`;
 
   const lines = (initialText || "").split(/\r?\n/);
   const pList = lines.map((line, idx) => {
-    const secPr = idx === 0 ? '<hp:run charPrIDRef="0"><hp:secPr/></hp:run>' : "";
+    const secPr = idx === 0 ? `<hp:run charPrIDRef="0">${defaultSecPr}</hp:run>` : "";
     return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${secPr}<hp:run charPrIDRef="0"><hp:t>${escapeXml(line)}</hp:t></hp:run>\n    </hp:p>`;
   }).join("\n");
 
-  entries.set("Contents/section0.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hs:sec xmlns:hs="http://www.hancom.co.kr/schema/2011/hwpx" xmlns:hp="http://www.hancom.co.kr/schema/2011/hp" xmlns:hc="http://www.hancom.co.kr/schema/2011/hc">\n${pList}\n</hs:sec>`));
+  entries.set("Contents/section0.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">\n${pList}\n</hs:sec>`));
 
   return writeZipEntries(entries);
 }

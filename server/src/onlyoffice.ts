@@ -165,8 +165,71 @@ export class OnlyofficeService {
   }
 }
 
+function decodeXmlEntities(str: string): string {
+  return str.replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|(amp|lt|gt|quot|apos));/g, (_, hex, dec, named) => {
+    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    if (dec) return String.fromCodePoint(parseInt(dec, 10));
+    switch (named) {
+      case "amp": return "&";
+      case "lt": return "<";
+      case "gt": return ">";
+      case "quot": return '"';
+      case "apos": return "'";
+      default: return _;
+    }
+  });
+}
+
+function parseHwpxXmlText(xmlStr: string): string {
+  const paragraphStack: string[][] = [];
+  const finishedParagraphs: string[] = [];
+  let insideTextRun = false;
+
+  const tokenRegex = /<(\/)?([a-zA-Z0-9_:]+)((?:\s+[^>]*)?)(\/?)>|([^<]+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenRegex.exec(xmlStr)) !== null) {
+    const isClosing = !!match[1];
+    const tagName = match[2]?.toLowerCase();
+    const attrs = match[3] || "";
+    const isSelfClosing = !!match[4] || attrs.trim().endsWith("/");
+    const textContent = match[5];
+
+    if (tagName) {
+      const localName = tagName.split(":").pop()!;
+      if (localName === "p") {
+        if (!isClosing && !isSelfClosing) {
+          paragraphStack.push([]);
+        } else if (isClosing) {
+          const cur = paragraphStack.pop();
+          if (cur) finishedParagraphs.push(cur.join(""));
+        }
+      } else if (localName === "t") {
+        if (!isClosing && !isSelfClosing) {
+          insideTextRun = true;
+        } else if (isClosing || isSelfClosing) {
+          insideTextRun = false;
+        }
+      } else if (localName === "tab" && insideTextRun && paragraphStack.length > 0) {
+        paragraphStack[paragraphStack.length - 1].push("\t");
+      } else if (localName === "linebreak" && insideTextRun && paragraphStack.length > 0) {
+        paragraphStack[paragraphStack.length - 1].push("\n");
+      }
+    } else if (textContent && insideTextRun && paragraphStack.length > 0) {
+      paragraphStack[paragraphStack.length - 1].push(decodeXmlEntities(textContent));
+    }
+  }
+
+  while (paragraphStack.length > 0) {
+    const cur = paragraphStack.pop();
+    if (cur) finishedParagraphs.push(cur.join(""));
+  }
+
+  return finishedParagraphs.join("\n");
+}
+
 // 검색·버전 비교용 글자(화면 업로드 때와 같은 officeparser). 읽지 못하면 null.
-async function extractHwpxBufferText(bytes: Buffer): Promise<string | null> {
+export async function extractHwpxBufferText(bytes: Buffer): Promise<string | null> {
   try {
     const { inflateRawSync } = await import("node:zlib");
     let eocd = -1;
@@ -177,7 +240,8 @@ async function extractHwpxBufferText(bytes: Buffer): Promise<string | null> {
     const count = bytes.readUInt16LE(eocd + 10);
     const cdOffset = bytes.readUInt32LE(eocd + 16);
     let p = cdOffset;
-    const paragraphs: string[] = [];
+    const sectionEntries: { name: string; raw: Buffer; method: number }[] = [];
+
     for (let i = 0; i < count; i++) {
       if (bytes.readUInt32LE(p) !== 0x02014b50) break;
       const method = bytes.readUInt16LE(p + 10);
@@ -186,24 +250,33 @@ async function extractHwpxBufferText(bytes: Buffer): Promise<string | null> {
       const extraLen = bytes.readUInt16LE(p + 30);
       const commentLen = bytes.readUInt16LE(p + 32);
       const localHeaderOffset = bytes.readUInt32LE(p + 42);
-      const name = bytes.subarray(p + 46, p + 46 + nameLen).toString("utf8");
+      const name = bytes.subarray(p + 46, p + 46 + nameLen).toString("utf8").replace(/\\/g, "/");
       if (/section\d*\.xml$/i.test(name)) {
         const localNameLen = bytes.readUInt16LE(localHeaderOffset + 26);
         const localExtraLen = bytes.readUInt16LE(localHeaderOffset + 28);
         const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
         const raw = bytes.subarray(dataStart, dataStart + compSize);
-        const decompressed = method === 8 ? inflateRawSync(raw) : raw;
-        const xml = decompressed.toString("utf8");
-        const tMatches = xml.matchAll(/<hp:t\b[^>]*>([\s\S]*?)<\/hp:t>/g);
-        for (const m of tMatches) {
-          paragraphs.push(m[1].replace(/&(?:lt|gt|amp|apos|quot);/g, (e) => ({ "&lt;": "<", "&gt;": ">", "&amp;": "&", "&apos;": "'", "&quot;": '"' }[e] ?? e)));
-        }
+        sectionEntries.push({ name, raw, method });
       }
       p += 46 + nameLen + extraLen + commentLen;
     }
-    return paragraphs.length > 0 ? paragraphs.join(" ") : null;
+
+    if (sectionEntries.length === 0) return null;
+
+    // 자연 순서(section0, section1, ...)로 정렬하여 화면 파서와 순서 및 형식 일치
+    sectionEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    const sectionTexts: string[] = [];
+    for (const entry of sectionEntries) {
+      const decompressed = entry.method === 8 ? inflateRawSync(entry.raw) : entry.raw;
+      const xml = decompressed.toString("utf8");
+      const parsedText = parseHwpxXmlText(xml);
+      if (parsedText) sectionTexts.push(parsedText);
+    }
+
+    return sectionTexts.length > 0 ? sectionTexts.join("\n\n") : null;
   } catch {
-    return extractHwpxBufferText(bytes);
+    return null;
   }
 }
 
