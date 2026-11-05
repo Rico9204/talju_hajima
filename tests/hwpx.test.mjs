@@ -111,6 +111,20 @@ test('1-1: 표·그림·수식 등 복합 서식이 있는 문서는 빠른 편�
   const extracted = await extractHwpxText(complexHwpx);
   assert.ok(extracted.includes('표 앞의 문단'));
   assert.ok(extracted.includes('표 1행 1열 셀'));
+
+  // 4. 한컴오피스 한글 프로그램이 자동 생성하는 linesegarray(줄나눔 레이아웃 캐시)가 있는 순수 텍스트 문서는 차단되지 않고 편집 허용됨을 검증
+  const hancomTextXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p id="0">
+    <hp:run charPrIDRef="0"><hp:t>한글 프로그램에서 작성한 일반 텍스트입니다.</hp:t></hp:run>
+    <hp:linesegarray><hp:lineseg textpos="0" vertpos="0" vertsize="1000" textheight="1000" baseline="850" spacing="600" horzpos="0" horzsize="12000" flags="393216"/></hp:linesegarray>
+  </hp:p>
+</hs:sec>`;
+  entries.set('Contents/section0.xml', new TextEncoder().encode(hancomTextXml));
+  const hancomHwpx = await writeZipEntries(entries);
+  const hancomInspection = await inspectHwpx(hancomHwpx);
+  assert.equal(hancomInspection.hasComplexElements, false, 'linesegarray는 복합 서식으로 취급되지 않아야 함');
+  assert.equal(hancomInspection.canQuickEdit, true, '일반 텍스트 문서는 빠른 편집이 허용되어야 함');
 });
 
 // ── [필수 1-2] 다중 섹션 중복 방지 테스트 ──

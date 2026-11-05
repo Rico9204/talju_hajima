@@ -1210,7 +1210,29 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
           </div>
         </div>
       )}
-      {editError && <p role="alert" className="mt-3 text-xs rounded-lg bg-red-500/10 text-red-500 p-3">{editError}</p>}
+      {editError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md p-6 rounded-2xl shadow-2xl border" style={{ background: "var(--card-bg, #181926)", borderColor: "var(--card-border, #363a4f)", color: "var(--primary-text, #cad3f5)" }}>
+            <div className="flex items-center gap-3 mb-3 text-amber-400">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-base font-bold">문서 수정 안내</h3>
+            </div>
+            <p className="text-sm leading-relaxed mb-6 whitespace-pre-line text-neutral-300">
+              {editError}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditError("")}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer"
+                style={{ background: "var(--primary, #8aadf4)", color: "#181926" }}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {editing && presenceRef.current && editFile && (
         <QuickEditModal
           key={`${editing.fileId}:${editing.room}:${editing.mode}`}

@@ -257,11 +257,12 @@ export function parseHwpxSectionXml(xmlStr: string): HwpxSectionParseResult {
     if (tagName) {
       const localName = tagName.split(":").pop()!;
 
-      // 표, 그림, 도형, 수식, 차트, 비디오 등 복합 서식 요소 감지
+      // 표, 그림, 도형, 수식, 차트, 비디오 등 실제 복합 서식 개체 감지
+      // (단순 줄바꿈 레이아웃 캐시인 linesegarray 등은 제외)
       if ([
         "tbl", "pic", "drawobj", "equation", "ole", "chart",
         "rect", "ellipse", "line", "curve", "polygon", "arc",
-        "container", "video", "media", "formobject", "linesegarray"
+        "video", "media", "audio", "formobject"
       ].includes(localName)) {
         hasComplexElements = true;
       }
