@@ -88,7 +88,18 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
   const cdParts: Uint8Array[] = [];
   let offset = 0;
 
+  // OCF(Open Container Format) 표준: mimetype 파일이 반드시 맨 첫 번째 엔트리(Offset 0)여야 함
+  const orderedEntries = new Map<string, Uint8Array>();
+  if (entries.has("mimetype")) {
+    orderedEntries.set("mimetype", entries.get("mimetype")!);
+  }
   for (const [name, content] of entries) {
+    if (name !== "mimetype") {
+      orderedEntries.set(name, content);
+    }
+  }
+
+  for (const [name, content] of orderedEntries) {
     const nameBytes = new TextEncoder().encode(name);
     const isMimetype = name === "mimetype";
     let compData = content;
@@ -436,7 +447,7 @@ export async function newHwpxBytes(initialText = ""): Promise<Uint8Array> {
   entries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hcf/2011/version" major="1" minor="0" micro="0" buildNumber="0" os="1" application="1"/>`));
   entries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container">\n  <ocf:rootfiles>\n    <ocf:rootfile ocf:full-path="Contents/content.hpf" ocf:media-type="application/hnc+zip"/>\n  </ocf:rootfiles>\n</ocf:container>`));
   entries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata>\n    <opf:title>문서</opf:title>\n    <opf:language>ko</opf:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="section0"/>\n  </opf:spine>\n</opf:package>`));
-  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="1">\n      <hh:fontface lang="hangul" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="ttf"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000" fontRef="0"/>\n    </hh:charProperties>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0" align="left"/>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n</hh:head>`));
+  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="1">\n      <hh:fontface lang="HANGUL" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000">\n        <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n      </hh:charPr>\n    </hh:charProperties>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n</hh:head>`));
 
   // 표준 A4 용지 규격 (210mm x 297mm = 59528 x 84188 HWPUNIT, 여백 포함)
   const defaultSecPr = `<hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr>`;

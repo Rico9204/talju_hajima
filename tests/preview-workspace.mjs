@@ -31,37 +31,42 @@ entries.set(
   "Contents/section0.xml",
   new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
-  <hp:p id="p0"><hp:run><hp:t>팀플 최종 보고서 초안입니다.</hp:t></hp:run></hp:p>
-  <hp:p id="p1"><hp:run><hp:t>1. 연구 배경 및 목적: 대학생들의 원활한 한글 문서 협업을 지원합니다.</hp:t></hp:run></hp:p>
-  <hp:p id="p2">
-    <hp:run>
-      <hp:tbl rowCnt="3" colCnt="3" width="10000">
+  <hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">
+    <hp:run charPrIDRef="0">
+      <hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr>
+    </hp:run>
+    <hp:run charPrIDRef="0"><hp:t>팀플 최종 보고서 초안입니다.</hp:t></hp:run>
+  </hp:p>
+  <hp:p id="1" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>1. 연구 배경 및 목적: 대학생들의 원활한 한글 문서 협업을 지원합니다.</hp:t></hp:run></hp:p>
+  <hp:p id="2" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">
+    <hp:run charPrIDRef="0">
+      <hp:tbl id="0" rowCnt="3" colCnt="3" width="10000" pageBreak="cell" repeatHeader="true">
         <hp:tr>
-          <hp:tc><hp:p><hp:run><hp:t>구분</hp:t></hp:run></hp:p></hp:tc>
-          <hp:tc><hp:p><hp:run><hp:t>담당자</hp:t></hp:run></hp:p></hp:tc>
-          <hp:tc><hp:p><hp:run><hp:t>진행 상태</hp:t></hp:run></hp:p></hp:tc>
+          <hp:tc name="0_0"><hp:subList><hp:p id="0_0_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>구분</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="0_1"><hp:subList><hp:p id="0_1_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>담당자</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="0_2"><hp:subList><hp:p id="0_2_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>진행 상태</hp:t></hp:run></hp:p></hp:subList></hp:tc>
         </hp:tr>
         <hp:tr>
-          <hp:tc><hp:p><hp:run><hp:t>한글 동시편집 에디터</hp:t></hp:run></hp:p></hp:tc>
-          <hp:tc><hp:p><hp:run><hp:t>홍길동</hp:t></hp:run></hp:p></hp:tc>
-          <hp:tc><hp:p><hp:run><hp:t>개발 완료 (Yjs CRDT)</hp:t></hp:run></hp:p></hp:tc>
+          <hp:tc name="1_0"><hp:subList><hp:p id="1_0_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>한글 동시편집 에디터</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="1_1"><hp:subList><hp:p id="1_1_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>홍길동</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="1_2"><hp:subList><hp:p id="1_2_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>개발 완료 (Yjs CRDT)</hp:t></hp:run></hp:p></hp:subList></hp:tc>
         </hp:tr>
         <hp:tr>
-          <hp:tc><hp:p><hp:run><hp:t>표/수식 무손실 보존</hp:t></hp:run></hp:p></hp:tc>
-          <hp:tc><hp:p><hp:run><hp:t>이순신</hp:t></hp:run></hp:p></hp:tc>
-          <hp:tc><hp:p><hp:run><hp:t>검증 완료</hp:t></hp:run></hp:p></hp:tc>
+          <hp:tc name="2_0"><hp:subList><hp:p id="2_0_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>표/수식 무손실 보존</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="2_1"><hp:subList><hp:p id="2_1_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>이순신</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="2_2"><hp:subList><hp:p id="2_2_0" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>검증 완료</hp:t></hp:run></hp:p></hp:subList></hp:tc>
         </hp:tr>
       </hp:tbl>
     </hp:run>
   </hp:p>
-  <hp:p id="p3">
-    <hp:run>
-      <hp:equation version="1.0">
+  <hp:p id="3" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">
+    <hp:run charPrIDRef="0">
+      <hp:equation version="1.0" baseLine="0" textColor="#000000" baseUnit="1000">
         <hp:script>E = mc^2</hp:script>
       </hp:equation>
     </hp:run>
   </hp:p>
-  <hp:p id="p4"><hp:run><hp:t>2. 결론 및 향후 계획: 추가 서식 호환성을 계속 강화해 나갈 예정입니다.</hp:t></hp:run></hp:p>
+  <hp:p id="4" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="0"><hp:t>2. 결론 및 향후 계획: 추가 서식 호환성을 계속 강화해 나갈 예정입니다.</hp:t></hp:run></hp:p>
 </hs:sec>`)
 );
 const complexBytes = await writeZipEntries(entries);

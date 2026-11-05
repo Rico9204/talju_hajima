@@ -411,6 +411,9 @@ export function serializeBlocksToHwpxPackage(
     return newId;
   };
 
+  // ── 표준 A4 용지 규격 (210mm x 297mm = 59528 x 84188 HWPUNIT, 여백 포함) ──
+  const DEFAULT_SECPR = `<hp:run charPrIDRef="0"><hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr></hp:run>`;
+
   // paragraph 0의 설정 런(secPr, ctrl, footer 등) 보존
   let preambleRuns = "";
   const firstPMatch = originalSectionXml.match(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/);
@@ -424,10 +427,14 @@ export function serializeBlocksToHwpxPackage(
       preambleRuns = inner;
     }
   }
-  if (!preambleRuns) {
+
+  // 첫 문단에 secPr이 없으면 원본에서 추출하거나 기본 표준 A4 secPr 자동 보강
+  if (!preambleRuns.includes("<hp:secPr")) {
     const secPrMatch = originalSectionXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
     if (secPrMatch) {
-      preambleRuns = `<hp:run charPrIDRef="0">${secPrMatch[0]}</hp:run>`;
+      preambleRuns = `<hp:run charPrIDRef="0">${secPrMatch[0]}</hp:run>` + preambleRuns;
+    } else {
+      preambleRuns = DEFAULT_SECPR + preambleRuns;
     }
   }
 
@@ -442,24 +449,24 @@ export function serializeBlocksToHwpxPackage(
           const tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="${rIdx}_${cIdx}"`;
           const cellCharPr = getOrCreateCharPr({ bold: cell.bold });
           const cellParaPr = paraPrMap.get(cell.align || "left") ?? 0;
-          return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="${cellParaPr}" styleIDRef="0"><hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
+          return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
         }).join("\n");
         return `      <hp:tr>\n${cellsXml}\n      </hp:tr>`;
       }).join("\n");
 
       const tblAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" pageBreak="cell" repeatHeader="true"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
       const eqAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` version="1.0" baseLine="0" textColor="#000000" baseUnit="1000"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "image") {
       const align = block.align || "center";
       const paraPr = paraPrMap.get(align) ?? 1;
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
@@ -478,7 +485,7 @@ export function serializeBlocksToHwpxPackage(
       return `<hp:run charPrIDRef="${charPrId}"><hp:t>${escapeXml(run.text)}</hp:t></hp:run>`;
     }).join("");
 
-    return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0">\n      ${lead}${runsXml || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>'}\n    </hp:p>`;
+    return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}${runsXml || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>'}\n    </hp:p>`;
   }).join("\n");
 
   const sectionXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
@@ -487,20 +494,21 @@ export function serializeBlocksToHwpxPackage(
   let headerXml = originalHeaderXml;
   const charPropertiesXml = `    <hh:charProperties itemCnt="${charPrDefs.length}">\n` +
     charPrDefs.map((def) => {
-      const children: string[] = [];
+      const children: string[] = [
+        '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
+      ];
       if (def.bold) children.push("<hh:bold/>");
       if (def.italic) children.push("<hh:italic/>");
       if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
-      const inner = children.length > 0 ? children.join("") : "";
-      return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}" fontRef="0">${inner}</hh:charPr>`;
+      return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}">\n        ${children.join("")}\n      </hh:charPr>`;
     }).join("\n") +
     "\n    </hh:charProperties>";
 
   const paraPropertiesXml = `    <hh:paraProperties itemCnt="4">\n` +
-    `      <hh:paraPr id="0"><hh:align horizontal="LEFT"/></hh:paraPr>\n` +
-    `      <hh:paraPr id="1"><hh:align horizontal="CENTER"/></hh:paraPr>\n` +
-    `      <hh:paraPr id="2"><hh:align horizontal="RIGHT"/></hh:paraPr>\n` +
-    `      <hh:paraPr id="3"><hh:align horizontal="JUSTIFY"/></hh:paraPr>\n` +
+    `      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+    `      <hh:paraPr id="1">\n        <hh:align horizontal="CENTER" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+    `      <hh:paraPr id="2">\n        <hh:align horizontal="RIGHT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+    `      <hh:paraPr id="3">\n        <hh:align horizontal="JUSTIFY" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
     `    </hh:paraProperties>`;
 
   if (headerXml && headerXml.includes("<hh:charProperties")) {
@@ -514,8 +522,8 @@ export function serializeBlocksToHwpxPackage(
       `  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n` +
       `  <hh:refList>\n` +
       `    <hh:fontfaces itemCnt="1">\n` +
-      `      <hh:fontface lang="hangul" fontCnt="1">\n` +
-      `        <hh:font id="0" face="함초롬바탕" type="ttf"/>\n` +
+      `      <hh:fontface lang="HANGUL" fontCnt="1">\n` +
+      `        <hh:font id="0" face="함초롬바탕" type="TTF"/>\n` +
       `      </hh:fontface>\n` +
       `    </hh:fontfaces>\n` +
       `${charPropertiesXml}\n` +

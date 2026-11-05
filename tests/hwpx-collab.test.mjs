@@ -264,3 +264,34 @@ test('hwpxCollab: strips HTML tags during serialization and text extraction for 
   const text = hwpxCollabText(doc);
   assert.equal(text, '안녕 빨간색 굵은글씨 세상');
 });
+
+test('hwpxCollab: guarantees standard OWPML A4 secPr and OCF mimetype offset 0 for Hancom Docs/Viewer compatibility', async () => {
+  const blocks = [
+    { type: 'paragraph', id: 'p0', text: '테스트 문서 내용', align: 'center' },
+  ];
+
+  // 1. originalXml has NO secPr
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+  assert.ok(pkg.sectionXml.includes('<hp:secPr id="0"'));
+  assert.ok(pkg.sectionXml.includes('width="59528" height="84188"'));
+  assert.ok(pkg.sectionXml.includes('pageBreak="false" columnBreak="false" merged="false"'));
+
+  // 2. header.xml has fontRef child element and paraPr with align/lineSpacing
+  assert.ok(pkg.headerXml.includes('<hh:fontRef hangul="0" latin="0"'));
+  assert.ok(pkg.headerXml.includes('<hh:align horizontal="CENTER" vertical="BASELINE"/>'));
+  assert.ok(pkg.headerXml.includes('<hh:lineSpacing type="PERCENT" value="160"/>'));
+
+  // 3. Package to ZIP and check mimetype is first entry at offset 0
+  const entries = new Map();
+  entries.set('Contents/section0.xml', new TextEncoder().encode(pkg.sectionXml));
+  entries.set('Contents/header.xml', new TextEncoder().encode(pkg.headerXml));
+  entries.set('mimetype', new TextEncoder().encode('application/hnc+zip'));
+
+  const zipBytes = await writeZipEntries(entries);
+  // In ZIP format: Local file header starts at offset 0: 50 4B 03 04
+  const view = new DataView(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
+  assert.equal(view.getUint32(0, true), 0x04034b50);
+  const nameLen = view.getUint16(26, true);
+  const fileName = new TextDecoder().decode(zipBytes.subarray(30, 30 + nameLen));
+  assert.equal(fileName, 'mimetype');
+});
