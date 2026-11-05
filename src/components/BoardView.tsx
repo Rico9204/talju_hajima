@@ -379,21 +379,12 @@ export default function BoardView({
     );
   }
 
-  const pinnedPosts = posts.filter((p) => p.pinned).slice(0, 3);
-  const weekAgo = Date.now() - 7 * 86_400_000;
-  const hotPosts = posts
-    .filter((p) => new Date(p.createdAt).getTime() >= weekAgo && p.likes * 2 + p.commentsCount > 0)
-    .sort((x, y) => (y.likes * 2 + y.commentsCount) - (x.likes * 2 + x.commentsCount))
-    .slice(0, 3);
-  const tagCounts = new Map<string, number>();
-  for (const p of posts) for (const t of p.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
-  const popularTags = [...tagCounts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([t]) => t);
   const cardStyle = { background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" } as const;
   const tagChip = { background: "rgba(74,116,181,.12)", color: "#2f4e80", borderRadius: "10px" } as const;
   const chipOff = { background: "rgba(15,18,53,.05)", color: "var(--foreground)" } as const;
 
   return (
-    <div>
+    <div className="w-full">
       <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
         <div>
           <h1 className="text-2xl font-800 flex items-center gap-2"><span>💬</span> 게시판</h1>
@@ -403,7 +394,7 @@ export default function BoardView({
         </div>
         <button
           onClick={() => { setIsCreatingPost(true); setSelectedPost(null); setEditingPost(null); }}
-          className="text-xs font-700 px-4 py-2.5 transition-all flex items-center gap-1.5 shrink-0"
+          className="text-xs font-700 px-4 py-2.5 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
           style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px", boxShadow: "0 4px 12px var(--primary-glow)" }}
         >
           <span>✏️</span>
@@ -417,8 +408,7 @@ export default function BoardView({
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
-      <WindowPanel id="board-posts" title="게시글" style={cardStyle} bodyClassName="p-4">
+      <WindowPanel id="board-posts" title="게시글" style={cardStyle} bodyClassName="p-4" className="w-full">
         <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
           {[{ id: "all" as const, name: "전체", icon: "", count: posts.length },
             ...BOARD_CATEGORIES.map((cat) => ({ id: cat.id, name: cat.name, icon: cat.icon, count: posts.filter((p) => p.category === cat.id).length }))].map((cat) => {
@@ -598,39 +588,6 @@ export default function BoardView({
           </div>
         )}
       </WindowPanel>
-
-      <div className="flex flex-col gap-4">
-        {pinnedPosts.length > 0 && (
-          <WindowPanel id="board-pinned" title="필독 공지" style={cardStyle} bodyClassName="px-4 py-2">
-            {pinnedPosts.map((post, i) => (
-              <button key={post.id} onClick={() => void openPostDetail(post)} className="block w-full text-left py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--border)" : "none" }}>
-                <span className="text-[10px] font-700 px-2 py-0.5 mr-1.5" style={{ background: "rgba(201,98,91,.12)", color: "#8f3a35", borderRadius: "10px" }}>📌 필독</span>
-                <span className="font-700">{post.title}</span>
-                <div className="text-[11px] mt-0.5" style={{ color: "var(--muted-foreground)" }}>{post.author} · {new Date(post.createdAt).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" })}</div>
-              </button>
-            ))}
-          </WindowPanel>
-        )}
-        {hotPosts.length > 0 && (
-          <WindowPanel id="board-hot" title="이번 주 인기 글" style={cardStyle} bodyClassName="px-4 py-2">
-            {hotPosts.map((post, i) => (
-              <button key={post.id} onClick={() => void openPostDetail(post)} className="block w-full text-left py-2.5 text-[13px]" style={{ borderTop: i ? "1px solid var(--border)" : "none" }}>
-                <span className="font-800 mr-1.5" style={{ color: "var(--primary-text)" }}>{i + 1}</span>
-                <span className="font-600">{post.title}</span>
-                <div className="text-[11px] mt-0.5 pl-3.5" style={{ color: "var(--muted-foreground)" }}>❤️ {post.likes} · 💬 {post.commentsCount}</div>
-              </button>
-            ))}
-          </WindowPanel>
-        )}
-        {popularTags.length > 0 && (
-          <WindowPanel id="board-tags" title="인기 태그" style={cardStyle} bodyClassName="p-4 flex flex-wrap gap-1.5">
-            {popularTags.map((tag) => (
-              <button key={tag} onClick={() => showTag(tag)} className="text-[11px] font-600 px-2 py-0.5 hover:opacity-80" style={tagChip}>#{tag}</button>
-            ))}
-          </WindowPanel>
-        )}
-      </div>
-      </div>
 
       {hoveredPreview && (
         <div
