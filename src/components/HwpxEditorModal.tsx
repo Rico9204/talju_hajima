@@ -161,6 +161,7 @@ function ContentEditableParagraph({
     <div
       ref={ref}
       contentEditable
+      spellCheck={false}
       suppressContentEditableWarning
       onCompositionStart={() => {
         isComposingRef.current = true;
@@ -1050,8 +1051,8 @@ function HwpxEditorModalInner({
                 const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
                 if (block.type === "paragraph") {
-                  const isTitle = (block.sizePt && block.sizePt >= 15) || (block.bold && idx < 5) || (block.text.includes("고밀도") && block.text.includes("하이브리드 필터"));
-                  const isHeading = block.sizePt && block.sizePt >= 11 && block.sizePt < 15;
+                  const isTitle = idx === 0 && ((block.sizePt && block.sizePt >= 14) || block.bold);
+                  const isHeading = !isTitle && block.sizePt && block.sizePt >= 11 && block.sizePt < 14;
                   const alignClass = isTitle || block.align === "center" ? "text-center" : block.align === "right" ? "text-right" : block.align === "justify" ? "text-justify" : "text-left";
                   const fontSize = block.sizePt ? `${block.sizePt}pt` : isTitle ? "16pt" : "10pt";
 
@@ -1079,12 +1080,14 @@ function HwpxEditorModalInner({
                           className={`w-full p-0 leading-relaxed ${alignClass}`}
                           style={{
                             fontSize,
-                            fontWeight: block.bold || isTitle ? "bold" : "normal",
+                            fontWeight: block.bold ? "bold" : isTitle ? "bold" : "normal",
                             fontStyle: block.italic ? "italic" : "normal",
                             textDecoration: block.underline ? "underline" : "none",
                             color: block.color || "#111827",
-                            fontFamily: block.fontFamily || undefined,
+                            fontFamily: block.fontFamily || "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
                             lineHeight: isTitle ? 1.45 : 1.65,
+                            textJustify: block.align === "justify" ? "auto" : undefined,
+                            wordBreak: "break-all",
                           }}
                           placeholder={isSelected ? "내용을 입력하세요..." : undefined}
                         />

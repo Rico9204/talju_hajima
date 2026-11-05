@@ -189,18 +189,25 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
 }
 
 export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: Map<string, string>): HwpxCollabBlock[] {
-  // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드) 사전 추출
+  // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드, 글꼴) 사전 추출
   const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
-  const charStyles = new Map<string, { sizePt: number; bold: boolean }>();
+  const charStyles = new Map<string, { sizePt: number; bold: boolean; fontFamily?: string }>();
 
   if (headerXml) {
+    const fontFaces = new Map<string, string>();
+    const fontRegex = /<hh:font\b[^>]*\bid="(\d+)"[^>]*\bface="([^"]+)"/g;
+    let fm: RegExpExecArray | null;
+    while ((fm = fontRegex.exec(headerXml)) !== null) {
+      fontFaces.set(fm[1], fm[2]);
+    }
+
     const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
     let pm: RegExpExecArray | null;
     while ((pm = paraPrRegex.exec(headerXml)) !== null) {
       const idMatch = pm[0].match(/\bid="(\d+)"/);
       if (!idMatch) continue;
       const id = idMatch[1];
-      const alignMatch = pm[0].match(/horizontal="([^"]+)"/);
+      const alignMatch = pm[0].match(/horizontal="([^"]+)"/i);
       const alignVal = alignMatch ? alignMatch[1].toLowerCase() : "left";
       paraStyles.set(id, {
         align: alignVal === "center" || alignVal === "right" || alignVal === "justify" ? alignVal : "left",
@@ -215,9 +222,24 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
       const id = idMatch[1];
       const sizeMatch = cm[0].match(/height="(\d+)"/);
       const boldMatch = /<hh:bold\s*\/?>/.test(cm[0]);
+
+      let fontFamily: string | undefined;
+      const fontRefMatch = cm[0].match(/<hh:fontRef\b[^>]*\bhangul="(\d+)"/i);
+      if (fontRefMatch) {
+        const faceName = fontFaces.get(fontRefMatch[1]) || "";
+        if (/명조|바탕|신명조|batang|myeongjo|serif/i.test(faceName)) {
+          fontFamily = "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif";
+        } else if (/돋움|고딕|gothic|dotum|sans/i.test(faceName)) {
+          fontFamily = "Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif";
+        } else if (faceName) {
+          fontFamily = `'${faceName}', sans-serif`;
+        }
+      }
+
       charStyles.set(id, {
         sizePt: sizeMatch ? parseInt(sizeMatch[1], 10) / 100 : 10,
         bold: boldMatch,
+        fontFamily,
       });
     }
   }
@@ -410,6 +432,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 align: pStyle?.align ?? "left",
                 sizePt: cStyle?.sizePt,
                 bold: cStyle?.bold,
+                fontFamily: cStyle?.fontFamily,
                 pageBreak: currentPageBreak,
                 rawAttrs: currentPAttrs,
                 charPrId: currentCharPrId,
