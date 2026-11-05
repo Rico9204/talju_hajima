@@ -48,6 +48,21 @@ import {
   IndentDecIcon,
   IndentIncIcon,
   TrashIcon,
+  PrintIcon,
+  DocInfoIcon,
+  ReplaceIcon,
+  PageBreakIcon,
+  PageSetupIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+  ShortcutsIcon,
+  SpellCheckIcon,
+  AddRowIcon,
+  AddColIcon,
+  DeleteRowColIcon,
+  SelectAllIcon,
+  BulletListIcon,
+  NumberListIcon,
 } from "./HwpxIcons";
 
 const FONT_FAMILIES = [
@@ -403,6 +418,13 @@ function HwpxEditorModalInner({
   // 모달 상태들
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [replaceKeyword, setReplaceKeyword] = useState("");
+  const [replaceMsg, setReplaceMsg] = useState("");
+  const [showDocStatsModal, setShowDocStatsModal] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showPageSetupModal, setShowPageSetupModal] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState<number>(100);
   const [showSymbolModal, setShowSymbolModal] = useState(false);
   const [showEquationModal, setShowEquationModal] = useState(false);
   const [newEquationScript, setNewEquationScript] = useState("");
@@ -460,6 +482,147 @@ function HwpxEditorModalInner({
   const handleRedo = () => {
     document.execCommand("redo");
   };
+
+  // 모두 선택 (Ctrl+A)
+  const handleSelectAll = () => {
+    const activeEl = document.activeElement;
+    if (activeEl && activeEl.getAttribute("contenteditable") === "true") {
+      document.execCommand("selectAll");
+    } else {
+      const firstEl = document.querySelector('[contenteditable="true"]') as HTMLElement | null;
+      if (firstEl) {
+        firstEl.focus();
+        document.execCommand("selectAll");
+      }
+    }
+  };
+
+  // 인쇄 (Ctrl+P)
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // 쪽 나누기 (Ctrl+Enter)
+  const handleTogglePageBreak = () => {
+    const block = blocks[selectedIdx];
+    if (block && block.type === "paragraph") {
+      const nextBreak = !block.pageBreak;
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(selectedIdx);
+      if (yBlock) {
+        doc.transact(() => {
+          yBlock.set("pageBreak", nextBreak);
+        });
+      }
+    }
+  };
+
+  // 모두 바꾸기 (Replace All)
+  const handleReplaceAll = () => {
+    if (!searchKeyword.trim()) {
+      setReplaceMsg("찾을 단어를 입력해 주세요.");
+      return;
+    }
+    const target = searchKeyword.trim();
+    const replacement = replaceKeyword;
+    let count = 0;
+
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    doc.transact(() => {
+      blocks.forEach((block, bIdx) => {
+        if (block.type === "paragraph") {
+          const text = block.text || "";
+          if (text.includes(target)) {
+            const occurrences = text.split(target).length - 1;
+            count += occurrences;
+            const updated = text.split(target).join(replacement);
+            const yBlock = yBlocks.get(bIdx);
+            if (yBlock) {
+              const yText = yBlock.get("text") as Y.Text;
+              if (yText) {
+                yText.delete(0, yText.length);
+                yText.insert(0, updated);
+              }
+            }
+          }
+        } else if (block.type === "table") {
+          block.rows.forEach((row, rIdx) => {
+            row.forEach((cell, cIdx) => {
+              if (cell.text.includes(target)) {
+                const occurrences = cell.text.split(target).length - 1;
+                count += occurrences;
+                const updated = cell.text.split(target).join(replacement);
+                const yBlock = yBlocks.get(bIdx);
+                const yRows = yBlock?.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>>;
+                const yCell = yRows?.get(rIdx)?.get(cIdx);
+                const yCellText = yCell?.get("text") as Y.Text;
+                if (yCellText) {
+                  yCellText.delete(0, yCellText.length);
+                  yCellText.insert(0, updated);
+                }
+              }
+            });
+          });
+        }
+      });
+    });
+
+    setReplaceMsg(`총 ${count}곳을 변경했습니다.`);
+  };
+
+  // 문서 통계 계산 (글자수, 단어수, 개체수)
+  const docStats = (() => {
+    let charCountWithSpace = 0;
+    let charCountNoSpace = 0;
+    let wordCount = 0;
+    let paraCount = 0;
+    let tableCount = 0;
+    let equationCount = 0;
+    let shapeCount = 0;
+    let imageCount = 0;
+
+    blocks.forEach((block) => {
+      if (block.type === "paragraph") {
+        paraCount++;
+        const raw = block.text.replace(/<[^>]*>/g, "");
+        charCountWithSpace += raw.length;
+        charCountNoSpace += raw.replace(/\s+/g, "").length;
+        const words = raw.trim().split(/\s+/).filter(Boolean);
+        wordCount += words.length;
+      } else if (block.type === "table") {
+        tableCount++;
+        block.rows.forEach((row) => {
+          row.forEach((c) => {
+            charCountWithSpace += c.text.length;
+            charCountNoSpace += c.text.replace(/\s+/g, "").length;
+            const words = c.text.trim().split(/\s+/).filter(Boolean);
+            wordCount += words.length;
+          });
+        });
+      } else if (block.type === "equation") {
+        equationCount++;
+      } else if (block.type === "shape") {
+        shapeCount++;
+        if (block.text) {
+          charCountWithSpace += block.text.length;
+          charCountNoSpace += block.text.replace(/\s+/g, "").length;
+        }
+      } else if (block.type === "image") {
+        imageCount++;
+      }
+    });
+
+    return {
+      charCountWithSpace,
+      charCountNoSpace,
+      wordCount,
+      paraCount,
+      tableCount,
+      equationCount,
+      shapeCount,
+      imageCount,
+    };
+  })();
 
   // 취소선
   const applyStrikethrough = () => {
@@ -1055,197 +1218,561 @@ function HwpxEditorModalInner({
             })}
           </div>
 
-          {/* 3열: 한글 대형 리본 툴바 (아이콘 + 한글 라벨) */}
+          {/* 3열: 한글 대형 리본 툴바 (선택된 탭에 따라 해당 기능 즉시 표시) */}
           {!ribbonCollapsed && (
-            <div className="flex items-stretch gap-1 px-3 py-1.5 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px]">
-              {/* 저장하기 */}
-              <button
-                type="button"
-                onClick={() => void runSave()}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
-                title="문서 저장 (Ctrl+S)"
-              >
-                <SaveIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">저장하기</span>
-              </button>
+            <div className="flex items-stretch gap-1 px-3 py-1.5 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px] min-h-[58px]">
+              {/* [파일 탭] */}
+              {activeTab === "file" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void runSave()}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                    title="문서 저장 (Ctrl+S)"
+                  >
+                    <SaveIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">저장하기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDirectDownload}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[56px]"
+                    title="수정된 문서를 .hwpx 파일로 다운로드"
+                  >
+                    <SaveIcon className="w-5 h-5 text-emerald-600" />
+                    <span className="text-[10px] mt-0.5">다운로드</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePrint}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                    title="인쇄 및 PDF로 저장 (Ctrl+P)"
+                  >
+                    <PrintIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">인쇄</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => setShowPageSetupModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="편집 용지 정보 확인 (F7)"
+                  >
+                    <PageSetupIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">편집 용지</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDocStatsModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="글자 수 및 문서 통계 확인"
+                  >
+                    <DocInfoIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문서 정보</span>
+                  </button>
+                </>
+              )}
 
-              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+              {/* [편집 탭] */}
+              {activeTab === "edit" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    title="실행 취소 (Ctrl+Z)"
+                  >
+                    <UndoIcon className="w-5 h-5 text-neutral-600" />
+                    <span className="text-[10px] mt-0.5">되돌리기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRedo}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    title="다시 실행 (Ctrl+Y)"
+                  >
+                    <RedoIcon className="w-5 h-5 text-neutral-600" />
+                    <span className="text-[10px] mt-0.5">다시 실행</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={handleCut}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    title="오려두기 (Ctrl+X)"
+                  >
+                    <CutIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">오려두기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    title="복사하기 (Ctrl+C)"
+                  >
+                    <CopyIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">복사하기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePasteFormat}
+                    disabled={!copiedStyle}
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[44px] ${
+                      copiedStyle ? "text-[#0066cc]" : "text-neutral-400 opacity-60"
+                    }`}
+                    title="복사한 모양 적용하기"
+                  >
+                    <PasteIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">붙이기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyFormat}
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                      copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                    }`}
+                    title="모양 복사 (Alt+C)"
+                  >
+                    <FormatPainterIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">모양 복사</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={handleSelectAll}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="모두 선택 (Ctrl+A)"
+                  >
+                    <SelectAllIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">모두 선택</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSearchModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                    title="찾기 (Ctrl+F)"
+                  >
+                    <SearchIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">찾기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowReplaceModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="찾아 바꾸기 (Ctrl+H)"
+                  >
+                    <ReplaceIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">바꾸기</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => deleteBlock(selectedIdx)}
+                    disabled={blocks.length <= 1}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-red-600 disabled:opacity-40 cursor-pointer min-w-[40px]"
+                    title="현재 선택 블록 지우기"
+                  >
+                    <TrashIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">지우기</span>
+                  </button>
+                </>
+              )}
 
-              {/* 클립보드 그룹 (오려두기, 복사하기, 붙이기, 모양복사) */}
-              <button
-                type="button"
-                onClick={handleCut}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
-                title="오려두기 (Ctrl+X)"
-              >
-                <CutIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">오려두기</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
-                title="복사하기 (Ctrl+C)"
-              >
-                <CopyIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">복사하기</span>
-              </button>
-              <button
-                type="button"
-                onClick={handlePasteFormat}
-                disabled={!copiedStyle}
-                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[44px] ${
-                  copiedStyle ? "text-[#0066cc]" : "text-neutral-400 opacity-60"
-                }`}
-                title="복사한 모양 적용하기"
-              >
-                <PasteIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">붙이기</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCopyFormat}
-                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                  copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                }`}
-                title="현재 문단/글자 서식 모양 복사 (스포이드)"
-              >
-                <FormatPainterIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">모양 복사</span>
-              </button>
+              {/* [보기 탭] */}
+              {activeTab === "view" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setZoomPercent((z) => Math.min(150, z + 10))}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    title="화면 확대 (+10%)"
+                  >
+                    <ZoomInIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">확대</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomPercent((z) => Math.max(60, z - 10))}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    title="화면 축소 (-10%)"
+                  >
+                    <ZoomOutIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">축소</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomPercent(100)}
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                      zoomPercent === 100 ? "text-[#0066cc] font-bold" : "text-neutral-700"
+                    }`}
+                    title="100% 원본 크기"
+                  >
+                    <span className="text-sm font-bold leading-5">100%</span>
+                    <span className="text-[10px] mt-0.5">기본 크기</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => setShowParaMarks(!showParaMarks)}
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                      showParaMarks ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                    }`}
+                    title="문단 끝 기호(↵) 보이기 / 숨기기"
+                  >
+                    <ParaMarkIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문단 부호</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowGrid(!showGrid)}
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                      showGrid ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                    }`}
+                    title="모눈 격자 보이기 / 숨기기"
+                  >
+                    <GridIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">격자 보기</span>
+                  </button>
+                </>
+              )}
 
-              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+              {/* [입력 탭] */}
+              {activeTab === "insert" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowShapeModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                    title="도형 삽입 (직사각형, 둥근 사각형, 타원, 가로선)"
+                  >
+                    <ShapesIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">도형</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                    title="이미지 그림 삽입"
+                  >
+                    <ImageIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">그림</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTableModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                    title="표 만들기 (Ctrl+N, T)"
+                  >
+                    <TableIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">표</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEquationModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                    title="수식 편집기 (Ctrl+N, M)"
+                  >
+                    <EquationIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">수식</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSymbolModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                    title="문자표 특수기호 (Ctrl+F10)"
+                  >
+                    <SymbolIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문자표</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => addParagraph(selectedIdx)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[56px]"
+                    title="현재 위치 뒤에 새 문단 삽입"
+                  >
+                    <ParaMarkIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문단 추가</span>
+                  </button>
+                </>
+              )}
 
-              {/* 찾기 */}
-              <button
-                type="button"
-                onClick={() => setShowSearchModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="문서 내 단어 찾기 (Ctrl+F)"
-              >
-                <SearchIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">찾기</span>
-              </button>
+              {/* [서식 탭] */}
+              {activeTab === "format" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowCharShapeModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="글자 모양 설정 (Alt+L)"
+                  >
+                    <CharShapeIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">글자 모양</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowParaShapeModal(true)}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="문단 모양 설정 (Alt+T)"
+                  >
+                    <ParaShapeIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문단 모양</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={handleCopyFormat}
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                      copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                    }`}
+                    title="모양 복사 (스포이드)"
+                  >
+                    <FormatPainterIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">모양 복사</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePasteFormat}
+                    disabled={!copiedStyle}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[44px]"
+                    title="복사한 서식 붙이기"
+                  >
+                    <PasteIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">붙이기</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => insertSymbol("• ")}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="글머리표 (•) 삽입"
+                  >
+                    <BulletListIcon className="w-5 h-5 text-neutral-600" />
+                    <span className="text-[10px] mt-0.5">글머리표</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertSymbol("1. ")}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="번호 매기기 (1.) 삽입"
+                  >
+                    <NumberListIcon className="w-5 h-5 text-neutral-600" />
+                    <span className="text-[10px] mt-0.5">번호 모양</span>
+                  </button>
+                </>
+              )}
 
-              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+              {/* [쪽 탭] */}
+              {activeTab === "page" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleTogglePageBreak}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[56px]"
+                    title="현재 위치에서 쪽 나누기 (Ctrl+Enter)"
+                  >
+                    <PageBreakIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">쪽 나누기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPageSetupModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="용지 크기 및 여백 설정 (F7)"
+                  >
+                    <PageSetupIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">편집 용지</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="머리말 영역 이동"
+                  >
+                    <HeaderIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">머리말</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.querySelector("main");
+                      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                    }}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="꼬리말 영역 이동"
+                  >
+                    <FooterIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">꼬리말</span>
+                  </button>
+                </>
+              )}
 
-              {/* 삽입 개체 그룹 (도형, 그림, 표, 수식, 문자표) */}
-              <button
-                type="button"
-                onClick={() => setShowShapeModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="도형 삽입 (직사각형, 둥근 사각형, 타원, 가로선)"
-              >
-                <ShapesIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">도형</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="이미지 파일 삽입"
-              >
-                <ImageIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">그림</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowTableModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="새 표 삽입"
-              >
-                <TableIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">표</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowEquationModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="수식 삽입 (Ctrl+N, M)"
-              >
-                <EquationIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">수식</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSymbolModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="특수문자 문자표 (Ctrl+F10)"
-              >
-                <SymbolIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">문자표</span>
-              </button>
+              {/* [표 탭] */}
+              {activeTab === "table" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowTableModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="새 표 만들기 (Ctrl+N, T)"
+                  >
+                    <TableIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">표 만들기</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tbl = blocks[selectedIdx];
+                      if (tbl && tbl.type === "table") {
+                        addTableRow(selectedIdx, tbl.rows.length - 1);
+                      }
+                    }}
+                    disabled={blocks[selectedIdx]?.type !== "table"}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
+                    title="선택된 표 아래에 행(줄) 추가"
+                  >
+                    <AddRowIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">줄 추가</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tbl = blocks[selectedIdx];
+                      if (tbl && tbl.type === "table") {
+                        deleteTableRow(selectedIdx, tbl.rows.length - 1);
+                      }
+                    }}
+                    disabled={blocks[selectedIdx]?.type !== "table"}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
+                    title="선택된 표 마지막 행(줄) 삭제"
+                  >
+                    <DeleteRowColIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">줄 삭제</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tbl = blocks[selectedIdx];
+                      if (tbl && tbl.type === "table") {
+                        addTableCol(selectedIdx, (tbl.rows[0]?.length || 1) - 1);
+                      }
+                    }}
+                    disabled={blocks[selectedIdx]?.type !== "table"}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
+                    title="선택된 표 오른쪽에 열(칸) 추가"
+                  >
+                    <AddColIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">칸 추가</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tbl = blocks[selectedIdx];
+                      if (tbl && tbl.type === "table") {
+                        deleteTableCol(selectedIdx, (tbl.rows[0]?.length || 1) - 1);
+                      }
+                    }}
+                    disabled={blocks[selectedIdx]?.type !== "table"}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
+                    title="선택된 표 마지막 열(칸) 삭제"
+                  >
+                    <DeleteRowColIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">칸 삭제</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => deleteBlock(selectedIdx)}
+                    disabled={blocks[selectedIdx]?.type !== "table"}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-red-600 disabled:opacity-40 cursor-pointer min-w-[48px]"
+                    title="선택된 표 전체 삭제"
+                  >
+                    <TrashIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">표 지우기</span>
+                  </button>
+                </>
+              )}
 
-              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+              {/* [검토 탭] */}
+              {activeTab === "review" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowDocStatsModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="문서 글자 수, 단어 수 세기"
+                  >
+                    <DocInfoIcon className="w-5 h-5 text-indigo-600" />
+                    <span className="text-[10px] mt-0.5">글자 수 세기</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => alert("현재 문서에 맞춤법 검사 기능이 활성화되어 있으며, 오탈자는 빨간 밑줄로 표시됩니다.")}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="맞춤법 검사 안내"
+                  >
+                    <SpellCheckIcon className="w-5 h-5 text-emerald-600" />
+                    <span className="text-[10px] mt-0.5">맞춤법 검사</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => setShowReplaceModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="찾아 바꾸기"
+                  >
+                    <ReplaceIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">단어 치환</span>
+                  </button>
+                </>
+              )}
 
-              {/* 모양 대화상자 (글자 모양, 문단 모양) */}
-              <button
-                type="button"
-                onClick={() => setShowCharShapeModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                title="글자 모양 설정 (Alt+L)"
-              >
-                <CharShapeIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">글자 모양</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowParaShapeModal(true)}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                title="문단 모양 설정 (Alt+T)"
-              >
-                <ParaShapeIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">문단 모양</span>
-              </button>
-
-              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-
-              {/* 쪽 / 보기 제어 (머리말, 꼬리말, 쪽번호, 문단부호, 격자) */}
-              <button
-                type="button"
-                onClick={() => {
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="문서 맨 위로 이동"
-              >
-                <HeaderIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">머리말</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const el = document.querySelector("main");
-                  if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-                }}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                title="문서 맨 아래로 이동"
-              >
-                <FooterIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">꼬리말</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowParaMarks(!showParaMarks)}
-                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                  showParaMarks ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                }`}
-                title="문단 끝 기호(↵) 보이기 / 숨기기"
-              >
-                <ParaMarkIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">문단 부호</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowGrid(!showGrid)}
-                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                  showGrid ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                }`}
-                title="모눈 격자 보이기 / 숨기기"
-              >
-                <GridIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5">격자 보기</span>
-              </button>
+              {/* [도구 탭] */}
+              {activeTab === "tools" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowShortcutsModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="한컴오피스 단축키 일람 (단축키 안내)"
+                  >
+                    <ShortcutsIcon className="w-5 h-5 text-blue-600" />
+                    <span className="text-[10px] mt-0.5">단축키 일람</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDocStatsModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="문서 통계 정보"
+                  >
+                    <DocInfoIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문서 통계</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSymbolModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                    title="문자표 (Ctrl+F10)"
+                  >
+                    <SymbolIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">문자표</span>
+                  </button>
+                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+                  <button
+                    type="button"
+                    onClick={() => setShowPageSetupModal(true)}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
+                    title="환경 설정 (편집 용지 규격)"
+                  >
+                    <PageSetupIcon className="w-5 h-5" />
+                    <span className="text-[10px] mt-0.5">환경 설정</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -2041,6 +2568,203 @@ function HwpxEditorModalInner({
           </div>
         )}
 
+        {/* 찾아 바꾸기 모달 */}
+        {showReplaceModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-88 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <ReplaceIcon className="w-4 h-4 text-[#0066cc]" />
+                <span>찾아 바꾸기 (Ctrl+H)</span>
+              </span>
+              <button type="button" onClick={() => setShowReplaceModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+            </h4>
+            <div className="flex flex-col gap-2.5 text-xs">
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] text-neutral-600 font-medium">찾을 단어:</span>
+                <input
+                  type="text"
+                  autoFocus
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  placeholder="바꿀 단어를 입력하세요"
+                  className="bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] text-neutral-600 font-medium">바꿀 단어:</span>
+                <input
+                  type="text"
+                  value={replaceKeyword}
+                  onChange={(e) => setReplaceKeyword(e.target.value)}
+                  placeholder="새로운 단어로 바꿉니다"
+                  className="bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+                />
+              </div>
+              {replaceMsg && (
+                <div className="text-[11px] text-[#0066cc] font-medium bg-blue-50 px-2 py-1 rounded">
+                  {replaceMsg}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowReplaceModal(false)}
+                className="px-3 py-1 rounded text-xs text-neutral-600 hover:bg-neutral-100 cursor-pointer"
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                onClick={handleReplaceAll}
+                className="px-3 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+              >
+                모두 바꾸기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 문서 정보 (통계) 모달 */}
+        {showDocStatsModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3.5 w-84 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <DocInfoIcon className="w-4 h-4 text-[#0066cc]" />
+                <span>문서 정보 및 통계</span>
+              </span>
+              <button type="button" onClick={() => setShowDocStatsModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+            </h4>
+            <div className="flex flex-col gap-2 text-xs divide-y divide-neutral-100">
+              <div className="flex justify-between py-1">
+                <span className="text-neutral-600">글자 수 (공백 포함):</span>
+                <span className="font-bold text-neutral-900">{docStats.charCountWithSpace.toLocaleString()} 자</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-neutral-600">글자 수 (공백 제외):</span>
+                <span className="font-bold text-neutral-900">{docStats.charCountNoSpace.toLocaleString()} 자</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-neutral-600">단어 수 (어절):</span>
+                <span className="font-bold text-neutral-900">{docStats.wordCount.toLocaleString()} 개</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-neutral-600">문단 수:</span>
+                <span className="font-bold text-neutral-900">{docStats.paraCount.toLocaleString()} 줄</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-neutral-600">삽입된 표 / 수식:</span>
+                <span className="font-bold text-neutral-900">{docStats.tableCount} 개 / {docStats.equationCount} 개</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-neutral-600">삽입된 도형 / 그림:</span>
+                <span className="font-bold text-neutral-900">{docStats.shapeCount} 개 / {docStats.imageCount} 개</span>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowDocStatsModal(false)}
+                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 단축키 일람 모달 */}
+        {showShortcutsModal && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3.5 w-96 max-h-[80vh] overflow-y-auto text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <ShortcutsIcon className="w-4 h-4 text-[#0066cc]" />
+                <span>한컴오피스 한글 대표 단축키</span>
+              </span>
+              <button type="button" onClick={() => setShowShortcutsModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+            </h4>
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="font-bold text-neutral-900 text-[11px] bg-neutral-100 px-2 py-1 rounded">기본 편집</div>
+              <div className="grid grid-cols-2 gap-1 px-1">
+                <span className="text-neutral-600">저장하기:</span> <span className="font-mono font-semibold">Ctrl + S</span>
+                <span className="text-neutral-600">실행 취소:</span> <span className="font-mono font-semibold">Ctrl + Z</span>
+                <span className="text-neutral-600">다시 실행:</span> <span className="font-mono font-semibold">Ctrl + Y</span>
+                <span className="text-neutral-600">모두 선택:</span> <span className="font-mono font-semibold">Ctrl + A</span>
+                <span className="text-neutral-600">찾기 / 바꾸기:</span> <span className="font-mono font-semibold">Ctrl + F / H</span>
+                <span className="text-neutral-600">인쇄:</span> <span className="font-mono font-semibold">Ctrl + P</span>
+              </div>
+              <div className="font-bold text-neutral-900 text-[11px] bg-neutral-100 px-2 py-1 rounded mt-1">서식 및 모양</div>
+              <div className="grid grid-cols-2 gap-1 px-1">
+                <span className="text-neutral-600">글자 모양:</span> <span className="font-mono font-semibold">Alt + L</span>
+                <span className="text-neutral-600">문단 모양:</span> <span className="font-mono font-semibold">Alt + T</span>
+                <span className="text-neutral-600">모양 복사:</span> <span className="font-mono font-semibold">Alt + C</span>
+                <span className="text-neutral-600">진하게(굵게):</span> <span className="font-mono font-semibold">Ctrl + B</span>
+                <span className="text-neutral-600">기울임:</span> <span className="font-mono font-semibold">Ctrl + I</span>
+                <span className="text-neutral-600">밑줄:</span> <span className="font-mono font-semibold">Ctrl + U</span>
+              </div>
+              <div className="font-bold text-neutral-900 text-[11px] bg-neutral-100 px-2 py-1 rounded mt-1">삽입 및 개체</div>
+              <div className="grid grid-cols-2 gap-1 px-1">
+                <span className="text-neutral-600">문자표:</span> <span className="font-mono font-semibold">Ctrl + F10</span>
+                <span className="text-neutral-600">표 만들기:</span> <span className="font-mono font-semibold">Ctrl + N, T</span>
+                <span className="text-neutral-600">수식 삽입:</span> <span className="font-mono font-semibold">Ctrl + N, M</span>
+                <span className="text-neutral-600">쪽 나누기:</span> <span className="font-mono font-semibold">Ctrl + Enter</span>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowShortcutsModal(false)}
+                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 편집 용지 정보 모달 */}
+        {showPageSetupModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3.5 w-80 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <PageSetupIcon className="w-4 h-4 text-[#0066cc]" />
+                <span>편집 용지 설정 (F7)</span>
+              </span>
+              <button type="button" onClick={() => setShowPageSetupModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+            </h4>
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-neutral-100">
+                <span className="text-neutral-600">용지 종류:</span>
+                <span className="font-bold text-neutral-900">A4 (210 × 297 mm)</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-neutral-100">
+                <span className="text-neutral-600">용지 방향:</span>
+                <span className="font-bold text-neutral-900">세로 (Portrait)</span>
+              </div>
+              <div className="flex flex-col gap-1 py-1">
+                <span className="font-semibold text-neutral-700">여백 설정 (표준):</span>
+                <div className="grid grid-cols-2 gap-1 text-[11px] text-neutral-600 bg-neutral-50 p-2 rounded">
+                  <span>위쪽: 20.0 mm</span>
+                  <span>아래쪽: 15.0 mm</span>
+                  <span>왼쪽: 30.0 mm</span>
+                  <span>오른쪽: 30.0 mm</span>
+                  <span>머리말: 15.0 mm</span>
+                  <span>꼬리말: 15.0 mm</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowPageSetupModal(false)}
+                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* 에러 바 */}
         {error && (
           <div className="px-5 py-2 text-xs bg-red-500/15 text-red-400 border-b border-red-500/20">
@@ -2051,12 +2775,14 @@ function HwpxEditorModalInner({
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90">
           <div
-            className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 ${
+            className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 transition-transform ${
               showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
             }`}
             style={{
               fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
               boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
+              transform: `scale(${zoomPercent / 100})`,
+              transformOrigin: "top center",
             }}
           >
             {(() => {

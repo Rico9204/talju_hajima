@@ -312,3 +312,180 @@ export function TrashIcon({ className = "w-4 h-4" }: { className?: string }) {
     </svg>
   );
 }
+
+// ── 한컴오피스 탭별 전용 리본 추가 아이콘 ──
+
+export function PrintIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7 8V3H17V8" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M19 14H21C21.5523 14 22 13.5523 22 13V9C22 8.44772 21.5523 8 21 8H3C2.44772 8 2 8.44772 2 9V13C2 13.5523 2.44772 14 3 14H5" stroke="#334155" strokeWidth="1.5"/>
+      <rect x="5" y="12" width="14" height="9" rx="1.5" fill="#F8FAFC" stroke="#0284C7" strokeWidth="1.5"/>
+      <line x1="8" y1="15" x2="16" y2="15" stroke="#94A3B8" strokeWidth="1.2" strokeLinecap="round"/>
+      <line x1="8" y1="18" x2="13" y2="18" stroke="#94A3B8" strokeWidth="1.2" strokeLinecap="round"/>
+      <circle cx="18" cy="11" r="1" fill="#10B981"/>
+    </svg>
+  );
+}
+
+export function DocInfoIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="3" width="16" height="18" rx="2" fill="#EFF6FF" stroke="#2563EB" strokeWidth="1.5"/>
+      <circle cx="12" cy="8" r="1.5" fill="#2563EB"/>
+      <path d="M12 11V16M11 11H12M11 16H13" stroke="#2563EB" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M7 19H17" stroke="#93C5FD" strokeWidth="1.2"/>
+    </svg>
+  );
+}
+
+export function ReplaceIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="9" cy="9" r="6" stroke="#0284C7" strokeWidth="1.5"/>
+      <path d="M13.5 13.5L20 20" stroke="#0284C7" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M7 6L5 8L7 10" stroke="#059669" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M5 8H12" stroke="#059669" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M11 12L13 10L11 8" stroke="#D97706" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M13 10H6" stroke="#D97706" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function PageBreakIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5 4H19M5 20H19" stroke="#475569" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M3 12H21" stroke="#EF4444" strokeWidth="1.5" strokeDasharray="3 3"/>
+      <path d="M9 8L12 5L15 8M9 16L12 19L15 16" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+export function PageSetupIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="3" width="14" height="18" rx="1.5" fill="#FFFFFF" stroke="#0284C7" strokeWidth="1.5"/>
+      <rect x="7" y="5" width="10" height="14" fill="#F0F9FF" stroke="#BAE6FD" strokeWidth="1" strokeDasharray="2 2"/>
+      <line x1="2" y1="9" x2="5" y2="9" stroke="#0284C7" strokeWidth="1.2"/>
+      <line x1="2" y1="15" x2="5" y2="15" stroke="#0284C7" strokeWidth="1.2"/>
+    </svg>
+  );
+}
+
+export function ZoomInIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="11" cy="11" r="7" stroke="#475569" strokeWidth="1.75"/>
+      <path d="M16 16L21 21" stroke="#475569" strokeWidth="2.2" strokeLinecap="round"/>
+      <line x1="11" y1="8" x2="11" y2="14" stroke="#0284C7" strokeWidth="1.75" strokeLinecap="round"/>
+      <line x1="8" y1="11" x2="14" y2="11" stroke="#0284C7" strokeWidth="1.75" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function ZoomOutIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="11" cy="11" r="7" stroke="#475569" strokeWidth="1.75"/>
+      <path d="M16 16L21 21" stroke="#475569" strokeWidth="2.2" strokeLinecap="round"/>
+      <line x1="8" y1="11" x2="14" y2="11" stroke="#0284C7" strokeWidth="1.75" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function ShortcutsIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="5" width="18" height="14" rx="2.5" fill="#F8FAFC" stroke="#64748B" strokeWidth="1.5"/>
+      <rect x="6" y="8" width="3" height="3" rx="0.5" fill="#94A3B8"/>
+      <rect x="10.5" y="8" width="3" height="3" rx="0.5" fill="#94A3B8"/>
+      <rect x="15" y="8" width="3" height="3" rx="0.5" fill="#94A3B8"/>
+      <rect x="7" y="13" width="10" height="3" rx="0.5" fill="#3B82F6"/>
+    </svg>
+  );
+}
+
+export function SpellCheckIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="3" y="16" fill="#1E293B" fontSize="14" fontWeight="bold">가</text>
+      <path d="M12 14L15 17L21 11" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+export function AddRowIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="4" width="18" height="16" rx="1.5" fill="#FFFFFF" stroke="#0284C7" strokeWidth="1.5"/>
+      <line x1="3" y1="12" x2="21" y2="12" stroke="#0284C7" strokeWidth="1.2"/>
+      <line x1="9" y1="4" x2="9" y2="20" stroke="#BAE6FD" strokeWidth="1"/>
+      <line x1="15" y1="4" x2="15" y2="20" stroke="#BAE6FD" strokeWidth="1"/>
+      <circle cx="18" cy="18" r="4.5" fill="#10B981"/>
+      <path d="M18 16V20M16 18H20" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function AddColIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="4" width="18" height="16" rx="1.5" fill="#FFFFFF" stroke="#0284C7" strokeWidth="1.5"/>
+      <line x1="12" y1="4" x2="12" y2="20" stroke="#0284C7" strokeWidth="1.2"/>
+      <line x1="3" y1="10" x2="21" y2="10" stroke="#BAE6FD" strokeWidth="1"/>
+      <line x1="3" y1="16" x2="21" y2="16" stroke="#BAE6FD" strokeWidth="1"/>
+      <circle cx="18" cy="18" r="4.5" fill="#10B981"/>
+      <path d="M18 16V20M16 18H20" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function DeleteRowColIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="4" width="18" height="16" rx="1.5" fill="#FFFFFF" stroke="#0284C7" strokeWidth="1.5"/>
+      <line x1="3" y1="12" x2="21" y2="12" stroke="#0284C7" strokeWidth="1.2"/>
+      <line x1="12" y1="4" x2="12" y2="20" stroke="#0284C7" strokeWidth="1.2"/>
+      <circle cx="18" cy="18" r="4.5" fill="#EF4444"/>
+      <path d="M16 18H20" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function SelectAllIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="3" width="18" height="18" rx="2" fill="#DBEAFE" stroke="#2563EB" strokeWidth="1.5" strokeDasharray="3 3"/>
+      <line x1="7" y1="8" x2="17" y2="8" stroke="#1D4ED8" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="7" y1="12" x2="15" y2="12" stroke="#1D4ED8" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="7" y1="16" x2="13" y2="16" stroke="#1D4ED8" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function BulletListIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="5" cy="7" r="2" fill="currentColor"/>
+      <circle cx="5" cy="12" r="2" fill="currentColor"/>
+      <circle cx="5" cy="17" r="2" fill="currentColor"/>
+      <line x1="10" y1="7" x2="20" y2="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="10" y1="12" x2="20" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="10" y1="17" x2="20" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function NumberListIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="2" y="9" fill="currentColor" fontSize="8" fontWeight="bold">1.</text>
+      <text x="2" y="15" fill="currentColor" fontSize="8" fontWeight="bold">2.</text>
+      <text x="2" y="21" fill="currentColor" fontSize="8" fontWeight="bold">3.</text>
+      <line x1="10" y1="7" x2="20" y2="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="10" y1="13" x2="20" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <line x1="10" y1="19" x2="20" y2="19" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
