@@ -13,6 +13,10 @@ export interface HwpxParagraphBlock {
   align?: "left" | "center" | "right" | "justify";
   sizePt?: number;
   bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  color?: string;
+  fontFamily?: string;
   pageBreak?: boolean;
   rawAttrs?: string;
 }
@@ -40,7 +44,17 @@ export interface HwpxEquationBlock {
   rawAttrs?: string;
 }
 
-export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock;
+export interface HwpxImageBlock {
+  type: "image";
+  id: string;
+  src: string;
+  widthPercent?: number;
+  align?: "left" | "center" | "right";
+  caption?: string;
+  rawAttrs?: string;
+}
+
+export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock;
 
 // ── OWPML XML을 구조화된 협업 블록 목록으로 파싱 ──
 export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollabBlock[] {
@@ -291,6 +305,10 @@ export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml 
       return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
     }
 
+    if (block.type === "image") {
+      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
+    }
+
     // 일반 문단
     const pAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" paraPrIDRef="0" styleIDRef="0"`;
     return `    <hp:p${pAttrs}>\n      ${lead}<hp:run charPrIDRef="0"><hp:t>${escapeXml(block.text)}</hp:t></hp:run>\n    </hp:p>`;
@@ -319,6 +337,10 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.align) yBlock.set("align", block.align);
         if (block.sizePt) yBlock.set("sizePt", block.sizePt);
         if (block.bold !== undefined) yBlock.set("bold", block.bold);
+        if (block.italic !== undefined) yBlock.set("italic", block.italic);
+        if (block.underline !== undefined) yBlock.set("underline", block.underline);
+        if (block.color) yBlock.set("color", block.color);
+        if (block.fontFamily) yBlock.set("fontFamily", block.fontFamily);
         if (block.pageBreak !== undefined) yBlock.set("pageBreak", block.pageBreak);
       } else if (block.type === "table") {
         const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
@@ -338,6 +360,11 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
       } else if (block.type === "equation") {
         const yScript = new Y.Text(block.script);
         yBlock.set("script", yScript);
+      } else if (block.type === "image") {
+        yBlock.set("src", block.src);
+        if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
+        if (block.align) yBlock.set("align", block.align);
+        if (block.caption) yBlock.set("caption", block.caption);
       }
       yBlocks.push([yBlock]);
     }
@@ -351,7 +378,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
 
   for (let i = 0; i < yBlocks.length; i++) {
     const yBlock = yBlocks.get(i);
-    const type = yBlock.get("type") as "paragraph" | "table" | "equation";
+    const type = yBlock.get("type") as "paragraph" | "table" | "equation" | "image";
     const id = (yBlock.get("id") as string) || `block_${i}`;
     const rawAttrs = yBlock.get("rawAttrs") as string | undefined;
 
@@ -360,6 +387,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const align = yBlock.get("align") as "left" | "center" | "right" | "justify" | undefined;
       const sizePt = yBlock.get("sizePt") as number | undefined;
       const bold = yBlock.get("bold") as boolean | undefined;
+      const italic = yBlock.get("italic") as boolean | undefined;
+      const underline = yBlock.get("underline") as boolean | undefined;
+      const color = yBlock.get("color") as string | undefined;
+      const fontFamily = yBlock.get("fontFamily") as string | undefined;
       const pageBreak = yBlock.get("pageBreak") as boolean | undefined;
       blocks.push({
         type: "paragraph",
@@ -368,6 +399,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         align,
         sizePt,
         bold,
+        italic,
+        underline,
+        color,
+        fontFamily,
         pageBreak,
         rawAttrs,
       });
@@ -398,6 +433,20 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         script: yScript ? yScript.toString() : "",
         rawAttrs,
       });
+    } else if (type === "image") {
+      const src = (yBlock.get("src") as string) || "";
+      const widthPercent = (yBlock.get("widthPercent") as number) || 100;
+      const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const caption = (yBlock.get("caption") as string) || "";
+      blocks.push({
+        type: "image",
+        id,
+        src,
+        widthPercent,
+        align,
+        caption,
+        rawAttrs,
+      });
     }
   }
 
@@ -419,6 +468,8 @@ export function hwpxCollabText(doc: Y.Doc): string {
       }
     } else if (block.type === "equation") {
       if (block.script) lines.push(`[수식] ${block.script}`);
+    } else if (block.type === "image") {
+      lines.push(`[그림] ${block.caption || "이미지"}`);
     }
   }
 
