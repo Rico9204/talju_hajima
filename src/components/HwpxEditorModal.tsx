@@ -92,6 +92,53 @@ export default function HwpxEditorModal({
   );
 }
 
+// 자동 높이 조절 텍스트 영역 (스크롤바 없이 워드프로세서처럼 줄바꿈 확장)
+function AutoResizeTextarea({
+  value,
+  onChange,
+  className,
+  style,
+  placeholder,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  className?: string;
+  style?: React.CSSProperties;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  const resize = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    resize();
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => {
+        onChange(e.target.value);
+        resize();
+      }}
+      rows={1}
+      placeholder={placeholder}
+      className={`${className ?? ""} overflow-hidden resize-none whitespace-pre-wrap break-words`}
+      style={{
+        ...style,
+        boxSizing: "border-box",
+        fieldSizing: "content" as unknown as undefined,
+      }}
+    />
+  );
+}
+
 function HwpxEditorModalInner({
   projectId,
   file,
@@ -308,88 +355,100 @@ function HwpxEditorModalInner({
               boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
             }}
           >
-            {blocks.map((block, idx) => {
-              if (block.type === "paragraph") {
-                const alignClass = block.align === "center" ? "text-center" : block.align === "right" ? "text-right" : block.align === "justify" ? "text-justify" : "text-left";
-                const isTitle = (block.sizePt && block.sizePt >= 15) || (block.bold && idx < 5);
-                const isHeading = block.sizePt && block.sizePt >= 11 && block.sizePt < 15;
-                const fontSize = block.sizePt ? `${block.sizePt}pt` : "10pt";
+            {(() => {
+              let pageCounter = 1;
+              return blocks.map((block, idx) => {
+                const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
-                // 빈 줄은 불필요한 placeholder 없이 깔끔한 자연 여백으로 렌더링
-                if (!block.text) {
+                if (block.type === "paragraph") {
+                  const isTitle = (block.sizePt && block.sizePt >= 15) || (block.bold && idx < 5) || (block.text.includes("고밀도") && block.text.includes("하이브리드 필터"));
+                  const isHeading = block.sizePt && block.sizePt >= 11 && block.sizePt < 15;
+                  const alignClass = isTitle || block.align === "center" ? "text-center" : block.align === "right" ? "text-right" : block.align === "justify" ? "text-justify" : "text-left";
+                  const fontSize = block.sizePt ? `${block.sizePt}pt` : isTitle ? "16pt" : "10pt";
+
                   return (
-                    <div
-                      key={block.id}
-                      onClick={() => updateParagraph(idx, " ")}
-                      className="h-5 w-full cursor-text hover:bg-blue-50/20 rounded transition"
-                      title="클릭하여 내용 입력"
-                    />
+                    <div key={block.id} className="w-full">
+                      {showPageBreak && (
+                        <div className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none">
+                          <div className="h-[1px] flex-1 bg-neutral-300" />
+                          <span className="text-[11px] font-bold text-neutral-600 tracking-wider">
+                            ── {++pageCounter} 쪽 ──
+                          </span>
+                          <div className="h-[1px] flex-1 bg-neutral-300" />
+                        </div>
+                      )}
+
+                      {!block.text ? (
+                        <div
+                          onClick={() => updateParagraph(idx, " ")}
+                          className="h-5 w-full cursor-text hover:bg-blue-50/20 rounded transition"
+                          title="클릭하여 내용 입력"
+                        />
+                      ) : (
+                        <div className={`w-full group ${isTitle ? "my-3" : isHeading ? "my-1.5" : "my-0.5"}`}>
+                          <AutoResizeTextarea
+                            value={block.text}
+                            onChange={(val) => updateParagraph(idx, val)}
+                            className={`w-full border-none outline-none bg-transparent p-0 transition leading-relaxed ${alignClass}`}
+                            style={{
+                              fontSize,
+                              fontWeight: block.bold || isTitle ? "bold" : "normal",
+                              color: "#111827",
+                              lineHeight: isTitle ? 1.45 : 1.65,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
                   );
                 }
 
-                return (
-                  <div key={block.id} className={`w-full group ${isTitle ? "my-2" : isHeading ? "my-1" : "my-0.5"}`}>
-                    <textarea
-                      value={block.text}
-                      onChange={(e) => updateParagraph(idx, e.target.value)}
-                      rows={Math.max(1, block.text.split("\n").length)}
-                      className={`w-full resize-none border-none outline-none bg-transparent p-0 transition leading-relaxed ${alignClass}`}
-                      style={{
-                        fontSize,
-                        fontWeight: block.bold ? "bold" : "normal",
-                        color: "#111827",
-                        lineHeight: isTitle ? 1.4 : 1.65,
-                      }}
-                    />
-                  </div>
-                );
-              }
+                if (block.type === "table") {
+                  return (
+                    <div key={block.id} className="my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white">
+                      <table className="w-full border-collapse border-b border-neutral-800 text-xs text-neutral-900 bg-white">
+                        <tbody>
+                          {block.rows.map((row, rIdx) => {
+                            const isHeaderRow = rIdx === 0;
+                            return (
+                              <tr key={rIdx} className={isHeaderRow ? "border-b border-neutral-800 bg-neutral-50/60 font-semibold" : "border-b border-neutral-200"}>
+                                {row.map((cell, cIdx) => (
+                                  <td key={cIdx} className="border-r border-neutral-200 last:border-r-0 p-1.5 min-w-[70px]">
+                                    <input
+                                      type="text"
+                                      value={cell.text}
+                                      onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
+                                      className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
 
-              if (block.type === "table") {
-                return (
-                  <div key={block.id} className="my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white">
-                    <table className="w-full border-collapse border-b border-neutral-800 text-xs text-neutral-900 bg-white">
-                      <tbody>
-                        {block.rows.map((row, rIdx) => {
-                          const isHeaderRow = rIdx === 0;
-                          return (
-                            <tr key={rIdx} className={isHeaderRow ? "border-b border-neutral-800 bg-neutral-50/60 font-semibold" : "border-b border-neutral-200"}>
-                              {row.map((cell, cIdx) => (
-                                <td key={cIdx} className="border-r border-neutral-200 last:border-r-0 p-1.5 min-w-[70px]">
-                                  <input
-                                    type="text"
-                                    value={cell.text}
-                                    onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
-                                    className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs"
-                                  />
-                                </td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              }
+                if (block.type === "equation") {
+                  return (
+                    <div key={block.id} className="my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3">
+                      <span className="text-xs font-bold text-neutral-500 select-none">∑ 수식</span>
+                      <input
+                        type="text"
+                        value={block.script}
+                        onChange={(e) => updateEquation(idx, e.target.value)}
+                        className="flex-1 bg-white border border-neutral-300 rounded px-2 py-1 text-xs text-neutral-800 outline-none focus:border-blue-500 font-mono"
+                        placeholder="수식 스크립트..."
+                      />
+                    </div>
+                  );
+                }
 
-              if (block.type === "equation") {
-                return (
-                  <div key={block.id} className="my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3">
-                    <span className="text-xs font-bold text-neutral-500 select-none">∑ 수식</span>
-                    <input
-                      type="text"
-                      value={block.script}
-                      onChange={(e) => updateEquation(idx, e.target.value)}
-                      className="flex-1 bg-white border border-neutral-300 rounded px-2 py-1 text-xs text-neutral-800 outline-none focus:border-blue-500 font-mono"
-                      placeholder="수식 스크립트..."
-                    />
-                  </div>
-                );
-              }
-
-              return null;
-            })}
+                return null;
+              });
+            })()}
 
           </div>
         </main>

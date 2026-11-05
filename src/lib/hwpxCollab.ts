@@ -13,6 +13,7 @@ export interface HwpxParagraphBlock {
   align?: "left" | "center" | "right" | "justify";
   sizePt?: number;
   bold?: boolean;
+  pageBreak?: boolean;
   rawAttrs?: string;
 }
 
@@ -98,6 +99,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
   let currentPAttrs = "";
   let currentParaPrId = "0";
   let currentCharPrId = "0";
+  let currentPageBreak = false;
   let inT = false;
 
   let blockIndex = 0;
@@ -184,6 +186,8 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
           currentPAttrs = attrs.trim();
           const paraMatch = attrs.match(/paraPrIDRef="(\d+)"/);
           currentParaPrId = paraMatch ? paraMatch[1] : "0";
+          const pageBreakMatch = attrs.match(/pageBreak="(\d+)"/);
+          currentPageBreak = pageBreakMatch ? pageBreakMatch[1] === "1" : false;
           currentCharPrId = "0";
         } else if (isClosing) {
           inP = false;
@@ -197,11 +201,13 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
               align: pStyle?.align ?? "left",
               sizePt: cStyle?.sizePt,
               bold: cStyle?.bold,
+              pageBreak: currentPageBreak,
               rawAttrs: currentPAttrs,
             });
           }
           currentPText = [];
           currentPAttrs = "";
+          currentPageBreak = false;
         }
       }
       // 글자 런 (run) 스타일 추적
@@ -313,6 +319,7 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.align) yBlock.set("align", block.align);
         if (block.sizePt) yBlock.set("sizePt", block.sizePt);
         if (block.bold !== undefined) yBlock.set("bold", block.bold);
+        if (block.pageBreak !== undefined) yBlock.set("pageBreak", block.pageBreak);
       } else if (block.type === "table") {
         const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
         for (const row of block.rows) {
@@ -353,6 +360,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const align = yBlock.get("align") as "left" | "center" | "right" | "justify" | undefined;
       const sizePt = yBlock.get("sizePt") as number | undefined;
       const bold = yBlock.get("bold") as boolean | undefined;
+      const pageBreak = yBlock.get("pageBreak") as boolean | undefined;
       blocks.push({
         type: "paragraph",
         id,
@@ -360,6 +368,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         align,
         sizePt,
         bold,
+        pageBreak,
         rawAttrs,
       });
     } else if (type === "table") {
