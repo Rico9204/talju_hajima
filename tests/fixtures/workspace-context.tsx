@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { FileUploadInput, FileVersion, WorkspaceFile } from "../../src/api/types";
 import { MAX_WORKSPACE_FILE_SIZE, workspaceFileType } from "../../src/lib/workspaceFiles";
-import { newHwpxBytes } from "../../src/lib/hwpx";
+import { newHwpxBytes, readZipEntries, writeZipEntries } from "../../src/lib/hwpx";
 const Context = createContext<any>(null);
 const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="), c => c.charCodeAt(0));
 const version = (id: number, parent: number | null, current: boolean): FileVersion => ({
@@ -25,9 +25,13 @@ export function Fixture({ children }: { children: ReactNode }) {
   const bytes = useRef(new Map<number, Blob>([[2,new Blob([png])],[3,new Blob([png])],[4,new Blob([png])]]));
   const counter = useRef(6);
   useEffect(() => {
-    void newHwpxBytes("팀플 최종 보고서 초안입니다.\n\n1. 연구 배경 및 목적\n본 프로젝트는 대학생들의 원활한 협업을 위해 진행되었습니다.\n\n2. 주요 내용\n- 실시간 동시 편집 지원\n- 한글(HWPX) 문서 인앱 수정 및 관리\n- 자동 버전 기록").then((b) => {
-      bytes.current.set(5, new Blob([new Uint8Array(b)], { type: "application/hnc+zip" }));
-    });
+    void (async () => {
+      const b = await newHwpxBytes("팀플 최종 보고서 초안입니다.");
+      const entries = await readZipEntries(b);
+      entries.set("Contents/section0.xml", new TextEncoder().encode("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<hs:sec xmlns:hs=\"http://www.hancom.co.kr/hwpml/2011/section\" xmlns:hp=\"http://www.hancom.co.kr/hwpml/2011/paragraph\">\n  <hp:p id=\"p0\"><hp:run><hp:t>팀플 최종 보고서 초안입니다.</hp:t></hp:run></hp:p>\n  <hp:p id=\"p1\"><hp:run><hp:t>1. 연구 배경 및 목적: 대학생들의 원활한 한글 문서 협업을 지원합니다.</hp:t></hp:run></hp:p>\n  <hp:p id=\"p2\">\n    <hp:run>\n      <hp:tbl rowCnt=\"3\" colCnt=\"3\" width=\"10000\">\n        <hp:tr>\n          <hp:tc><hp:p><hp:run><hp:t>구분</hp:t></hp:run></hp:p></hp:tc>\n          <hp:tc><hp:p><hp:run><hp:t>담당자</hp:t></hp:run></hp:p></hp:tc>\n          <hp:tc><hp:p><hp:run><hp:t>진행 상태</hp:t></hp:run></hp:p></hp:tc>\n        </hp:tr>\n        <hp:tr>\n          <hp:tc><hp:p><hp:run><hp:t>한글 동시편집 에디터</hp:t></hp:run></hp:p></hp:tc>\n          <hp:tc><hp:p><hp:run><hp:t>홍길동</hp:t></hp:run></hp:p></hp:tc>\n          <hp:tc><hp:p><hp:run><hp:t>개발 완료 (Yjs CRDT)</hp:t></hp:run></hp:p></hp:tc>\n        </hp:tr>\n        <hp:tr>\n          <hp:tc><hp:p><hp:run><hp:t>표/수식 무손실 보존</hp:t></hp:run></hp:p></hp:tc>\n          <hp:tc><hp:p><hp:run><hp:t>이순신</hp:t></hp:run></hp:p></hp:tc>\n          <hp:tc><hp:p><hp:run><hp:t>검증 완료</hp:t></hp:run></hp:p></hp:tc>\n        </hp:tr>\n      </hp:tbl>\n    </hp:run>\n  </hp:p>\n  <hp:p id=\"p3\">\n    <hp:run>\n      <hp:equation version=\"1.0\">\n        <hp:script>E = mc^2</hp:script>\n      </hp:equation>\n    </hp:run>\n  </hp:p>\n  <hp:p id=\"p4\"><hp:run><hp:t>2. 결론 및 향후 계획: 추가 서식 호환성을 계속 강화해 나갈 예정입니다.</hp:t></hp:run></hp:p>\n</hs:sec>"));
+      const complexBytes = await writeZipEntries(entries);
+      bytes.current.set(5, new Blob([new Uint8Array(complexBytes)], { type: "application/hnc+zip" }));
+    })();
   }, []);
   function guard() { if (errorMode) throw new Error("테스트: 저장소 연결 실패"); if (done) throw new Error("종료된 프로젝트"); }
   return <Context.Provider value={{
