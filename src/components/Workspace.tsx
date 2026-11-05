@@ -1614,7 +1614,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
           {/* Table Header */}
           <div
-            className="flex items-center px-8 py-2.5 text-xs font-700 border-b select-none sticky top-0 z-10"
+            className="flex items-center pl-8 pr-[42px] py-2.5 text-xs font-700 border-b select-none sticky top-0 z-10"
             style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--muted-foreground)" }}
           >
             {selectMode && <div className="w-6 shrink-0" />}
@@ -1667,7 +1667,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            className="relative min-h-[420px] max-h-[640px] overflow-y-auto px-4 py-2 pb-16 space-y-0.5"
+            className="relative min-h-[420px] max-h-[640px] overflow-y-auto pl-4 pr-[26px] py-2 pb-16 space-y-0.5"
             style={{ userSelect: band ? "none" : undefined }}
           >
             {/* Desktop file drop overlay */}
