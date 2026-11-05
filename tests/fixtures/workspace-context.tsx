@@ -25,7 +25,7 @@ export function Fixture({ children }: { children: ReactNode }) {
   function guard() { if (errorMode) throw new Error("테스트: 저장소 연결 실패"); if (done) throw new Error("종료된 프로젝트"); }
   return <Context.Provider value={{
     project: { id: "fixture", name: "파일 버전관리 검증", status: done ? "done" : "active" }, files, folders, team: { members: [{name:"테스트 팀원",color:"#2563eb"}] },
-    currentMember: {userId:"fixture-user"}, isLeader: true, isManager: true,
+    currentMember: { id: 1, userId: "fixture-user", name: "테스트 팀원", role: "팀장", avatar: "팀" } as unknown as import("../../src/context/ProjectContext").Member, isLeader: true, isManager: true,
     deleteWorkspaceFile: async(id:number)=>{ guard(); setFiles(prev=>prev.filter(f=>f.id!==id)); },
     deleteWorkspaceFolder: async(id:number)=>{ guard(); if(files.some(f=>f.folderId===id)) throw new Error("파일이 있는 폴더는 삭제할 수 없습니다."); setFolders(prev=>prev.filter(f=>f.id!==id)); },
     pendingWorkspaceCleanup: async()=>[], cleanupWorkspaceFiles: async()=>{}, markSectionViewed: async()=>{},
@@ -47,7 +47,54 @@ export function Fixture({ children }: { children: ReactNode }) {
     setFileTags: async(id:number,tags:string[])=>{ guard(); setFiles(prev=>prev.map(f=>f.id===id?{...f,tags}:f)); },
     promoteFileVersion: async(fileId:number,id:number)=> { guard(); setFiles(prev=>prev.map(f=>f.id===fileId?{...f,versions:f.versions.map(v=>({...v,current:v.id===id}))}:f)); },
     pinFileVersion: async(fileId:number,id:number,pinned:boolean)=> { guard(); setFiles(prev=>prev.map(f=>f.id===fileId?{...f,versions:f.versions.map(v=>v.id===id?{...v,pinned}:v)}:f)); },
-    downloadFileVersion: async(id:number)=> { if(errorMode) throw new Error("테스트: 다운로드 실패"); const blob=bytes.current.get(id); if(!blob) throw new Error("원본 없음"); return blob; },
+    downloadFileVersion: async(id:number)=> {
+      if(errorMode) throw new Error("테스트: 다운로드 실패");
+      if (!bytes.current.has(id)) {
+        if (id === 110) {
+          const { jsPDF } = await import("jspdf");
+          const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [960, 540] });
+          pdf.setFillColor(245, 247, 250);
+          pdf.rect(0, 0, 960, 540, "F");
+          pdf.setTextColor(37, 99, 235);
+          pdf.setFontSize(28);
+          pdf.text("Slackerspace 팀 프로젝트 기획 발표", 60, 80);
+          pdf.setTextColor(75, 85, 99);
+          pdf.setFontSize(16);
+          pdf.text("1. 프로젝트 개요 및 배경 설명", 60, 140);
+          pdf.text("2. 주요 핵심 기능 분석", 60, 180);
+          pdf.text("3. 아키텍처 및 데이터 흐름", 60, 220);
+          pdf.addPage([960, 540], "landscape");
+          pdf.setFillColor(240, 249, 255);
+          pdf.rect(0, 0, 960, 540, "F");
+          pdf.setTextColor(16, 185, 129);
+          pdf.setFontSize(28);
+          pdf.text("2페이지: 핵심 기술 스택 및 일정", 60, 80);
+          pdf.setTextColor(75, 85, 99);
+          pdf.setFontSize(16);
+          pdf.text("• React 19 + Vite 8 + Tailwind CSS v4", 60, 140);
+          pdf.text("• NestJS + PostgreSQL + PDF.js + OfficeParser", 60, 180);
+          pdf.text("• 발표 모드 (전체화면 프레젠테이션 지원)", 60, 220);
+          const blob = new Blob([pdf.output("arraybuffer")], { type: "application/pdf" });
+          bytes.current.set(id, blob);
+          return blob;
+        }
+        if (id === 140) {
+          const PptxGen = (await import("pptxgenjs")).default;
+          const pptx = new PptxGen();
+          const s1 = pptx.addSlide();
+          s1.addText("최종 프로젝트 발표 자료", { x: 1, y: 1.5, fontSize: 32, color: "2563EB", bold: true });
+          s1.addText("발표자: 팀 탈주하지마", { x: 1, y: 3.0, fontSize: 18, color: "6B7280" });
+          const s2 = pptx.addSlide();
+          s2.addText("주요 성과 및 데모 시연", { x: 1, y: 1.0, fontSize: 26, color: "10B981", bold: true });
+          s2.addText("• 윈도우 11 탐색기 스타일 레이아웃 완벽 지원\n• PDF 및 PPTX 전체화면 발표자 모드 탑재\n• 실시간 동시 협업 및 버전 관리", { x: 1, y: 2.2, fontSize: 16, color: "374151" });
+          const buf = await pptx.write({ outputType: "arraybuffer" });
+          const blob = new Blob([buf as ArrayBuffer], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+          bytes.current.set(id, blob);
+          return blob;
+        }
+      }
+      const blob=bytes.current.get(id); if(!blob) throw new Error("원본 없음"); return blob;
+    },
   }}>
     <div className="p-3 flex gap-4"><label><input type="checkbox" checked={done} onChange={e=>setDone(e.target.checked)} />종료 상태 테스트</label><label><input type="checkbox" checked={errorMode} onChange={e=>setErrorMode(e.target.checked)} />오류 테스트</label></div>
     {children}
