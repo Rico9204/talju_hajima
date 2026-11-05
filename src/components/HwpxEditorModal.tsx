@@ -357,6 +357,163 @@ function HwpxEditorModalInner({
     });
   };
 
+  // ── 한컴오피스 스타일 확장 상태 및 기능들 ──
+  const [activeTab, setActiveTab] = useState<"file" | "edit" | "view" | "insert" | "format" | "page" | "table" | "review" | "tools">("insert");
+  const [ribbonCollapsed, setRibbonCollapsed] = useState(false);
+  const [showParaMarks, setShowParaMarks] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
+
+  // 모달 상태들
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [showSymbolModal, setShowSymbolModal] = useState(false);
+  const [showEquationModal, setShowEquationModal] = useState(false);
+  const [newEquationScript, setNewEquationScript] = useState("");
+  const [showCharShapeModal, setShowCharShapeModal] = useState(false);
+  const [showParaShapeModal, setShowParaShapeModal] = useState(false);
+  const [showHighlightPalette, setShowHighlightPalette] = useState(false);
+  const [showColorPalette, setShowColorPalette] = useState(false);
+
+  // 모양 복사 버퍼
+  const [copiedStyle, setCopiedStyle] = useState<{
+    fontFamily?: string;
+    sizePt?: number;
+    color?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    align?: "left" | "center" | "right" | "justify";
+  } | null>(null);
+
+  // 서식 복사 (모양 복사)
+  const handleCopyFormat = () => {
+    if (!currentPara) return;
+    setCopiedStyle({
+      fontFamily: currentPara.fontFamily,
+      sizePt: currentPara.sizePt,
+      color: currentPara.color,
+      bold: currentPara.bold,
+      italic: currentPara.italic,
+      underline: currentPara.underline,
+      align: currentPara.align,
+    });
+  };
+
+  // 서식 붙여넣기
+  const handlePasteFormat = () => {
+    if (!copiedStyle) return;
+    updateParagraphStyle(selectedIdx, copiedStyle);
+  };
+
+  // 클립보드 오려두기 / 복사
+  const handleCut = () => {
+    restoreSelection();
+    document.execCommand("cut");
+    triggerActiveBlockInput();
+  };
+  const handleCopy = () => {
+    restoreSelection();
+    document.execCommand("copy");
+  };
+
+  // 실행 취소 / 다시 실행
+  const handleUndo = () => {
+    document.execCommand("undo");
+  };
+  const handleRedo = () => {
+    document.execCommand("redo");
+  };
+
+  // 취소선
+  const applyStrikethrough = () => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("strikeThrough", false);
+      triggerActiveBlockInput();
+    }
+  };
+
+  // 형광펜 (배경색)
+  const applyHighlight = (color: string) => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("hiliteColor", false, color);
+      triggerActiveBlockInput();
+    }
+    setShowHighlightPalette(false);
+  };
+
+  // 특수문자(문자표) 삽입
+  const insertSymbol = (sym: string) => {
+    restoreSelection();
+    if (document.activeElement && document.activeElement.getAttribute("contenteditable") === "true") {
+      document.execCommand("insertText", false, sym);
+      triggerActiveBlockInput();
+    } else {
+      const block = blocks[selectedIdx];
+      if (block && block.type === "paragraph") {
+        updateParagraph(selectedIdx, (block.text || "") + sym);
+      }
+    }
+    setShowSymbolModal(false);
+  };
+
+  // 수식 블록 삽입
+  const addEquation = (script: string, afterIdx: number) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = new Y.Map<unknown>();
+    yBlock.set("id", `eq_${Date.now()}`);
+    yBlock.set("type", "equation");
+    yBlock.set("script", new Y.Text(script || "E = mc^2"));
+    doc.transact(() => {
+      yBlocks.insert(afterIdx + 1, [yBlock]);
+    });
+    setSelectedIdx(afterIdx + 1);
+    setShowEquationModal(false);
+    setNewEquationScript("");
+  };
+
+  // 스타일 프리셋 적용 (바탕글, 개요, 제목 등)
+  const applyStylePreset = (preset: string) => {
+    if (preset === "title") {
+      updateParagraphStyle(selectedIdx, { sizePt: 16, bold: true, align: "center" });
+    } else if (preset === "heading1") {
+      updateParagraphStyle(selectedIdx, { sizePt: 13, bold: true, align: "left" });
+    } else if (preset === "heading2") {
+      updateParagraphStyle(selectedIdx, { sizePt: 11, bold: true, align: "left" });
+    } else if (preset === "body") {
+      updateParagraphStyle(selectedIdx, { sizePt: 10, bold: false, align: "justify" });
+    }
+  };
+
+  // 들여쓰기 / 내어쓰기
+  const handleIndent = (increase: boolean) => {
+    const block = blocks[selectedIdx];
+    if (block && block.type === "paragraph") {
+      if (increase) {
+        updateParagraph(selectedIdx, "  " + block.text);
+      } else {
+        if (block.text.startsWith("  ")) {
+          updateParagraph(selectedIdx, block.text.slice(2));
+        } else if (block.text.startsWith(" ")) {
+          updateParagraph(selectedIdx, block.text.slice(1));
+        }
+      }
+    }
+  };
+
+  // 단어 찾기
+  const handleSearchNext = () => {
+    if (!searchKeyword.trim()) return;
+    const foundIdx = blocks.findIndex((b, i) => i > selectedIdx && (b.type === "paragraph" && b.text.includes(searchKeyword)));
+    if (foundIdx !== -1) {
+      setSelectedIdx(foundIdx);
+    } else {
+      const firstFound = blocks.findIndex((b) => b.type === "paragraph" && b.text.includes(searchKeyword));
+      if (firstFound !== -1) setSelectedIdx(firstFound);
+    }
+  };
+
   // ── 텍스트 드래그(선택 영역) 기억 및 부분 서식 적용 ──
   const lastSelectionRangeRef = useRef<Range | null>(null);
 
@@ -708,286 +865,636 @@ function HwpxEditorModalInner({
           color: "var(--primary-text, #cdd6f4)",
         }}
       >
-        {/* 상단 타이틀바 / 상태바 */}
-        <header className="flex items-center justify-between px-5 py-2.5 border-b shrink-0" style={{ borderColor: "var(--card-border, #313244)", background: "rgba(0,0,0,0.3)" }}>
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-xl">📄</span>
-            <div className="min-w-0">
-              <h2 className="text-sm font-bold truncate flex items-center gap-2">
-                <span>{file.name}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: "rgba(138,173,244,0.2)", color: "#8aadf4" }}>
-                  한글 동시편집
-                </span>
-              </h2>
-              <div className="text-[11px] flex items-center gap-2 opacity-75">
-                <span>{statusText || (dirty ? "변경사항 있음" : "모든 변경사항 저장됨")}</span>
-                <span>·</span>
-                <span>Ctrl+S로 저장</span>
+        {/* ── 한컴오피스 / 한컴독스 표준 스타일 상단 헤더 & 메뉴 탭 ── */}
+        <header className="bg-white border-b border-neutral-300 select-none shrink-0 text-neutral-800">
+          {/* 1열: 한컴 로고, 문서 제목, 상단 빠른 메뉴 */}
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-200 bg-[#fbfcfd]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {/* 한컴 한글 H 로고 아이콘 */}
+              <div className="w-7 h-7 rounded bg-[#0066cc] flex items-center justify-center text-white font-bold text-xs shadow-sm">
+                한
               </div>
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="text-sm font-semibold text-neutral-800 truncate" title={file.name}>
+                  {file.name}
+                </span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${dirty ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-500"}`}>
+                  {status === "saving" ? "저장 중…" : dirty ? "수정됨" : "저장됨"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <EditorAvatars editors={roomEditors} />
+
+              <button
+                type="button"
+                onClick={() => void runSave()}
+                disabled={status === "saving" || !dirty}
+                className="px-2.5 py-1 rounded text-xs font-semibold bg-[#0066cc] hover:bg-[#0055aa] text-white disabled:opacity-40 transition cursor-pointer flex items-center gap-1"
+                title="클라우드 저장 (Ctrl+S)"
+              >
+                <span>💾</span>
+                <span>{status === "saving" ? "저장 중" : "저장"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleDirectDownload()}
+                className="px-2.5 py-1 rounded text-xs font-medium border border-neutral-300 hover:bg-neutral-100 text-neutral-700 transition cursor-pointer flex items-center gap-1"
+                title="데스크톱에서 편집하기 위해 HWPX 원본 다운로드"
+              >
+                <span>데스크톱에서 편집</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRibbonCollapsed(!ribbonCollapsed)}
+                className="p-1 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-800 transition"
+                title={ribbonCollapsed ? "메뉴 툴바 펼치기" : "메뉴 툴바 접기"}
+              >
+                {ribbonCollapsed ? "⌄" : "⌃"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => requestClose(onClose)}
+                className="p-1 rounded hover:bg-red-50 text-neutral-400 hover:text-red-600 transition"
+                title="편집기 닫기"
+              >
+                ✕
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <EditorAvatars editors={roomEditors} />
+          {/* 2열: 메뉴 탭 바 (파일, 편집, 보기, 입력, 서식, 쪽, 표, 검토, 도구) */}
+          <div className="flex items-center gap-0.5 px-2 bg-white text-xs border-b border-neutral-200">
+            {(
+              [
+                { id: "file", label: "파일" },
+                { id: "edit", label: "편집" },
+                { id: "view", label: "보기" },
+                { id: "insert", label: "입력" },
+                { id: "format", label: "서식" },
+                { id: "page", label: "쪽" },
+                { id: "table", label: "표" },
+                { id: "review", label: "검토" },
+                { id: "tools", label: "도구" },
+              ] as const
+            ).map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    if (ribbonCollapsed) setRibbonCollapsed(false);
+                  }}
+                  className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 ${
+                    isActive
+                      ? "border-[#0066cc] text-[#0066cc] font-bold"
+                      : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
+          {/* 3열: 한글 대형 리본 툴바 (아이콘 + 한글 라벨) */}
+          {!ribbonCollapsed && (
+            <div className="flex items-stretch gap-1 px-3 py-1.5 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px]">
+              {/* 저장하기 */}
+              <button
+                type="button"
+                onClick={() => void runSave()}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                title="문서 저장 (Ctrl+S)"
+              >
+                <span className="text-lg">💾</span>
+                <span className="text-[10px] mt-0.5">저장하기</span>
+              </button>
+
+              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+
+              {/* 클립보드 그룹 (오려두기, 복사하기, 붙이기, 모양복사) */}
+              <button
+                type="button"
+                onClick={handleCut}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                title="오려두기 (Ctrl+X)"
+              >
+                <span className="text-base">✂️</span>
+                <span className="text-[10px] mt-0.5">오려두기</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                title="복사하기 (Ctrl+C)"
+              >
+                <span className="text-base">📋</span>
+                <span className="text-[10px] mt-0.5">복사하기</span>
+              </button>
+              <button
+                type="button"
+                onClick={handlePasteFormat}
+                disabled={!copiedStyle}
+                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[44px] ${
+                  copiedStyle ? "text-[#0066cc]" : "text-neutral-400 opacity-60"
+                }`}
+                title="복사한 모양 적용하기"
+              >
+                <span className="text-base">📥</span>
+                <span className="text-[10px] mt-0.5">붙이기</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyFormat}
+                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                  copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                }`}
+                title="현재 문단/글자 서식 모양 복사 (스포이드)"
+              >
+                <span className="text-base">🖌️</span>
+                <span className="text-[10px] mt-0.5">모양 복사</span>
+              </button>
+
+              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+
+              {/* 찾기 */}
+              <button
+                type="button"
+                onClick={() => setShowSearchModal(true)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="문서 내 단어 찾기 (Ctrl+F)"
+              >
+                <span className="text-base">🔍</span>
+                <span className="text-[10px] mt-0.5">찾기</span>
+              </button>
+
+              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+
+              {/* 삽입 개체 그룹 (도형, 그림, 표, 수식, 문자표) */}
+              <button
+                type="button"
+                onClick={() => addParagraph(selectedIdx)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="구분선 / 문단 삽입"
+              >
+                <span className="text-base">⬡</span>
+                <span className="text-[10px] mt-0.5">도형</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="이미지 파일 삽입"
+              >
+                <span className="text-base">🖼️</span>
+                <span className="text-[10px] mt-0.5">그림</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTableModal(true)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="새 표 삽입"
+              >
+                <span className="text-base">⊞</span>
+                <span className="text-[10px] mt-0.5">표</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowEquationModal(true)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="수식 삽입 (Ctrl+N, M)"
+              >
+                <span className="text-base">∑</span>
+                <span className="text-[10px] mt-0.5">수식</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSymbolModal(true)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="특수문자 문자표 (Ctrl+F10)"
+              >
+                <span className="text-base">※</span>
+                <span className="text-[10px] mt-0.5">문자표</span>
+              </button>
+
+              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+
+              {/* 모양 대화상자 (글자 모양, 문단 모양) */}
+              <button
+                type="button"
+                onClick={() => setShowCharShapeModal(true)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                title="글자 모양 설정 (Alt+L)"
+              >
+                <span className="text-base">🔤</span>
+                <span className="text-[10px] mt-0.5">글자 모양</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowParaShapeModal(true)}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
+                title="문단 모양 설정 (Alt+T)"
+              >
+                <span className="text-base">📑</span>
+                <span className="text-[10px] mt-0.5">문단 모양</span>
+              </button>
+
+              <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
+
+              {/* 쪽 / 보기 제어 (머리말, 꼬리말, 쪽번호, 문단부호, 격자) */}
+              <button
+                type="button"
+                onClick={() => {
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="문서 맨 위로 이동"
+              >
+                <span className="text-base">🔝</span>
+                <span className="text-[10px] mt-0.5">머리말</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.querySelector("main");
+                  if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                }}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
+                title="문서 맨 아래로 이동"
+              >
+                <span className="text-base">🔚</span>
+                <span className="text-[10px] mt-0.5">꼬리말</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowParaMarks(!showParaMarks)}
+                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                  showParaMarks ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                }`}
+                title="문단 끝 기호(↵) 보이기 / 숨기기"
+              >
+                <span className="text-base">¶</span>
+                <span className="text-[10px] mt-0.5">문단 부호</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowGrid(!showGrid)}
+                className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
+                  showGrid ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
+                }`}
+                title="모눈 격자 보이기 / 숨기기"
+              >
+                <span className="text-base">▦</span>
+                <span className="text-[10px] mt-0.5">격자 보기</span>
+              </button>
+            </div>
+          )}
+
+          {/* 4열: 한컴 표준 빠른 서식 툴바 (2단 툴바) */}
+          <div className="flex flex-wrap items-center gap-1 px-3 py-1 bg-white border-b border-neutral-300 text-xs">
+            {/* 실행 취소 / 다시 실행 */}
             <button
               type="button"
-              onClick={() => void handleDirectDownload()}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700"
-              title="현재 편집 중인 내용으로 HWPX 파일 즉시 다운로드"
+              onClick={handleUndo}
+              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 transition"
+              title="실행 취소 (Ctrl+Z)"
             >
-              <span>📥</span>
-              <span>다운로드</span>
+              ↶
             </button>
-
             <button
               type="button"
-              disabled={status === "saving" || !dirty}
-              onClick={() => void runSave()}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-40"
-              style={{ background: dirty ? "var(--primary, #8aadf4)" : "rgba(255,255,255,0.1)", color: dirty ? "#181926" : "inherit" }}
+              onClick={handleRedo}
+              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 transition"
+              title="다시 실행 (Ctrl+Y)"
             >
-              {status === "saving" ? "저장 중…" : "저장"}
+              ↷
             </button>
 
+            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+            {/* 스타일 프리셋 (바탕글 ▾) */}
+            <select
+              onChange={(e) => applyStylePreset(e.target.value)}
+              defaultValue="body"
+              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] cursor-pointer"
+              title="스타일 선택"
+            >
+              <option value="body">바탕글</option>
+              <option value="heading1">개요 1 (제목 1)</option>
+              <option value="heading2">개요 2 (제목 2)</option>
+              <option value="title">문서 제목</option>
+            </select>
+
+            {/* 대표 글꼴 */}
+            <select
+              disabled={!isParagraph}
+              value={currentPara?.fontFamily || FONT_FAMILIES[0].value}
+              onChange={(e) => applyFontFamily(e.target.value)}
+              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] disabled:opacity-40 max-w-[120px] cursor-pointer"
+              title="글꼴 변경"
+            >
+              {FONT_FAMILIES.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+
+            {/* 글자 크기 스피너 [-] 10.0 pt [+] */}
+            <div className="flex items-center border border-neutral-300 rounded bg-neutral-50 overflow-hidden">
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onClick={() => applyFontSize(Math.max(6, (currentPara?.sizePt || 10) - 1))}
+                className="px-1 py-0.5 hover:bg-neutral-200 text-neutral-600 disabled:opacity-40 text-[10px]"
+                title="글자 크기 1pt 줄이기"
+              >
+                ▼
+              </button>
+              <select
+                disabled={!isParagraph}
+                value={Math.round(currentPara?.sizePt || 10)}
+                onChange={(e) => applyFontSize(Number(e.target.value))}
+                className="bg-transparent text-neutral-800 text-xs px-1 py-0.5 outline-none text-center disabled:opacity-40 cursor-pointer"
+                title="글자 크기 선택"
+              >
+                {FONT_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}.0 pt
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onClick={() => applyFontSize((currentPara?.sizePt || 10) + 1)}
+                className="px-1 py-0.5 hover:bg-neutral-200 text-neutral-600 disabled:opacity-40 text-[10px]"
+                title="글자 크기 1pt 늘리기"
+              >
+                ▲
+              </button>
+            </div>
+
+            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+            {/* 글자 서식: 가(굵게), 가(기울임), 가(밑줄), 가(취소선) */}
             <button
               type="button"
-              onClick={() => requestClose(onClose)}
-              className="p-1.5 rounded-xl hover:bg-white/10 text-neutral-400 hover:text-white transition cursor-pointer"
-              title="닫기"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={applyBold}
+              className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs transition cursor-pointer ${
+                currentPara?.bold ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="굵게 (Ctrl+B)"
             >
-              ✕
+              가
             </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={applyItalic}
+              className={`w-6 h-6 rounded flex items-center justify-center italic font-serif text-xs transition cursor-pointer ${
+                currentPara?.italic ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="기울임 (Ctrl+I)"
+            >
+              가
+            </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={applyUnderline}
+              className={`w-6 h-6 rounded flex items-center justify-center underline text-xs transition cursor-pointer ${
+                currentPara?.underline ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="밑줄 (Ctrl+U)"
+            >
+              가
+            </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={applyStrikethrough}
+              className="w-6 h-6 rounded flex items-center justify-center line-through text-xs hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
+              title="취소선"
+            >
+              가
+            </button>
+
+            {/* 글자 색상 드롭다운 */}
+            <div className="relative">
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onClick={() => setShowColorPalette(!showColorPalette)}
+                className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
+                title="글자 색상"
+              >
+                <span className="font-bold border-b-2" style={{ borderColor: currentPara?.color || "#111827" }}>
+                  가
+                </span>
+                <span className="text-[8px]">▾</span>
+              </button>
+              {showColorPalette && (
+                <div className="absolute top-8 left-0 z-50 bg-white border border-neutral-300 shadow-lg rounded p-2 flex items-center gap-1">
+                  {FONT_COLORS.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      onClick={() => {
+                        applyTextColor(c.value);
+                        setShowColorPalette(false);
+                      }}
+                      className="w-4 h-4 rounded-full border border-black/20 hover:scale-125 transition cursor-pointer"
+                      style={{ background: c.value }}
+                      title={c.label}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={currentPara?.color || "#111827"}
+                    onChange={(e) => {
+                      applyTextColor(e.target.value);
+                      setShowColorPalette(false);
+                    }}
+                    className="w-5 h-5 rounded cursor-pointer"
+                    title="사용자 지정 색상"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* 형광펜 (배경 하이라이트) */}
+            <div className="relative">
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onClick={() => setShowHighlightPalette(!showHighlightPalette)}
+                className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
+                title="형광펜 (배경색)"
+              >
+                <span>🖍️</span>
+                <span className="text-[8px]">▾</span>
+              </button>
+              {showHighlightPalette && (
+                <div className="absolute top-8 left-0 z-50 bg-white border border-neutral-300 shadow-lg rounded p-2 flex items-center gap-1">
+                  {[
+                    { color: "#fef08a", label: "노랑" },
+                    { color: "#bbf7d0", label: "연두" },
+                    { color: "#bae6fd", label: "하늘" },
+                    { color: "#fbcfe8", label: "분홍" },
+                    { color: "#fed7aa", label: "주황" },
+                    { color: "transparent", label: "없음" },
+                  ].map((h) => (
+                    <button
+                      key={h.color}
+                      type="button"
+                      onClick={() => applyHighlight(h.color)}
+                      className="w-4 h-4 rounded border border-neutral-400 hover:scale-125 transition cursor-pointer"
+                      style={{ background: h.color === "transparent" ? "#fff" : h.color }}
+                      title={h.label}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+            {/* 문단 정렬 4종 (양쪽맞춤, 왼, 가운데, 오른) */}
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
+              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
+                currentPara?.align === "justify" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="양쪽 맞춤"
+            >
+              ☶
+            </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => updateParagraphStyle(selectedIdx, { align: "left" })}
+              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
+                currentPara?.align === "left" || !currentPara?.align ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="왼쪽 정렬"
+            >
+              ☰
+            </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => updateParagraphStyle(selectedIdx, { align: "center" })}
+              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
+                currentPara?.align === "center" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="가운데 정렬"
+            >
+              ☷
+            </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => updateParagraphStyle(selectedIdx, { align: "right" })}
+              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
+                currentPara?.align === "right" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="오른쪽 정렬"
+            >
+              ☵
+            </button>
+
+            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+            {/* 줄 간격 (160%) */}
+            <div className="flex items-center gap-1 text-xs text-neutral-700">
+              <span title="줄 간격">↕</span>
+              <select
+                defaultValue="160"
+                className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1 py-0.5 text-xs outline-none cursor-pointer"
+                title="줄 간격 설정"
+              >
+                <option value="100">100%</option>
+                <option value="130">130%</option>
+                <option value="150">150%</option>
+                <option value="160">160%</option>
+                <option value="180">180%</option>
+                <option value="200">200%</option>
+              </select>
+            </div>
+
+            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+            {/* 들여쓰기 / 내어쓰기 */}
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onClick={() => handleIndent(false)}
+              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
+              title="내어쓰기 (공백 제거)"
+            >
+              ⇤
+            </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onClick={() => handleIndent(true)}
+              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
+              title="들여쓰기 (문단 시작 공백 추가)"
+            >
+              ⇥
+            </button>
+
+            {/* 문단 추가 / 삭제 */}
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => addParagraph(selectedIdx)}
+                className="px-2 py-0.5 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium border border-neutral-300 transition cursor-pointer flex items-center gap-1"
+                title="아래에 새 문단 추가"
+              >
+                <span>↵</span>
+                <span>문단 추가</span>
+              </button>
+              <button
+                type="button"
+                disabled={blocks.length <= 1}
+                onClick={() => deleteBlock(selectedIdx)}
+                className="p-1 rounded text-red-600 hover:bg-red-50 text-xs transition disabled:opacity-30 cursor-pointer"
+                title="현재 블록 삭제"
+              >
+                🗑️
+              </button>
+            </div>
           </div>
         </header>
 
-        {/* ── 한글 포맷 툴바 (리본 스타일) ── */}
-        <div
-          className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b shrink-0 text-xs select-none"
-          style={{
-            borderColor: "var(--card-border, #313244)",
-            background: "rgba(24,24,37,0.95)",
-          }}
-        >
-          {/* 글꼴 선택 */}
-          <select
-            disabled={!isParagraph}
-            value={currentPara?.fontFamily || FONT_FAMILIES[0].value}
-            onChange={(e) => applyFontFamily(e.target.value)}
-            className="bg-neutral-800/80 text-neutral-200 border border-neutral-700 rounded px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-40 max-w-[130px]"
-            title="글꼴 변경 (선택 영역 또는 문단)"
-          >
-            {FONT_FAMILIES.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-
-          {/* 글자 크기 */}
-          <select
-            disabled={!isParagraph}
-            value={currentPara?.sizePt || 10}
-            onChange={(e) => applyFontSize(Number(e.target.value))}
-            className="bg-neutral-800/80 text-neutral-200 border border-neutral-700 rounded px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-40 w-16 text-center"
-            title="글자 크기 (선택 영역 또는 문단)"
-          >
-            {FONT_SIZES.map((s) => (
-              <option key={s} value={s}>
-                {s} pt
-              </option>
-            ))}
-          </select>
-
-          {/* 구분선 */}
-          <div className="w-[1px] h-5 bg-neutral-700 mx-1" />
-
-          {/* B (굵게) */}
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={applyBold}
-            className={`w-7 h-7 rounded flex items-center justify-center font-bold text-xs transition ${
-              currentPara?.bold ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="굵게 (선택 영역 또는 문단)"
-          >
-            B
-          </button>
-
-          {/* I (기울임) */}
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={applyItalic}
-            className={`w-7 h-7 rounded flex items-center justify-center italic font-serif text-xs transition ${
-              currentPara?.italic ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="기울임 (선택 영역 또는 문단)"
-          >
-            I
-          </button>
-
-          {/* U (밑줄) */}
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={applyUnderline}
-            className={`w-7 h-7 rounded flex items-center justify-center underline text-xs transition ${
-              currentPara?.underline ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="밑줄 (선택 영역 또는 문단)"
-          >
-            U
-          </button>
-
-          {/* 글자 색상 선택 */}
-          <div className="flex items-center gap-1 px-1 bg-neutral-800/60 rounded border border-neutral-700/60 py-0.5">
-            {FONT_COLORS.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                disabled={!isParagraph}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => applyTextColor(c.value)}
-                className="w-4 h-4 rounded-full border border-black/30 hover:scale-125 transition disabled:opacity-40 cursor-pointer"
-                style={{ background: c.value }}
-                title={`${c.label} 색상 (선택 영역 또는 문단)`}
-              />
-            ))}
-            <label
-              className="w-4 h-4 rounded-full border border-black/30 hover:scale-125 transition cursor-pointer relative overflow-hidden flex items-center justify-center bg-gradient-to-tr from-red-500 via-green-500 to-blue-500"
-              title="사용자 지정 색상 (선택 영역 또는 문단)"
-              onMouseDown={(e) => e.preventDefault()}
-            >
-              <input
-                type="color"
-                value={currentPara?.color || "#111827"}
-                onChange={(e) => applyTextColor(e.target.value)}
-                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-              />
-            </label>
-          </div>
-
-          {/* 구분선 */}
-          <div className="w-[1px] h-5 bg-neutral-700 mx-1" />
-
-          {/* 정렬 버튼 4종 */}
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => updateParagraphStyle(selectedIdx, { align: "left" })}
-            className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
-              currentPara?.align === "left" || !currentPara?.align ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="왼쪽 정렬"
-          >
-            ☰
-          </button>
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => updateParagraphStyle(selectedIdx, { align: "center" })}
-            className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
-              currentPara?.align === "center" ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="가운데 정렬"
-          >
-            ☷
-          </button>
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => updateParagraphStyle(selectedIdx, { align: "right" })}
-            className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
-              currentPara?.align === "right" ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="오른쪽 정렬"
-          >
-            ☵
-          </button>
-          <button
-            type="button"
-            disabled={!isParagraph}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
-            className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
-              currentPara?.align === "justify" ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
-            } disabled:opacity-40`}
-            title="양쪽 맞춤"
-          >
-            ☶
-          </button>
-
-          {/* 구분선 */}
-          <div className="w-[1px] h-5 bg-neutral-700 mx-1" />
-
-          {/* 표 삽입 버튼 */}
-          <button
-            type="button"
-            onClick={() => setShowTableModal(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition"
-            title="새 표 삽입"
-          >
-            <span>⊞</span>
-            <span>표 삽입</span>
-          </button>
-
-          {/* 이미지 삽입 버튼 */}
-          <input
-            type="file"
-            ref={imageInputRef}
-            onChange={handleImageFileSelect}
-            accept="image/*"
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition"
-            title="이미지 파일 삽입"
-          >
-            <span>🖼️</span>
-            <span>이미지 삽입</span>
-          </button>
-
-          {/* 문단 추가 버튼 */}
-          <button
-            type="button"
-            onClick={() => addParagraph(selectedIdx)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition"
-            title="현재 위치 아래에 새 문단 추가"
-          >
-            <span>↵</span>
-            <span>문단 추가</span>
-          </button>
-
-          {/* 블록 삭제 버튼 */}
-          <button
-            type="button"
-            disabled={blocks.length <= 1}
-            onClick={() => deleteBlock(selectedIdx)}
-            className="p-1 rounded text-red-400 hover:bg-red-500/20 transition disabled:opacity-30 ml-auto"
-            title="현재 선택된 블록 삭제"
-          >
-            🗑️ 삭제
-          </button>
-        </div>
-
         {/* 표 삽입 팝업 모달 */}
         {showTableModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-neutral-900 border border-neutral-700 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-64">
-            <h4 className="text-xs font-bold text-white flex items-center justify-between">
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-64 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
               <span>⊞ 새 표 삽입</span>
-              <button type="button" onClick={() => setShowTableModal(false)} className="text-neutral-400 hover:text-white">✕</button>
+              <button type="button" onClick={() => setShowTableModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
             </h4>
-            <div className="flex items-center justify-between text-xs text-neutral-300">
+            <div className="flex items-center justify-between text-xs text-neutral-700">
               <span>행 (가로 줄 수):</span>
               <input
                 type="number"
@@ -995,10 +1502,10 @@ function HwpxEditorModalInner({
                 max={20}
                 value={newTableRows}
                 onChange={(e) => setNewTableRows(Math.max(1, Number(e.target.value)))}
-                className="w-16 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-center text-white"
+                className="w-16 bg-neutral-50 border border-neutral-300 rounded px-2 py-1 text-center text-neutral-900"
               />
             </div>
-            <div className="flex items-center justify-between text-xs text-neutral-300">
+            <div className="flex items-center justify-between text-xs text-neutral-700">
               <span>열 (세로 칸 수):</span>
               <input
                 type="number"
@@ -1006,23 +1513,298 @@ function HwpxEditorModalInner({
                 max={15}
                 value={newTableCols}
                 onChange={(e) => setNewTableCols(Math.max(1, Number(e.target.value)))}
-                className="w-16 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-center text-white"
+                className="w-16 bg-neutral-50 border border-neutral-300 rounded px-2 py-1 text-center text-neutral-900"
               />
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-800">
+            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
               <button
                 type="button"
                 onClick={() => setShowTableModal(false)}
-                className="px-3 py-1 rounded text-xs text-neutral-400 hover:text-white"
+                className="px-3 py-1 rounded text-xs text-neutral-600 hover:bg-neutral-100"
               >
                 취소
               </button>
               <button
                 type="button"
                 onClick={() => addTable(newTableRows, newTableCols, selectedIdx)}
-                className="px-3 py-1 rounded text-xs bg-blue-600 text-white font-bold hover:bg-blue-500"
+                className="px-3 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
               >
                 삽입하기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 단어 찾기 모달 */}
+        {showSearchModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <span>🔍</span>
+                <span>문서 내 단어 찾기</span>
+              </span>
+              <button type="button" onClick={() => setShowSearchModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+            </h4>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                autoFocus
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearchNext()}
+                placeholder="찾을 단어를 입력하세요..."
+                className="flex-1 bg-neutral-50 border border-neutral-300 rounded px-2 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+              />
+              <button
+                type="button"
+                onClick={handleSearchNext}
+                className="px-3 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] shrink-0"
+              >
+                다음 찾기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 한글 문자표(특수문자) 모달 */}
+        {showSymbolModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-96 text-neutral-800 max-h-[420px] overflow-y-auto">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <span>※</span>
+                <span>문자표 (특수문자 입력)</span>
+              </span>
+              <button type="button" onClick={() => setShowSymbolModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+            </h4>
+            <div>
+              <div className="text-[11px] font-semibold text-neutral-600 mb-1.5">자주 쓰는 기호</div>
+              <div className="grid grid-cols-8 gap-1 text-sm text-center">
+                {["●", "○", "■", "□", "▲", "▼", "★", "☆", "※", "◆", "◇", "▶", "◀", "▷", "◁", "☎"].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => insertSymbol(s)}
+                    className="p-1.5 rounded hover:bg-blue-50 hover:text-[#0066cc] border border-neutral-200 transition"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-neutral-600 mb-1.5">수학 및 연산자</div>
+              <div className="grid grid-cols-8 gap-1 text-sm text-center">
+                {["±", "×", "÷", "≠", "≤", "≥", "≒", "∞", "∑", "√", "∫", "∂", "∈", "∩", "∪", "⊂"].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => insertSymbol(s)}
+                    className="p-1.5 rounded hover:bg-blue-50 hover:text-[#0066cc] border border-neutral-200 transition"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-neutral-600 mb-1.5">화살표 및 단위</div>
+              <div className="grid grid-cols-8 gap-1 text-sm text-center">
+                {["→", "←", "↑", "↓", "↔", "℃", "℉", "㈜", "™", "©", "®", "§", "¶", "①", "②", "③"].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => insertSymbol(s)}
+                    className="p-1.5 rounded hover:bg-blue-50 hover:text-[#0066cc] border border-neutral-200 transition"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 새 수식 삽입 모달 */}
+        {showEquationModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <span>∑</span>
+                <span>새 수식 삽입</span>
+              </span>
+              <button type="button" onClick={() => setShowEquationModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+            </h4>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-medium text-neutral-600">수식 스크립트 (한글 수식 또는 LaTeX 문법):</label>
+              <input
+                type="text"
+                autoFocus
+                value={newEquationScript}
+                onChange={(e) => setNewEquationScript(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addEquation(newEquationScript, selectedIdx)}
+                placeholder="예: f(x) = ax^2 + bx + c"
+                className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc] font-mono"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowEquationModal(false)}
+                className="px-3 py-1 rounded text-xs text-neutral-600 hover:bg-neutral-100"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => addEquation(newEquationScript, selectedIdx)}
+                className="px-3 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
+              >
+                삽입하기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 글자 모양 모달 */}
+        {showCharShapeModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <span>🔤</span>
+                <span>글자 모양 (Alt+L)</span>
+              </span>
+              <button type="button" onClick={() => setShowCharShapeModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+            </h4>
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span>글꼴:</span>
+                <select
+                  value={currentPara?.fontFamily || FONT_FAMILIES[0].value}
+                  onChange={(e) => applyFontFamily(e.target.value)}
+                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1 w-44"
+                >
+                  {FONT_FAMILIES.map((f) => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>글자 크기:</span>
+                <input
+                  type="number"
+                  min={6}
+                  max={72}
+                  value={Math.round(currentPara?.sizePt || 10)}
+                  onChange={(e) => applyFontSize(Number(e.target.value))}
+                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1 w-20 text-center"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span>글자 속성:</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={applyBold}
+                    className={`px-2 py-1 rounded border text-xs font-bold ${currentPara?.bold ? "bg-[#0066cc] text-white" : "bg-neutral-50"}`}
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyItalic}
+                    className={`px-2 py-1 rounded border text-xs italic ${currentPara?.italic ? "bg-[#0066cc] text-white" : "bg-neutral-50"}`}
+                  >
+                    I
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyUnderline}
+                    className={`px-2 py-1 rounded border text-xs underline ${currentPara?.underline ? "bg-[#0066cc] text-white" : "bg-neutral-50"}`}
+                  >
+                    U
+                  </button>
+                  <button
+                    type="button"
+                    onClick={applyStrikethrough}
+                    className="px-2 py-1 rounded border text-xs line-through bg-neutral-50"
+                  >
+                    S
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowCharShapeModal(false)}
+                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 문단 모양 모달 */}
+        {showParaShapeModal && (
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+              <span className="flex items-center gap-1.5">
+                <span>📑</span>
+                <span>문단 모양 (Alt+T)</span>
+              </span>
+              <button type="button" onClick={() => setShowParaShapeModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
+            </h4>
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span>정렬 방식:</span>
+                <div className="flex items-center gap-1">
+                  {[
+                    { align: "justify" as const, label: "양쪽" },
+                    { align: "left" as const, label: "왼쪽" },
+                    { align: "center" as const, label: "가운데" },
+                    { align: "right" as const, label: "오른쪽" },
+                  ].map((a) => (
+                    <button
+                      key={a.align}
+                      type="button"
+                      onClick={() => updateParagraphStyle(selectedIdx, { align: a.align })}
+                      className={`px-2 py-1 rounded border text-xs ${
+                        (currentPara?.align || "justify") === a.align ? "bg-[#0066cc] text-white font-bold" : "bg-neutral-50"
+                      }`}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>들여쓰기:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleIndent(false)}
+                    className="px-2 py-1 rounded border bg-neutral-50 hover:bg-neutral-100"
+                  >
+                    내어쓰기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleIndent(true)}
+                    className="px-2 py-1 rounded border bg-neutral-50 hover:bg-neutral-100"
+                  >
+                    들여쓰기
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setShowParaShapeModal(false)}
+                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
+              >
+                확인
               </button>
             </div>
           </div>
@@ -1038,7 +1820,9 @@ function HwpxEditorModalInner({
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90">
           <div
-            className="w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0"
+            className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 ${
+              showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
+            }`}
             style={{
               fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
               boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
@@ -1077,7 +1861,7 @@ function HwpxEditorModalInner({
                         </div>
                       )}
 
-                      <div className="w-full group my-0.5">
+                      <div className="w-full group my-0.5 relative">
                         <ContentEditableParagraph
                           html={block.text}
                           onChange={(val) => updateParagraph(idx, val)}
@@ -1096,6 +1880,11 @@ function HwpxEditorModalInner({
                           }}
                           placeholder={isSelected ? "내용을 입력하세요..." : undefined}
                         />
+                        {showParaMarks && (
+                          <span className="absolute right-0 bottom-0 text-[10px] text-blue-400 select-none pointer-events-none opacity-60">
+                            ↵
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
