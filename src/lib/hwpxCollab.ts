@@ -20,6 +20,8 @@ export interface HwpxParagraphBlock {
   pageBreak?: boolean;
   rawAttrs?: string;
   charPrId?: string;
+  rawXml?: string;
+  origText?: string;
 }
 
 export interface HwpxTableCell {
@@ -215,6 +217,11 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
   let hasObjectInP = false;
   let currentPText: string[] = [];
   let currentPAttrs = "";
+  let currentPStartIndex = -1;
+  let pEquationCount = 0;
+  let pHasNormalText = false;
+  let lastEquationScript = "";
+  let lastEquationAttrs = "";
   let currentParaPrId = "0";
   let currentCharPrId = "0";
   let currentPageBreak = false;
@@ -285,23 +292,45 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
       else if (localName === "equation") {
         if (!isClosing && !isSelfClosing) {
           inEquation = true;
-          hasObjectInP = true;
           currentEquationScript = "";
           currentEquationAttrs = attrs.trim();
         } else if (isClosing) {
           inEquation = false;
-          blocks.push({ type: "equation", id: `eq_${blockIndex++}`, script: currentEquationScript, rawAttrs: currentEquationAttrs });
+          if (inP) {
+            pEquationCount++;
+            lastEquationScript = currentEquationScript;
+            lastEquationAttrs = currentEquationAttrs;
+            // 인라인 수식: 문단을 끊지 않고 본문 텍스트 사이에 자연스럽게 포함
+            if (currentEquationScript.trim()) {
+              currentPText.push(` ${currentEquationScript.trim()} `);
+            }
+          } else {
+            // 독립 수식 블록
+            blocks.push({ type: "equation", id: `eq_${blockIndex++}`, script: currentEquationScript, rawAttrs: currentEquationAttrs });
+          }
+          currentEquationScript = "";
         }
       } else if (localName === "script" && inEquation) {
         inScript = !isClosing && !isSelfClosing;
+      }
+      // 그림 (pic)
+      else if (localName === "pic" && inP) {
+        if (!isClosing && !isSelfClosing) {
+          currentPText.push(" [그림] ");
+        }
       }
       // 본문 문단 (p)
       else if (localName === "p" && !inTable) {
         if (!isClosing && !isSelfClosing) {
           inP = true;
           hasObjectInP = false;
+          currentPStartIndex = match.index;
           currentPText = [];
           currentPAttrs = attrs.trim();
+          pEquationCount = 0;
+          pHasNormalText = false;
+          lastEquationScript = "";
+          lastEquationAttrs = "";
           const paraMatch = attrs.match(/paraPrIDRef="(\d+)"/);
           currentParaPrId = paraMatch ? paraMatch[1] : "0";
           const pageBreakMatch = attrs.match(/pageBreak="(\d+)"/);
@@ -310,23 +339,41 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
         } else if (isClosing) {
           inP = false;
           if (!hasObjectInP) {
-            const pStyle = paraStyles.get(currentParaPrId);
-            const cStyle = charStyles.get(currentCharPrId);
-            blocks.push({
-              type: "paragraph",
-              id: `p_${blockIndex++}`,
-              text: currentPText.join(""),
-              align: pStyle?.align ?? "left",
-              sizePt: cStyle?.sizePt,
-              bold: cStyle?.bold,
-              pageBreak: currentPageBreak,
-              rawAttrs: currentPAttrs,
-              charPrId: currentCharPrId,
-            });
+            const rawXml = currentPStartIndex !== -1 ? xmlStr.slice(currentPStartIndex, match.index + match[0].length) : undefined;
+            if (pEquationCount === 1 && !pHasNormalText && lastEquationScript.trim()) {
+              blocks.push({
+                type: "equation",
+                id: `eq_${blockIndex++}`,
+                script: lastEquationScript,
+                rawAttrs: lastEquationAttrs,
+              });
+            } else {
+              const fullText = currentPText.join("");
+              const pStyle = paraStyles.get(currentParaPrId);
+              const cStyle = charStyles.get(currentCharPrId);
+              blocks.push({
+                type: "paragraph",
+                id: `p_${blockIndex++}`,
+                text: fullText,
+                align: pStyle?.align ?? "left",
+                sizePt: cStyle?.sizePt,
+                bold: cStyle?.bold,
+                pageBreak: currentPageBreak,
+                rawAttrs: currentPAttrs,
+                charPrId: currentCharPrId,
+                rawXml,
+                origText: fullText,
+              });
+            }
           }
           currentPText = [];
           currentPAttrs = "";
           currentPageBreak = false;
+          currentPStartIndex = -1;
+          pEquationCount = 0;
+          pHasNormalText = false;
+          lastEquationScript = "";
+          lastEquationAttrs = "";
         }
       }
       // 글자 런 (run) 스타일 추적
@@ -359,6 +406,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
           currentCell.push(decoded);
         } else if (inP) {
           currentPText.push(decoded);
+          if (decoded.trim()) pHasNormalText = true;
         }
       }
     }
@@ -621,7 +669,20 @@ export function serializeBlocksToHwpxPackage(
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
-    // 일반 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
+    // 일반 문단
+    // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
+    if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
+      if (idx === 0) {
+        if (block.rawXml.includes("<hp:secPr")) {
+          return block.rawXml;
+        } else {
+          return block.rawXml.replace(/<hp:p\b[^>]*>/, `$&${lead}`);
+        }
+      }
+      return block.rawXml;
+    }
+
+    // 2. 사용자가 텍스트를 편집했거나 새로 작성된 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
     const runs = parseHtmlRuns(block.text, {
       color: block.color,
       sizePt: block.sizePt,
@@ -745,6 +806,8 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.fontFamily) yBlock.set("fontFamily", block.fontFamily);
         if (block.pageBreak !== undefined) yBlock.set("pageBreak", block.pageBreak);
         if (block.charPrId) yBlock.set("charPrId", block.charPrId);
+        if (block.rawXml) yBlock.set("rawXml", block.rawXml);
+        if (block.origText !== undefined) yBlock.set("origText", block.origText);
       } else if (block.type === "table") {
         const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
         for (const row of block.rows) {
@@ -796,6 +859,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const fontFamily = yBlock.get("fontFamily") as string | undefined;
       const pageBreak = yBlock.get("pageBreak") as boolean | undefined;
       const charPrId = yBlock.get("charPrId") as string | undefined;
+      const rawXml = yBlock.get("rawXml") as string | undefined;
+      const origText = yBlock.get("origText") as string | undefined;
       blocks.push({
         type: "paragraph",
         id,
@@ -810,6 +875,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         pageBreak,
         rawAttrs,
         charPrId,
+        rawXml,
+        origText,
       });
     } else if (type === "table") {
       const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
