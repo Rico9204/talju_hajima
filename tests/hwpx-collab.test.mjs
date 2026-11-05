@@ -342,4 +342,89 @@ test('hwpxCollab: parses and serializes shape blocks (rect, ellipse, line) with 
   assert.ok(pkg.sectionXml.includes('<hp:rect'));
   assert.ok(pkg.sectionXml.includes('<hp:line'));
   assert.ok(pkg.sectionXml.includes('직사각형 글상자 텍스트'));
+  assert.ok(pkg.headerXml.includes('<hh:borderFills itemCnt="2">'));
+});
+
+test('hwpxCollab: 새로 생성한 도형(shape: rect, ellipse, line)이 한컴 뷰어 및 OWPML 스펙을 100% 준수한다', () => {
+  const newShapeBlocks = [
+    {
+      type: 'shape',
+      id: 'shape_rect',
+      shapeType: 'rect',
+      text: '안내 상자',
+      fillColor: '#EFF6FF',
+      strokeColor: '#2563EB',
+      strokeWidth: 1.5,
+      widthPercent: 80,
+      heightPt: 60,
+      align: 'center',
+    },
+    {
+      type: 'shape',
+      id: 'shape_line',
+      shapeType: 'line',
+      strokeColor: '#D97706',
+      strokeWidth: 2,
+      widthPercent: 90,
+      align: 'center',
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(newShapeBlocks, '', '');
+
+  // 1. 사각형 검증
+  assert.ok(pkg.sectionXml.includes('<hp:rect id="0"'));
+  assert.ok(pkg.sectionXml.includes('<hp:shapeComment></hp:shapeComment>'));
+  assert.ok(pkg.sectionXml.includes('<hc:fillBrush><hc:winBrush faceColor="#EFF6FF"'));
+  assert.ok(pkg.sectionXml.includes('<hp:drawText name="" editable="0"'));
+  assert.ok(pkg.sectionXml.includes('<hp:t>안내 상자</hp:t>'));
+
+  // 2. 가로선 검증 (sz 없이 startPt/endPt 사용)
+  assert.ok(pkg.sectionXml.includes('<hp:line id="1"'));
+  assert.ok(pkg.sectionXml.includes('<hp:startPt x="0" y="0"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:endPt x="38268" y="0"/>'));
+  assert.ok(!pkg.sectionXml.includes('<hp:line id="1"[^>]*><hp:sz'));
+
+  // 3. borderFills 포함 검증
+  assert.ok(pkg.headerXml.includes('<hh:borderFills itemCnt="2">'));
+});
+
+test('hwpxCollab: 새로 생성한 표(table)가 한컴 뷰어 및 OWPML 스펙(cellAddr, cellSz, borderFills 등)을 100% 준수한다', () => {
+  const newTableBlock = [
+    {
+      type: 'table',
+      id: 'tbl_new',
+      rows: [
+        [
+          { text: '헤더1', bold: true, align: 'center' },
+          { text: '헤더2', bold: true, align: 'center' },
+        ],
+        [
+          { text: '데이터1', bold: false, align: 'left' },
+          { text: '데이터2', bold: false, align: 'right' },
+        ],
+      ],
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(newTableBlock, '', '');
+
+  // 1. hp:tbl 필수 태그 및 속성 검증
+  assert.ok(pkg.sectionXml.includes('rowCnt="2" colCnt="2"'));
+  assert.ok(pkg.sectionXml.includes('cellSpacing="0" borderFillIDRef="1"'));
+  assert.ok(pkg.sectionXml.includes('<hp:sz width="42520"'));
+  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="1"'));
+  assert.ok(pkg.sectionXml.includes('<hp:shapeComment></hp:shapeComment>'));
+
+  // 2. hp:tc 필수 태그 및 순서 검증 (subList, cellAddr, cellSpan, cellSz, cellMargin)
+  assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="0" rowAddr="0"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="1" rowAddr="1"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:cellSpan colSpan="1" rowSpan="1"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:cellSz width="21260" height="2834"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:cellMargin left="510" right="510" top="141" bottom="141"/>'));
+
+  // 3. header.xml의 borderFills 정의 포함 검증
+  assert.ok(pkg.headerXml.includes('<hh:borderFills itemCnt="2">'));
+  assert.ok(pkg.headerXml.includes('<hh:borderFill id="1"'));
+  assert.ok(pkg.headerXml.includes('<hh:borderFill id="2"'));
 });
