@@ -372,18 +372,22 @@ test('hwpxCollab: 새로 생성한 도형(shape: rect, ellipse, line)이 한컴 
 
   const pkg = serializeBlocksToHwpxPackage(newShapeBlocks, '', '');
 
-  // 1. 사각형 검증
-  assert.ok(pkg.sectionXml.includes('<hp:rect id="0"'));
-  assert.ok(pkg.sectionXml.includes('<hp:shapeComment></hp:shapeComment>'));
+  // 1. 사각형 검증 (한컴 표준 OWPML DTD 순서: offset, orgSz, curSz, flip, rotationInfo, renderingInfo, lineShape, fillBrush, shadow, pt0~pt3, sz, pos, outMargin, shapeComment, drawText)
+  assert.ok(pkg.sectionXml.includes('<hp:rect id="'));
+  assert.ok(pkg.sectionXml.includes('<hp:orgSz width="34016" height="6000"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:rotationInfo angle="0" centerX="17008" centerY="3000"'));
+  assert.ok(pkg.sectionXml.includes('<hp:renderingInfo><hc:transMatrix'));
+  assert.ok(pkg.sectionXml.includes('<hc:pt0 x="0" y="0"/><hc:pt1 x="34016" y="0"/><hc:pt2 x="34016" y="6000"/><hc:pt3 x="0" y="6000"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:shapeComment>사각형 입니다.</hp:shapeComment>'));
   assert.ok(pkg.sectionXml.includes('<hc:fillBrush><hc:winBrush faceColor="#EFF6FF"'));
   assert.ok(pkg.sectionXml.includes('<hp:drawText name="" editable="0"'));
   assert.ok(pkg.sectionXml.includes('<hp:t>안내 상자</hp:t>'));
 
-  // 2. 가로선 검증 (sz 없이 startPt/endPt 사용)
-  assert.ok(pkg.sectionXml.includes('<hp:line id="1"'));
-  assert.ok(pkg.sectionXml.includes('<hp:startPt x="0" y="0"/>'));
-  assert.ok(pkg.sectionXml.includes('<hp:endPt x="38268" y="0"/>'));
-  assert.ok(!pkg.sectionXml.includes('<hp:line id="1"[^>]*><hp:sz'));
+  // 2. 가로선 검증 (startPt/endPt 및 lineShape 검증)
+  assert.ok(pkg.sectionXml.includes('<hp:line id="'));
+  assert.ok(pkg.sectionXml.includes('<hc:startPt x="0" y="0"/>'));
+  assert.ok(pkg.sectionXml.includes('<hc:endPt x="38268" y="0"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:shapeComment>선 입니다.</hp:shapeComment>'));
 
   // 3. borderFills 포함 검증
   assert.ok(pkg.headerXml.includes('<hh:borderFills itemCnt="2">'));
@@ -414,7 +418,7 @@ test('hwpxCollab: 새로 생성한 표(table)가 한컴 뷰어 및 OWPML 스펙(
   assert.ok(pkg.sectionXml.includes('cellSpacing="0" borderFillIDRef="1"'));
   assert.ok(pkg.sectionXml.includes('<hp:sz width="42520"'));
   assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="1"'));
-  assert.ok(pkg.sectionXml.includes('<hp:shapeComment></hp:shapeComment>'));
+  assert.ok(pkg.sectionXml.includes('<hp:inMargin left="510" right="510" top="141" bottom="141"/>'));
 
   // 2. hp:tc 필수 태그 및 순서 검증 (subList, cellAddr, cellSpan, cellSz, cellMargin)
   assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="0" rowAddr="0"/>'));
