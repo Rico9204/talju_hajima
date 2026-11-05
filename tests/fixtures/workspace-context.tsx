@@ -1,6 +1,7 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { FileUploadInput, FileVersion, WorkspaceFile } from "../../src/api/types";
 import { MAX_WORKSPACE_FILE_SIZE, workspaceFileType } from "../../src/lib/workspaceFiles";
+import { newHwpxBytes } from "../../src/lib/hwpx";
 const Context = createContext<any>(null);
 const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="), c => c.charCodeAt(0));
 const version = (id: number, parent: number | null, current: boolean): FileVersion => ({
@@ -19,9 +20,15 @@ export function Fixture({ children }: { children: ReactNode }) {
     { id: 103, parentId: 101, name: "1차 발표", color: "#22c55e", createdBy: "테스트 팀원", date: "2026-09-17" },
   ] : []);
   const demoFile = (id: number, name: string): WorkspaceFile => ({ id, name, type: workspaceFileType(name), uploader: "테스트 팀원", avatar: "팀", date: "2026-09-17", size: "1 KB", tag: "기타", tags: [], folderId: null, comments: [], versions: [{ ...version(id * 10, null, true), originalName: name }] });
-  const [files, setFiles] = useState<WorkspaceFile[]>([{ id: 1, name: "테스트.png", type: "img", uploader: "테스트 팀원", avatar: "팀", date: "2026-09-17", size: "1 KB", tag: "사진", tags: ["사진"], folderId: null, comments: [], versions: [version(4,2,false),version(3,2,true),version(2,1,false),version(1,null,false)] }, ...(demo ? [demoFile(11, "기획서.pdf"), demoFile(12, "예산.xlsx"), demoFile(13, "자료 조사.docx"), demoFile(14, "발표.pptx")] : [])]);
+  const hwpxFile: WorkspaceFile = { id: 5, name: "팀플_최종보고서.hwpx", type: "doc", uploader: "테스트 팀원", avatar: "팀", date: "2026-09-17", size: "2 KB", tag: "보고서", tags: ["보고서"], folderId: null, comments: [], versions: [{ id: 5, parentVersionId: null, current: true, version: "v1", uploadedBy: "테스트 팀원", date: "2026-09-17", size: "2 KB", note: "초안 작성", storagePath: "fixture/5", originalName: "팀플_최종보고서.hwpx", mimeType: "application/hnc+zip", byteSize: 2000, pinned: false }] };
+  const [files, setFiles] = useState<WorkspaceFile[]>([{ id: 1, name: "테스트.png", type: "img", uploader: "테스트 팀원", avatar: "팀", date: "2026-09-17", size: "1 KB", tag: "사진", tags: ["사진"], folderId: null, comments: [], versions: [version(4,2,false),version(3,2,true),version(2,1,false),version(1,null,false)] }, hwpxFile, ...(demo ? [demoFile(11, "기획서.pdf"), demoFile(12, "예산.xlsx"), demoFile(13, "자료 조사.docx"), demoFile(14, "발표.pptx")] : [])]);
   const bytes = useRef(new Map<number, Blob>([[2,new Blob([png])],[3,new Blob([png])],[4,new Blob([png])]]));
-  const counter = useRef(5);
+  const counter = useRef(6);
+  useEffect(() => {
+    void newHwpxBytes("팀플 최종 보고서 초안입니다.\n\n1. 연구 배경 및 목적\n본 프로젝트는 대학생들의 원활한 협업을 위해 진행되었습니다.\n\n2. 주요 내용\n- 실시간 동시 편집 지원\n- 한글(HWPX) 문서 인앱 수정 및 관리\n- 자동 버전 기록").then((b) => {
+      bytes.current.set(5, new Blob([new Uint8Array(b)], { type: "application/hnc+zip" }));
+    });
+  }, []);
   function guard() { if (errorMode) throw new Error("테스트: 저장소 연결 실패"); if (done) throw new Error("종료된 프로젝트"); }
   return <Context.Provider value={{
     project: { id: "fixture", name: "파일 버전관리 검증", status: done ? "done" : "active" }, files, folders, team: { members: [{name:"테스트 팀원",color:"#2563eb"}] },
