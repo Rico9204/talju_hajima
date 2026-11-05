@@ -168,68 +168,6 @@ export default function HwpxEditorModal({
   );
 }
 
-// 리치 텍스트 문단 편집기 (contentEditable 기반으로 부분 색상, 굵기 등 인라인 서식 지원)
-function ContentEditableParagraph({
-  html,
-  onChange,
-  onFocus,
-  className,
-  style,
-  placeholder,
-}: {
-  html: string;
-  onChange: (val: string) => void;
-  onFocus?: () => void;
-  className?: string;
-  style?: React.CSSProperties;
-  placeholder?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isComposingRef = useRef(false);
-
-  // 초기 렌더링 및 외부 CRDT 동기화 시 DOM 갱신 (포커스 중인 경우 커서 보존)
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const targetHtml = html || "";
-    if (document.activeElement !== el && el.innerHTML !== targetHtml) {
-      el.innerHTML = targetHtml;
-    }
-  }, [html]);
-
-  const handleInput = () => {
-    if (ref.current) {
-      onChange(ref.current.innerHTML);
-    }
-  };
-
-  return (
-    <div
-      ref={ref}
-      contentEditable
-      spellCheck={false}
-      suppressContentEditableWarning
-      onCompositionStart={() => {
-        isComposingRef.current = true;
-      }}
-      onCompositionEnd={() => {
-        isComposingRef.current = false;
-        handleInput();
-      }}
-      onInput={handleInput}
-      onFocus={onFocus}
-      onPaste={(e) => {
-        e.preventDefault();
-        const text = e.clipboardData.getData("text/plain");
-        document.execCommand("insertText", false, text);
-      }}
-      className={`outline-none cursor-text transition leading-relaxed min-h-[1.5em] whitespace-pre-wrap break-words empty:before:content-[attr(data-placeholder)] empty:before:text-neutral-400 empty:before:pointer-events-none ${className ?? ""}`}
-      style={style}
-      data-placeholder={placeholder}
-    />
-  );
-}
-
 function HwpxEditorModalInner({
   projectId,
   file,
@@ -356,14 +294,169 @@ function HwpxEditorModalInner({
   const [newShapeStroke, setNewShapeStroke] = useState("#2563EB");
   const [newShapeWidth, setNewShapeWidth] = useState(75);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const isLocalInputRef = useRef(false);
+  const localInputTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const onUpdate = () => {
+      if (isLocalInputRef.current) return;
       setBlocks(extractBlocksFromYDoc(doc));
     };
     doc.on("update", onUpdate);
     return () => { doc.off("update", onUpdate); };
   }, [doc]);
+
+  // 캔버스 내 커서 위치 변경 시 현재 문단 인덱스 추적
+  const handleCanvasSelection = () => {
+    const sel = window.getSelection();
+    if (!sel || !sel.anchorNode) return;
+    const node = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? (sel.anchorNode as HTMLElement) : sel.anchorNode.parentElement;
+    const p = node?.closest("[data-block-idx]");
+    if (p) {
+      const idxStr = p.getAttribute("data-block-idx");
+      if (idxStr !== null) {
+        const idx = parseInt(idxStr, 10);
+        if (!isNaN(idx) && idx !== selectedIdx) {
+          setSelectedIdx(idx);
+        }
+      }
+    }
+  };
+
+  // 캔버스 입력 이벤트: 자연스러운 드래그/삭제/입력을 Yjs CRDT에 즉시 동기화
+  const handleCanvasInput = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    isLocalInputRef.current = true;
+    if (localInputTimerRef.current) clearTimeout(localInputTimerRef.current);
+    localInputTimerRef.current = setTimeout(() => {
+      isLocalInputRef.current = false;
+    }, 400);
+
+    const children = Array.from(canvas.children);
+    const newBlocks: HwpxCollabBlock[] = [];
+
+    for (let i = 0; i < children.length; i++) {
+      const el = children[i] as HTMLElement;
+      if (el.getAttribute("data-page-break-line") === "true") continue;
+
+      const blockType = el.getAttribute("data-block-type") || "paragraph";
+      const blockId = el.getAttribute("data-block-id") || `p_${Date.now()}_${i}`;
+
+      if (blockType === "paragraph") {
+        const clone = el.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll("[data-para-mark]").forEach((m) => m.remove());
+        let html = clone.innerHTML;
+        if (html === "<br>" || html === "<br/>") html = "";
+
+        const existing = blocks.find((b) => b.id === blockId);
+        newBlocks.push({
+          type: "paragraph",
+          id: blockId,
+          text: html,
+          align: (existing?.type === "paragraph" ? existing.align : "left") || "left",
+          sizePt: existing?.type === "paragraph" ? existing.sizePt : 10,
+          color: existing?.type === "paragraph" ? existing.color : undefined,
+          bold: existing?.type === "paragraph" ? existing.bold : false,
+          italic: existing?.type === "paragraph" ? existing.italic : false,
+          underline: existing?.type === "paragraph" ? existing.underline : false,
+          fontFamily: existing?.type === "paragraph" ? existing.fontFamily : undefined,
+          pageBreak: existing?.type === "paragraph" ? existing.pageBreak : false,
+        });
+      } else {
+        const existing = blocks.find((b) => b.id === blockId);
+        if (existing) {
+          newBlocks.push(existing);
+        }
+      }
+    }
+
+    if (newBlocks.length === 0) {
+      newBlocks.push({
+        type: "paragraph",
+        id: `p_${Date.now()}`,
+        text: "",
+        align: "left",
+        sizePt: 10,
+      });
+    }
+
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    doc.transact(() => {
+      if (newBlocks.length === yBlocks.length) {
+        for (let i = 0; i < newBlocks.length; i++) {
+          const nb = newBlocks[i];
+          const yb = yBlocks.get(i);
+          if (nb.type === "paragraph" && yb.get("type") === "paragraph") {
+            const yt = yb.get("text") as Y.Text | undefined;
+            if (yt && yt.toString() !== nb.text) {
+              yt.delete(0, yt.length);
+              yt.insert(0, nb.text);
+            }
+          }
+        }
+      } else {
+        yBlocks.delete(0, yBlocks.length);
+        for (const b of newBlocks) {
+          const yb = new Y.Map<unknown>();
+          yb.set("id", b.id);
+          yb.set("type", b.type);
+          if (b.type === "paragraph") {
+            yb.set("text", new Y.Text(b.text));
+            if (b.align) yb.set("align", b.align);
+            if (b.sizePt) yb.set("sizePt", b.sizePt);
+            if (b.bold !== undefined) yb.set("bold", b.bold);
+            if (b.italic !== undefined) yb.set("italic", b.italic);
+            if (b.underline !== undefined) yb.set("underline", b.underline);
+            if (b.color) yb.set("color", b.color);
+            if (b.fontFamily) yb.set("fontFamily", b.fontFamily);
+            if (b.pageBreak !== undefined) yb.set("pageBreak", b.pageBreak);
+          } else if (b.type === "table") {
+            const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
+            for (const row of b.rows) {
+              const yRow = new Y.Array<Y.Map<unknown>>();
+              for (const cell of row) {
+                const yCell = new Y.Map<unknown>();
+                yCell.set("text", new Y.Text(cell.text));
+                if (cell.bold) yCell.set("bold", cell.bold);
+                if (cell.align) yCell.set("align", cell.align);
+                yRow.push([yCell]);
+              }
+              yRows.push([yRow]);
+            }
+            yb.set("rows", yRows);
+          } else if (b.type === "equation") {
+            yb.set("script", new Y.Text(b.script));
+          } else if (b.type === "shape") {
+            yb.set("shapeType", b.shapeType);
+            yb.set("text", new Y.Text(b.text));
+            yb.set("fillColor", b.fillColor);
+            yb.set("strokeColor", b.strokeColor);
+            yb.set("strokeWidth", b.strokeWidth);
+            yb.set("widthPercent", b.widthPercent);
+            yb.set("heightPt", b.heightPt);
+          } else if (b.type === "image") {
+            yb.set("src", b.src);
+            yb.set("widthPercent", b.widthPercent);
+            yb.set("align", b.align);
+          }
+          yBlocks.push([yb]);
+        }
+      }
+    });
+
+    handleCanvasSelection();
+  };
+
+  const handleCanvasKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      handleIndent(!e.shiftKey);
+      setTimeout(handleCanvasInput, 0);
+    }
+  };
 
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
 
@@ -2775,7 +2868,15 @@ function HwpxEditorModalInner({
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90">
           <div
-            className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 transition-transform ${
+            ref={canvasRef}
+            contentEditable={true}
+            suppressContentEditableWarning={true}
+            spellCheck={false}
+            onInput={handleCanvasInput}
+            onKeyDown={handleCanvasKeyDown}
+            onKeyUp={handleCanvasSelection}
+            onMouseUp={handleCanvasSelection}
+            className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 transition-transform outline-none cursor-text ${
               showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
             }`}
             style={{
@@ -2804,12 +2905,19 @@ function HwpxEditorModalInner({
 
                   return (
                     <div
-                      key={`${block.id}_${idx}`}
+                      key={block.id}
+                      data-block-id={block.id}
+                      data-block-idx={idx}
+                      data-block-type="paragraph"
                       onClick={() => setSelectedIdx(idx)}
                       className={`w-full relative transition-all rounded ${isSelected ? "ring-1 ring-blue-400/40 bg-blue-50/20" : ""}`}
                     >
                       {showPageBreak && (
-                        <div className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none">
+                        <div
+                          contentEditable={false}
+                          data-page-break-line="true"
+                          className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none cursor-default"
+                        >
                           <div className="h-[1px] flex-1 bg-neutral-300" />
                           <span className="text-[11px] font-bold text-neutral-600 tracking-wider">
                             ── {++pageCounter} 쪽 ──
@@ -2819,11 +2927,8 @@ function HwpxEditorModalInner({
                       )}
 
                       <div className="w-full group my-0.5 relative">
-                        <ContentEditableParagraph
-                          html={block.text}
-                          onChange={(val) => updateParagraph(idx, val)}
-                          onFocus={() => setSelectedIdx(idx)}
-                          className={`w-full p-0 leading-relaxed ${alignClass}`}
+                        <p
+                          className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words ${alignClass}`}
                           style={{
                             fontSize,
                             fontWeight: block.bold ? "bold" : "normal",
@@ -2835,10 +2940,14 @@ function HwpxEditorModalInner({
                             textJustify: block.align === "justify" ? "auto" : undefined,
                             wordBreak: "break-all",
                           }}
-                          placeholder={isSelected ? "내용을 입력하세요..." : undefined}
+                          dangerouslySetInnerHTML={{ __html: block.text || "<br>" }}
                         />
                         {showParaMarks && (
-                          <span className="absolute right-0 bottom-0 text-[10px] text-blue-400 select-none pointer-events-none opacity-60">
+                          <span
+                            contentEditable={false}
+                            data-para-mark="true"
+                            className="absolute right-0 bottom-0 text-[10px] text-blue-400 select-none pointer-events-none opacity-60"
+                          >
                             ↵
                           </span>
                         )}
@@ -2850,9 +2959,13 @@ function HwpxEditorModalInner({
                 if (block.type === "table") {
                   return (
                     <div
-                      key={`${block.id}_${idx}`}
+                      key={block.id}
+                      data-block-id={block.id}
+                      data-block-idx={idx}
+                      data-block-type="table"
+                      contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white relative group/tbl ${
+                      className={`my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white relative group/tbl cursor-default select-none ${
                         isSelected ? "ring-1 ring-blue-500 rounded" : ""
                       }`}
                     >
@@ -2937,9 +3050,13 @@ function HwpxEditorModalInner({
 
                   return (
                     <div
-                      key={`${block.id}_${idx}`}
+                      key={block.id}
+                      data-block-id={block.id}
+                      data-block-idx={idx}
+                      data-block-type="image"
+                      contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-6 flex flex-col items-center group/img rounded p-2 transition ${
+                      className={`my-6 flex flex-col items-center group/img rounded p-2 transition cursor-default select-none ${
                         isSelected ? "ring-2 ring-blue-500 bg-blue-50/10" : ""
                       }`}
                     >
@@ -3038,9 +3155,13 @@ function HwpxEditorModalInner({
 
                   return (
                     <div
-                      key={`${block.id}_${idx}`}
+                      key={block.id}
+                      data-block-id={block.id}
+                      data-block-idx={idx}
+                      data-block-type="shape"
+                      contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-5 flex flex-col items-center group/shape rounded p-2 transition ${
+                      className={`my-5 flex flex-col items-center group/shape rounded p-2 transition cursor-default select-none ${
                         isSelected ? "ring-2 ring-blue-500 bg-blue-50/10" : ""
                       }`}
                     >
@@ -3165,9 +3286,13 @@ function HwpxEditorModalInner({
                 if (block.type === "equation") {
                   return (
                     <div
-                      key={`${block.id}_${idx}`}
+                      key={block.id}
+                      data-block-id={block.id}
+                      data-block-idx={idx}
+                      data-block-type="equation"
+                      contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3 ${
+                      className={`my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3 cursor-default select-none ${
                         isSelected ? "ring-1 ring-blue-500" : ""
                       }`}
                     >
