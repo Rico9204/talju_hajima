@@ -116,52 +116,63 @@ export default function HwpxEditorModal({
   );
 }
 
-// 자동 높이 조절 텍스트 영역 (스크롤바 없이 워드프로세서처럼 줄바꿈 확장)
-function AutoResizeTextarea({
-  value,
+// 리치 텍스트 문단 편집기 (contentEditable 기반으로 부분 색상, 굵기 등 인라인 서식 지원)
+function ContentEditableParagraph({
+  html,
   onChange,
   onFocus,
   className,
   style,
   placeholder,
 }: {
-  value: string;
+  html: string;
   onChange: (val: string) => void;
   onFocus?: () => void;
   className?: string;
   style?: React.CSSProperties;
   placeholder?: string;
 }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const isComposingRef = useRef(false);
 
-  const resize = () => {
+  // 초기 렌더링 및 외부 CRDT 동기화 시 DOM 갱신 (포커스 중인 경우 커서 보존)
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const targetHtml = html || "";
+    if (document.activeElement !== el && el.innerHTML !== targetHtml) {
+      el.innerHTML = targetHtml;
+    }
+  }, [html]);
+
+  const handleInput = () => {
+    if (ref.current) {
+      onChange(ref.current.innerHTML);
+    }
   };
 
-  useLayoutEffect(() => {
-    resize();
-  }, [value]);
-
   return (
-    <textarea
+    <div
       ref={ref}
-      value={value}
-      onChange={(e) => {
-        onChange(e.target.value);
-        resize();
+      contentEditable
+      suppressContentEditableWarning
+      onCompositionStart={() => {
+        isComposingRef.current = true;
       }}
+      onCompositionEnd={() => {
+        isComposingRef.current = false;
+        handleInput();
+      }}
+      onInput={handleInput}
       onFocus={onFocus}
-      rows={1}
-      placeholder={placeholder}
-      className={`${className ?? ""} overflow-hidden resize-none whitespace-pre-wrap break-words block`}
-      style={{
-        ...style,
-        boxSizing: "border-box",
-        fieldSizing: "content" as unknown as undefined,
+      onPaste={(e) => {
+        e.preventDefault();
+        const text = e.clipboardData.getData("text/plain");
+        document.execCommand("insertText", false, text);
       }}
+      className={`outline-none cursor-text transition leading-relaxed min-h-[1.5em] whitespace-pre-wrap break-words empty:before:content-[attr(data-placeholder)] empty:before:text-neutral-400 empty:before:pointer-events-none ${className ?? ""}`}
+      style={style}
+      data-placeholder={placeholder}
     />
   );
 }
@@ -292,6 +303,142 @@ function HwpxEditorModalInner({
       if (patch.color !== undefined) yBlock.set("color", patch.color);
       if (patch.fontFamily !== undefined) yBlock.set("fontFamily", patch.fontFamily);
     });
+  };
+
+  // ── 텍스트 드래그(선택 영역) 기억 및 부분 서식 적용 ──
+  const lastSelectionRangeRef = useRef<Range | null>(null);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        const anchor = sel.anchorNode;
+        const parent = anchor?.nodeType === Node.ELEMENT_NODE ? (anchor as HTMLElement) : anchor?.parentElement;
+        if (parent?.closest('[contenteditable="true"]')) {
+          lastSelectionRangeRef.current = sel.getRangeAt(0).cloneRange();
+        }
+      }
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
+
+  const restoreSelection = () => {
+    if (lastSelectionRangeRef.current) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(lastSelectionRangeRef.current);
+      }
+    }
+  };
+
+  const hasActiveTextSelection = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      return !!(lastSelectionRangeRef.current && !lastSelectionRangeRef.current.collapsed);
+    }
+    return sel.toString().trim().length > 0;
+  };
+
+  const triggerActiveBlockInput = () => {
+    const activeEl = document.activeElement;
+    if (activeEl && activeEl.getAttribute("contenteditable") === "true") {
+      activeEl.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    const sel = window.getSelection();
+    if (sel && sel.anchorNode) {
+      const parent = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? (sel.anchorNode as HTMLElement) : sel.anchorNode.parentElement;
+      const editable = parent?.closest('[contenteditable="true"]');
+      if (editable) {
+        editable.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+    }
+    if (lastSelectionRangeRef.current) {
+      const common = lastSelectionRangeRef.current.commonAncestorContainer;
+      const parent = common.nodeType === Node.ELEMENT_NODE ? (common as HTMLElement) : common.parentElement;
+      const editable = parent?.closest('[contenteditable="true"]');
+      if (editable) {
+        editable.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+  };
+
+  // 부분 색상 적용 (선택 영역이 있으면 부분 적용, 없으면 문단 전체 적용)
+  const applyTextColor = (colorValue: string) => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("foreColor", false, colorValue);
+      triggerActiveBlockInput();
+    } else {
+      updateParagraphStyle(selectedIdx, { color: colorValue });
+    }
+  };
+
+  // 부분 굵게 적용
+  const applyBold = () => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("bold", false);
+      triggerActiveBlockInput();
+    } else {
+      updateParagraphStyle(selectedIdx, { bold: !currentPara?.bold });
+    }
+  };
+
+  // 부분 기울임 적용
+  const applyItalic = () => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("italic", false);
+      triggerActiveBlockInput();
+    } else {
+      updateParagraphStyle(selectedIdx, { italic: !currentPara?.italic });
+    }
+  };
+
+  // 부분 밑줄 적용
+  const applyUnderline = () => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("underline", false);
+      triggerActiveBlockInput();
+    } else {
+      updateParagraphStyle(selectedIdx, { underline: !currentPara?.underline });
+    }
+  };
+
+  // 글꼴 적용
+  const applyFontFamily = (fontVal: string) => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("fontName", false, fontVal);
+      triggerActiveBlockInput();
+    } else {
+      updateParagraphStyle(selectedIdx, { fontFamily: fontVal });
+    }
+  };
+
+  // 글자 크기 적용
+  const applyFontSize = (sizePt: number) => {
+    restoreSelection();
+    if (hasActiveTextSelection()) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        const span = document.createElement("span");
+        span.style.fontSize = `${sizePt}pt`;
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+        triggerActiveBlockInput();
+      }
+    } else {
+      updateParagraphStyle(selectedIdx, { sizePt });
+    }
   };
 
   // 새 문단 추가
@@ -564,9 +711,9 @@ function HwpxEditorModalInner({
           <select
             disabled={!isParagraph}
             value={currentPara?.fontFamily || FONT_FAMILIES[0].value}
-            onChange={(e) => updateParagraphStyle(selectedIdx, { fontFamily: e.target.value })}
+            onChange={(e) => applyFontFamily(e.target.value)}
             className="bg-neutral-800/80 text-neutral-200 border border-neutral-700 rounded px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-40 max-w-[130px]"
-            title="글꼴 변경"
+            title="글꼴 변경 (선택 영역 또는 문단)"
           >
             {FONT_FAMILIES.map((f) => (
               <option key={f.value} value={f.value}>
@@ -579,9 +726,9 @@ function HwpxEditorModalInner({
           <select
             disabled={!isParagraph}
             value={currentPara?.sizePt || 10}
-            onChange={(e) => updateParagraphStyle(selectedIdx, { sizePt: Number(e.target.value) })}
+            onChange={(e) => applyFontSize(Number(e.target.value))}
             className="bg-neutral-800/80 text-neutral-200 border border-neutral-700 rounded px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-40 w-16 text-center"
-            title="글자 크기 (pt)"
+            title="글자 크기 (선택 영역 또는 문단)"
           >
             {FONT_SIZES.map((s) => (
               <option key={s} value={s}>
@@ -597,11 +744,12 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
-            onClick={() => updateParagraphStyle(selectedIdx, { bold: !currentPara?.bold })}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={applyBold}
             className={`w-7 h-7 rounded flex items-center justify-center font-bold text-xs transition ${
               currentPara?.bold ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
             } disabled:opacity-40`}
-            title="굵게 (Bold)"
+            title="굵게 (선택 영역 또는 문단)"
           >
             B
           </button>
@@ -610,11 +758,12 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
-            onClick={() => updateParagraphStyle(selectedIdx, { italic: !currentPara?.italic })}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={applyItalic}
             className={`w-7 h-7 rounded flex items-center justify-center italic font-serif text-xs transition ${
               currentPara?.italic ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
             } disabled:opacity-40`}
-            title="기울임 (Italic)"
+            title="기울임 (선택 영역 또는 문단)"
           >
             I
           </button>
@@ -623,11 +772,12 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
-            onClick={() => updateParagraphStyle(selectedIdx, { underline: !currentPara?.underline })}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={applyUnderline}
             className={`w-7 h-7 rounded flex items-center justify-center underline text-xs transition ${
               currentPara?.underline ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
             } disabled:opacity-40`}
-            title="밑줄 (Underline)"
+            title="밑줄 (선택 영역 또는 문단)"
           >
             U
           </button>
@@ -639,12 +789,25 @@ function HwpxEditorModalInner({
                 key={c.value}
                 type="button"
                 disabled={!isParagraph}
-                onClick={() => updateParagraphStyle(selectedIdx, { color: c.value })}
-                className="w-4 h-4 rounded-full border border-black/30 hover:scale-125 transition disabled:opacity-40"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => applyTextColor(c.value)}
+                className="w-4 h-4 rounded-full border border-black/30 hover:scale-125 transition disabled:opacity-40 cursor-pointer"
                 style={{ background: c.value }}
-                title={`${c.label} 색상`}
+                title={`${c.label} 색상 (선택 영역 또는 문단)`}
               />
             ))}
+            <label
+              className="w-4 h-4 rounded-full border border-black/30 hover:scale-125 transition cursor-pointer relative overflow-hidden flex items-center justify-center bg-gradient-to-tr from-red-500 via-green-500 to-blue-500"
+              title="사용자 지정 색상 (선택 영역 또는 문단)"
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <input
+                type="color"
+                value={currentPara?.color || "#111827"}
+                onChange={(e) => applyTextColor(e.target.value)}
+                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+              />
+            </label>
           </div>
 
           {/* 구분선 */}
@@ -654,6 +817,7 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => updateParagraphStyle(selectedIdx, { align: "left" })}
             className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
               currentPara?.align === "left" || !currentPara?.align ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
@@ -665,6 +829,7 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => updateParagraphStyle(selectedIdx, { align: "center" })}
             className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
               currentPara?.align === "center" ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
@@ -676,6 +841,7 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => updateParagraphStyle(selectedIdx, { align: "right" })}
             className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
               currentPara?.align === "right" ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
@@ -687,6 +853,7 @@ function HwpxEditorModalInner({
           <button
             type="button"
             disabled={!isParagraph}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
             className={`w-7 h-7 rounded flex items-center justify-center text-xs transition ${
               currentPara?.align === "justify" ? "bg-blue-600 text-white" : "hover:bg-neutral-800 text-neutral-300"
@@ -843,31 +1010,24 @@ function HwpxEditorModalInner({
                         </div>
                       )}
 
-                      {!block.text ? (
-                        <div
-                          onClick={() => updateParagraph(idx, " ")}
-                          className="h-6 w-full cursor-text hover:bg-blue-50/30 rounded transition"
-                          title="클릭하여 내용 입력"
+                      <div className={`w-full group ${isTitle ? "my-3" : isHeading ? "my-1.5" : "my-0.5"}`}>
+                        <ContentEditableParagraph
+                          html={block.text}
+                          onChange={(val) => updateParagraph(idx, val)}
+                          onFocus={() => setSelectedIdx(idx)}
+                          className={`w-full p-0 leading-relaxed ${alignClass}`}
+                          style={{
+                            fontSize,
+                            fontWeight: block.bold || isTitle ? "bold" : "normal",
+                            fontStyle: block.italic ? "italic" : "normal",
+                            textDecoration: block.underline ? "underline" : "none",
+                            color: block.color || "#111827",
+                            fontFamily: block.fontFamily || undefined,
+                            lineHeight: isTitle ? 1.45 : 1.65,
+                          }}
+                          placeholder={isSelected ? "내용을 입력하세요..." : undefined}
                         />
-                      ) : (
-                        <div className={`w-full group ${isTitle ? "my-3" : isHeading ? "my-1.5" : "my-0.5"}`}>
-                          <AutoResizeTextarea
-                            value={block.text}
-                            onChange={(val) => updateParagraph(idx, val)}
-                            onFocus={() => setSelectedIdx(idx)}
-                            className={`w-full border-none outline-none bg-transparent p-0 transition leading-relaxed ${alignClass}`}
-                            style={{
-                              fontSize,
-                              fontWeight: block.bold || isTitle ? "bold" : "normal",
-                              fontStyle: block.italic ? "italic" : "normal",
-                              textDecoration: block.underline ? "underline" : "none",
-                              color: block.color || "#111827",
-                              fontFamily: block.fontFamily || undefined,
-                              lineHeight: isTitle ? 1.45 : 1.65,
-                            }}
-                          />
-                        </div>
-                      )}
+                      </div>
                     </div>
                   );
                 }

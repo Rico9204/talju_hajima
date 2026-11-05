@@ -238,3 +238,23 @@ test('hwpxCollab: isolates header/footer controls and preserves document title a
   assert.ok(serialized.includes('<hp:footer id="1">'));
   assert.ok(serialized.includes('고밀도 소금-후추 노이즈 환경 논문 제목'));
 });
+
+test('hwpxCollab: strips HTML tags during serialization and text extraction for partial styling', () => {
+  const blocks = [
+    {
+      type: 'paragraph',
+      id: 'p0',
+      text: '안녕 <span style="color: rgb(239, 68, 68);">빨간색</span> <span style="font-weight: bold;">굵은글씨</span> 세상',
+      align: 'left',
+    },
+  ];
+
+  const serialized = serializeBlocksToHwpxXml(blocks, '');
+  assert.ok(serialized.includes('<hp:t>안녕 빨간색 굵은글씨 세상</hp:t>'));
+  assert.ok(!serialized.includes('<span'));
+
+  const doc = new Y.Doc();
+  initHwpxYDoc(doc, blocks);
+  const text = hwpxCollabText(doc);
+  assert.equal(text, '안녕 빨간색 굵은글씨 세상');
+});

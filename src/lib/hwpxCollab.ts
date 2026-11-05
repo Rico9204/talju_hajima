@@ -57,6 +57,12 @@ export interface HwpxImageBlock {
 export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock;
 
 // ── OWPML XML을 구조화된 협업 블록 목록으로 파싱 ──
+export function stripHtmlTags(str: string): string {
+  if (!str) return "";
+  if (!str.includes("<")) return str;
+  return str.replace(/<[^>]*>/g, "");
+}
+
 export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollabBlock[] {
   // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드) 사전 추출
   const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
@@ -311,7 +317,8 @@ export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml 
 
     // 일반 문단
     const pAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" paraPrIDRef="0" styleIDRef="0"`;
-    return `    <hp:p${pAttrs}>\n      ${lead}<hp:run charPrIDRef="0"><hp:t>${escapeXml(block.text)}</hp:t></hp:run>\n    </hp:p>`;
+    const cleanText = stripHtmlTags(block.text);
+    return `    <hp:p${pAttrs}>\n      ${lead}<hp:run charPrIDRef="0"><hp:t>${escapeXml(cleanText)}</hp:t></hp:run>\n    </hp:p>`;
   }).join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
@@ -460,7 +467,8 @@ export function hwpxCollabText(doc: Y.Doc): string {
 
   for (const block of blocks) {
     if (block.type === "paragraph") {
-      if (block.text) lines.push(block.text);
+      const clean = stripHtmlTags(block.text);
+      if (clean) lines.push(clean);
     } else if (block.type === "table") {
       for (const row of block.rows) {
         const rowText = row.map((c) => c.text).filter(Boolean).join(" | ");
