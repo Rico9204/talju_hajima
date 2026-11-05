@@ -13,6 +13,7 @@ import {
   hwpxCollabText,
   initHwpxYDoc,
   parseHwpxXmlToBlocks,
+  serializeBlocksToHwpxPackage,
   serializeBlocksToHwpxXml,
 } from "../lib/hwpxCollab";
 import { readZipEntries, writeZipEntries } from "../lib/hwpx";
@@ -62,6 +63,7 @@ export default function HwpxEditorModal({
 }) {
   const [zipEntries, setZipEntries] = useState<Map<string, Uint8Array> | null>(null);
   const [originalXml, setOriginalXml] = useState("");
+  const [originalHeaderXml, setOriginalHeaderXml] = useState("");
   const [initialBlocks, setInitialBlocks] = useState<HwpxCollabBlock[] | null>(null);
 
   // 1. HWPX 원본 파싱 및 초기 블록 추출 (header.xml 스타일 동시 분석)
@@ -82,6 +84,7 @@ export default function HwpxEditorModal({
         if (active) {
           setZipEntries(entries);
           setOriginalXml(xml);
+          setOriginalHeaderXml(headerXml);
           setInitialBlocks(blocks);
         }
       } catch (e) {
@@ -107,6 +110,7 @@ export default function HwpxEditorModal({
       mode={mode}
       zipEntries={zipEntries}
       originalXml={originalXml}
+      originalHeaderXml={originalHeaderXml}
       initialBlocks={initialBlocks}
       presence={presence}
       editors={editors}
@@ -184,6 +188,7 @@ function HwpxEditorModalInner({
   mode,
   zipEntries,
   originalXml,
+  originalHeaderXml,
   initialBlocks,
   presence,
   editors,
@@ -196,6 +201,7 @@ function HwpxEditorModalInner({
   mode: CollabMode;
   zipEntries: Map<string, Uint8Array>;
   originalXml: string;
+  originalHeaderXml: string;
   initialBlocks: HwpxCollabBlock[];
   presence: CollabPresence;
   editors: CollabEditor[];
@@ -232,18 +238,61 @@ function HwpxEditorModalInner({
     keyOf: hwpxCollabKey,
     textOf: hwpxCollabText,
     save: async (_bytes, text, baseVersionId, auto) => {
-      // Y.Doc의 최신 블록 트리로부터 OWPML XML을 재직렬화하여 HWPX ZIP 생성
+      // Y.Doc의 최신 블록 트리로부터 OWPML XML 및 Header XML을 재직렬화하여 HWPX ZIP 생성
       const currentBlocks = extractBlocksFromYDoc(doc);
-      const newSectionXml = serializeBlocksToHwpxXml(currentBlocks, originalXml);
+      const { sectionXml: newSectionXml, headerXml: newHeaderXml } = serializeBlocksToHwpxPackage(
+        currentBlocks,
+        originalXml,
+        originalHeaderXml
+      );
 
       const newEntries = new Map(zipEntries);
       const secKey = Array.from(newEntries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
       newEntries.set(secKey, new TextEncoder().encode(newSectionXml));
 
+      const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
+      newEntries.set(headerKey, new TextEncoder().encode(newHeaderXml));
+
       const updatedHwpxBytes = await writeZipEntries(newEntries);
       return save(updatedHwpxBytes, text, baseVersionId, auto);
     },
   });
+
+  // 편집기 내에서 바로 수정된 최신 HWPX 파일 즉시 다운로드
+  const handleDirectDownload = async () => {
+    try {
+      const currentBlocks = extractBlocksFromYDoc(doc);
+      const { sectionXml: newSectionXml, headerXml: newHeaderXml } = serializeBlocksToHwpxPackage(
+        currentBlocks,
+        originalXml,
+        originalHeaderXml
+      );
+
+      const newEntries = new Map(zipEntries);
+      const secKey = Array.from(newEntries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
+      newEntries.set(secKey, new TextEncoder().encode(newSectionXml));
+
+      const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
+      newEntries.set(headerKey, new TextEncoder().encode(newHeaderXml));
+
+      const updatedHwpxBytes = await writeZipEntries(newEntries);
+
+      const blob = new Blob([new Uint8Array(updatedHwpxBytes)], { type: "application/hnc+zip" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.name.endsWith(".hwpx") ? file.name : `${file.name}.hwpx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+      // 워크스페이스에도 백그라운드 저장 실행
+      void runSave();
+    } catch (e) {
+      console.error("HWPX 다운로드 실패:", e);
+    }
+  };
 
   // 로컬 렌더링용 블록 상태 (Y.Doc의 변경에 실시간 반응)
   const [blocks, setBlocks] = useState<HwpxCollabBlock[]>(() => extractBlocksFromYDoc(doc));
@@ -677,6 +726,16 @@ function HwpxEditorModalInner({
 
           <div className="flex items-center gap-3 shrink-0">
             <EditorAvatars editors={roomEditors} />
+
+            <button
+              type="button"
+              onClick={() => void handleDirectDownload()}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700"
+              title="현재 편집 중인 내용으로 HWPX 파일 즉시 다운로드"
+            >
+              <span>📥</span>
+              <span>다운로드</span>
+            </button>
 
             <button
               type="button"

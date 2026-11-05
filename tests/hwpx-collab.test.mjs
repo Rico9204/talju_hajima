@@ -5,6 +5,7 @@ import {
   parseHwpxXmlToBlocks,
   initHwpxYDoc,
   extractBlocksFromYDoc,
+  serializeBlocksToHwpxPackage,
   serializeBlocksToHwpxXml,
   hwpxCollabKey,
   hwpxCollabText,
@@ -250,8 +251,13 @@ test('hwpxCollab: strips HTML tags during serialization and text extraction for 
   ];
 
   const serialized = serializeBlocksToHwpxXml(blocks, '');
-  assert.ok(serialized.includes('<hp:t>안녕 빨간색 굵은글씨 세상</hp:t>'));
+  assert.ok(serialized.includes('<hp:t>빨간색</hp:t>'));
+  assert.ok(serialized.includes('<hp:t>굵은글씨</hp:t>'));
   assert.ok(!serialized.includes('<span'));
+
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+  assert.ok(pkg.headerXml.includes('textColor="#EF4444"'));
+  assert.ok(pkg.headerXml.includes('<hh:bold/>'));
 
   const doc = new Y.Doc();
   initHwpxYDoc(doc, blocks);

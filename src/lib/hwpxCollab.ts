@@ -63,6 +63,103 @@ export function stripHtmlTags(str: string): string {
   return str.replace(/<[^>]*>/g, "");
 }
 
+export function colorToHex(colorStr?: string): string {
+  if (!colorStr) return "#000000";
+  colorStr = colorStr.trim();
+  if (colorStr.startsWith("#")) {
+    if (colorStr.length === 4) {
+      return `#${colorStr[1]}${colorStr[1]}${colorStr[2]}${colorStr[2]}${colorStr[3]}${colorStr[3]}`.toUpperCase();
+    }
+    return colorStr.toUpperCase();
+  }
+  const rgb = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (rgb) {
+    const r = parseInt(rgb[1], 10).toString(16).padStart(2, "0");
+    const g = parseInt(rgb[2], 10).toString(16).padStart(2, "0");
+    const b = parseInt(rgb[3], 10).toString(16).padStart(2, "0");
+    return `#${r}${g}${b}`.toUpperCase();
+  }
+  return "#000000";
+}
+
+export interface ParsedTextRun {
+  text: string;
+  color?: string;
+  sizePt?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+}
+
+export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBlock>): ParsedTextRun[] {
+  if (!html) return [];
+  if (!html.includes("<")) {
+    return [{
+      text: html,
+      color: baseStyle.color,
+      sizePt: baseStyle.sizePt,
+      bold: baseStyle.bold,
+      italic: baseStyle.italic,
+      underline: baseStyle.underline,
+    }];
+  }
+
+  const runs: ParsedTextRun[] = [];
+  const tagRegex = /<(\/)?([a-zA-Z0-9]+)([^>]*)>|([^<]+)/g;
+  let m: RegExpExecArray | null;
+
+  const styleStack: Array<{ color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean }> = [{
+    color: baseStyle.color,
+    sizePt: baseStyle.sizePt,
+    bold: baseStyle.bold,
+    italic: baseStyle.italic,
+    underline: baseStyle.underline,
+  }];
+
+  while ((m = tagRegex.exec(html)) !== null) {
+    if (m[4]) {
+      const cur = styleStack[styleStack.length - 1];
+      runs.push({
+        text: decodeXmlEntities(m[4]),
+        color: cur.color,
+        sizePt: cur.sizePt,
+        bold: cur.bold,
+        italic: cur.italic,
+        underline: cur.underline,
+      });
+    } else if (m[2]) {
+      const isClose = !!m[1];
+      const tag = m[2].toLowerCase();
+      const attrs = m[3] || "";
+
+      if (isClose) {
+        if (styleStack.length > 1) styleStack.pop();
+      } else {
+        const parentStyle = styleStack[styleStack.length - 1];
+        const nextStyle = { ...parentStyle };
+
+        if (tag === "b" || tag === "strong" || /font-weight:\s*(?:bold|[6-9]00)/i.test(attrs)) nextStyle.bold = true;
+        if (tag === "i" || tag === "em" || /font-style:\s*italic/i.test(attrs)) nextStyle.italic = true;
+        if (tag === "u" || /text-decoration(?:-line)?:\s*[^;"]*underline/i.test(attrs)) nextStyle.underline = true;
+
+        const colorMatch = attrs.match(/color:\s*([^;"]+)/i) || attrs.match(/\bcolor=["']?([^"'\s>]+)/i);
+        if (colorMatch) {
+          nextStyle.color = colorMatch[1].trim();
+        }
+
+        const sizeMatch = attrs.match(/font-size:\s*(\d+(?:\.\d+)?)pt/i);
+        if (sizeMatch) {
+          nextStyle.sizePt = parseFloat(sizeMatch[1]);
+        }
+
+        styleStack.push(nextStyle);
+      }
+    }
+  }
+
+  return runs.length > 0 ? runs : [{ text: stripHtmlTags(html), ...baseStyle }];
+}
+
 export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollabBlock[] {
   // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드) 사전 추출
   const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
@@ -266,11 +363,57 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
   return blocks;
 }
 
-// ── 블록 배열을 OWPML XML로 복원 직렬화 (표·수식 구조 100% 보존) ──
-export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml = ""): string {
+// ── 블록 배열을 OWPML XML 및 Header XML로 복원 직렬화 (글자색·서식·표·수식 구조 100% 보존) ──
+export function serializeBlocksToHwpxPackage(
+  blocks: HwpxCollabBlock[],
+  originalSectionXml = "",
+  originalHeaderXml = ""
+): { sectionXml: string; headerXml: string } {
+  // 1. paraPr 관리 (left=0, center=1, right=2, justify=3)
+  const paraPrMap = new Map<string, number>([
+    ["left", 0],
+    ["center", 1],
+    ["right", 2],
+    ["justify", 3],
+  ]);
+
+  // 2. charPr 관리 (id 0: 기본 스타일)
+  interface CharPrDef {
+    id: number;
+    colorHex: string;
+    sizePt: number;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+  }
+
+  const charPrDefs: CharPrDef[] = [
+    { id: 0, colorHex: "#000000", sizePt: 10, bold: false, italic: false, underline: false },
+  ];
+  const charPrKeyToId = new Map<string, number>([
+    ["#000000_10_0_0_0", 0],
+  ]);
+
+  const getOrCreateCharPr = (style: { color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean }): number => {
+    const colorHex = colorToHex(style.color);
+    const sizePt = style.sizePt ? Math.round(style.sizePt) : 10;
+    const bold = !!style.bold;
+    const italic = !!style.italic;
+    const underline = !!style.underline;
+    const key = `${colorHex}_${sizePt}_${bold ? 1 : 0}_${italic ? 1 : 0}_${underline ? 1 : 0}`;
+
+    const existing = charPrKeyToId.get(key);
+    if (existing !== undefined) return existing;
+
+    const newId = charPrDefs.length;
+    charPrDefs.push({ id: newId, colorHex, sizePt, bold, italic, underline });
+    charPrKeyToId.set(key, newId);
+    return newId;
+  };
+
   // paragraph 0의 설정 런(secPr, ctrl, footer 등) 보존
   let preambleRuns = "";
-  const firstPMatch = originalXml.match(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/);
+  const firstPMatch = originalSectionXml.match(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/);
   if (firstPMatch) {
     const inner = firstPMatch[1];
     const firstTRunIdx = inner.indexOf("<hp:t");
@@ -282,7 +425,7 @@ export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml 
     }
   }
   if (!preambleRuns) {
-    const secPrMatch = originalXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
+    const secPrMatch = originalSectionXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
     if (secPrMatch) {
       preambleRuns = `<hp:run charPrIDRef="0">${secPrMatch[0]}</hp:run>`;
     }
@@ -297,7 +440,9 @@ export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml 
       const rowsXml = block.rows.map((row, rIdx) => {
         const cellsXml = row.map((cell, cIdx) => {
           const tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="${rIdx}_${cIdx}"`;
-          return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
+          const cellCharPr = getOrCreateCharPr({ bold: cell.bold });
+          const cellParaPr = paraPrMap.get(cell.align || "left") ?? 0;
+          return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="${cellParaPr}" styleIDRef="0"><hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
         }).join("\n");
         return `      <hp:tr>\n${cellsXml}\n      </hp:tr>`;
       }).join("\n");
@@ -312,16 +457,81 @@ export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml 
     }
 
     if (block.type === "image") {
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
+      const align = block.align || "center";
+      const paraPr = paraPrMap.get(align) ?? 1;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
-    // 일반 문단
-    const pAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" paraPrIDRef="0" styleIDRef="0"`;
-    const cleanText = stripHtmlTags(block.text);
-    return `    <hp:p${pAttrs}>\n      ${lead}<hp:run charPrIDRef="0"><hp:t>${escapeXml(cleanText)}</hp:t></hp:run>\n    </hp:p>`;
+    // 일반 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
+    const align = block.align || "left";
+    const paraPr = paraPrMap.get(align) ?? 0;
+    const runs = parseHtmlRuns(block.text, {
+      color: block.color,
+      sizePt: block.sizePt,
+      bold: block.bold,
+      italic: block.italic,
+      underline: block.underline,
+    });
+
+    const runsXml = runs.map((run) => {
+      const charPrId = getOrCreateCharPr(run);
+      return `<hp:run charPrIDRef="${charPrId}"><hp:t>${escapeXml(run.text)}</hp:t></hp:run>`;
+    }).join("");
+
+    return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0">\n      ${lead}${runsXml || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>'}\n    </hp:p>`;
   }).join("\n");
 
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
+  const sectionXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
+
+  // 3. Header XML 생성 / 갱신 (추가된 charPr 및 paraPr 등록)
+  let headerXml = originalHeaderXml;
+  const charPropertiesXml = `    <hh:charProperties itemCnt="${charPrDefs.length}">\n` +
+    charPrDefs.map((def) => {
+      const children: string[] = [];
+      if (def.bold) children.push("<hh:bold/>");
+      if (def.italic) children.push("<hh:italic/>");
+      if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
+      const inner = children.length > 0 ? children.join("") : "";
+      return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}" fontRef="0">${inner}</hh:charPr>`;
+    }).join("\n") +
+    "\n    </hh:charProperties>";
+
+  const paraPropertiesXml = `    <hh:paraProperties itemCnt="4">\n` +
+    `      <hh:paraPr id="0"><hh:align horizontal="LEFT"/></hh:paraPr>\n` +
+    `      <hh:paraPr id="1"><hh:align horizontal="CENTER"/></hh:paraPr>\n` +
+    `      <hh:paraPr id="2"><hh:align horizontal="RIGHT"/></hh:paraPr>\n` +
+    `      <hh:paraPr id="3"><hh:align horizontal="JUSTIFY"/></hh:paraPr>\n` +
+    `    </hh:paraProperties>`;
+
+  if (headerXml && headerXml.includes("<hh:charProperties")) {
+    headerXml = headerXml.replace(/<hh:charProperties\b[\s\S]*?<\/hh:charProperties>/, charPropertiesXml.trim());
+    if (headerXml.includes("<hh:paraProperties")) {
+      headerXml = headerXml.replace(/<hh:paraProperties\b[\s\S]*?<\/hh:paraProperties>/, paraPropertiesXml.trim());
+    }
+  } else {
+    headerXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+      `<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n` +
+      `  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n` +
+      `  <hh:refList>\n` +
+      `    <hh:fontfaces itemCnt="1">\n` +
+      `      <hh:fontface lang="hangul" fontCnt="1">\n` +
+      `        <hh:font id="0" face="함초롬바탕" type="ttf"/>\n` +
+      `      </hh:fontface>\n` +
+      `    </hh:fontfaces>\n` +
+      `${charPropertiesXml}\n` +
+      `${paraPropertiesXml}\n` +
+      `    <hh:styles itemCnt="1">\n` +
+      `      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n` +
+      `    </hh:styles>\n` +
+      `  </hh:refList>\n` +
+      `</hh:head>`;
+  }
+
+  return { sectionXml, headerXml };
+}
+
+export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml = ""): string {
+  return serializeBlocksToHwpxPackage(blocks, originalXml, "").sectionXml;
 }
 
 // ── Yjs (CRDT) 문서 초기화 및 동기화 ──
@@ -484,7 +694,8 @@ export function hwpxCollabText(doc: Y.Doc): string {
   return lines.join("\n\n");
 }
 
-// 저장 비교값 (변경 여부 판단 해시)
+// 저장 비교값 (텍스트뿐 아니라 색상·크기·표·이미지 등 모든 블록 변경 여부를 정밀 감지)
 export function hwpxCollabKey(doc: Y.Doc): string {
-  return textHash(hwpxCollabText(doc));
+  const blocks = extractBlocksFromYDoc(doc);
+  return textHash(JSON.stringify(blocks));
 }
