@@ -73,63 +73,134 @@ const Line = ({ color }: { color: string }) => (
 );
 
 function Dashboard() {
-  const nav = ["대시보드", "팀 정보", "팀 채팅", "과제 보드", "일정", "워크스페이스", "동료 평가"];
-  const stats = [
-    { n: "6", t: "완료 과제", s: "전체 9개 중", bg: C.greenTint, c: C.green, i: "✓" },
-    { n: "2", t: "남은 마감", s: "마감일 있는 미완료 과제", bg: C.redTint, c: C.red, i: "◷" },
-    { n: "대기", t: "내 평가", s: "프로토타입 검증", bg: "var(--secondary)", c: "var(--primary)", i: "◎" },
-  ];
-  const tasks = ["중간 발표 자료 만들기", "화면 설계 문서 정리", "API 명세서 작성", "사용자 테스트 계획"];
   return (
     <div className="mx-auto w-full max-w-[920px] overflow-hidden rounded-[28px] text-left" style={{ background: "var(--muted)", boxShadow: "0 30px 80px rgba(17,26,71,0.35)" }} aria-hidden>
+      {/* 브라우저 크롬 */}
       <div className="flex items-center gap-3 px-6 py-3" style={{ background: C.night }}>
         <div className="flex gap-2">
           {["#ff5f57", "#febc2e", "#28c840"].map((color) => <span key={color} className="h-3 w-3 rounded-full" style={{ background: color }} />)}
         </div>
         <span className="hidden gap-2 text-sm sm:flex" style={{ color: "rgba(255,255,255,0.45)" }}><span>‹</span><span>›</span></span>
-        <div className="mx-auto hidden w-full max-w-[360px] rounded-lg px-3 py-1 text-xs sm:block" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" }}>{BRAND.name} 검색</div>
+        <div className="mx-auto hidden w-full max-w-[360px] rounded-lg px-3 py-1 text-xs sm:block" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" }}>{BRAND.name}</div>
       </div>
-      <div className="flex gap-4 p-4 md:p-5">
-        <div className="hidden w-[170px] shrink-0 rounded-2xl p-3 md:block" style={{ background: "var(--card)" }}>
+
+      <div className="flex gap-3 p-3 md:p-4">
+        {/* 앱 사이드바 */}
+        <div className="hidden w-[150px] shrink-0 rounded-2xl p-3 md:block" style={{ background: "var(--card)" }}>
           <div className="mb-3 flex items-center gap-2 px-1">
-            <img src={BRAND.icon} alt="" className="h-7 w-7" style={{ borderRadius: "20%" }} />
+            <img src={BRAND.icon} alt="" className="h-6 w-6" style={{ borderRadius: "20%" }} />
             <span className="text-sm font-600">{BRAND.name}</span>
           </div>
-          {nav.map((n, i) => (
-            <div key={n} className="mb-1 rounded-lg px-3 py-2 text-xs" style={i === 0 ? { background: "var(--primary)", color: "var(--primary-foreground)" } : { color: "var(--muted-foreground)" }}>{n}</div>
+          {["대시보드", "팀 정보", "팀 채팅", "과제 보드", "일정", "워크스페이스", "동료 평가"].map((n, i) => (
+            <div key={n} className="mb-1 rounded-lg px-3 py-1.5 text-xs" style={i === 0 ? { background: "var(--primary)", color: "var(--primary-foreground)" } : { color: "var(--muted-foreground)" }}>{n}</div>
           ))}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-lg font-500">안녕하세요, 김민준님</div>
-          <div className="mb-3 text-xs" style={{ color: "var(--muted-foreground)" }}>이번 주 마감 2건이 남았어요. 팀 현황을 한눈에 확인해 보세요.</div>
-          <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-            <div className="col-span-2 flex items-center justify-between rounded-2xl p-4 md:col-span-1" style={{ background: "var(--hero-banner-bg)", color: "#fff" }}>
-              <div>
-                <div className="text-xs opacity-80">전체 진행률</div>
-                <div className="text-3xl font-300">67<span className="text-sm">%</span></div>
+
+        {/* 대시보드 본문 */}
+        <div className="flex flex-1 gap-3 min-w-0">
+          {/* 왼쪽 메인 */}
+          <div className="flex flex-col gap-3 flex-1 min-w-0">
+            {/* 내 프로필 카드 */}
+            <div className="rounded-2xl p-4 relative overflow-hidden" style={{ background: "linear-gradient(120deg, #111a47, #2a215f)", color: "#fff" }}>
+              <div className="absolute pointer-events-none" style={{ left: -30, top: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle, #8b5cf655, transparent 65%)" }} />
+              <div className="relative flex flex-wrap items-center gap-3">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-700" style={{ background: "rgba(255,255,255,0.15)", boxShadow: "0 0 0 2px #111a47, 0 0 0 4px #8b5cf6" }}>김</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] opacity-70">실버</div>
+                  <div className="text-base font-500 leading-tight">김민준</div>
+                  <div className="text-[10px] opacity-70 truncate">문화유산 디지털 아카이브 · 업적 3개</div>
+                </div>
+                <div className="flex gap-4">
+                  {[["협업 신뢰도", "4.3"], ["종료까지", "D-28"], ["진행률", "63%"]].map(([label, val]) => (
+                    <div key={label} className="text-center">
+                      <div className="text-[9px] opacity-65">{label}</div>
+                      <div className="text-lg font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="5" /><circle cx="22" cy="22" r="18" fill="none" stroke="#fff" strokeWidth="5" strokeDasharray="76 113" strokeLinecap="round" transform="rotate(-90 22 22)" /></svg>
+              <div className="relative flex gap-2 mt-3">
+                <span className="px-3 py-1 text-[11px] font-700 rounded-full" style={{ background: "#fff", color: "#111a47" }}>동료 평가 하러가기 →</span>
+                <span className="px-3 py-1 text-[11px] font-600 rounded-full" style={{ background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.22)" }}>동료 평가 · 중간 대기</span>
+              </div>
             </div>
-            {stats.map((s, i) => (
-              <div key={s.t} className={`rounded-2xl p-3 ${i === 2 ? "col-span-2 md:col-span-1" : ""}`} style={{ background: "var(--card)" }}>
-                <span className="mb-1 flex h-6 w-6 items-center justify-center rounded-lg text-xs" style={{ background: s.bg, color: s.c }}>{s.i}</span>
-                <div className="text-xl font-500">{s.n}</div>
-                <div className="text-xs font-500">{s.t}</div>
-                <div className="truncate text-[11px]" style={{ color: "var(--muted-foreground)" }}>{s.s}</div>
-              </div>
-            ))}
-          </div>
-          <div className="grid gap-3 md:grid-cols-[1.4fr_1fr]">
+
+            {/* 프로젝트 현황판 */}
             <div className="rounded-2xl p-4" style={{ background: "var(--card)" }}>
-              <div className="mb-2 text-sm font-500">현황판</div>
-              {tasks.map((t) => <div key={t} className="mb-1.5 rounded-lg px-3 py-2 text-xs" style={{ background: "var(--muted)" }}>{t}</div>)}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-600" style={{ color: "var(--muted-foreground)" }}>과제 22개 중 14개 완료</span>
+                <span className="text-[11px] font-600 px-3 py-1 rounded-full" style={{ background: "var(--secondary)", color: "var(--primary)" }}>전체 보기</span>
+              </div>
+              <div className="flex h-1.5 overflow-hidden mb-3 rounded-full" style={{ background: "var(--border)" }}>
+                <i style={{ width: "18%", background: "#9aa0bd" }} /><i style={{ width: "23%", background: "var(--status-inprogress)" }} /><i style={{ width: "9%", background: "#f59e0b" }} /><i style={{ width: "50%", background: "#86d4a0" }} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {([["예정", "#9aa0bd", ["자료 조사 계획 v2", "현장 사진 정리"]], ["진행", "var(--status-inprogress)", ["문화재 목록 정리", "아카이브 설계"]], ["검토", "#f59e0b", ["중간발표 자료"]]] as const).map(([label, color, items]) => (
+                  <div key={label}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                      <span className="text-xs font-700" style={{ color }}>{label}</span>
+                      <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{items.length}</span>
+                    </div>
+                    {items.map((t) => <div key={t} className="text-xs py-0.5 truncate">{t}</div>)}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="hidden rounded-2xl p-4 md:block" style={{ background: "var(--card)" }}>
-              <div className="mb-2 text-sm font-500">다가오는 마감</div>
-              {[["중간 발표", "D-2", C.red], ["팀 회의", "D-4", "var(--primary)"], ["최종 발표", "D-46", "var(--accent)"]].map(([t, d, c]) => (
-                <div key={t} className="mb-1.5 flex items-center justify-between rounded-lg px-3 py-2 text-xs" style={{ background: "var(--muted)" }}>
-                  <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />{t}</span>
-                  <span style={{ color: c, fontFamily: "var(--font-jetbrains)" }}>{d}</span>
+
+            {/* 팀 속도 + 업적 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl p-4" style={{ background: "var(--card)" }}>
+                <div className="text-sm font-600 mb-0.5">우리 팀 속도</div>
+                <div className="text-[11px] mb-3" style={{ color: "var(--muted-foreground)" }}>기간이 얼마나 지났고, 과제는 얼마나 끝났나</div>
+                {([["경과한 기간", 72, "#9aa0bd"], ["완료한 과제", 63, "var(--primary)"]] as const).map(([label, pct, color]) => (
+                  <div key={label} className="mb-3">
+                    <div className="flex justify-between text-xs mb-1"><span>{label}</span><b>{pct}%</b></div>
+                    <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+                    </div>
+                  </div>
+                ))}
+                <div className="text-[11px] font-600 px-2.5 py-1.5 rounded-xl" style={{ background: "#d9770620", color: "#d97706" }}>기간보다 9%p 늦어요. 마감 임박 과제를 확인해 보세요</div>
+              </div>
+              <div className="rounded-2xl p-4" style={{ background: "var(--card)" }}>
+                <div className="text-sm font-600 mb-0.5">다음에 달성할 업적</div>
+                <div className="text-[11px] mb-3" style={{ color: "var(--muted-foreground)" }}>진행 중인 도전과제</div>
+                {([["피드백 장인", 76, "#8b5cf6", "#6366f1"], ["과제 완수왕", 54, "#22c55e", "#16a34a"], ["활동의 달인", 31, "#f59e0b", "#d97706"]] as const).map(([label, pct, c0, c1]) => (
+                  <div key={label} className="mb-3">
+                    <div className="flex justify-between text-xs mb-1"><span className="truncate">{label}</span></div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${c0}, ${c1})` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 오른쪽 사이드바 */}
+          <div className="hidden w-[175px] shrink-0 flex-col gap-3 md:flex">
+            <div className="rounded-2xl p-3.5" style={{ background: "var(--card)" }}>
+              <div className="text-sm font-600 mb-2">나의 할 일</div>
+              {["문화재 목록 정리", "아카이브 설계", "중간발표 자료"].map((t) => (
+                <div key={t} className="py-1.5 text-xs truncate" style={{ borderTop: "1px solid var(--border)" }}>{t}</div>
+              ))}
+            </div>
+            <div className="rounded-2xl p-3.5" style={{ background: "var(--card)" }}>
+              <div className="text-sm font-600 mb-2">다가오는 마감</div>
+              {([["현장조사 보고서", "D-5", C.red], ["중간발표 자료", "D-12", "#f59e0b"]] as const).map(([t, d, c]) => (
+                <div key={t} className="flex items-center justify-between py-1.5 text-xs" style={{ borderTop: "1px solid var(--border)" }}>
+                  <div className="flex items-center gap-1.5 min-w-0"><span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c }} /><span className="truncate">{t}</span></div>
+                  <span className="font-700 ml-1 shrink-0" style={{ color: c, fontFamily: "var(--font-jetbrains)" }}>{d}</span>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-2xl p-3.5" style={{ background: "var(--card)" }}>
+              <div className="text-sm font-600 mb-2">최근 활동</div>
+              {([["정", "#8b5cf6", "현장사진 v2 업로드", "1시간 전"], ["이", "#22c55e", "기획안 업로드", "3시간 전"], ["박", "#f59e0b", "목록 오류 수정", "5시간 전"]] as const).map(([av, c, action, time]) => (
+                <div key={action} className="flex items-start gap-2 py-1.5" style={{ borderTop: "1px solid var(--border)" }}>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0" style={{ background: `${c}20`, color: c }}>{av}</span>
+                  <div className="min-w-0"><div className="text-xs truncate">{action}</div><div className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>{time}</div></div>
                 </div>
               ))}
             </div>
@@ -208,10 +279,10 @@ export default function Landing() {
         </nav>
 
         <div className={`${section} relative pb-16 pt-12 text-center md:pt-20`}>
-          <h1 className="font-300" style={heading(48, 100)}>
-            <span style={{ color: "var(--primary)" }}>팀플,</span>
+          <h1 className="font-300" style={{ ...heading(48, 100), fontFamily: "'HakgyoansimJiugae', sans-serif" }}>
+            <span style={{ color: "var(--primary)" }}>팀플이</span>
             <br />
-            한곳에서 끝내요
+            <span style={{ fontSize: "0.72em" }}>달라지는 순간</span>
           </h1>
           <p className="mx-auto mt-6 max-w-[760px] font-300" style={{ fontSize: "clamp(16px, 1.7vw, 24px)", color: "var(--muted-foreground)" }}>
             채팅, 과제, 일정, 파일, 동료 평가까지. 흩어진 팀 프로젝트를 한 화면으로.
