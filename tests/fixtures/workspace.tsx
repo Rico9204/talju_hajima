@@ -76,7 +76,11 @@ function LocalPreviewApp() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
+const container = document.getElementById("root")!;
+const root = (window as unknown as { __previewRoot?: ReturnType<typeof createRoot> }).__previewRoot ??
+  ((window as unknown as { __previewRoot?: ReturnType<typeof createRoot> }).__previewRoot = createRoot(container));
+
+root.render(
   <RouterProvider
     router={createMemoryRouter([
       {

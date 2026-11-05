@@ -129,7 +129,17 @@ export function Fixture({ children }: { children: ReactNode }) {
         setViewedMemberId: () => {},
         profileSection: null,
         setProfileSection: () => {},
+        openMemberProfile: () => {},
+        closeMemberProfile: () => {},
         updateProfile: async () => {},
+        updateMyProfile: async () => {},
+        getMyEvaluationSummary: async () => ({
+          projectCount: 1,
+          collaboratorCount: 3,
+          count: 3,
+          score: 4.8,
+          criteria: { role: 4.8, deadline: 4.9, communication: 4.7, collaboration: 4.8, quality: 4.8 },
+        }),
         isLeader: true,
         isManager: true,
         deleteWorkspaceFile: async (id: number) => {
