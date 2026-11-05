@@ -1614,7 +1614,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
 
           {/* Table Header */}
           <div
-            className="flex items-center px-4 py-2.5 text-xs font-700 border-b select-none sticky top-0 z-10"
+            className="flex items-center px-8 py-2.5 text-xs font-700 border-b select-none sticky top-0 z-10"
             style={{ borderColor: "var(--border)", background: "var(--card)", color: "var(--muted-foreground)" }}
           >
             {selectMode && <div className="w-6 shrink-0" />}
@@ -1667,7 +1667,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
             }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            className="relative min-h-[420px] max-h-[640px] overflow-y-auto divide-y divide-[var(--border)]"
+            className="relative min-h-[420px] max-h-[640px] overflow-y-auto px-4 py-2 pb-16 space-y-0.5"
             style={{ userSelect: band ? "none" : undefined }}
           >
             {/* Desktop file drop overlay */}
@@ -1694,7 +1694,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 data-creation-row="folder"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => newFolderInputRef.current?.focus()}
-                className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5 cursor-text"
+                className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5 cursor-text rounded-lg border border-[var(--primary)]/20"
               >
                 <span className="text-xl shrink-0 select-none">📁</span>
                 <input
@@ -1743,7 +1743,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                 data-creation-row="item"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => newItemInputRef.current?.focus()}
-                className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5 cursor-text"
+                className="flex items-center gap-3 px-4 py-3 bg-[var(--primary)]/5 cursor-text rounded-lg border border-[var(--primary)]/20"
               >
                 <span className="text-xl shrink-0 select-none">{getItemMeta(newItem.kind).icon}</span>
                 <input
@@ -1815,15 +1815,15 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   onDragLeave={() => setDropSpot((cur) => (cur && ("into" in cur ? cur.into === f.id : cur.kind === "folder" && cur.id === f.id) ? null : cur))}
                   onDrop={(e) => folderCardDrop(e, f)}
                   title={!locked ? "클릭하여 폴더 열기 · 끌어서 순서를 바꾸거나 다른 폴더로 이동" : "클릭하여 폴더 열기"}
-                  className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer hover:bg-[var(--secondary)]/60"
+                  className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer hover:bg-[var(--secondary)]/60 rounded-lg"
                   style={{
                     ...dropStyle(f.id),
+                    borderRadius: 8,
                     borderTop: isSpot("folder", f.id, "before") ? "3px solid var(--primary)" : undefined,
                     borderBottom: isSpot("folder", f.id, "after") ? "3px solid var(--primary)" : undefined,
                     boxShadow: dragging?.kind === "folder" && dragging.id === f.id
                       ? "0 0 0 2px var(--primary), inset 0 0 12px rgba(74, 116, 181, 0.2)"
                       : dropStyle(f.id).boxShadow,
-                    borderRadius: dragging?.kind === "folder" && dragging.id === f.id ? 8 : undefined,
                     opacity: dragging?.kind === "folder" && dragging.id === f.id ? 0.75 : 1,
                   }}
                 >
@@ -1910,13 +1910,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     setContextMenu({ x, y, target: { kind: "file", file: f } });
                   }}
                   title={!locked && !selectMode ? (isPresentationFile(f.name) ? "클릭하여 선택 · 더블클릭하여 발표 모드 · 우클릭하여 메뉴 열기" : "클릭하여 선택 · 더블클릭하여 편집 · 우클릭하여 메뉴 열기") : "클릭하여 선택"}
-                  className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer"
+                  className="flex items-center px-4 py-2 text-xs transition-colors group cursor-pointer rounded-lg hover:bg-[var(--secondary)]/40"
                   style={{
+                    borderRadius: 8,
                     background: (dragging?.kind === "files" && dragging.ids.includes(f.id))
                       ? "color-mix(in srgb, var(--primary) 24%, var(--card))"
                       : isSelected
                       ? "color-mix(in srgb, var(--primary) 15%, var(--card))"
-                      : "transparent",
+                      : undefined,
                     color: "var(--foreground)",
                     borderTop: isSpot("file", f.id, "before") ? "3px solid var(--primary)" : undefined,
                     borderBottom: isSpot("file", f.id, "after") ? "3px solid var(--primary)" : undefined,
@@ -1927,7 +1928,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                       : isSelected
                       ? "inset 3px 0 0 var(--primary)"
                       : undefined,
-                    borderRadius: (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? 8 : undefined,
                     transform: (dragging?.kind === "files" && dragging.ids.includes(f.id)) ? "scale(0.99)" : undefined,
                     opacity: (dragging?.kind === "files" && dragging.ids.includes(f.id))
                       ? 0.78

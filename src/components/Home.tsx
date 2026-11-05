@@ -430,7 +430,7 @@ export default function Home() {
       </aside>
 
       <main className="flex-1 overflow-y-auto p-6 md:p-8 pt-16 md:pt-8">
-        <div className="max-w-5xl mx-auto">
+        <div className={activeTab === "board" ? "max-w-[1560px] mx-auto w-full transition-all" : activeTab === "campus" ? "max-w-7xl mx-auto w-full transition-all" : "max-w-5xl mx-auto"}>
           <AdminApplicationNotice />
           {activeTab === "operator" && isOperator ? (
             <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
