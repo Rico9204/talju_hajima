@@ -202,3 +202,15 @@ test('1-4: XML 파싱 4가지 엣지 케이스 (표 안 문단, self-closing, �
   const res4 = parseHwpxSectionXml(case4Xml);
   assert.equal(res4.text, '첫 줄\n둘째 줄 & ABC');
 });
+
+test('대용량 HWPX 파일(1MB 이상)도 데드락 없이 안정적으로 압축 해제 및 텍스트 추출이 가능하다', async () => {
+  const bigText = '협업 워크스페이스 대용량 한글 문서 테스트 본문입니다.\n'.repeat(25000); // 약 800KB~1MB
+  const bytes = await newHwpxBytes(bigText);
+  assert.ok(bytes.length > 0);
+
+  const start = Date.now();
+  const extracted = await extractHwpxText(bytes);
+  const elapsed = Date.now() - start;
+  assert.equal(extracted.length, bigText.length);
+  assert.ok(elapsed < 3000, `압축 해제가 3초 이내에 완료되어야 함 (소요 시간: ${elapsed}ms)`);
+});
