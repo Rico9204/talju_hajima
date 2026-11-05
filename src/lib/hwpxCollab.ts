@@ -363,21 +363,110 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = ""): HwpxCollab
   return blocks;
 }
 
+// 첫 문단의 설정 런(secPr, ctrl, header, footer 등)을 완전한 XML 태그 계층을 유지하며 안전하게 추출
+function extractPreambleRuns(xml: string): string {
+  const tagRegex = /<(\/)?([a-zA-Z0-9_:-]+)((?:\s+[a-zA-Z0-9_:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/)?>/g;
+  let match: RegExpExecArray | null;
+  let pDepth = 0;
+  let p0InnerStart = -1;
+  let p0End = -1;
+
+  while ((match = tagRegex.exec(xml)) !== null) {
+    const isClosing = !!match[1];
+    const isSelfClosing = !!match[4] || match[3].trim().endsWith("/");
+    const localName = match[2].split(":").pop()?.toLowerCase();
+
+    if (localName === "p") {
+      if (!isClosing && !isSelfClosing) {
+        if (pDepth === 0) p0InnerStart = match.index + match[0].length;
+        pDepth++;
+      } else if (isClosing) {
+        pDepth--;
+        if (pDepth === 0) {
+          p0End = match.index;
+          break;
+        }
+      }
+    }
+  }
+
+  if (p0InnerStart === -1 || p0End === -1) return "";
+  const p0Inner = xml.slice(p0InnerStart, p0End);
+
+  const runTagRegex = /<(\/)?([a-zA-Z0-9_:-]+)((?:\s+[a-zA-Z0-9_:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/)?>/g;
+  let rMatch: RegExpExecArray | null;
+  let rDepth = 0;
+  let runStart = -1;
+  const preambleRuns: string[] = [];
+
+  while ((rMatch = runTagRegex.exec(p0Inner)) !== null) {
+    const isClosing = !!rMatch[1];
+    const isSelfClosing = !!rMatch[4] || rMatch[3].trim().endsWith("/");
+    const localName = rMatch[2].split(":").pop()?.toLowerCase();
+
+    if (localName === "run" && !isClosing && rDepth === 0) {
+      runStart = rMatch.index;
+      rDepth = 1;
+      continue;
+    }
+
+    if (rDepth > 0) {
+      if (!isClosing && !isSelfClosing) {
+        rDepth++;
+      } else if (isClosing) {
+        rDepth--;
+        if (rDepth === 0 && runStart !== -1) {
+          const fullRun = p0Inner.slice(runStart, rMatch.index + rMatch[0].length);
+          if (fullRun.includes("<hp:secPr") || fullRun.includes("<hp:ctrl")) {
+            preambleRuns.push(fullRun);
+          }
+          runStart = -1;
+        }
+      }
+    }
+  }
+
+  return preambleRuns.join("\n");
+}
+
 // ── 블록 배열을 OWPML XML 및 Header XML로 복원 직렬화 (글자색·서식·표·수식 구조 100% 보존) ──
 export function serializeBlocksToHwpxPackage(
   blocks: HwpxCollabBlock[],
   originalSectionXml = "",
   originalHeaderXml = ""
 ): { sectionXml: string; headerXml: string } {
-  // 1. paraPr 관리 (left=0, center=1, right=2, justify=3)
-  const paraPrMap = new Map<string, number>([
-    ["left", 0],
-    ["center", 1],
-    ["right", 2],
-    ["justify", 3],
-  ]);
+  // 1. 기존 header.xml의 스타일 사전 분석 및 보존
+  const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
+  const existingCharIds: number[] = [];
+  const existingParaIds: number[] = [];
 
-  // 2. charPr 관리 (id 0: 기본 스타일)
+  if (originalHeaderXml) {
+    const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = paraPrRegex.exec(originalHeaderXml)) !== null) {
+      const idMatch = pm[0].match(/\bid="(\d+)"/);
+      if (!idMatch) continue;
+      const id = parseInt(idMatch[1], 10);
+      existingParaIds.push(id);
+      const alignMatch = pm[0].match(/horizontal="([^"]+)"/i) || pm[0].match(/align="([^"]+)"/i);
+      const alignVal = alignMatch ? alignMatch[1].toLowerCase() : "left";
+      paraStyles.set(String(id), {
+        align: alignVal === "center" || alignVal === "right" || alignVal === "justify" ? alignVal : "left",
+      });
+    }
+
+    const charPrRegex = /<hh:charPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:charPr>)/g;
+    let cm: RegExpExecArray | null;
+    while ((cm = charPrRegex.exec(originalHeaderXml)) !== null) {
+      const idMatch = cm[0].match(/\bid="(\d+)"/);
+      if (idMatch) existingCharIds.push(parseInt(idMatch[1], 10));
+    }
+  }
+
+  let maxCharId = existingCharIds.length > 0 ? Math.max(...existingCharIds) : 0;
+  let maxParaId = existingParaIds.length > 0 ? Math.max(...existingParaIds) : 0;
+
+  // 2. 신규 charPr 동적 등록 (기존 원본 스타일 ID와 충돌 없이 maxCharId 이후 번호 부여)
   interface CharPrDef {
     id: number;
     colorHex: string;
@@ -387,9 +476,7 @@ export function serializeBlocksToHwpxPackage(
     underline: boolean;
   }
 
-  const charPrDefs: CharPrDef[] = [
-    { id: 0, colorHex: "#000000", sizePt: 10, bold: false, italic: false, underline: false },
-  ];
+  const newCharDefs: CharPrDef[] = [];
   const charPrKeyToId = new Map<string, number>([
     ["#000000_10_0_0_0", 0],
   ]);
@@ -402,39 +489,47 @@ export function serializeBlocksToHwpxPackage(
     const underline = !!style.underline;
     const key = `${colorHex}_${sizePt}_${bold ? 1 : 0}_${italic ? 1 : 0}_${underline ? 1 : 0}`;
 
+    if (key === "#000000_10_0_0_0") return 0;
     const existing = charPrKeyToId.get(key);
     if (existing !== undefined) return existing;
 
-    const newId = charPrDefs.length;
-    charPrDefs.push({ id: newId, colorHex, sizePt, bold, italic, underline });
+    const newId = ++maxCharId;
+    newCharDefs.push({ id: newId, colorHex, sizePt, bold, italic, underline });
     charPrKeyToId.set(key, newId);
+    return newId;
+  };
+
+  // 문단 정렬(paraPr) 매핑: 원본의 paraPrIDRef를 최대한 유지하여 문서 고유 여백/줄간격 손실 방지
+  const getParaPrForAlign = (targetAlign: "left" | "center" | "right" | "justify", rawAttrs?: string): string => {
+    if (rawAttrs) {
+      const match = rawAttrs.match(/paraPrIDRef="(\d+)"/);
+      if (match) {
+        const origId = match[1];
+        const origStyle = paraStyles.get(origId);
+        if (origStyle && origStyle.align === targetAlign) {
+          return origId;
+        }
+      }
+    }
+    for (const [id, s] of paraStyles.entries()) {
+      if (s.align === targetAlign) return id;
+    }
+    const newId = String(++maxParaId);
+    paraStyles.set(newId, { align: targetAlign });
     return newId;
   };
 
   // ── 표준 A4 용지 규격 (210mm x 297mm = 59528 x 84188 HWPUNIT, 여백 포함) ──
   const DEFAULT_SECPR = `<hp:run charPrIDRef="0"><hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr></hp:run>`;
 
-  // paragraph 0의 설정 런(secPr, ctrl, footer 등) 보존
-  let preambleRuns = "";
-  const firstPMatch = originalSectionXml.match(/<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/);
-  if (firstPMatch) {
-    const inner = firstPMatch[1];
-    const firstTRunIdx = inner.indexOf("<hp:t");
-    if (firstTRunIdx !== -1) {
-      const runOpenIdx = inner.lastIndexOf("<hp:run", firstTRunIdx);
-      preambleRuns = runOpenIdx > 0 ? inner.slice(0, runOpenIdx) : "";
-    } else {
-      preambleRuns = inner;
-    }
-  }
-
-  // 첫 문단에 secPr이 없으면 원본에서 추출하거나 기본 표준 A4 secPr 자동 보강
+  // paragraph 0의 설정 런(secPr, ctrl, footer 등)을 온전하게 보존
+  let preambleRuns = extractPreambleRuns(originalSectionXml);
   if (!preambleRuns.includes("<hp:secPr")) {
     const secPrMatch = originalSectionXml.match(/<hp:secPr\b(?:[^>]*\/>|[\s\S]*?<\/hp:secPr>)/);
     if (secPrMatch) {
-      preambleRuns = `<hp:run charPrIDRef="0">${secPrMatch[0]}</hp:run>` + preambleRuns;
+      preambleRuns = `<hp:run charPrIDRef="0">${secPrMatch[0]}</hp:run>\n` + preambleRuns;
     } else {
-      preambleRuns = DEFAULT_SECPR + preambleRuns;
+      preambleRuns = DEFAULT_SECPR + (preambleRuns ? `\n${preambleRuns}` : "");
     }
   }
 
@@ -442,36 +537,34 @@ export function serializeBlocksToHwpxPackage(
 
   const paragraphsXml = blocks.map((block, idx) => {
     const lead = (idx === 0 && preambleRuns) ? preambleRuns : "";
+    const align = block.type === "paragraph" ? (block.align || "left") : "left";
+    const paraPr = getParaPrForAlign(align, block.rawAttrs);
 
     if (block.type === "table") {
       const rowsXml = block.rows.map((row, rIdx) => {
         const cellsXml = row.map((cell, cIdx) => {
           const tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="${rIdx}_${cIdx}"`;
           const cellCharPr = getOrCreateCharPr({ bold: cell.bold });
-          const cellParaPr = paraPrMap.get(cell.align || "left") ?? 0;
+          const cellParaPr = getParaPrForAlign(cell.align || "left", cell.rawAttrs);
           return `        <hp:tc${tcAttrs}><hp:subList><hp:p id="${rIdx}_${cIdx}_0" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false"><hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run></hp:p></hp:subList></hp:tc>`;
         }).join("\n");
         return `      <hp:tr>\n${cellsXml}\n      </hp:tr>`;
       }).join("\n");
 
       const tblAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` id="${idx}" pageBreak="cell" repeatHeader="true"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
       const eqAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` version="1.0" baseLine="0" textColor="#000000" baseUnit="1000"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "image") {
-      const align = block.align || "center";
-      const paraPr = paraPrMap.get(align) ?? 1;
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
-    const align = block.align || "left";
-    const paraPr = paraPrMap.get(align) ?? 0;
     const runs = parseHtmlRuns(block.text, {
       color: block.color,
       sizePt: block.sizePt,
@@ -490,33 +583,45 @@ export function serializeBlocksToHwpxPackage(
 
   const sectionXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${paragraphsXml}\n</hs:sec>`;
 
-  // 3. Header XML 생성 / 갱신 (추가된 charPr 및 paraPr 등록)
+  // 3. Header XML 갱신: 기존 문서의 모든 서식·글꼴 정의를 온전히 보존하고 신규 스타일만 추가
   let headerXml = originalHeaderXml;
-  const charPropertiesXml = `    <hh:charProperties itemCnt="${charPrDefs.length}">\n` +
-    charPrDefs.map((def) => {
-      const children: string[] = [
-        '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
-      ];
-      if (def.bold) children.push("<hh:bold/>");
-      if (def.italic) children.push("<hh:italic/>");
-      if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
-      return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}">\n        ${children.join("")}\n      </hh:charPr>`;
-    }).join("\n") +
-    "\n    </hh:charProperties>";
-
-  const paraPropertiesXml = `    <hh:paraProperties itemCnt="4">\n` +
-    `      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
-    `      <hh:paraPr id="1">\n        <hh:align horizontal="CENTER" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
-    `      <hh:paraPr id="2">\n        <hh:align horizontal="RIGHT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
-    `      <hh:paraPr id="3">\n        <hh:align horizontal="JUSTIFY" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
-    `    </hh:paraProperties>`;
-
   if (headerXml && headerXml.includes("<hh:charProperties")) {
-    headerXml = headerXml.replace(/<hh:charProperties\b[\s\S]*?<\/hh:charProperties>/, charPropertiesXml.trim());
-    if (headerXml.includes("<hh:paraProperties")) {
-      headerXml = headerXml.replace(/<hh:paraProperties\b[\s\S]*?<\/hh:paraProperties>/, paraPropertiesXml.trim());
+    if (newCharDefs.length > 0) {
+      const newCharXml = newCharDefs.map((def) => {
+        const children = ['<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'];
+        if (def.bold) children.push("<hh:bold/>");
+        if (def.italic) children.push("<hh:italic/>");
+        if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
+        return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}">\n        ${children.join("")}\n      </hh:charPr>`;
+      }).join("\n");
+
+      headerXml = headerXml.replace(/<\/hh:charProperties>/, `${newCharXml}\n    </hh:charProperties>`);
+      const cntMatch = headerXml.match(/<hh:charProperties\s+itemCnt="(\d+)"/);
+      if (cntMatch) {
+        const newCnt = parseInt(cntMatch[1], 10) + newCharDefs.length;
+        headerXml = headerXml.replace(/<hh:charProperties\s+itemCnt="\d+"/, `<hh:charProperties itemCnt="${newCnt}"`);
+      }
     }
   } else {
+    // 원본 헤더가 없는 경우에만 완전한 표준 OWPML 기본 헤더 생성
+    const charPropertiesXml = `    <hh:charProperties itemCnt="${newCharDefs.length + 1}">\n` +
+      `      <hh:charPr id="0" height="1000" textColor="#000000">\n        <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n      </hh:charPr>\n` +
+      newCharDefs.map((def) => {
+        const children = ['<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>'];
+        if (def.bold) children.push("<hh:bold/>");
+        if (def.italic) children.push("<hh:italic/>");
+        if (def.underline) children.push('<hh:underline type="BOTTOM" shape="SOLID" color="#000000"/>');
+        return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}">\n        ${children.join("")}\n      </hh:charPr>`;
+      }).join("\n") +
+      `\n    </hh:charProperties>`;
+
+    const paraPropertiesXml = `    <hh:paraProperties itemCnt="4">\n` +
+      `      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+      `      <hh:paraPr id="1">\n        <hh:align horizontal="CENTER" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+      `      <hh:paraPr id="2">\n        <hh:align horizontal="RIGHT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+      `      <hh:paraPr id="3">\n        <hh:align horizontal="JUSTIFY" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
+      `    </hh:paraProperties>`;
+
     headerXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
       `<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n` +
       `  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n` +
