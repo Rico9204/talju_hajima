@@ -1051,10 +1051,15 @@ function HwpxEditorModalInner({
                 const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
                 if (block.type === "paragraph") {
-                  const isTitle = idx === 0 && ((block.sizePt && block.sizePt >= 14) || block.bold);
-                  const isHeading = !isTitle && block.sizePt && block.sizePt >= 11 && block.sizePt < 14;
-                  const alignClass = isTitle || block.align === "center" ? "text-center" : block.align === "right" ? "text-right" : block.align === "justify" ? "text-justify" : "text-left";
-                  const fontSize = block.sizePt ? `${block.sizePt}pt` : isTitle ? "16pt" : "10pt";
+                  const alignClass =
+                    block.align === "center"
+                      ? "text-center"
+                      : block.align === "right"
+                      ? "text-right"
+                      : block.align === "justify"
+                      ? "text-justify"
+                      : "text-left";
+                  const fontSize = block.sizePt ? `${block.sizePt}pt` : "10pt";
 
                   return (
                     <div
@@ -1072,7 +1077,7 @@ function HwpxEditorModalInner({
                         </div>
                       )}
 
-                      <div className={`w-full group ${isTitle ? "my-3" : isHeading ? "my-1.5" : "my-0.5"}`}>
+                      <div className="w-full group my-0.5">
                         <ContentEditableParagraph
                           html={block.text}
                           onChange={(val) => updateParagraph(idx, val)}
@@ -1080,12 +1085,12 @@ function HwpxEditorModalInner({
                           className={`w-full p-0 leading-relaxed ${alignClass}`}
                           style={{
                             fontSize,
-                            fontWeight: block.bold ? "bold" : isTitle ? "bold" : "normal",
+                            fontWeight: block.bold ? "bold" : "normal",
                             fontStyle: block.italic ? "italic" : "normal",
                             textDecoration: block.underline ? "underline" : "none",
                             color: block.color || "#111827",
                             fontFamily: block.fontFamily || "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-                            lineHeight: isTitle ? 1.45 : 1.65,
+                            lineHeight: 1.65,
                             textJustify: block.align === "justify" ? "auto" : undefined,
                             wordBreak: "break-all",
                           }}
