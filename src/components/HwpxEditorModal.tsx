@@ -64,6 +64,8 @@ import {
   BulletListIcon,
   NumberListIcon,
 } from "./HwpxIcons";
+import AddFontModal from "./AddFontModal";
+import { getAllEditorFonts, injectAllWebFonts, type EditorFontItem } from "../lib/editorFonts";
 
 const FONT_FAMILIES = [
   { label: "바탕체 / 명조", value: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif" },
@@ -202,6 +204,16 @@ function HwpxEditorModalInner({
     initHwpxYDoc(seed, initialBlocks);
     return Y.encodeStateAsUpdate(seed);
   });
+
+  const [editorFonts, setEditorFonts] = useState<EditorFontItem[]>(getAllEditorFonts);
+  const [showAddFontModal, setShowAddFontModal] = useState(false);
+
+  useEffect(() => {
+    injectAllWebFonts();
+    const onFontsChanged = () => setEditorFonts(getAllEditorFonts());
+    window.addEventListener("editor-fonts-changed", onFontsChanged);
+    return () => window.removeEventListener("editor-fonts-changed", onFontsChanged);
+  }, []);
 
   const {
     doc,
@@ -1907,17 +1919,33 @@ function HwpxEditorModalInner({
             {/* 대표 글꼴 */}
             <select
               disabled={!isParagraph}
-              value={currentPara?.fontFamily || FONT_FAMILIES[0].value}
-              onChange={(e) => applyFontFamily(e.target.value)}
-              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] disabled:opacity-40 max-w-[120px] cursor-pointer"
+              value={currentPara?.fontFamily || editorFonts[0]?.value || FONT_FAMILIES[0].value}
+              onChange={(e) => {
+                if (e.target.value === "__ADD_FONT__") {
+                  setShowAddFontModal(true);
+                  return;
+                }
+                applyFontFamily(e.target.value);
+              }}
+              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] disabled:opacity-40 max-w-[130px] cursor-pointer"
               title="글꼴 변경"
             >
-              {FONT_FAMILIES.map((f) => (
-                <option key={f.value} value={f.value}>
+              {editorFonts.map((f) => (
+                <option key={f.id || f.value} value={f.value}>
                   {f.label}
                 </option>
               ))}
+              <option value="__ADD_FONT__">➕ 폰트 추가 / 관리...</option>
             </select>
+            <button
+              type="button"
+              onClick={() => setShowAddFontModal(true)}
+              className="px-1.5 py-0.5 rounded border border-neutral-300 hover:bg-neutral-100 text-neutral-700 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+              title="글꼴(폰트) 추가 및 관리"
+            >
+              <span className="text-[11px]">🔤</span>
+              <span className="text-[10px] text-blue-600 font-bold">+</span>
+            </button>
 
             {/* 글자 크기 스피너 [-] 10.0 pt [+] */}
             <div className="flex items-center border border-neutral-300 rounded bg-neutral-50 overflow-hidden">
@@ -2530,13 +2558,20 @@ function HwpxEditorModalInner({
               <div className="flex items-center justify-between">
                 <span>글꼴:</span>
                 <select
-                  value={currentPara?.fontFamily || FONT_FAMILIES[0].value}
-                  onChange={(e) => applyFontFamily(e.target.value)}
+                  value={currentPara?.fontFamily || editorFonts[0]?.value || FONT_FAMILIES[0].value}
+                  onChange={(e) => {
+                    if (e.target.value === "__ADD_FONT__") {
+                      setShowAddFontModal(true);
+                      return;
+                    }
+                    applyFontFamily(e.target.value);
+                  }}
                   className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1 w-44"
                 >
-                  {FONT_FAMILIES.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
+                  {editorFonts.map((f) => (
+                    <option key={f.id || f.value} value={f.value}>{f.label}</option>
                   ))}
+                  <option value="__ADD_FONT__">➕ 폰트 추가 / 관리...</option>
                 </select>
               </div>
               <div className="flex items-center justify-between">
@@ -3347,6 +3382,16 @@ function HwpxEditorModalInner({
           </div>
         )}
 
+        {/* 글꼴(폰트) 추가 / 관리 모달 */}
+        {showAddFontModal && (
+          <AddFontModal
+            onClose={() => setShowAddFontModal(false)}
+            onFontAdded={(font) => {
+              setEditorFonts(getAllEditorFonts());
+              applyFontFamily(font.value);
+            }}
+          />
+        )}
       </div>
     </div>
   );
