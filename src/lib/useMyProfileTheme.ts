@@ -35,6 +35,7 @@ export function useMyProfileTheme() {
 
   useEffect(() => {
     let active = true;
+    if (typeof getMyEvaluationSummary !== "function") return;
     getMyEvaluationSummary().then((summary) => {
       if (!active) return;
       setMyTier(tierFor(summary.score));
@@ -44,7 +45,7 @@ export function useMyProfileTheme() {
     }).catch(() => {});
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentMember?.userId, currentMember?.evalCount, currentMember?.score]);
+  }, [currentMember?.userId, currentMember?.evalCount, currentMember?.score, getMyEvaluationSummary]);
 
   const [profileThemeId, setProfileThemeIdState] = useState(loadProfileThemeId);
   function setProfileThemeId(id: string) {

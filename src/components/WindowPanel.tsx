@@ -17,7 +17,7 @@ function saveCollapsed(ids: string[]) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ids)); } catch { /* ignore */ }
 }
 
-export default function WindowPanel({ id, title, children, style, className = "", bodyClassName = "", dark = false, collapsible = false, lit = true }: {
+export default function WindowPanel({ id, title, children, style, className = "", bodyClassName = "", dark = false, collapsible = false, lit = true, headerRight }: {
   id: string;
   title: string;
   children: ReactNode;
@@ -27,6 +27,7 @@ export default function WindowPanel({ id, title, children, style, className = ""
   dark?: boolean;
   lit?: boolean; // true면 점이 평소에도 빨강·노랑·초록으로 켜져 있다(기본은 회색, 막대에 올리면 켜짐)
   collapsible?: boolean; // false면 노랑 점도 장식(접기 없음) — 채팅처럼 화면 전체를 감싸는 창에 쓴다
+  headerRight?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(() => collapsible && loadCollapsed().includes(id));
   function toggle() {
@@ -63,7 +64,8 @@ export default function WindowPanel({ id, title, children, style, className = ""
           <span aria-hidden="true" className={`${dot} ${yellow}`} />
         )}
         <span aria-hidden="true" className={`${dot} ${green}`} />
-        <h2 className="flex-1 text-center text-[11px] font-800 select-none" style={{ color: dark ? "rgba(255,255,255,0.95)" : "var(--foreground)", marginRight: 38 }}>{title}</h2>
+        <h2 className="flex-1 text-center text-[11px] font-800 select-none" style={{ color: dark ? "rgba(255,255,255,0.95)" : "var(--foreground)", marginRight: headerRight ? 0 : 38 }}>{title}</h2>
+        {headerRight}
       </div>
       <div className={bodyClassName} style={collapsed ? { display: "none" } : undefined}>{children}</div>
     </section>

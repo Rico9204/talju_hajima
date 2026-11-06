@@ -13,6 +13,14 @@ import WindowPanel from "./WindowPanel";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 import { ACHIEVEMENTS, achievementProgress, formatAchievementValue } from "../lib/achievements";
 import type { MyEvaluationSummary as EvalSummary } from "../lib/evaluationSummary";
+import {
+  useDashboardLayout,
+  isDefaultDashboardLayout,
+  moveWidget,
+  moveWidgetStep,
+  type DashboardWidgetId,
+  type DashboardColumnId,
+} from "../lib/dashboardLayout";
 
 interface Deadline { label: string; due: string; days: number; color: string }
 interface Activity { who: string; action: string; time: string; avatar: string; color: string }
@@ -301,18 +309,142 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     { status: "review", label: "검토", color: "#f59e0b", text: "var(--warning-text)" },
   ] as const;
 
-  return (
-    <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
-      {(isPending || isRejected) && (
-        <div className="mb-5 px-5 py-3 text-sm font-600" style={{ background: isRejected ? "linear-gradient(135deg, #ef4444, #991b1b)" : "linear-gradient(135deg, #f59e0b, #b45309)", color: "#fff", borderRadius: "var(--radius)" }}>
-          {bannerText}
-        </div>
-      )}
+  const [layout, setLayout, resetLayout] = useDashboardLayout();
+  const [editMode, setEditMode] = useState(false);
+  const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
+  const [dragOverWidget, setDragOverWidget] = useState<DashboardWidgetId | null>(null);
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<DashboardColumnId | null>(null);
+  const isDefault = isDefaultDashboardLayout(layout);
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_330px] gap-5 items-start">
-        <div className="flex flex-col gap-5 min-w-0">
-          {/* 내 프로필 카드 — 티어 색·아바타 프레임은 사용자가 고른 꾸미기 설정을 따른다 */}
-          <WindowPanel id="dashboard-profile" title="내 프로필" dark className="relative" bodyClassName="relative px-6 py-6 md:px-7" style={{ background: "linear-gradient(120deg, #111a47, #2a215f)", borderRadius: "calc(var(--radius) + 4px)", color: "#fff", boxShadow: "0 8px 28px rgba(17,26,71,0.28)" }}>
+  function handleDragStart(e: React.DragEvent, id: DashboardWidgetId) {
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedWidget(id);
+  }
+
+  function handleDragOver(e: React.DragEvent, id: DashboardWidgetId, col: DashboardColumnId) {
+    if (!draggedWidget || draggedWidget === id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    setDragOverWidget(id);
+    setDragOverColumn(col);
+    setDropPosition(e.clientY < mid ? "before" : "after");
+  }
+
+  function handleDrop(e: React.DragEvent, targetId: DashboardWidgetId, targetCol: DashboardColumnId) {
+    e.preventDefault();
+    if (!draggedWidget || draggedWidget === targetId) {
+      setDraggedWidget(null);
+      setDragOverWidget(null);
+      setDropPosition(null);
+      setDragOverColumn(null);
+      return;
+    }
+    const targetList = layout[targetCol];
+    const targetIdx = targetList.indexOf(targetId);
+    if (targetIdx !== -1) {
+      const fromSameCol = layout[targetCol].includes(draggedWidget);
+      const fromIdx = targetList.indexOf(draggedWidget);
+      let insertIdx = dropPosition === "after" ? targetIdx + 1 : targetIdx;
+      if (fromSameCol && fromIdx !== -1 && fromIdx < insertIdx) {
+        insertIdx = Math.max(0, insertIdx - 1);
+      }
+      setLayout(moveWidget(layout, draggedWidget, targetCol, insertIdx));
+    }
+    setDraggedWidget(null);
+    setDragOverWidget(null);
+    setDropPosition(null);
+    setDragOverColumn(null);
+  }
+
+  function handleColumnDragOver(e: React.DragEvent, col: DashboardColumnId) {
+    if (!draggedWidget) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverColumn(col);
+  }
+
+  function handleColumnDrop(e: React.DragEvent, col: DashboardColumnId) {
+    e.preventDefault();
+    if (draggedWidget && !layout[col].includes(draggedWidget)) {
+      setLayout(moveWidget(layout, draggedWidget, col));
+    }
+    setDraggedWidget(null);
+    setDragOverWidget(null);
+    setDropPosition(null);
+    setDragOverColumn(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedWidget(null);
+    setDragOverWidget(null);
+    setDropPosition(null);
+    setDragOverColumn(null);
+  }
+
+  function renderHeaderControls(id: DashboardWidgetId, col: DashboardColumnId, idx: number, total: number) {
+    return (
+      <div className="flex items-center gap-1 z-10 shrink-0" onClick={(e) => e.stopPropagation()}>
+        {editMode ? (
+          <>
+            <button
+              type="button"
+              disabled={idx === 0}
+              onClick={() => setLayout(moveWidgetStep(layout, id, "up"))}
+              title="위로 이동"
+              className="w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold transition-all disabled:opacity-20 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              disabled={idx === total - 1}
+              onClick={() => setLayout(moveWidgetStep(layout, id, "down"))}
+              title="아래로 이동"
+              className="w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold transition-all disabled:opacity-20 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayout(moveWidgetStep(layout, id, "cross"))}
+              title={col === "main" ? "우측 사이드로 이동" : "좌측 메인으로 이동"}
+              className="px-1.5 h-5 flex items-center justify-center rounded text-[10px] font-semibold transition-all hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer text-primary-text"
+            >
+              {col === "main" ? "우측 ➔" : "⬅ 좌측"}
+            </button>
+            <span title="마우스로 끌어서 순서 변경" className="cursor-grab active:cursor-grabbing px-1 text-xs opacity-70 hover:opacity-100 select-none">
+              ⠿
+            </span>
+          </>
+        ) : (
+          <span
+            title="마우스로 끌어서 배치 변경"
+            className="cursor-grab active:cursor-grabbing px-1.5 py-0.5 rounded text-[11px] opacity-40 group-hover/widget:opacity-90 hover:bg-black/5 dark:hover:bg-white/10 transition-opacity select-none"
+          >
+            ⠿
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  function renderWidgetContent(id: DashboardWidgetId, col: DashboardColumnId, idx: number, total: number) {
+    switch (id) {
+      case "profile":
+        return (
+          <WindowPanel
+            id="dashboard-profile"
+            title="내 프로필"
+            dark
+            className="relative"
+            bodyClassName="relative px-6 py-6 md:px-7"
+            headerRight={renderHeaderControls("profile", col, idx, total)}
+            style={{ background: "linear-gradient(120deg, #111a47, #2a215f)", borderRadius: "calc(var(--radius) + 4px)", color: "#fff", boxShadow: "0 8px 28px rgba(17,26,71,0.28)" }}
+          >
             <div className="absolute pointer-events-none" style={{ left: -40, top: -70, width: 280, height: 280, borderRadius: "50%", background: `radial-gradient(circle, ${tierColor}55, transparent 65%)` }} />
             <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4">
               <span className="shrink-0 rounded-full" style={avatarFrame ? undefined : { boxShadow: `0 0 0 3px #111a47, 0 0 0 6px ${tierColor}, 0 0 24px ${tierColor}88` }}>
@@ -328,7 +460,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                 <div className="text-sm" style={{ opacity: 0.75 }}>{project.name}{earnedIds ? ` · 업적 ${earnedIds.size}개` : ""}</div>
                 {!isPending && !isRejected && bannerText && <div className="text-xs mt-1.5" style={{ opacity: 0.7 }}>{bannerText}</div>}
               </div>
-              <div className="flex gap-6 md:gap-7">
+              <div className="flex gap-6 md:gap-7 flex-wrap">
                 <div><div className="text-[11px]" style={{ opacity: 0.65 }}>협업 신뢰도</div><div className="text-2xl md:text-3xl font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{myScore === null ? "대기" : myScore.toFixed(1)}</div></div>
                 <div><div className="text-[11px]" style={{ opacity: 0.65 }}>{isDone ? "프로젝트" : "종료까지"}</div><div className="text-2xl md:text-3xl font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{dDayLabel}</div></div>
                 <div><div className="text-[11px]" style={{ opacity: 0.65 }}>진행률</div><div className="text-2xl md:text-3xl font-300 leading-tight" style={{ fontFamily: "var(--font-outfit)" }}>{progressPct}%</div></div>
@@ -336,26 +468,34 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             </div>
             {!isPending && !isRejected && (
               <div className="relative flex flex-wrap gap-2 mt-5">
-                <button onClick={() => onNavigate(data.ctaPrimary.page)} className="px-4 py-2 text-xs font-700 transition-all" style={{ background: "#fff", color: "#111a47", borderRadius: "40px" }}>{data.ctaPrimary.label}</button>
-                {evalStat && <button onClick={() => onNavigate("evaluation")} className="px-4 py-2 text-xs font-600 transition-all" style={{ background: "rgba(255,255,255,0.14)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.22)" }}>동료 평가 · {evalStat.value}</button>}
+                <button onClick={() => onNavigate(data.ctaPrimary.page)} className="px-4 py-2 text-xs font-700 transition-all cursor-pointer" style={{ background: "#fff", color: "#111a47", borderRadius: "40px" }}>{data.ctaPrimary.label}</button>
+                {evalStat && <button onClick={() => onNavigate("evaluation")} className="px-4 py-2 text-xs font-600 transition-all cursor-pointer" style={{ background: "rgba(255,255,255,0.14)", color: "#fff", borderRadius: "40px", border: "1px solid rgba(255,255,255,0.22)" }}>동료 평가 · {evalStat.value}</button>}
               </div>
             )}
           </WindowPanel>
+        );
 
-          {/* 현황판 요약 — 전체 목록·검색은 과제 보드에서 */}
-          <WindowPanel id="dashboard-board" title="프로젝트 현황판" bodyClassName="p-5 md:p-6" style={cardStyle}>
-            <div className="flex items-center justify-between gap-3 mb-4">
+      case "board":
+        return (
+          <WindowPanel
+            id="dashboard-board"
+            title="프로젝트 현황판"
+            bodyClassName="p-5 md:p-6"
+            headerRight={renderHeaderControls("board", col, idx, total)}
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div className="min-w-0">
                 <p className="text-sm font-600 truncate" style={{ color: "var(--muted-foreground)" }}>과제 {taskSummary.total}개 중 {taskSummary.completed}개 완료 · {project.name}</p>
               </div>
-              <button onClick={() => onNavigate("tasks")} className="text-xs font-600 px-4 py-2 transition-all shrink-0" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "40px" }}>전체 보기</button>
+              <button onClick={() => onNavigate("tasks")} className="text-xs font-600 px-4 py-2 transition-all shrink-0 cursor-pointer" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "40px" }}>전체 보기</button>
             </div>
             <div className="flex h-2 overflow-hidden mb-5" style={{ borderRadius: "6px", background: "var(--border)" }} aria-hidden="true">
               {[["#9aa0bd", statusCounts[0]], ["var(--status-inprogress)", statusCounts[1]], ["#f59e0b", statusCounts[2]], ["#86d4a0", statusCounts[3]]].map(([color, count], i) => (
                 <i key={i} style={{ width: taskSummary.total ? `${(Number(count) / taskSummary.total) * 100}%` : 0, background: String(color) }} />
               ))}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <div className={col === "side" ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 sm:grid-cols-3 gap-5"}>
               {statusRows.map((column) => {
                 const items = tasks.filter((task) => task.status === column.status);
                 return (
@@ -367,7 +507,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                     </div>
                     {items.length === 0 ? <p className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>{column.label} 과제가 없습니다.</p> : (
                       <ul className="flex flex-col gap-1.5">
-                        {items.slice(0, 2).map((task) => {
+                        {items.slice(0, col === "side" ? 2 : 3).map((task) => {
                           const d = deadlineById.get(task.id);
                           return (
                             <li key={task.id}>
@@ -378,7 +518,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
                             </li>
                           );
                         })}
-                        {items.length > 2 && <li className="text-xs" style={{ color: "var(--muted-foreground)" }}>+{items.length - 2}개 더</li>}
+                        {items.length > (col === "side" ? 2 : 3) && <li className="text-xs" style={{ color: "var(--muted-foreground)" }}>+{items.length - (col === "side" ? 2 : 3)}개 더</li>}
                       </ul>
                     )}
                   </div>
@@ -386,47 +526,68 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               })}
             </div>
           </WindowPanel>
+        );
 
-          {/* 일정 대비 진행 · 업적 진행도 — 현황판과 다른 지표 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <WindowPanel id="dashboard-pace" title="우리 팀 속도" bodyClassName="p-5 md:p-6" style={cardStyle}>
-              <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>기간이 얼마나 지났고, 과제는 얼마나 끝났나</p>
-              {[
-                { label: "경과한 기간", pct: elapsedPct, color: "#9aa0bd" },
-                { label: "완료한 과제", pct: taskSummary.total ? progressPct : null, color: "var(--primary)" },
-              ].map((bar) => (
-                <div key={bar.label} className="mb-4">
-                  <div className="flex justify-between text-xs mb-1.5"><span>{bar.label}</span><b>{bar.pct === null ? "—" : bar.pct + "%"}</b></div>
-                  <div className="h-3 overflow-hidden" style={{ background: "var(--border)", borderRadius: "7px" }} role="img" aria-label={`${bar.label} ${bar.pct ?? 0}%`}>
-                    <div className="h-full" style={{ width: `${bar.pct ?? 0}%`, background: bar.color, borderRadius: "7px" }} />
-                  </div>
+      case "pace":
+        return (
+          <WindowPanel
+            id="dashboard-pace"
+            title="우리 팀 속도"
+            bodyClassName="p-5 md:p-6"
+            headerRight={renderHeaderControls("pace", col, idx, total)}
+            style={cardStyle}
+          >
+            <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>기간이 얼마나 지났고, 과제는 얼마나 끝났나</p>
+            {[
+              { label: "경과한 기간", pct: elapsedPct, color: "#9aa0bd" },
+              { label: "완료한 과제", pct: taskSummary.total ? progressPct : null, color: "var(--primary)" },
+            ].map((bar) => (
+              <div key={bar.label} className="mb-4">
+                <div className="flex justify-between text-xs mb-1.5"><span>{bar.label}</span><b>{bar.pct === null ? "—" : bar.pct + "%"}</b></div>
+                <div className="h-3 overflow-hidden" style={{ background: "var(--border)", borderRadius: "7px" }} role="img" aria-label={`${bar.label} ${bar.pct ?? 0}%`}>
+                  <div className="h-full" style={{ width: `${bar.pct ?? 0}%`, background: bar.color, borderRadius: "7px" }} />
                 </div>
-              ))}
-              <div className="text-xs font-600 px-3 py-2.5" style={{ background: `color-mix(in srgb, ${pace.color} 12%, transparent)`, color: pace.color, borderRadius: "12px" }}>{pace.text}</div>
-            </WindowPanel>
+              </div>
+            ))}
+            <div className="text-xs font-600 px-3 py-2.5" style={{ background: `color-mix(in srgb, ${pace.color} 12%, transparent)`, color: pace.color, borderRadius: "12px" }}>{pace.text}</div>
+          </WindowPanel>
+        );
 
-            <WindowPanel id="dashboard-achievements" title="다음에 달성할 업적" bodyClassName="p-5 md:p-6" style={cardStyle}>
-              <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>진행 중인 도전과제</p>
-              {!achievementRows ? <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</p>
-                : achievementRows.length === 0 ? <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>모든 업적을 달성했어요.</p>
-                : <ul className="flex flex-col gap-3.5">
-                  {achievementRows.map(({ achievement, progress }) => (
-                    <li key={achievement.id}>
-                      <div className="flex justify-between text-xs mb-1.5 gap-2"><span className="truncate">{achievement.label}</span><b className="shrink-0">{formatAchievementValue(progress.value)} / {formatAchievementValue(achievement.threshold)}{achievement.unit}</b></div>
-                      <div className="h-2 overflow-hidden" style={{ background: "var(--border)", borderRadius: "6px" }} role="img" aria-label={`${achievement.label} ${progress.pct}%`}>
-                        <div className="h-full" style={{ width: `${progress.pct}%`, background: `linear-gradient(90deg, ${achievement.colors[0]}, ${achievement.colors[1]})`, borderRadius: "6px" }} />
-                      </div>
-                    </li>
-                  ))}
-                </ul>}
-              {achievementRows && achievementRows.length > 0 && noEvaluations && <p className="text-[11px] mt-4" style={{ color: "var(--muted-foreground)" }}>동료 평가가 공개되면 진행도가 채워져요.</p>}
-            </WindowPanel>
-          </div>
-        </div>
+      case "achievements":
+        return (
+          <WindowPanel
+            id="dashboard-achievements"
+            title="다음에 달성할 업적"
+            bodyClassName="p-5 md:p-6"
+            headerRight={renderHeaderControls("achievements", col, idx, total)}
+            style={cardStyle}
+          >
+            <p className="text-xs mb-5" style={{ color: "var(--muted-foreground)" }}>진행 중인 도전과제</p>
+            {!achievementRows ? <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</p>
+              : achievementRows.length === 0 ? <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>모든 업적을 달성했어요.</p>
+              : <ul className="flex flex-col gap-3.5">
+                {achievementRows.map(({ achievement, progress }) => (
+                  <li key={achievement.id}>
+                    <div className="flex justify-between text-xs mb-1.5 gap-2"><span className="truncate">{achievement.label}</span><b className="shrink-0">{formatAchievementValue(progress.value)} / {formatAchievementValue(achievement.threshold)}{achievement.unit}</b></div>
+                    <div className="h-2 overflow-hidden" style={{ background: "var(--border)", borderRadius: "6px" }} role="img" aria-label={`${achievement.label} ${progress.pct}%`}>
+                      <div className="h-full" style={{ width: `${progress.pct}%`, background: `linear-gradient(90deg, ${achievement.colors[0]}, ${achievement.colors[1]})`, borderRadius: "6px" }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>}
+            {achievementRows && achievementRows.length > 0 && noEvaluations && <p className="text-[11px] mt-4" style={{ color: "var(--muted-foreground)" }}>동료 평가가 공개되면 진행도가 채워져요.</p>}
+          </WindowPanel>
+        );
 
-        <div className="flex flex-col gap-5 min-w-0">
-          {/* 오늘 나의 할 일 */}
-          <WindowPanel id="dashboard-mytasks" title="나의 할 일" bodyClassName="p-5" style={cardStyle}>
+      case "mytasks":
+        return (
+          <WindowPanel
+            id="dashboard-mytasks"
+            title="나의 할 일"
+            bodyClassName="p-5"
+            headerRight={renderHeaderControls("mytasks", col, idx, total)}
+            style={cardStyle}
+          >
             <div className="flex items-center justify-end mb-3">
               <span className="text-xs" style={{ color: "var(--muted-foreground)" }}>{myTasks.length}건</span>
             </div>
@@ -446,9 +607,17 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               </ul>
             )}
           </WindowPanel>
+        );
 
-          {/* Deadlines */}
-          <WindowPanel id="dashboard-deadlines" title="다가오는 마감" bodyClassName="p-5" style={cardStyle}>
+      case "deadlines":
+        return (
+          <WindowPanel
+            id="dashboard-deadlines"
+            title="다가오는 마감"
+            bodyClassName="p-5"
+            headerRight={renderHeaderControls("deadlines", col, idx, total)}
+            style={cardStyle}
+          >
             {showDeadlineSearch && (
               <input
                 value={deadlineSearch}
@@ -471,13 +640,30 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               }
             />
           </WindowPanel>
+        );
 
-          <WindowPanel id="dashboard-evaluation" title="내 평가 및 참여 현황" bodyClassName="p-5" style={cardStyle}>
+      case "evaluation":
+        return (
+          <WindowPanel
+            id="dashboard-evaluation"
+            title="내 평가 및 참여 현황"
+            bodyClassName="p-5"
+            headerRight={renderHeaderControls("evaluation", col, idx, total)}
+            style={cardStyle}
+          >
             <MyEvaluationSummary embedded />
           </WindowPanel>
+        );
 
-          {/* Recent activity */}
-          <WindowPanel id="dashboard-activity" title="최근 활동 · 최근 3일" bodyClassName="p-5" style={cardStyle}>
+      case "activity":
+        return (
+          <WindowPanel
+            id="dashboard-activity"
+            title="최근 활동 · 최근 3일"
+            bodyClassName="p-5"
+            headerRight={renderHeaderControls("activity", col, idx, total)}
+            style={cardStyle}
+          >
             {showActivitySearch && (
               <input
                 value={activitySearch}
@@ -498,6 +684,112 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
               }
             />
           </WindowPanel>
+        );
+    }
+  }
+
+  function renderDraggableWidget(id: DashboardWidgetId, col: DashboardColumnId, idx: number, total: number) {
+    const isDragging = draggedWidget === id;
+    const isOver = dragOverWidget === id;
+    return (
+      <div
+        key={id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, id)}
+        onDragOver={(e) => handleDragOver(e, id, col)}
+        onDrop={(e) => handleDrop(e, id, col)}
+        onDragEnd={handleDragEnd}
+        className={`transition-all duration-150 relative group/widget rounded-xl ${
+          isDragging ? "opacity-35 scale-[0.98] ring-2 ring-[var(--primary)]/40" : ""
+        } ${
+          isOver && dropPosition === "before" ? "border-t-4 border-[var(--primary)] pt-1" : ""
+        } ${
+          isOver && dropPosition === "after" ? "border-b-4 border-[var(--primary)] pb-1" : ""
+        } ${
+          editMode ? "ring-1 ring-dashed ring-[var(--primary)]/30 hover:ring-[var(--primary)] p-0.5" : ""
+        }`}
+      >
+        {renderWidgetContent(id, col, idx, total)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
+      {(isPending || isRejected) && (
+        <div className="mb-5 px-5 py-3 text-sm font-600" style={{ background: isRejected ? "linear-gradient(135deg, #ef4444, #991b1b)" : "linear-gradient(135deg, #f59e0b, #b45309)", color: "#fff", borderRadius: "var(--radius)" }}>
+          {bannerText}
+        </div>
+      )}
+
+      {/* Top Controls: Edit Layout & Reset */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          {editMode && (
+            <span className="text-[11px] px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 font-semibold border border-blue-500/20">
+              💡 카드를 마우스로 끌거나 버튼(↑, ↓, ⇄)을 눌러 원하는 위치로 배치할 수 있어요.
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          {!isDefault && (
+            <button
+              type="button"
+              onClick={resetLayout}
+              className="text-xs font-600 px-3 py-1.5 rounded-lg border border-[var(--border)] transition-all hover:bg-[var(--secondary)] cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-1.5"
+            >
+              <span>🔄</span>
+              <span>기본 배치로 복원</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditMode((v) => !v)}
+            className="text-xs font-700 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+            style={{
+              background: editMode ? "var(--primary)" : "var(--secondary)",
+              color: editMode ? "#fff" : "var(--primary-text)",
+            }}
+          >
+            <span>{editMode ? "✓" : "⚙️"}</span>
+            <span>{editMode ? "배치 편집 완료" : "카드 배치 변경"}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_330px] gap-5 items-start">
+        {/* Main (Left) Column */}
+        <div
+          onDragOver={(e) => handleColumnDragOver(e, "main")}
+          onDrop={(e) => handleColumnDrop(e, "main")}
+          className={`flex flex-col gap-5 min-w-0 transition-colors rounded-2xl p-0.5 ${
+            dragOverColumn === "main" && layout.main.length === 0 ? "bg-[var(--primary)]/5 ring-2 ring-dashed ring-[var(--primary)] min-h-[160px]" : ""
+          }`}
+        >
+          {layout.main.length === 0 ? (
+            <div className="py-12 border-2 border-dashed border-[var(--border)] rounded-2xl text-center text-xs text-muted-foreground">
+              카드를 이곳으로 끌어다 놓으세요.
+            </div>
+          ) : (
+            layout.main.map((widgetId, index) => renderDraggableWidget(widgetId, "main", index, layout.main.length))
+          )}
+        </div>
+
+        {/* Side (Right) Column */}
+        <div
+          onDragOver={(e) => handleColumnDragOver(e, "side")}
+          onDrop={(e) => handleColumnDrop(e, "side")}
+          className={`flex flex-col gap-5 min-w-0 transition-colors rounded-2xl p-0.5 ${
+            dragOverColumn === "side" && layout.side.length === 0 ? "bg-[var(--primary)]/5 ring-2 ring-dashed ring-[var(--primary)] min-h-[160px]" : ""
+          }`}
+        >
+          {layout.side.length === 0 ? (
+            <div className="py-12 border-2 border-dashed border-[var(--border)] rounded-2xl text-center text-xs text-muted-foreground">
+              카드를 이곳으로 끌어다 놓으세요.
+            </div>
+          ) : (
+            layout.side.map((widgetId, index) => renderDraggableWidget(widgetId, "side", index, layout.side.length))
+          )}
         </div>
       </div>
     </div>
