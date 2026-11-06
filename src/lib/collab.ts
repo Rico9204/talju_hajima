@@ -52,7 +52,7 @@ export interface CursorUser { name: string; color: string; }
 export interface CollabRoom { awareness: Awareness; head: () => number; savedKey: () => string; markSaved: (head: number, key: string) => void; destroy: () => void; }
 export function connectCollabRoom(doc: Y.Doc, opts: { projectId: string; fileId: number; room: number; mode: CollabMode; initialKey: string; me?: { id: string; name: string }; awareness?: Awareness; onSaved: () => void }): CollabRoom {
   const awareness = opts.awareness ?? new Awareness(doc);
-  const user: CursorUser | null = opts.me ? { name: opts.me.name, color: cursorColor(opts.me.id) } : null;
+  const user: CursorUser | null = opts.me ? { name: opts.me.name || "익명", color: cursorColor(opts.me.id) } : null;
   if (user) awareness.setLocalState({ ...awareness.getLocalState(), user });
   let head = opts.room; let saved = opts.initialKey; const topic = `collab_doc:${opts.projectId}:${opts.fileId}:${opts.room}:${opts.mode}`;
   let pending: Uint8Array[] = []; let flushTimer: number | undefined;

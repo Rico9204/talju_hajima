@@ -28,6 +28,8 @@ const OFFICE_TYPES: Record<string, { documentType: "word" | "cell" | "slide"; mi
   docx: { documentType: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
   xlsx: { documentType: "cell", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
   pptx: { documentType: "slide", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+  hwpx: { documentType: "word", mime: "application/hnc+zip" },
+  hwp: { documentType: "word", mime: "application/x-hwp" },
 };
 export const officeTypeOf = (name: string) => OFFICE_TYPES[name.split(".").pop()?.toLowerCase() ?? ""] ?? null;
 
@@ -77,12 +79,17 @@ export class OnlyofficeService {
       return { file, version, me: await myProfile(query) };
     });
     const type = officeTypeOf(found.version.original_name ?? found.file.name) ?? officeTypeOf(found.file.name);
-    if (!type) throw new BadRequestException("워드(docx)·엑셀(xlsx)·파워포인트(pptx) 파일만 오피스 편집기로 열 수 있습니다.");
+    if (!type) throw new BadRequestException("워드(docx)·엑셀(xlsx)·파워포인트(pptx)·한글(hwpx) 파일만 오피스 편집기로 열 수 있습니다.");
     const editable = found.file.status !== "done";
     const versionId = Number(found.version.id);
     const session = this.sessions.get(fileId);
-    // 문서 키: 같은 키 = 같은 공동편집 세션. 세션이 만든 버전이 아직 현재 버전이면 그 세션에 합류한다.
-    const key = session && session.versionId === versionId ? session.key : `${fileId}-${versionId}-${Date.now().toString(36)}`;
+    let key: string;
+    if (session && session.versionId === versionId) {
+      key = session.key;
+    } else {
+      key = `${fileId}-${versionId}-${Date.now().toString(36)}`;
+      this.sessions.set(fileId, { key, versionId });
+    }
     const base = settings.callbackBaseUrl;
     const config = {
       document: {
@@ -98,6 +105,7 @@ export class OnlyofficeService {
         lang: "ko",
         callbackUrl: `${base}/api/onlyoffice/callback?token=${await this.signLink({ p: "cb", f: fileId, v: versionId, u: userId }, "7d")}`,
         user: { id: userId, name: found.me.name },
+        coEditing: { mode: "fast", change: true },
         // 화면에 외부 편집기 이름이 보이지 않게: 상단 로고와 도움말(외부 사이트) 메뉴를 숨긴다(무료판에서 허용되는 설정).
         // 로딩 화면 문구·로고(loaderName·loaderLogo)와 정보(about)는 유료판 전용이라, 로딩 화면은 화면 쪽에서 가린다.
         customization: { forcesave: true, autosave: true, logo: { visible: false }, help: false, feedback: false },
@@ -149,7 +157,7 @@ export class OnlyofficeService {
       return file;
     });
     const type = officeTypeOf(saved.name);
-    const searchText = await extractOfficeText(bytes);
+    const searchText = await extractOfficeText(bytes, saved.name);
     const result = await saveWorkspaceVersion(this.db, this.store, claims.u, saved.project_id,
       { buffer: bytes, size: bytes.length, mimetype: type?.mime ?? "application/octet-stream", originalname: saved.name, displayName: saved.name },
       {
@@ -163,8 +171,126 @@ export class OnlyofficeService {
   }
 }
 
+function decodeXmlEntities(str: string): string {
+  return str.replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|(amp|lt|gt|quot|apos));/g, (_, hex, dec, named) => {
+    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    if (dec) return String.fromCodePoint(parseInt(dec, 10));
+    switch (named) {
+      case "amp": return "&";
+      case "lt": return "<";
+      case "gt": return ">";
+      case "quot": return '"';
+      case "apos": return "'";
+      default: return _;
+    }
+  });
+}
+
+function parseHwpxXmlText(xmlStr: string): string {
+  const paragraphStack: string[][] = [];
+  const finishedParagraphs: string[] = [];
+  let insideTextRun = false;
+
+  const tokenRegex = /<(\/)?([a-zA-Z0-9_:]+)((?:\s+[^>]*)?)(\/?)>|([^<]+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenRegex.exec(xmlStr)) !== null) {
+    const isClosing = !!match[1];
+    const tagName = match[2]?.toLowerCase();
+    const attrs = match[3] || "";
+    const isSelfClosing = !!match[4] || attrs.trim().endsWith("/");
+    const textContent = match[5];
+
+    if (tagName) {
+      const localName = tagName.split(":").pop()!;
+      if (localName === "p") {
+        if (!isClosing && !isSelfClosing) {
+          paragraphStack.push([]);
+        } else if (isClosing) {
+          const cur = paragraphStack.pop();
+          if (cur) finishedParagraphs.push(cur.join(""));
+        }
+      } else if (localName === "t") {
+        if (!isClosing && !isSelfClosing) {
+          insideTextRun = true;
+        } else if (isClosing || isSelfClosing) {
+          insideTextRun = false;
+        }
+      } else if (localName === "tab" && insideTextRun && paragraphStack.length > 0) {
+        paragraphStack[paragraphStack.length - 1].push("\t");
+      } else if (localName === "linebreak" && insideTextRun && paragraphStack.length > 0) {
+        paragraphStack[paragraphStack.length - 1].push("\n");
+      }
+    } else if (textContent && insideTextRun && paragraphStack.length > 0) {
+      paragraphStack[paragraphStack.length - 1].push(decodeXmlEntities(textContent));
+    }
+  }
+
+  while (paragraphStack.length > 0) {
+    const cur = paragraphStack.pop();
+    if (cur) finishedParagraphs.push(cur.join(""));
+  }
+
+  return finishedParagraphs.join("\n");
+}
+
 // 검색·버전 비교용 글자(화면 업로드 때와 같은 officeparser). 읽지 못하면 null.
-async function extractOfficeText(bytes: Buffer): Promise<string | null> {
+export async function extractHwpxBufferText(bytes: Buffer): Promise<string | null> {
+  try {
+    const { inflateRawSync } = await import("node:zlib");
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= 0; i--) {
+      if (bytes.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd === -1) return null;
+    const count = bytes.readUInt16LE(eocd + 10);
+    const cdOffset = bytes.readUInt32LE(eocd + 16);
+    let p = cdOffset;
+    const sectionEntries: { name: string; raw: Buffer; method: number }[] = [];
+
+    for (let i = 0; i < count; i++) {
+      if (bytes.readUInt32LE(p) !== 0x02014b50) break;
+      const method = bytes.readUInt16LE(p + 10);
+      const compSize = bytes.readUInt32LE(p + 20);
+      const nameLen = bytes.readUInt16LE(p + 28);
+      const extraLen = bytes.readUInt16LE(p + 30);
+      const commentLen = bytes.readUInt16LE(p + 32);
+      const localHeaderOffset = bytes.readUInt32LE(p + 42);
+      const name = bytes.subarray(p + 46, p + 46 + nameLen).toString("utf8").replace(/\\/g, "/");
+      if (/section\d*\.xml$/i.test(name)) {
+        const localNameLen = bytes.readUInt16LE(localHeaderOffset + 26);
+        const localExtraLen = bytes.readUInt16LE(localHeaderOffset + 28);
+        const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+        const raw = bytes.subarray(dataStart, dataStart + compSize);
+        sectionEntries.push({ name, raw, method });
+      }
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+
+    if (sectionEntries.length === 0) return null;
+
+    // 자연 순서(section0, section1, ...)로 정렬하여 화면 파서와 순서 및 형식 일치
+    sectionEntries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    const sectionTexts: string[] = [];
+    for (const entry of sectionEntries) {
+      const decompressed = entry.method === 8 ? inflateRawSync(entry.raw) : entry.raw;
+      const xml = decompressed.toString("utf8");
+      const parsedText = parseHwpxXmlText(xml);
+      if (parsedText) sectionTexts.push(parsedText);
+    }
+
+    return sectionTexts.length > 0 ? sectionTexts.join("\n\n") : null;
+  } catch {
+    return null;
+  }
+}
+
+async function extractOfficeText(bytes: Buffer, name?: string): Promise<string | null> {
+  if (name?.toLowerCase().endsWith(".hwpx")) {
+    const hwpxText = await extractHwpxBufferText(bytes);
+    if (hwpxText) return hwpxText;
+  }
   try {
     const { parseOffice } = await import("officeparser");
     const document = await parseOffice(bytes, { includeRawContent: false } as never);

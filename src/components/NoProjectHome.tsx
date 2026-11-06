@@ -62,7 +62,7 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
-        <div className="max-w-5xl mx-auto">
+        <div className={tab === "board" ? "max-w-[1560px] mx-auto w-full transition-all" : tab === "campus" ? "max-w-7xl mx-auto w-full transition-all" : "max-w-5xl mx-auto"}>
           <AdminApplicationNotice />
           {tab === "start" ? (
             <div className="max-w-md mx-auto mt-6 px-6 py-6 text-center" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)" }}>
