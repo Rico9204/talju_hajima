@@ -33,7 +33,8 @@ const isNgrok = (() => { try { return /\.(ngrok-free\.dev|ngrok-free\.app|ngrok\
 
 const FULL_KEY = "collabpeer.office-editor-full";
 
-export const OFFICE_EXTENSIONS = ["docx", "xlsx", "pptx", "hwp"];
+// .hwp(바이너리 한글)는 OnlyOffice가 hwp로 저장하지 못해(docx로 바뀌어 원본이 깨짐) 넣지 않는다. .hwpx는 자체 한글 편집기로 연다.
+export const OFFICE_EXTENSIONS = ["docx", "xlsx", "pptx"];
 export const isOfficeEditable = (name: string) => OFFICE_EXTENSIONS.includes(name.split(".").pop()?.toLowerCase() ?? "");
 
 // 서버에 오피스 편집이 켜져 있는지(한 번만 묻는다).

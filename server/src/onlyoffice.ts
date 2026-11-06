@@ -29,7 +29,6 @@ const OFFICE_TYPES: Record<string, { documentType: "word" | "cell" | "slide"; mi
   xlsx: { documentType: "cell", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
   pptx: { documentType: "slide", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
   hwpx: { documentType: "word", mime: "application/hnc+zip" },
-  hwp: { documentType: "word", mime: "application/x-hwp" },
 };
 export const officeTypeOf = (name: string) => OFFICE_TYPES[name.split(".").pop()?.toLowerCase() ?? ""] ?? null;
 
