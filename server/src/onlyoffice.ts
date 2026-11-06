@@ -83,8 +83,13 @@ export class OnlyofficeService {
     const editable = found.file.status !== "done";
     const versionId = Number(found.version.id);
     const session = this.sessions.get(fileId);
-    // 문서 키: 같은 키 = 같은 공동편집 세션. 세션이 만든 버전이 아직 현재 버전이면 그 세션에 합류한다.
-    const key = session && session.versionId === versionId ? session.key : `${fileId}-${versionId}-${Date.now().toString(36)}`;
+    let key: string;
+    if (session && session.versionId === versionId) {
+      key = session.key;
+    } else {
+      key = `${fileId}-${versionId}-${Date.now().toString(36)}`;
+      this.sessions.set(fileId, { key, versionId });
+    }
     const base = settings.callbackBaseUrl;
     const config = {
       document: {
@@ -100,6 +105,7 @@ export class OnlyofficeService {
         lang: "ko",
         callbackUrl: `${base}/api/onlyoffice/callback?token=${await this.signLink({ p: "cb", f: fileId, v: versionId, u: userId }, "7d")}`,
         user: { id: userId, name: found.me.name },
+        coEditing: { mode: "fast", change: true },
         // 화면에 외부 편집기 이름이 보이지 않게: 상단 로고와 도움말(외부 사이트) 메뉴를 숨긴다(무료판에서 허용되는 설정).
         // 로딩 화면 문구·로고(loaderName·loaderLogo)와 정보(about)는 유료판 전용이라, 로딩 화면은 화면 쪽에서 가린다.
         customization: { forcesave: true, autosave: true, logo: { visible: false }, help: false, feedback: false },

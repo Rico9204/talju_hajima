@@ -459,7 +459,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
     const memberName = currentMember.name ?? "나";
     const presence = joinCollabPresence(project.id, { id: memberId, name: memberName }, setEditors);
     presenceRef.current = presence;
-    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); setHwpxEditing(null); };
+    return () => { presence.leave(); presenceRef.current = null; setEditors([]); setEditing(null); setDocEditing(null); setHwpxEditing(null); setOfficeEditingFile(null); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, currentMember?.id]);
 
@@ -2488,6 +2488,16 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     <span>공동 편집 열기</span>
                   </button>
                 )}
+                {isHwpxName(file.name) && (
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); void startQuickEdit(file, "main"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-primary-text"
+                  >
+                    <span>📝</span>
+                    <span>한글 문서 공동 편집 열기</span>
+                  </button>
+                )}
                 {isOfficeEditable(file.name) && (
                   <button
                     type="button"
@@ -2504,8 +2514,8 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                     }}
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer text-primary-text"
                   >
-                    <span>✏️</span>
-                    <span>{officeEnabled ? "오피스 편집기로 열기" : "문서 열기 (미리보기)"}</span>
+                    <span>📑</span>
+                    <span>{officeEnabled ? "오피스 공동 편집 열기" : "문서 열기 (미리보기)"}</span>
                   </button>
                 )}
                 {!collabKind && isCodeFile(file.name) && (

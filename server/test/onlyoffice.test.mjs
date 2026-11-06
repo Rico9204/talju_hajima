@@ -55,12 +55,19 @@ test('편집기 설정: 팀원만, 문서 서버 비밀값으로 서명, 원본�
   assert.equal(config.documentType, 'slide');
   assert.equal(config.document.fileType, 'pptx');
   assert.equal(config.editorConfig.mode, 'edit');
+  assert.deepEqual(config.editorConfig.coEditing, { mode: 'fast', change: true }); // 실시간 동시 편집(Fast 모드)
   assert.deepEqual(config.editorConfig.customization.logo, { visible: false }); // 외부 편집기 로고를 숨긴다
   assert.equal(config.editorConfig.user.id, s.member.id);
   assert.ok(config.document.url.startsWith('https://api.test/api/onlyoffice/raw?token='));
   assert.ok(config.editorConfig.callbackUrl.startsWith('https://api.test/api/onlyoffice/callback?token='));
   const { payload } = await jwtVerify(config.token, key); // 문서 서버가 확인할 서명
   assert.equal(payload.document.key, config.document.key);
+
+  // 자동 저장 콜백 전이라도 두 번째 사용자가 열면 같은 문서 키(같은 세션)를 받아 동시 편집에 참여한다
+  const leaderRes = await call(s.leader, 'GET', `/workspace/files/${fileId}/onlyoffice`);
+  assert.equal(leaderRes.status, 200);
+  assert.equal(leaderRes.body.document.key, config.document.key);
+
   assert.equal((await call(s.outsider, 'GET', `/workspace/files/${fileId}/onlyoffice`)).status, 404); // 볼 수 없는 파일
 });
 
