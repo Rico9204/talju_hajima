@@ -449,9 +449,25 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             <div className="relative flex flex-wrap items-center gap-x-6 gap-y-4">
               <span className="shrink-0 rounded-full" style={avatarFrame ? undefined : { boxShadow: `0 0 0 3px #111a47, 0 0 0 6px ${tierColor}, 0 0 24px ${tierColor}88` }}>
                 {(() => {
-                  const photo = <Avatar url={currentMember?.avatarUrl} initial={currentMember?.avatar ?? "?"} color={currentMember?.color ?? "#f59e0b"} size={84}
-                    badge={myTier && <span title={myTier.label} className="flex items-center justify-center w-full h-full"><MedalIcon shape={myTier.shape} colors={myTier.colors} size={40} /></span>} />;
-                  return avatarFrame ? <AvatarFrame kind={avatarFrame} size={84} c1={cardC1} c2={cardC2}>{photo}</AvatarFrame> : photo;
+                  const tierBadge = myTier ? (
+                    <span title={myTier.label} className="flex items-center justify-center w-full h-full">
+                      <MedalIcon shape={myTier.shape} colors={myTier.colors} size={40} />
+                    </span>
+                  ) : undefined;
+                  const photo = (
+                    <Avatar
+                      url={currentMember?.avatarUrl}
+                      initial={currentMember?.avatar ?? "?"}
+                      color={currentMember?.color ?? "#f59e0b"}
+                      size={84}
+                      badge={avatarFrame ? undefined : tierBadge}
+                    />
+                  );
+                  return avatarFrame ? (
+                    <AvatarFrame kind={avatarFrame} size={84} c1={cardC1} c2={cardC2} badge={tierBadge}>
+                      {photo}
+                    </AvatarFrame>
+                  ) : photo;
                 })()}
               </span>
               <div className="flex-1 min-w-[180px]">

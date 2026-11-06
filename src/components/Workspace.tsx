@@ -1319,6 +1319,14 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
                   <span className="text-base">🖼️</span>
                   <span className="flex-1">새 슬라이드 (Slackerspace Slides)</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewMenu(false); startCreatingItem("hwpx"); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-600 text-left hover:bg-[var(--secondary)] transition-colors cursor-pointer"
+                >
+                  <span className="text-base font-bold">한</span>
+                  <span className="flex-1">새 한글 문서 (.hwpx)</span>
+                </button>
                 <div className="my-1 border-t" style={{ borderColor: "var(--border)" }} />
                 <div className="px-3.5 py-1 text-[10px] font-700 text-muted-foreground uppercase tracking-wider">
                   MS 오피스

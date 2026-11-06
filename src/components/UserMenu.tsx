@@ -42,8 +42,20 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
     if (currentMember) openMemberProfile(currentMember.id, section);
   }
 
-  const avatar = <Avatar url={currentMember?.avatarUrl} initial={currentMember?.avatar ?? "?"} color={currentMember?.color ?? "#f59e0b"} size={36}
-    badge={myTier && <span title={myTier.label} className="flex items-center justify-center w-full h-full"><MedalIcon shape={myTier.shape} colors={myTier.colors} size={18} /></span>} />;
+  const tierBadge = myTier ? (
+    <span title={myTier.label} className="flex items-center justify-center w-full h-full">
+      <MedalIcon shape={myTier.shape} colors={myTier.colors} size={18} />
+    </span>
+  ) : undefined;
+  const avatar = (
+    <Avatar
+      url={currentMember?.avatarUrl}
+      initial={currentMember?.avatar ?? "?"}
+      color={currentMember?.color ?? "#f59e0b"}
+      size={36}
+      badge={avatarFrame ? undefined : tierBadge}
+    />
+  );
   const itemClass = "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors hover:bg-[var(--muted)]";
 
   return (
@@ -109,7 +121,7 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
           WebkitBackdropFilter: "var(--panel-blur)",
         }}
       >
-        <span className="shrink-0">{avatarFrame ? <AvatarFrame kind={avatarFrame} size={36} c1={cardC1} c2={cardC2}>{avatar}</AvatarFrame> : avatar}</span>
+        <span className="shrink-0">{avatarFrame ? <AvatarFrame kind={avatarFrame} size={36} c1={cardC1} c2={cardC2} badge={tierBadge}>{avatar}</AvatarFrame> : avatar}</span>
         <span className="flex-1 min-w-0">
           <span className="block text-sm font-700">{currentMember?.name ?? "참여자"}</span>
           <span className="block text-xs truncate" style={{ color: "var(--muted-foreground)" }}>{subtitle}</span>

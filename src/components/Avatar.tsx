@@ -32,7 +32,7 @@ export default function Avatar({
   return (
     <span className={`relative inline-flex shrink-0 ${className}`} style={{ width: size, height: size }}>
       {image}
-      <span className="absolute flex items-center justify-center" style={{ right: -size * 0.08, bottom: -size * 0.08, width: size * 0.48, height: size * 0.48 }}>
+      <span className="absolute flex items-center justify-center z-20" style={{ right: -size * 0.08, bottom: -size * 0.08, width: size * 0.48, height: size * 0.48 }}>
         {badge}
       </span>
     </span>

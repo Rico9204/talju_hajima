@@ -9,11 +9,14 @@ export interface BoardInitialState {
   content?: string;
 }
 
-export function recruitPostFromNotice(notice: { title: string; link: string; schoolName: string }): BoardInitialState {
+export function recruitPostFromNotice(notice: { title: string; link: string; schoolName: string; thumbnail?: string }): BoardInitialState {
+  const posterHtml = notice.thumbnail
+    ? `<p><img src="${notice.thumbnail}" alt="공모전 포스터" /></p><p><br></p>`
+    : "";
   return {
     category: "recruit",
     isCreating: true,
     title: `[팀원 모집] ${notice.title}`,
-    content: `<p><strong>[공모전 정보]</strong></p><p>• 주최/소속: ${notice.schoolName}</p><p>• 공모전 원문 링크: <a href="${notice.link}" target="_blank" rel="noopener noreferrer">${notice.link}</a></p><p><br></p><p><strong>[팀원 모집 내용]</strong></p><p>해당 공모전에 함께 도전할 팀원을 모집합니다!</p><p>• 모집 분야: 기획 / 디자인 / 개발</p><p>• 지원 방법: 댓글이나 메시지로 편하게 연락주세요.</p>`,
+    content: `${posterHtml}<p><strong>[공모전 정보]</strong></p><p>• 주최/소속: ${notice.schoolName}</p><p>• 공모전 원문 링크: <a href="${notice.link}" target="_blank" rel="noopener noreferrer">${notice.link}</a></p><p><br></p><p><strong>[팀원 모집 내용]</strong></p><p>해당 공모전에 함께 도전할 팀원을 모집합니다!</p><p>• 모집 분야: 기획 / 디자인 / 개발</p><p>• 지원 방법: 댓글이나 메시지로 편하게 연락주세요.</p>`,
   };
 }

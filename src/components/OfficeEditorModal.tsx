@@ -4,6 +4,8 @@ import { dataRepository } from "../api";
 import { backendOrigin } from "../api/rest/backendUrl";
 import type { CollabEditor, CollabPresence } from "../lib/collab";
 import EditorAvatars from "./EditorAvatars";
+import AddFontModal from "./AddFontModal";
+import { injectAllWebFonts, loadDefaultFontName } from "../lib/editorFonts";
 
 // 워드·엑셀·PPT를 앱 안에서 편집(OnlyOffice 문서 서버, Temporary_Merge에서 이식).
 // 편집기 스크립트는 API 서버의 /onlyoffice/ 아래(문서 서버 중계)에서 받고, 설정은 서버가 서명해 준다.
@@ -55,6 +57,7 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false); // 편집기가 준비 신호를 보냄
+  const [showFontModal, setShowFontModal] = useState(false);
   const editor = useRef<DocsEditor | null>(null);
   // 편집기는 자리 표시 요소를 iframe으로 바꿔 끼운다 — React가 관리하지 않는 요소를 만들어 넘긴다.
   const container = useRef<HTMLDivElement | null>(null);
@@ -64,6 +67,7 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
   useEffect(() => { try { localStorage.setItem(FULL_KEY, full ? "1" : "0"); } catch { /* 저장 못 해도 동작에는 지장 없음 */ } }, [full]);
 
   useEffect(() => {
+    injectAllWebFonts();
     let cancelled = false;
     let revealTimer: number | undefined;
     (async () => {
@@ -74,10 +78,27 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
         holder.id = `office-editor-${fileId}-${Date.now()}`;
         container.current.appendChild(holder);
         const reveal = () => { if (!cancelled) setLoading(false); };
-        editor.current = new window.DocsAPI.DocEditor(holder.id, {
-          ...config, width: "100%", height: "100%", type: "desktop",
-          events: { onAppReady: () => { if (!cancelled) { setReady(true); setLoading(false); } }, onError: () => { if (!cancelled) { setError("편집기를 열지 못했습니다."); setLoading(false); } } },
-        });
+        const defaultFont = loadDefaultFontName();
+        const editorConf = ((config as Record<string, unknown>).editorConfig ?? {}) as Record<string, unknown>;
+        const customization = (editorConf.customization ?? {}) as Record<string, unknown>;
+        const finalConfig = {
+          ...config,
+          editorConfig: {
+            ...editorConf,
+            customization: {
+              ...customization,
+              font: defaultFont ? { name: defaultFont } : customization.font,
+            },
+          },
+          width: "100%",
+          height: "100%",
+          type: "desktop",
+          events: {
+            onAppReady: () => { if (!cancelled) { setReady(true); setLoading(false); } },
+            onError: () => { if (!cancelled) { setError("편집기를 열지 못했습니다."); setLoading(false); } },
+          },
+        };
+        editor.current = new window.DocsAPI.DocEditor(holder.id, finalConfig);
         // 준비 신호가 안 오면(ngrok 안내 페이지가 편집기 자리에 뜬 경우 등) 가림막을 걷어 안의 화면을 보이게 한다.
         revealTimer = window.setTimeout(reveal, isNgrok ? 4000 : 20000);
       } catch (e) {
@@ -104,6 +125,16 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
           {readOnly && <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>보기 전용</span>}
         </div>
         {officeEditors.length > 0 && <span className="ml-auto shrink-0"><EditorAvatars editors={officeEditors} size={26} max={6} /></span>}
+        <button
+          type="button"
+          onClick={() => setShowFontModal(true)}
+          title="오피스 글꼴(폰트) 설정 및 추가"
+          className="h-8 px-2.5 flex items-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer border border-[var(--border)] rounded-lg hover:bg-[var(--secondary)] transition"
+          style={{ background: "var(--muted)" }}
+        >
+          <span>🔤</span>
+          <span>글꼴 설정/추가</span>
+        </button>
         <button onClick={() => setFull((value) => !value)} aria-pressed={full} title={full ? "원래 크기로" : "브라우저 화면에 꽉 차게"} className="h-8 px-3 flex items-center gap-1.5 text-xs font-700 shrink-0" style={{ background: "var(--muted)", color: "var(--foreground)", borderRadius: "10px" }}>
           <span aria-hidden="true" className="text-sm">{full ? "⤡" : "⤢"}</span>{full ? "축소" : "확장"}
         </button>
@@ -127,6 +158,7 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
         <div ref={container} className="w-full h-full" />
       </div>
       </div>
+      {showFontModal && <AddFontModal isOffice onClose={() => setShowFontModal(false)} />}
     </div>,
     document.body,
   );

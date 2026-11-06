@@ -27,12 +27,13 @@ const overlayStyle = (size: number, glow?: string): CSSProperties => ({
 });
 const VIEWBOX = `${-PAD * 100} ${-PAD * 100} ${(1 + PAD * 2) * 100} ${(1 + PAD * 2) * 100}`;
 
-export default function AvatarFrame({ kind, size, children, c1, c2 }: {
+export default function AvatarFrame({ kind, size, children, c1, c2, badge }: {
   kind: AvatarFrameKind;
   size: number;
   children: ReactNode;
   c1?: string;
   c2?: string;
+  badge?: ReactNode;
 }) {
   const parts = FRAMES[kind];
   if (!parts) return <>{children}</>;
@@ -43,6 +44,14 @@ export default function AvatarFrame({ kind, size, children, c1, c2 }: {
       <span className="relative inline-flex">{children}</span>
       {parts.front && <svg viewBox={VIEWBOX} style={overlayStyle(size, parts.glow)} aria-hidden="true">{parts.front(props)}</svg>}
       {parts.html?.({ ...props, size })}
+      {badge && (
+        <span
+          className="absolute flex items-center justify-center pointer-events-none z-20"
+          style={{ right: -size * 0.08, bottom: -size * 0.08, width: size * 0.48, height: size * 0.48 }}
+        >
+          {badge}
+        </span>
+      )}
     </span>
   );
 }
