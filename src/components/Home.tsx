@@ -164,7 +164,7 @@ export default function Home() {
   // 공모전 공지에서 '팀원 모집' 클릭 시 게시판으로 전달할 상태
   const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
 
-  function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string }) {
+  function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string; thumbnail?: string }) {
     setBoardInitialState(recruitPostFromNotice(notice));
     setActiveTab("board");
   }

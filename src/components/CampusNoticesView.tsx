@@ -59,7 +59,7 @@ const CATEGORY_TABS: { id: NoticeCategory | "scrapped"; label: string; icon: str
 ];
 
 export interface CampusNoticesViewProps {
-  onRecruitFromNotice?: (notice: { title: string; link: string; schoolName: string }) => void;
+  onRecruitFromNotice?: (notice: { title: string; link: string; schoolName: string; thumbnail?: string }) => void;
 }
 
 export default function CampusNoticesView({ onRecruitFromNotice }: CampusNoticesViewProps = {}) {
