@@ -905,6 +905,19 @@ export default function TeamChat({
       : chan.type === "group"
         ? team.members.filter((m) => activeGroupMemberIds.includes(m.id))
         : team.members.filter((m) => m.id === currentMember.id || m.id === chan.memberId)
+
+  const memberPresenceStatus = (memberId: string): "online" | "idle" | "offline" => {
+    const member = team.members.find((m) => m.id === memberId)
+    const state = member ? onlineMemberStates[member.id] : undefined
+    if (!member || !member.online || !state) return "offline"
+    return state.status === "idle" ? "idle" : "online"
+  }
+
+  const memberPresenceGroups = [
+    { key: "online", title: "온라인", members: channelMembers.filter((m) => memberPresenceStatus(m.id) === "online") },
+    { key: "idle", title: "자리비움", members: channelMembers.filter((m) => memberPresenceStatus(m.id) === "idle") },
+    { key: "offline", title: "오프라인", members: channelMembers.filter((m) => memberPresenceStatus(m.id) === "offline") },
+  ]
   const sharedFileGroups = groupSharedFiles(thread)
   const sharedTimeLabel = (label: string, iso: string) =>
     label === "이전"
@@ -2263,36 +2276,52 @@ export default function TeamChat({
           style={{ borderLeft: "1px solid var(--border)" }}
         >
           <div className="text-sm font-700 mb-3">채널 정보</div>
-          <div className="text-[11px] font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>멤버 {channelMembers.length}</div>
-          <ul className="flex flex-col gap-0.5 mb-5">
-            {channelMembers.map((m) => (
-              <li key={m.id}>
-                <button
-                  type="button"
-                  onClick={() => openMemberProfile(m.id)}
-                  className="w-full flex items-center gap-2.5 px-2 py-1.5 text-left transition-colors hover:bg-[var(--muted)]"
-                  style={{ borderRadius: "8px" }}
-                >
-                  <span className="relative shrink-0">
-                    <span
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-700 overflow-hidden"
-                      style={{ background: "var(--surface-opaque)", color: m.color }}
-                    >
-                      {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
-                    </span>
-                    <span
-                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
-                      style={{ background: presenceOf(m.id).color, border: "2px solid var(--card)" }}
-                    />
-                  </span>
-                  <span className="text-[13px] truncate">{m.name}</span>
-                  {m.isLeader && <span className="text-[10px]" title="팀장">🧭</span>}
-                  {m.isViceLeader && <span className="text-[10px]" title="부팀장">🚩</span>}
-                  <span className="ml-auto text-[11px] shrink-0" style={{ color: "var(--muted-foreground)" }}>{presenceOf(m.id).label}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col mb-4">
+            {memberPresenceGroups.map((group) => {
+              if (group.members.length === 0) return null
+              const isOffline = group.key === "offline"
+              return (
+                <div key={group.key} className="mb-3">
+                  <div
+                    className="text-[11px] font-700 mb-1.5 flex items-center justify-between uppercase tracking-wider"
+                    style={{ color: "var(--muted-foreground)" }}
+                  >
+                    <span>{group.title} — {group.members.length}</span>
+                  </div>
+                  <ul className="flex flex-col gap-0.5">
+                    {group.members.map((m) => (
+                      <li key={m.id}>
+                        <button
+                          type="button"
+                          onClick={() => openMemberProfile(m.id)}
+                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 text-left transition-colors hover:bg-[var(--muted)] ${
+                            isOffline ? "opacity-60 hover:opacity-100" : ""
+                          }`}
+                          style={{ borderRadius: "8px" }}
+                        >
+                          <span className="relative shrink-0">
+                            <span
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-700 overflow-hidden"
+                              style={{ background: "var(--surface-opaque)", color: m.color }}
+                            >
+                              {m.avatarUrl ? <StillImg src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" /> : m.avatar}
+                            </span>
+                            <span
+                              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
+                              style={{ background: presenceOf(m.id).color, border: "2px solid var(--card)" }}
+                            />
+                          </span>
+                          <span className="text-[13px] truncate font-500">{m.name}</span>
+                          {m.isLeader && <span className="text-[10px]" title="팀장">🧭</span>}
+                          {m.isViceLeader && <span className="text-[10px]" title="부팀장">🚩</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            })}
+          </div>
 
           <div className="text-[11px] font-700 mb-1.5" style={{ color: "var(--muted-foreground)" }}>공유된 파일</div>
           {sharedFileGroups.length === 0 ? (
