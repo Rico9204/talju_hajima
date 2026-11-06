@@ -52,7 +52,7 @@ export default function AddFontModal({
     };
 
     if (newFont.webFontUrl) {
-      injectWebFont(newFont.webFontUrl, newFont.id);
+      injectWebFont(newFont.webFontUrl, newFont.id, newFont.value);
     }
 
     const updated = [...customFonts, newFont];

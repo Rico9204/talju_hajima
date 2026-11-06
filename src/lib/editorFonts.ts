@@ -62,15 +62,25 @@ export function getAllEditorFonts(): EditorFontItem[] {
   return [...DEFAULT_EDITOR_FONTS, ...custom];
 }
 
-export function injectWebFont(url: string, id: string): void {
+// CSS font-family 값의 첫 글꼴 이름: "'S-CoreDream', sans-serif" -> "S-CoreDream"
+export function primaryFontFamily(value: string): string {
+  return (value.split(",")[0] ?? "").trim().replace(/^['"]|['"]$/g, "").trim();
+}
+
+export function injectWebFont(url: string, id: string, family?: string): void {
   if (typeof document === "undefined" || !url) return;
   const elementId = `editor-font-${id}`;
   if (document.getElementById(elementId)) return;
 
-  if (url.endsWith(".woff") || url.endsWith(".woff2") || url.endsWith(".ttf") || url.endsWith(".otf")) {
+  const ext = url.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? "";
+  const format = ({ woff: "woff", woff2: "woff2", ttf: "truetype", otf: "opentype" } as Record<string, string>)[ext];
+  if (format) {
+    // 글꼴 파일은 화면에서 쓰는 이름(value의 첫 글꼴)으로 등록해야 적용된다. 따옴표·괄호 등은 CSS가 깨지지 않게 뺀다.
+    const name = (primaryFontFamily(family ?? "") || id).replace(/['"\\;{}<>]/g, "");
+    const safeUrl = url.replace(/['"\\()\s]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
     const style = document.createElement("style");
     style.id = elementId;
-    style.textContent = `@font-face { font-family: '${id}'; src: url('${url}') format('woff'); font-display: swap; }`;
+    style.textContent = `@font-face { font-family: '${name}'; src: url('${safeUrl}') format('${format}'); font-display: swap; }`;
     document.head.appendChild(style);
   } else {
     const link = document.createElement("link");
@@ -85,7 +95,7 @@ export function injectAllWebFonts(): void {
   const all = getAllEditorFonts();
   for (const font of all) {
     if (font.webFontUrl) {
-      injectWebFont(font.webFontUrl, font.id);
+      injectWebFont(font.webFontUrl, font.id, font.value);
     }
   }
 }

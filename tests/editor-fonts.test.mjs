@@ -17,3 +17,11 @@ test("POPULAR_FONT_PRESETS includes recognizable Korean web fonts", () => {
   assert.ok(names.some((n) => n.includes("Gmarket")));
   assert.ok(names.some((n) => n.includes("CookieRun")));
 });
+
+test("primaryFontFamily: 글꼴 파일은 화면에서 쓰는 첫 글꼴 이름으로 등록한다", async () => {
+  const { primaryFontFamily } = await import("../src/lib/editorFonts.ts");
+  assert.equal(primaryFontFamily("'S-CoreDream', sans-serif"), "S-CoreDream");
+  assert.equal(primaryFontFamily('"RIDIBatang", serif'), "RIDIBatang");
+  assert.equal(primaryFontFamily("Pretendard, -apple-system, sans-serif"), "Pretendard");
+  for (const preset of POPULAR_FONT_PRESETS) assert.ok(primaryFontFamily(preset.family).length > 0, preset.name);
+});
