@@ -28,7 +28,6 @@ const OFFICE_TYPES: Record<string, { documentType: "word" | "cell" | "slide"; mi
   docx: { documentType: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
   xlsx: { documentType: "cell", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
   pptx: { documentType: "slide", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
-  hwpx: { documentType: "word", mime: "application/hnc+zip" },
 };
 export const officeTypeOf = (name: string) => OFFICE_TYPES[name.split(".").pop()?.toLowerCase() ?? ""] ?? null;
 
@@ -78,7 +77,7 @@ export class OnlyofficeService {
       return { file, version, me: await myProfile(query) };
     });
     const type = officeTypeOf(found.version.original_name ?? found.file.name) ?? officeTypeOf(found.file.name);
-    if (!type) throw new BadRequestException("워드(docx)·엑셀(xlsx)·파워포인트(pptx)·한글(hwpx) 파일만 오피스 편집기로 열 수 있습니다.");
+    if (!type) throw new BadRequestException("워드(docx)·엑셀(xlsx)·파워포인트(pptx) 파일만 오피스 편집기로 열 수 있습니다.");
     const editable = found.file.status !== "done";
     const versionId = Number(found.version.id);
     const session = this.sessions.get(fileId);
