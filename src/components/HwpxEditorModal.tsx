@@ -510,7 +510,10 @@ function HwpxEditorModalInner({
       if (patch.sizePt !== undefined) yBlock.set("sizePt", patch.sizePt);
       if (patch.align !== undefined) yBlock.set("align", patch.align);
       if (patch.color !== undefined) yBlock.set("color", patch.color);
-      if (patch.fontFamily !== undefined) yBlock.set("fontFamily", patch.fontFamily);
+      if (patch.fontFamily !== undefined) {
+        yBlock.set("fontFamily", patch.fontFamily);
+        yBlock.set("fontEdited", true); // 저장할 때 원본 문단 XML에도 새 글꼴을 반영
+      }
     });
   };
 

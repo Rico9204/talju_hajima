@@ -22,6 +22,7 @@ export interface HwpxParagraphBlock {
   charPrId?: string;
   rawXml?: string;
   origText?: string;
+  fontEdited?: boolean; // 글자는 그대로 두고 문단 글꼴만 바꿈(원본 XML을 쓰되 글자 모양만 새 글꼴로)
 }
 
 export interface HwpxTableCell {
@@ -132,6 +133,62 @@ export interface ParsedTextRun {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  fontFamily?: string; // CSS font-family 값
+}
+
+// ── 글꼴: 편집기의 CSS font-family 값 <-> HWPX 글꼴 이름(face) ──
+// 원본 문서의 명조·고딕 계열 글꼴은 화면에서 아래 두 값으로 보여 주고, 저장할 때는 원본 글자 모양을 그대로 다시 쓴다.
+export const HWPX_SERIF_CSS = "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif";
+export const HWPX_SANS_CSS = "Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif";
+const FONT_LANGS = ["HANGUL", "LATIN", "HANJA", "JAPANESE", "OTHER", "SYMBOL", "USER"] as const;
+const FACE_ALIASES: Record<string, string> = {
+  batang: "바탕", batangche: "바탕체", dotum: "돋움", dotumche: "돋움체", gulim: "굴림", gulimche: "굴림체",
+  gungsuh: "궁서", gungsuhche: "궁서체", "malgun gothic": "맑은 고딕",
+};
+
+const normalizeFontCss = (css?: string) => (css ?? "").toLowerCase().replace(/["'\s]/g, "");
+
+export function cssFontForHwpxFace(face: string): string | undefined {
+  if (!face) return undefined;
+  // 한컴 기본 명조·고딕 계열만 묶는다("GmarketSans"처럼 이름에 sans가 든 글꼴은 그 이름 그대로).
+  if (/명조|바탕|batang|myeongjo/i.test(face)) return HWPX_SERIF_CSS;
+  if (/돋움|고딕|gothic|dotum/i.test(face)) return HWPX_SANS_CSS;
+  return `'${face}', sans-serif`;
+}
+
+export function hwpxFaceForCssFont(css?: string): string | undefined {
+  const norm = normalizeFontCss(css);
+  if (!norm) return undefined;
+  if (norm === normalizeFontCss(HWPX_SERIF_CSS)) return "함초롬바탕";
+  if (norm === normalizeFontCss(HWPX_SANS_CSS)) return "함초롬돋움";
+  const primary = (css ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "").trim();
+  if (!primary || /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(primary)) return undefined;
+  return FACE_ALIASES[primary.toLowerCase()] ?? primary;
+}
+
+interface HwpxFontGroup { lang: string; faceById: Map<string, string>; idByFace: Map<string, number>; next: number; added: { id: number; face: string }[] }
+
+// header.xml의 언어별 글꼴 목록(<hh:fontface lang="HANGUL"> ...). 글자 모양의 fontRef는 언어마다 이 목록의 id를 가리킨다.
+function parseFontGroups(headerXml: string): HwpxFontGroup[] {
+  const groups: HwpxFontGroup[] = [];
+  const groupRe = /<hh:fontface\b([^>]*)>([\s\S]*?)<\/hh:fontface>/g;
+  let gm: RegExpExecArray | null;
+  while ((gm = groupRe.exec(headerXml)) !== null) {
+    const lang = gm[1].match(/\blang="([^"]+)"/)?.[1];
+    if (!lang) continue;
+    const group: HwpxFontGroup = { lang: lang.toUpperCase(), faceById: new Map(), idByFace: new Map(), next: 0, added: [] };
+    const fontRe = /<hh:font\b[^>]*\bid="(\d+)"[^>]*\bface="([^"]*)"/g;
+    let fm: RegExpExecArray | null;
+    while ((fm = fontRe.exec(gm[2])) !== null) {
+      const id = parseInt(fm[1], 10);
+      const face = decodeXmlEntities(fm[2]);
+      group.faceById.set(fm[1], face);
+      if (!group.idByFace.has(face)) group.idByFace.set(face, id);
+      group.next = Math.max(group.next, id + 1);
+    }
+    groups.push(group);
+  }
+  return groups;
 }
 
 export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBlock>): ParsedTextRun[] {
@@ -144,6 +201,7 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
       bold: baseStyle.bold,
       italic: baseStyle.italic,
       underline: baseStyle.underline,
+      fontFamily: baseStyle.fontFamily,
     }];
   }
 
@@ -151,12 +209,13 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
   const tagRegex = /<(\/)?([a-zA-Z0-9]+)([^>]*)>|([^<]+)/g;
   let m: RegExpExecArray | null;
 
-  const styleStack: Array<{ color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean }> = [{
+  const styleStack: Array<{ color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean; fontFamily?: string }> = [{
     color: baseStyle.color,
     sizePt: baseStyle.sizePt,
     bold: baseStyle.bold,
     italic: baseStyle.italic,
     underline: baseStyle.underline,
+    fontFamily: baseStyle.fontFamily,
   }];
 
   while ((m = tagRegex.exec(html)) !== null) {
@@ -169,6 +228,7 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
         bold: cur.bold,
         italic: cur.italic,
         underline: cur.underline,
+        fontFamily: cur.fontFamily,
       });
     } else if (m[2]) {
       const isClose = !!m[1];
@@ -190,6 +250,14 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
           nextStyle.color = colorMatch[1].trim();
         }
 
+        // 선택 영역 글꼴: <span style="font-family: ..."> 또는 <font face="...">
+        // style 값 안의 글꼴 이름은 &quot;로 감싸져 있어(innerHTML) style 값을 먼저 풀고 찾는다.
+        const styleAttr = attrs.match(/\bstyle=(?:"([^"]*)"|'([^']*)')/i);
+        const styleText = styleAttr ? decodeXmlEntities(styleAttr[1] ?? styleAttr[2] ?? "") : "";
+        const faceAttr = attrs.match(/\bface=(?:"([^"]*)"|'([^']*)')/i);
+        const fontValue = (styleText.match(/font-family:\s*([^;]+)/i)?.[1] ?? (faceAttr ? decodeXmlEntities(faceAttr[1] ?? faceAttr[2] ?? "") : "")).trim();
+        if (fontValue) nextStyle.fontFamily = fontValue;
+
         const sizeMatch = attrs.match(/font-size:\s*(\d+(?:\.\d+)?)pt/i);
         if (sizeMatch) {
           nextStyle.sizePt = parseFloat(sizeMatch[1]);
@@ -209,12 +277,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
   const charStyles = new Map<string, { sizePt: number; bold: boolean; fontFamily?: string }>();
 
   if (headerXml) {
-    const fontFaces = new Map<string, string>();
-    const fontRegex = /<hh:font\b[^>]*\bid="(\d+)"[^>]*\bface="([^"]+)"/g;
-    let fm: RegExpExecArray | null;
-    while ((fm = fontRegex.exec(headerXml)) !== null) {
-      fontFaces.set(fm[1], fm[2]);
-    }
+    const fontFaces = parseFontGroups(headerXml).find((g) => g.lang === "HANGUL")?.faceById ?? new Map<string, string>();
 
     const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
     let pm: RegExpExecArray | null;
@@ -241,14 +304,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
       let fontFamily: string | undefined;
       const fontRefMatch = cm[0].match(/<hh:fontRef\b[^>]*\bhangul="(\d+)"/i);
       if (fontRefMatch) {
-        const faceName = fontFaces.get(fontRefMatch[1]) || "";
-        if (/명조|바탕|신명조|batang|myeongjo|serif/i.test(faceName)) {
-          fontFamily = "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif";
-        } else if (/돋움|고딕|gothic|dotum|sans/i.test(faceName)) {
-          fontFamily = "Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif";
-        } else if (faceName) {
-          fontFamily = `'${faceName}', sans-serif`;
-        }
+        fontFamily = cssFontForHwpxFace(fontFaces.get(fontRefMatch[1]) || "");
       }
 
       charStyles.set(id, {
@@ -655,8 +711,11 @@ export function serializeBlocksToHwpxPackage(
     bold: boolean;
     italic: boolean;
     underline: boolean;
+    fontCss?: string;
   }
   const existingCharStyleMap = new Map<string, ExistingCharStyle>();
+  const fontGroups = parseFontGroups(originalHeaderXml);
+  const hangulFaces = fontGroups.find((g) => g.lang === "HANGUL")?.faceById;
 
   if (originalHeaderXml) {
     const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
@@ -687,6 +746,8 @@ export function serializeBlocksToHwpxPackage(
       const italicMatch = /<hh:italic\s*\/?>/.test(cm[0]);
       const underlineMatch = /<hh:underline\b[^>]*type="([^"]+)"/.exec(cm[0]);
       const hasUnderline = !!(underlineMatch && underlineMatch[1].toUpperCase() !== "NONE");
+      const hangulRef = cm[0].match(/<hh:fontRef\b[^>]*\bhangul="(\d+)"/i)?.[1];
+      const face = hangulRef !== undefined ? hangulFaces?.get(hangulRef) : undefined;
 
       existingCharStyleMap.set(String(id), {
         sizePt: heightMatch ? Math.round(parseInt(heightMatch[1], 10) / 100) : 10,
@@ -694,9 +755,31 @@ export function serializeBlocksToHwpxPackage(
         bold: boldMatch,
         italic: italicMatch,
         underline: hasUnderline,
+        fontCss: face ? cssFontForHwpxFace(face) : undefined,
       });
     }
   }
+  // 원본 헤더가 없으면 기본 헤더의 글꼴 목록(언어마다 0번 = 함초롬바탕)을 만든다.
+  const hasOriginalHeader = !!originalHeaderXml && originalHeaderXml.includes("<hh:charProperties");
+  if (!hasOriginalHeader) {
+    fontGroups.length = 0;
+    for (const lang of FONT_LANGS) fontGroups.push({ lang, faceById: new Map([["0", "함초롬바탕"]]), idByFace: new Map([["함초롬바탕", 0]]), next: 1, added: [] });
+  }
+  // 글꼴 이름 -> 언어별 글꼴 id. 목록에 없으면 언어마다 끝에 추가한다.
+  const fontIdsFor = (face: string): Record<string, number> => {
+    const ids: Record<string, number> = {};
+    for (const g of fontGroups) {
+      let id = g.idByFace.get(face);
+      if (id === undefined) {
+        id = g.next++;
+        g.idByFace.set(face, id);
+        g.faceById.set(String(id), face);
+        g.added.push({ id, face });
+      }
+      ids[g.lang] = id;
+    }
+    return ids;
+  };
 
   let maxCharId = existingCharIds.length > 0 ? Math.max(...existingCharIds) : 0;
   let maxParaId = existingParaIds.length > 0 ? Math.max(...existingParaIds) : 0;
@@ -709,12 +792,16 @@ export function serializeBlocksToHwpxPackage(
     bold: boolean;
     italic: boolean;
     underline: boolean;
+    fontIds?: Record<string, number>; // 언어별 글꼴 id (없으면 모두 0)
   }
 
   const newCharDefs: CharPrDef[] = [];
   const charPrKeyToId = new Map<string, number>([
     ["#000000_10_0_0_0", 0],
   ]);
+  // 글꼴까지 같은 글자 모양: "<서식 키>|<글꼴>"
+  const charPrFontKeyToId = new Map<string, number>();
+  if (!hasOriginalHeader) charPrFontKeyToId.set(`#000000_10_0_0_0|${normalizeFontCss(cssFontForHwpxFace("함초롬바탕"))}`, 0);
 
   // 원본 문서에 이미 정의된 charPr들을 key에 등록하여 중복 생성 방지 및 원본 서식 100% 재사용
   for (const [idStr, style] of existingCharStyleMap.entries()) {
@@ -722,15 +809,31 @@ export function serializeBlocksToHwpxPackage(
     if (!charPrKeyToId.has(k)) {
       charPrKeyToId.set(k, parseInt(idStr, 10));
     }
+    if (style.fontCss) {
+      const fk = `${k}|${normalizeFontCss(style.fontCss)}`;
+      if (!charPrFontKeyToId.has(fk)) charPrFontKeyToId.set(fk, parseInt(idStr, 10));
+    }
   }
 
-  const getOrCreateCharPr = (style: { color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean }): number => {
+  const getOrCreateCharPr = (style: { color?: string; sizePt?: number; bold?: boolean; italic?: boolean; underline?: boolean; fontFamily?: string }): number => {
     const colorHex = colorToHex(style.color);
     const sizePt = style.sizePt ? Math.round(style.sizePt) : 10;
     const bold = !!style.bold;
     const italic = !!style.italic;
     const underline = !!style.underline;
     const key = `${colorHex}_${sizePt}_${bold ? 1 : 0}_${italic ? 1 : 0}_${underline ? 1 : 0}`;
+
+    // 글꼴을 고른 글자: 같은 서식·같은 글꼴의 글자 모양을 쓰고, 없으면 그 글꼴을 가리키는 글자 모양을 새로 만든다.
+    const face = hwpxFaceForCssFont(style.fontFamily);
+    if (face && fontGroups.length > 0) {
+      const fontKey = `${key}|${normalizeFontCss(style.fontFamily)}`;
+      const found = charPrFontKeyToId.get(fontKey);
+      if (found !== undefined) return found;
+      const newId = ++maxCharId;
+      newCharDefs.push({ id: newId, colorHex, sizePt, bold, italic, underline, fontIds: fontIdsFor(face) });
+      charPrFontKeyToId.set(fontKey, newId);
+      return newId;
+    }
 
     if (key === "#000000_10_0_0_0") return 0;
     const existing = charPrKeyToId.get(key);
@@ -744,8 +847,9 @@ export function serializeBlocksToHwpxPackage(
 
   // 한컴 OWPML 표준 규격의 완전한 charPr XML 생성 (누락 없는 필수 자식 노드 순서 보장)
   const renderCharPrXml = (def: CharPrDef): string => {
+    const f = (lang: string) => def.fontIds?.[lang] ?? 0;
     const children: string[] = [
-      '<hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
+      `<hh:fontRef hangul="${f("HANGUL")}" latin="${f("LATIN")}" hanja="${f("HANJA")}" japanese="${f("JAPANESE")}" other="${f("OTHER")}" symbol="${f("SYMBOL")}" user="${f("USER")}"/>`,
       '<hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>',
       '<hh:spacing hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>',
       '<hh:relSz hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>',
@@ -882,14 +986,23 @@ export function serializeBlocksToHwpxPackage(
     // 일반 문단
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
     if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
+      const rawXml = block.fontEdited && block.fontFamily
+        ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")/g, (_m, a: string, id: string, b: string) => {
+            const orig = existingCharStyleMap.get(id);
+            const style = orig
+              ? { color: orig.colorHex, sizePt: orig.sizePt, bold: orig.bold, italic: orig.italic, underline: orig.underline }
+              : { color: block.color, sizePt: block.sizePt, bold: block.bold, italic: block.italic, underline: block.underline };
+            return `${a}${getOrCreateCharPr({ ...style, fontFamily: block.fontFamily })}${b}`;
+          })
+        : block.rawXml;
       if (idx === 0) {
-        if (block.rawXml.includes("<hp:secPr")) {
-          return block.rawXml;
+        if (rawXml.includes("<hp:secPr")) {
+          return rawXml;
         } else {
-          return block.rawXml.replace(/<hp:p\b[^>]*>/, `$&${lead}`);
+          return rawXml.replace(/<hp:p\b[^>]*>/, `$&${lead}`);
         }
       }
-      return block.rawXml;
+      return rawXml;
     }
 
     // 2. 사용자가 텍스트를 편집했거나 새로 작성된 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
@@ -899,6 +1012,7 @@ export function serializeBlocksToHwpxPackage(
       bold: block.bold,
       italic: block.italic,
       underline: block.underline,
+      fontFamily: block.fontFamily,
     });
 
     const runsXml = runs.map((run) => {
@@ -910,7 +1024,8 @@ export function serializeBlocksToHwpxPackage(
         const rBold = !!run.bold;
         const rItalic = !!run.italic;
         const rUnderline = !!run.underline;
-        if (orig.colorHex === rColor && orig.sizePt === rSize && orig.bold === rBold && orig.italic === rItalic && orig.underline === rUnderline) {
+        const sameFont = !run.fontFamily || normalizeFontCss(run.fontFamily) === normalizeFontCss(orig.fontCss);
+        if (orig.colorHex === rColor && orig.sizePt === rSize && orig.bold === rBold && orig.italic === rItalic && orig.underline === rUnderline && sameFont) {
           charPrId = parseInt(block.charPrId, 10);
         } else {
           charPrId = getOrCreateCharPr(run);
@@ -963,6 +1078,15 @@ export function serializeBlocksToHwpxPackage(
         headerXml = headerXml.replace(/<hh:charProperties\s+itemCnt="\d+"/, `<hh:charProperties itemCnt="${newCnt}"`);
       }
     }
+    headerXml = headerXml.replace(/<hh:fontface\b([^>]*)>([\s\S]*?)<\/hh:fontface>/g, (whole, attrs: string, inner: string) => {
+      const lang = attrs.match(/\blang="([^"]+)"/)?.[1]?.toUpperCase();
+      const group = fontGroups.find((g) => g.lang === lang);
+      if (!group || group.added.length === 0) return whole;
+      const fontsXml = group.added.map((f) => `<hh:font id="${f.id}" face="${escapeXml(f.face)}" type="TTF" isEmbedded="0"/>`).join("");
+      const cnt = parseInt(attrs.match(/\bfontCnt="(\d+)"/)?.[1] ?? String(group.next - group.added.length), 10) + group.added.length;
+      const newAttrs = /\bfontCnt="\d+"/.test(attrs) ? attrs.replace(/\bfontCnt="\d+"/, `fontCnt="${cnt}"`) : `${attrs} fontCnt="${cnt}"`;
+      return `<hh:fontface${newAttrs}>${inner}${fontsXml}</hh:fontface>`;
+    });
     // 표 및 서식 참조(borderFillIDRef="1", "2")에 필요한 borderFills가 없으면 refList 내에 보정 추가
     if (!headerXml.includes("<hh:borderFills")) {
       headerXml = headerXml.replace(/<\/hh:refList>/, `${defaultBorderFillsXml}\n  </hh:refList>`);
@@ -996,10 +1120,10 @@ export function serializeBlocksToHwpxPackage(
       `<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n` +
       `  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n` +
       `  <hh:refList>\n` +
-      `    <hh:fontfaces itemCnt="1">\n` +
-      `      <hh:fontface lang="HANGUL" fontCnt="1">\n` +
-      `        <hh:font id="0" face="함초롬바탕" type="TTF"/>\n` +
-      `      </hh:fontface>\n` +
+      `    <hh:fontfaces itemCnt="${fontGroups.length}">\n` +
+      fontGroups.map((g) => `      <hh:fontface lang="${g.lang}" fontCnt="${g.next}">\n` +
+        Array.from(g.faceById.entries()).map(([id, face]) => `        <hh:font id="${id}" face="${escapeXml(face)}" type="TTF" isEmbedded="0"/>\n`).join("") +
+        `      </hh:fontface>\n`).join("") +
       `    </hh:fontfaces>\n` +
       `${defaultBorderFillsXml}\n` +
       `${charPropertiesXml}\n` +
@@ -1046,6 +1170,7 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.charPrId) yBlock.set("charPrId", block.charPrId);
         if (block.rawXml) yBlock.set("rawXml", block.rawXml);
         if (block.origText !== undefined) yBlock.set("origText", block.origText);
+        if (block.fontEdited) yBlock.set("fontEdited", true);
       } else if (block.type === "table") {
         const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
         for (const row of block.rows) {
@@ -1113,6 +1238,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const charPrId = yBlock.get("charPrId") as string | undefined;
       const rawXml = yBlock.get("rawXml") as string | undefined;
       const origText = yBlock.get("origText") as string | undefined;
+      const fontEdited = yBlock.get("fontEdited") === true;
       blocks.push({
         type: "paragraph",
         id,
@@ -1129,6 +1255,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         charPrId,
         rawXml,
         origText,
+        fontEdited: fontEdited || undefined,
       });
     } else if (type === "table") {
       const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
