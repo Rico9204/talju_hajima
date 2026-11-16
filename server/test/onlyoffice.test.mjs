@@ -133,9 +133,9 @@ test('문서 서버 중계: /onlyoffice 아래를 넘기고, 자기 주소를 "<
   assert.equal(last.url, '/web-apps/apps/api/documents/api.js');
   assert.equal(last.host, `${new URL(origin).host}/onlyoffice`);
   assert.equal(last.proto, 'https');
-  const preflight = await fetch(`${origin}/onlyoffice/web-apps/x.js`, { method: 'OPTIONS', headers: { origin: 'https://app.test', 'access-control-request-method': 'GET', 'access-control-request-headers': 'ngrok-skip-browser-warning' } });
+  const preflight = await fetch(`${origin}/onlyoffice/web-apps/x.js`, { method: 'OPTIONS', headers: { origin: 'https://app.test', 'access-control-request-method': 'GET', 'access-control-request-headers': 'range' } });
   assert.equal(preflight.status, 204);
-  assert.match(preflight.headers.get('access-control-allow-headers'), /ngrok-skip-browser-warning/);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /range/);
 });
 
 test('편집기 화면: 외부 편집기 로고·정보 버튼을 숨기는 스타일을 끼우고, 캐시된 옛 화면은 쓰지 않게 한다', async () => {

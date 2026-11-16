@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { ngrokHeaders } from "../api/rest/ngrok";
 
 const moduleCache = new Map<string, string[]>();
 const inflight = new Map<string, Promise<string[]>>();
@@ -12,7 +11,7 @@ function getMajors(school: string): Promise<string[]> {
 
   const apiUrl = String(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "")
   if (!apiUrl) return Promise.reject(new Error("자체 서버 주소가 설정되지 않았습니다."))
-  const promise = fetch(`${apiUrl}/majors?school=${encodeURIComponent(school)}`, { headers: ngrokHeaders(apiUrl) })
+  const promise = fetch(`${apiUrl}/majors?school=${encodeURIComponent(school)}`)
     .then((res) => {
       if (!res.ok) throw new Error(`학과 목록 로드 실패 (${res.status})`);
       return res.json() as Promise<{ majors: string[] }>;

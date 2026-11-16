@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
 import { loadConfig } from '../dist/config.js';
-import { ngrokConfig, ngrokLogLine, vercelApiTarget } from './ngrok-config.mjs';
+import { tunnelConfig, vercelApiTarget } from './tunnel-config.mjs';
 import { startupError } from './startup-error.mjs';
 
 const children = new Set();
@@ -30,30 +30,18 @@ function start(command, args, env, stdio = 'inherit') {
   });
   return child;
 }
-// ngrok 화면(TUI)이 터미널을 차지하면 서버 로그(메일 발송 실패 등)가 가려진다.
-// ngrok 로그를 JSON 줄로 받아 터널 시작과 경고·오류만 한 줄씩 보여 준다(요청 목록은 http://127.0.0.1:4040).
-function startNgrok(executable, args, env) {
-  const child = start(executable, [...args, '--log=stdout', '--log-format=json'], env, ['ignore', 'pipe', 'pipe']);
-  for (const stream of [child.stdout, child.stderr]) {
-    createInterface({ input: stream }).on('line', (line) => {
-      const message = ngrokLogLine(line);
-      if (message) console.log(message);
-    });
-  }
-  return child;
-}
 process.once('SIGINT', () => stop(0));
 process.once('SIGTERM', () => stop(0));
 
 try {
-  const config = ngrokConfig(process.env);
+  const config = tunnelConfig(process.env);
   loadConfig(config.env);
-  // CLOUDFLARE_TUNNEL_TOKEN이 있으면 Cloudflare Tunnel(cloudflared), 없으면 ngrok으로 공개한다.
-  const cloudflare = Boolean(process.env.CLOUDFLARE_TUNNEL_TOKEN);
-  const exe = process.platform === 'win32' ? '.exe' : '';
-  const executable = (cloudflare ? 'cloudflared' : 'ngrok') + exe;
-  const check = spawnSync(executable, [cloudflare ? '--version' : 'version'], { windowsHide: true, stdio: 'ignore', timeout: 5000 });
-  if (check.error || check.status !== 0) throw new Error(cloudflare ? 'cloudflared를 설치하세요(winget install Cloudflare.cloudflared).' : 'ngrok을 설치하고 ngrok config add-authtoken 명령으로 인증을 설정하세요.');
+  const token = process.env.CLOUDFLARE_TUNNEL_TOKEN;
+  if (!token) throw new Error('CLOUDFLARE_TUNNEL_TOKEN을 server/.env에 설정하세요(Cloudflare Zero Trust > Networks > Tunnels).');
+  // winget 설치 직후에는 PATH가 갱신되지 않은 터미널이 있어 기본 설치 위치도 함께 찾는다.
+  const candidates = process.platform === 'win32' ? ['cloudflared.exe', 'C:/Program Files (x86)/cloudflared/cloudflared.exe', 'C:/Program Files/cloudflared/cloudflared.exe'] : ['cloudflared'];
+  const executable = candidates.find((candidate) => { const result = spawnSync(candidate, ['--version'], { windowsHide: true, stdio: 'ignore', timeout: 5000 }); return !result.error && result.status === 0; });
+  if (!executable) throw new Error('cloudflared를 설치하세요(winget install Cloudflare.cloudflared). 설치 직후에는 터미널을 새로 열어야 PATH에 잡힙니다.');
   // Fail before changing DB settings if another API server owns this port.
   await new Promise((resolve, reject) => {
     const probe = createServer();
@@ -80,18 +68,16 @@ try {
     console.log('Vercel 환경변수(각각 따로 등록):');
     console.log('  VITE_API_URL     = /api');
     console.log(`  VITE_BACKEND_URL = ${config.publicUrl}`);
-    console.log('최초 한 번 등록하고 Redeploy하세요. Ctrl+C로 서버와 ngrok을 함께 종료합니다.');
+    console.log('최초 한 번 등록하고 Redeploy하세요. Ctrl+C로 서버와 터널을 함께 종료합니다.');
     const target = await readFile(new URL('../../vercel.json', import.meta.url), 'utf8').then((text) => vercelApiTarget(JSON.parse(text))).catch(() => null);
-    if (target !== config.publicUrl) console.warn(`경고: vercel.json의 /api 전달 주소(${target ?? '없음'})가 TUNNEL_URL(NGROK_URL)과 다릅니다. 고친 뒤 커밋·재배포해야 로그인이 됩니다.`);
-    if (cloudflare) {
-      // 토큰은 인자가 아니라 환경변수(TUNNEL_TOKEN)로 넘겨 프로세스 목록에 보이지 않게 한다. 공개 호스트 이름 → localhost:PORT 연결은 Cloudflare 대시보드에서 설정한다.
-      const child = start(executable, ['tunnel', '--no-autoupdate', 'run'], { ...config.env, TUNNEL_TOKEN: process.env.CLOUDFLARE_TUNNEL_TOKEN }, ['ignore', 'pipe', 'pipe']);
-      for (const stream of [child.stdout, child.stderr]) {
-        createInterface({ input: stream }).on('line', (line) => {
-          if (/Registered tunnel connection|ERR|WRN/.test(line)) console.log(`[cloudflared] ${line.replace(/^\S+\s+/, '').trim()}`);
-        });
-      }
-    } else startNgrok(executable, ['http', `http://127.0.0.1:${config.port}`, `--url=${config.publicUrl}`], config.env);
+    if (target !== config.publicUrl) console.warn(`경고: vercel.json의 /api 전달 주소(${target ?? '없음'})가 TUNNEL_URL과 다릅니다. 고친 뒤 커밋·재배포해야 로그인이 됩니다.`);
+    // 토큰은 인자가 아니라 환경변수(TUNNEL_TOKEN)로 넘겨 프로세스 목록에 보이지 않게 한다. 공개 호스트 이름 → localhost:PORT 연결은 Cloudflare 대시보드에서 설정한다.
+    const child = start(executable, ['tunnel', '--no-autoupdate', 'run'], { ...config.env, TUNNEL_TOKEN: token }, ['ignore', 'pipe', 'pipe']);
+    for (const stream of [child.stdout, child.stderr]) {
+      createInterface({ input: stream }).on('line', (line) => {
+        if (/Registered tunnel connection|ERR|WRN/.test(line)) console.log(`[cloudflared] ${line.replace(/^\S+\s+/, '').trim()}`);
+      });
+    }
   }
 } catch (error) {
   console.error(startupError(error));

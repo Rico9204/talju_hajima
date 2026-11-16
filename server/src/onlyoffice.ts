@@ -14,7 +14,7 @@ import { FileStore, saveWorkspaceVersion } from "./storage.js";
 // 워드·엑셀·PPT를 앱 안에서 편집한다. 공동편집은 OnlyOffice가 스스로 하고, 이 서버는 세 가지만 한다:
 //  1) 편집기 설정 만들기(그 파일을 볼 수 있는 사람만, 종료된 프로젝트는 보기 전용)
 //  2) 문서 서버에 원본 내려주기(raw)  3) 저장 콜백을 받아 워크스페이스의 새 버전으로 등록.
-// 문서 서버는 이 서버의 /onlyoffice/ 아래로 중계해서, ngrok 주소 하나로 화면에 편집기를 띄운다(터널 추가 없음).
+// 문서 서버는 이 서버의 /onlyoffice/ 아래로 중계해서, 공개 주소 하나로 화면에 편집기를 띄운다(터널 추가 없음).
 // 문서 서버 ↔ 이 서버는 공유 비밀값(ONLYOFFICE_JWT_SECRET)으로 서명한 JWT로 서로 확인한다(OnlyOffice 표준 방식).
 
 export interface OnlyofficeSettings {
@@ -352,8 +352,8 @@ export const EDITOR_PAGE = /^\/onlyoffice\/(?:[\w.-]+\/)?web-apps\/apps\/[a-z]+\
 export const EDITOR_PAGE_STYLE = "<style>#header-logo,#left-btn-about,#tlb-box-users,.btn-current-user,.slot-btn-user-name{display:none!important}</style>";
 
 // 문서 서버를 /onlyoffice/ 아래로 중계(HTTP + 공동편집 WebSocket). 문서 서버가 자기 주소를 "<공개 주소>/onlyoffice"로 알도록
-// X-Forwarded-Host에 경로를 붙인다(OnlyOffice 공식 가상 경로 방식). 편집기 스크립트(api.js)는 화면의 서비스 워커가
-// ngrok 경고 건너뛰기 헤더를 붙여 다른 출처에서 가져가므로 CORS를 허용한다.
+// X-Forwarded-Host에 경로를 붙인다(OnlyOffice 공식 가상 경로 방식). 편집기 스크립트(api.js)는 화면(다른 출처)이
+// 가져가므로 CORS를 허용한다.
 export function registerOnlyofficeProxy(http: Express, server: Server, settings: OnlyofficeSettings | undefined) {
   if (!settings) return;
   const forwardedHost = (req: { headers: Record<string, string | string[] | undefined> }) =>
@@ -417,7 +417,7 @@ export function registerOnlyofficeProxy(http: Express, server: Server, settings:
     if (req.method === "OPTIONS" && req.headers["access-control-request-method"]) {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET");
-      res.setHeader("Access-Control-Allow-Headers", "ngrok-skip-browser-warning, range");
+      res.setHeader("Access-Control-Allow-Headers", "range");
       res.status(204).end();
       return;
     }

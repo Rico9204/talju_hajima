@@ -1,5 +1,3 @@
-import { ngrokHeaders } from "./ngrok.ts";
-
 // 로그인 상태. 액세스 토큰(1시간)은 이 탭의 메모리에만 두고, 리프레시 토큰은 서버가 httpOnly 쿠키로 들고 있어
 // 화면의 스크립트는 볼 수 없다(XSS로 훔쳐 가도 1시간짜리 액세스 토큰뿐). 새로 고침하면 쿠키로 다시 받는다.
 export type SessionUser = { id: string; email?: string; user_metadata?: Record<string, unknown> };
@@ -41,7 +39,7 @@ function withRefreshLock<T>(run: () => Promise<T>): Promise<T> {
 export function refreshSession(staleToken?: string): Promise<string | null> {
   return withRefreshLock(async () => {
     if (current && current.accessToken !== staleToken && !expiresSoon(current.accessToken)) return current.accessToken;
-    const response = await fetch(`${baseUrl}/auth/refresh`, { method: "POST", credentials: "include", headers: ngrokHeaders(baseUrl) });
+    const response = await fetch(`${baseUrl}/auth/refresh`, { method: "POST", credentials: "include" });
     if (response.status === 401) { if (current) writeSession(null); return null; }
     if (!response.ok) throw new Error("로그인을 갱신하지 못했습니다.");
     const next = await response.json() as StoredSession;

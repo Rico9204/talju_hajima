@@ -20,7 +20,7 @@
   남용 제한은 계정을 잠그지 않고: 같은 IP+이메일 실패 15분 5회, 같은 IP 실패 15분 30회, 같은 IP 가입 1시간 10회, 같은 IP 메일 요청 1시간 10회.
   여기에 실제 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 각 1시간 100회)을 함께 건다.
   비밀번호는 bcrypt 한계인 72**바이트** 기준으로 검사(한글 약 24자). 프록시 뒤라면 `TRUST_PROXY` 설정,
-  Vercel 중계 뒤라면 `TRUST_VERCEL_IP=1`(Vercel이 넣는 `X-Vercel-Forwarded-For`를 사용자 IP로; `dev:ngrok`이 자동 설정).
+  Vercel 중계 뒤라면 `TRUST_VERCEL_IP=1`(Vercel이 넣는 `X-Vercel-Forwarded-For`를 사용자 IP로; `dev:cloudflare`가 자동 설정).
 - **응답 형식**: 행을 DB에서 JSON으로 만들어 돌려준다(지금 프론트가 받는 PostgREST 응답과 같은 모양).
 
 ## Temporary_Merge(zsx12 님 NestJS)에서 가져온 것 / 고친 것
@@ -92,21 +92,19 @@ DB 트리거(`push_to_members`)는 Supabase에서 pg_net으로 Vercel 함수에 
 ## 오피스 편집(OnlyOffice, 선택)
 워드·엑셀·PPT(docx·xlsx·pptx)를 앱 안에서 여러 명이 함께 편집한다. 공동편집은 OnlyOffice 문서 서버가 하고, 이 서버(`src/onlyoffice.ts`)는
 편집기 설정 서명, 원본 제공(링크 토큰), 저장 콜백(문서 서버 서명 확인 → 워크스페이스 새 버전, 검색용 글자도 추출)만 한다.
-문서 서버는 이 서버의 `/onlyoffice/` 아래로 중계해 ngrok 주소 하나로 쓴다(`X-Forwarded-Host: <공개 주소>/onlyoffice`).
+문서 서버는 이 서버의 `/onlyoffice/` 아래로 중계해 공개 주소 하나로 쓴다(`X-Forwarded-Host: <공개 주소>/onlyoffice`).
 
 1. `server/.env`에 `ONLYOFFICE_URL=http://127.0.0.1:8080`, `ONLYOFFICE_JWT_SECRET=<32자 이상>`
 2. `docker compose -f server/docker-compose.yml --profile office up -d` (문서 서버, 메모리 2~4GB)
 3. 서버 재시작. 화면은 버전 패널에 "오피스에서 편집" 버튼이 생긴다(설정이 없으면 안 보임).
 
-문서 서버는 원본·저장을 `PUBLIC_BASE_URL`(ngrok)로 이 서버에 요청한다(다르게 하려면 `ONLYOFFICE_CALLBACK_BASE_URL`).
-무료 ngrok은 브라우저에 경고 페이지를 먼저 보여 줘서, 편집 화면(iframe)에 경고가 보이면 사용자가 **Visit Site**를 한 번 눌러야 한다
-(편집기 스크립트는 서비스 워커가 우회). Safari처럼 다른 사이트 쿠키를 막는 브라우저에서는 열리지 않을 수 있다 — 고정 도메인을 쓰면 사라지는 제약.
+문서 서버는 원본·저장을 `PUBLIC_BASE_URL`(터널 공개 주소)로 이 서버에 요청한다(다르게 하려면 `ONLYOFFICE_CALLBACK_BASE_URL`).
 자동 저장 중에 새로 연 사람이 같은 세션에 합류하도록 세션 키를 서버 메모리에 둔다(서버를 다시 켜면 새 세션으로 열림, 저장 내용은 모두 버전으로 남음).
 
 ## 이메일
 가입 확인과 비밀번호 재설정은 메일러를 통해 처리한다. 개발에서는 콘솔에 링크를 출력하고, 운영에서는 SMTP 설정이 필수다.
 
-프런트에는 `VITE_API_URL=https://서버주소/api`를 설정한다. 공개 주소가 ngrok라면 `PUBLIC_BASE_URL`에도 같은 ngrok 주소를 넣고 `CORS_ORIGIN`에는 프런트 주소를 넣는다.
+프런트에는 `VITE_API_URL=https://서버주소/api`를 설정한다. 공개 주소가 터널이라면 `PUBLIC_BASE_URL`에도 같은 주소를 넣고 `CORS_ORIGIN`에는 프런트 주소를 넣는다.
 
 ## 백업과 복구
 
@@ -148,26 +146,30 @@ tar -xzf server/backups/storage_<시각>.tar.gz -C server/storage-data
 2. 기존 데이터를 옮길 경우 `auth.users`와 public 스키마를 덤프·복원한다.
 3. `CORS_ORIGIN`, `PUBLIC_BASE_URL`, `APP_URL`, SMTP, 프런트의 `VITE_API_URL`을 실제 주소로 설정한다.
 
-## Vercel 프론트 + 로컬 백엔드 + 고정 ngrok 도메인
+## Vercel 프론트 + 로컬 백엔드 + Cloudflare Tunnel
+
+서버는 이 PC에서 돌고, 인터넷에는 Cloudflare Tunnel(`cloudflared`)로 공개한다. 포트포워딩이 필요 없고 월 대역폭 제한이 없다. 도메인이 Cloudflare에 등록돼 있어야 한다(네임서버를 Cloudflare로).
 
 최초 설정:
 
-1. ngrok을 설치하고 계정 대시보드의 인증 토큰을 `ngrok config add-authtoken <토큰>`으로 등록한다. 토큰을 저장소에 넣지 않는다.
-2. ngrok 계정의 고정 개발 도메인을 확인한다.
-3. Vercel에서 이 저장소의 `tobackend` 브랜치를 배포한다. Root Directory는 프로젝트 루트, Framework는 Vite, Build Command는 `pnpm run build`, Output Directory는 `dist`다. Install Command는 `npx --yes pnpm@10.34.3 install --frozen-lockfile`로 지정한다.
-4. 루트 `vercel.json`의 `/api/:path*` 전달 주소를 고정 ngrok 도메인으로 맞춰 커밋한다. 화면이 Vercel 주소의 `/api`로 요청하면 Vercel이 ngrok으로 넘기므로,
+1. Cloudflare 대시보드 → Zero Trust → Networks → Tunnels → **Create a tunnel**(Cloudflared) → 설치 안내의 토큰(`eyJ...`)을 복사한다. 안내의 `cloudflared.exe service install` 명령은 실행하지 않는다(`dev:cloudflare`가 터널을 켠다). 토큰은 저장소·Vercel 환경변수에 넣지 않는다.
+2. 그 터널의 **Published application routes → Add route**: 호스트 `api.<내 도메인>`, 서비스 유형 **HTTP**(HTTPS가 아님), URL `localhost:3000`(`PORT`와 같게). 저장하면 DNS 레코드가 자동으로 생긴다.
+3. `winget install Cloudflare.cloudflared`.
+4. Vercel에서 이 저장소의 `tobackend` 브랜치를 배포한다. Root Directory는 프로젝트 루트, Framework는 Vite, Build Command는 `pnpm run build`, Output Directory는 `dist`다. Install Command는 `npx --yes pnpm@10.34.3 install --frozen-lockfile`로 지정한다.
+5. 루트 `vercel.json`의 `/api/:path*` 전달 주소를 `https://api.<내 도메인>`으로 맞춰 커밋한다. 화면이 Vercel 주소의 `/api`로 요청하면 Vercel이 터널로 넘기므로,
    로그인 유지 쿠키(httpOnly)가 **같은 사이트 쿠키**가 되어 Safari에서도 새로 고침 후 로그인이 유지된다.
-   Vercel 환경변수에 `VITE_API_URL=/api`, `VITE_BACKEND_URL=https://고정-ngrok-도메인`을 등록한다. Vercel은 WebSocket을 전달하지 못하므로
-   실시간·동시 편집과 공개 파일 주소는 `VITE_BACKEND_URL`로 직접 간다(쿠키가 아니라 액세스 토큰으로 인증). 환경변수를 배포 후 변경했다면 Redeploy한다. DB 주소·JWT·ngrok 인증 토큰은 Vercel 프론트 환경변수에 넣지 않는다.
-5. 생성된 Vercel 사이트 주소와 ngrok 주소를 `server/.env`에 입력한다:
+   Vercel 환경변수에 `VITE_API_URL=/api`, `VITE_BACKEND_URL=https://api.<내 도메인>`을 등록한다(Production·Preview 스코프 모두). Vercel은 WebSocket을 전달하지 못하므로
+   실시간·동시 편집과 공개 파일 주소는 `VITE_BACKEND_URL`로 직접 간다(쿠키가 아니라 액세스 토큰으로 인증). 환경변수를 배포 후 변경했다면 Redeploy한다. DB 주소·JWT·터널 토큰은 Vercel 프론트 환경변수에 넣지 않는다.
+6. 생성된 Vercel 사이트 주소와 터널 값을 `server/.env`에 입력한다:
 
 ```dotenv
 # 쉼표로 여러 주소(운영·미리보기). 메일 링크에는 첫 주소를 쓴다.
 FRONTEND_URL=https://내사이트.vercel.app,https://내사이트-git-브랜치-팀.vercel.app
-NGROK_URL=https://내고정도메인.ngrok-free.dev
+TUNNEL_URL=https://api.내도메인.com
+CLOUDFLARE_TUNNEL_TOKEN=<1번에서 복사한 토큰>
 ```
 
-두 주소는 예시다. 실제 계정의 주소로 바꾸고 `/api` 같은 경로는 붙이지 않는다. `DATABASE_URL`과 `JWT_SECRET` 등 기존 서버 설정도 필요하다.
+주소는 예시다. 실제 주소로 바꾸고 `/api` 같은 경로는 붙이지 않는다. `DATABASE_URL`과 `JWT_SECRET` 등 기존 서버 설정도 필요하다.
 
 매번 실행할 때 Windows PowerShell의 **프로젝트 루트**에서:
 
@@ -175,23 +177,18 @@ NGROK_URL=https://내고정도메인.ngrok-free.dev
 docker compose -f server/docker-compose.yml up -d
 cd server
 # 새 DB에서 최초 한 번만: npx.cmd --yes pnpm@10.34.3 run db:setup
-npx.cmd --yes pnpm@10.34.3 run dev:ngrok
+npx.cmd --yes pnpm@10.34.3 run dev:cloudflare
 ```
 
-이 명령은 빌드 후 DB의 `storage_host`를 고정 도메인으로 맞추고, `PUBLIC_BASE_URL`, `APP_URL`, `CORS_ORIGIN`, `TRUST_PROXY`, `COOKIE_SAMESITE=lax`를 해당 실행의 환경변수로 자동 설정하고, `vercel.json`의 전달 주소가 `NGROK_URL`과 다르면 경고한다.
-요청이 Vercel을 거쳐 오므로 연결 주소는 모두 Vercel 서버 주소다. 그래서 가입·로그인·메일 요청 제한의 "같은 IP"는 Vercel이 넣는 `X-Vercel-Forwarded-For`(실제 사용자 IP)로 정한다(`TRUST_VERCEL_IP=1`). ngrok 주소로 직접 보내면 이 헤더를 위조할 수 있으므로 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 1시간 100회)을 함께 건다. `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 ngrok을 실행한다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. ngrok 화면(TUI)은 띄우지 않고 터널 연결과 ngrok 경고·오류만 `[ngrok]`으로 한 줄씩 보여 주므로 서버 로그가 가려지지 않는다(요청 기록은 http://127.0.0.1:4040). Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
+이 명령은 빌드 후 DB의 `storage_host`를 공개 도메인으로 맞추고, `PUBLIC_BASE_URL`, `APP_URL`, `CORS_ORIGIN`, `TRUST_PROXY`, `COOKIE_SAMESITE=lax`를 해당 실행의 환경변수로 자동 설정하고, `vercel.json`의 전달 주소가 `TUNNEL_URL`과 다르면 경고한다.
+요청이 Vercel을 거쳐 오므로 연결 주소는 모두 Vercel 서버 주소다. 그래서 가입·로그인·메일 요청 제한의 "같은 IP"는 Vercel이 넣는 `X-Vercel-Forwarded-For`(실제 사용자 IP)로 정한다(`TRUST_VERCEL_IP=1`). 공개 주소로 직접 보내면 이 헤더를 위조할 수 있으므로 연결 주소별 상한(로그인 실패 15분 300회, 가입·메일 요청 1시간 100회)을 함께 건다. `.env` 파일을 덮어쓰지 않는다. 백엔드는 루프백에서만 수신하며 준비가 끝나면 `cloudflared`를 실행하고, 터널 연결과 경고·오류만 `[cloudflared]`로 한 줄씩 보여 준다. 기존 백엔드가 포트를 사용하면 먼저 종료해야 한다. winget 설치 직후 PATH가 갱신되지 않은 터미널에서도 기본 설치 위치(`C:\Program Files (x86)\cloudflared`)를 찾는다. Ctrl+C로 이 명령이 시작한 백엔드와 터널을 함께 종료한다. DB 컨테이너는 계속 실행된다.
 
-Vercel의 주소를 바꾸면 `FRONTEND_URL` 수정 후 명령을 재실행한다. API 도메인을 바꾸면 `vercel.json`과 Vercel의 `VITE_BACKEND_URL`도 수정하고 재배포해야 하며, 이전 도메인으로 저장된 파일 링크가 영향을 받을 수 있으므로 같은 고정 도메인을 유지한다. 이 명령이 Vercel 설정이나 배포를 자동 변경하지는 않는다.
+Vercel의 주소를 바꾸면 `FRONTEND_URL` 수정 후 명령을 재실행한다. API 도메인을 바꾸면 `vercel.json`과 Vercel의 `VITE_BACKEND_URL`도 수정하고 재배포해야 한다. 업로드한 파일·프로필 사진의 주소가 DB에 **절대 주소로** 저장돼(프로필 `avatar_url`·`banner_image_url`, 게시글 본문, 채팅 등) 이전 도메인 링크가 깨지므로, 같은 도메인을 유지하거나 DB의 옛 도메인 문자열을 새 도메인으로 바꿔야 한다. 이 명령이 Vercel 설정이나 배포를 자동 변경하지는 않는다.
 
-확인: `https://고정-ngrok-도메인/api/health`와 Vercel 사이트에서 로그인·파일 업로드·채팅을 확인한다. `MAIL_TRANSPORT=console`이면 가입 확인 링크는 백엔드 터미널에 출력된다. 팀원이 직접 메일을 받아야 한다면 SMTP를 설정한다. PC·PostgreSQL·백엔드·ngrok이 실행 중이어야 서비스를 이용할 수 있다.
+문제 해결:
 
-## Cloudflare Tunnel로 공개하기 (ngrok 대체)
+- 모든 요청이 `502`이고 `cloudflared` 로그에 `tls: first record does not look like a TLS handshake`가 나오면 라우트 서비스 유형이 HTTPS로 저장된 것이다. HTTP로 바꾼다.
+- `api.<도메인>`이 `Non-existent domain`이면 라우트(2번)를 아직 저장하지 않은 것이다. 라우트를 만든 직후 OnlyOffice 컨테이너가 이름을 못 찾았다고 로그에 남길 수 있는데, 잠시 뒤 풀린다.
+- OnlyOffice 편집기에 "유료기능" 팝업이 뜨면 편집기 설정에 `customization.font`(`name`·`size`)나 `loaderName`·`loaderLogo`가 들어간 것이다. 무료판은 허용하지 않는다.
 
-ngrok 무료 한도(월 대역폭)가 차면 `ERR_NGROK_725`(403)로 막힌다. Cloudflare Tunnel은 대역폭 제한이 없다. 도메인이 Cloudflare에 등록돼 있어야 한다.
-
-1. Cloudflare 대시보드 → Zero Trust → Networks → Tunnels → **Create a tunnel**(Cloudflared) → 토큰을 복사한다.
-2. 그 터널의 **Public hostname**: 호스트 `api.teammates.website`, 서비스 `HTTP` → `localhost:3000`(`PORT`와 같게).
-3. `server/.env`에 `TUNNEL_URL=https://api.teammates.website`, `CLOUDFLARE_TUNNEL_TOKEN=<토큰>`을 넣는다. 토큰은 저장소에 올리지 않는다.
-4. 루트 `vercel.json`의 `/api/:path*` 전달 주소를 `https://api.teammates.website`로 맞추고(`TUNNEL_URL`과 같게) 커밋·푸시한다. Vercel `VITE_BACKEND_URL`도 같은 주소로 바꾸고 Redeploy한다.
-5. `winget install Cloudflare.cloudflared` 후 `pnpm run dev:cloudflare`(`dev:ngrok`과 같은 스크립트, 토큰이 있으면 cloudflared를 쓴다).
-6. 확인: `https://api.teammates.website/api/health`. Cloudflare는 브라우저 경고 페이지가 없어서 ngrok용 `ngrok-skip-browser-warning` 헤더는 그대로 두어도 무해하다.
+확인: `https://api.<내 도메인>/api/health`와 Vercel 사이트에서 로그인·파일 업로드·채팅을 확인한다. `MAIL_TRANSPORT=console`이면 가입 확인 링크는 백엔드 터미널에 출력된다. 팀원이 직접 메일을 받아야 한다면 SMTP를 설정한다. PC·PostgreSQL·백엔드·`cloudflared`가 실행 중이어야 서비스를 이용할 수 있다.

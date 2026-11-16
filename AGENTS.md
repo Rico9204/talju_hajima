@@ -7,8 +7,8 @@ React + Vite + Tailwind CSS project. Data, login and file storage come from the 
 Start the dev server with `pnpm run dev`. It listens on `$PORT` (default 5173). Use pnpm only (no `npm install`; there is no `package-lock.json`).
 
 - Hot reload: Changes to source files are reflected immediately
-- Requires `.env.local` with `VITE_API_URL` (copy `.env.example`), plus a running API server. See `server/README.md`: Docker Postgres from `server/docker-compose.yml`, `server/.env`, and `pnpm run dev` or `dev:ngrok` in `server/`.
-- Production: Vercel serves the frontend, and `vercel.json` forwards `/api/*` to the server on the developer's PC through a fixed ngrok domain. Set `VITE_API_URL=/api` and `VITE_BACKEND_URL=<ngrok origin>` on Vercel. Realtime (WebSocket) traffic and public file links go to `VITE_BACKEND_URL` directly.
+- Requires `.env.local` with `VITE_API_URL` (copy `.env.example`), plus a running API server. See `server/README.md`: Docker Postgres from `server/docker-compose.yml`, `server/.env`, and `pnpm run dev` or `dev:cloudflare` in `server/`.
+- Production: Vercel serves the frontend, and `vercel.json` forwards `/api/*` to the server on the developer's PC through a Cloudflare Tunnel (`api.teammates.website`). Set `VITE_API_URL=/api` and `VITE_BACKEND_URL=<tunnel origin>` on Vercel. Realtime (WebSocket) traffic and public file links go to `VITE_BACKEND_URL` directly.
 - Database: a **new** database gets `pnpm run db:setup` in `server/` (`server/db/bootstrap.sql` + `supabase/schema.sql`). An **existing** database gets only the new files in `supabase/migrations/`, applied in filename order.
 - Backups: `pnpm run backup` in `server/` (DB dump + uploaded files).
 
@@ -49,9 +49,9 @@ This is the canonical project structure. Start with task-relevant files below. O
 - `supabase/migrations/` - incremental changes for existing databases, applied in filename order
 - `supabase/verify_runtime.sql` - read-only post-deploy check (every `ready` must be true)
 - `api/campus-notices.js` - Vercel function for `/api/campus-notices` (no login), a committed bundle of `src/server/campus-notices.ts` + `src/lib/crawler/`. Rebuild it after changing those files. `vite.config.ts` serves the same route in `pnpm run dev`. School → majors lookup is a server endpoint (`server/src/majors.ts`, `ODCLOUD_API_KEY` in `server/.env`).
-- `vercel.json` - forwards `/api/*` to the ngrok domain (keep it equal to `NGROK_URL` in `server/.env`)
+- `vercel.json` - forwards `/api/*` to the tunnel domain (keep it equal to `TUNNEL_URL` in `server/.env`)
 - `tests/` - Node test runner tests (`pnpm test`)
-- `server/` - self-hosted NestJS API server on plain PostgreSQL (separate pnpm package, not deployed by Vercel); `server/README.md` lists endpoints, setup and the ngrok deployment
+- `server/` - self-hosted NestJS API server on plain PostgreSQL (separate pnpm package, not deployed by Vercel); `server/README.md` lists endpoints, setup and the Cloudflare Tunnel deployment
 
 ## Dependencies
 

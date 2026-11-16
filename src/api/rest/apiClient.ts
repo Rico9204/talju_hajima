@@ -1,5 +1,3 @@
-import { ngrokHeaders } from "./ngrok.ts";
-
 // forceRefresh: 서버가 401을 돌려준 토큰 대신 새 토큰을 받는다.
 export type AccessToken = (forceRefresh?: boolean) => Promise<string | null>;
 
@@ -29,7 +27,6 @@ export class ApiClient {
   private async send(path: string, init: RequestInit, retried = false): Promise<Response> {
     if (!this.baseUrl) throw new Error("자체 서버 주소가 설정되지 않았습니다.");
     const headers = new Headers(init.headers);
-    for (const [name, value] of Object.entries(ngrokHeaders(this.baseUrl))) headers.set(name, value);
     const token = await this.accessToken(retried);
     if (token) headers.set("Authorization", `Bearer ${token}`);
     if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
