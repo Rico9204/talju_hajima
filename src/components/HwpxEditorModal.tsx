@@ -1,5 +1,24 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import * as Y from "yjs";
+
+// React 19와 브라우저 ContentEditable 간의 DOM 불일치로 인한 removeChild / insertBefore NotFoundError 방어 가드
+if (typeof window !== "undefined") {
+  const originalRemoveChild = Node.prototype.removeChild;
+  Node.prototype.removeChild = function <T extends Node>(child: T): T {
+    if (child.parentNode !== this) {
+      return child;
+    }
+    return originalRemoveChild.call(this, child) as T;
+  };
+
+  const originalInsertBefore = Node.prototype.insertBefore;
+  Node.prototype.insertBefore = function <T extends Node>(newNode: T, referenceNode: Node | null): T {
+    if (referenceNode && referenceNode.parentNode !== this) {
+      return newNode;
+    }
+    return originalInsertBefore.call(this, newNode, referenceNode) as T;
+  };
+}
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
 import type { CollabEditor, CollabMode, CollabPresence } from "../lib/collab";
@@ -434,7 +453,9 @@ function ContentEditableParagraph({
           handleInput();
         }}
         onKeyDown={handleKeyDown}
-        className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words cursor-text ${alignClass}`}
+        className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words cursor-text ${alignClass} ${
+          showParaMarks ? "after:content-['↵'] after:text-blue-400 after:text-[10px] after:opacity-60 after:ml-1 after:select-none after:pointer-events-none" : ""
+        }`}
         style={{
           fontSize,
           fontWeight: block.bold ? "bold" : "normal",
@@ -447,15 +468,6 @@ function ContentEditableParagraph({
           wordBreak: "break-all",
         }}
       />
-      {showParaMarks && (
-        <span
-          contentEditable={false}
-          data-para-mark="true"
-          className="absolute right-0 bottom-0 text-[10px] text-blue-400 select-none pointer-events-none opacity-60"
-        >
-          ↵
-        </span>
-      )}
     </div>
   );
 }

@@ -375,6 +375,7 @@ test('hwpxCollab: 새로 생성한 도형(shape: rect, ellipse, line)이 한컴 
   // 1. 사각형 검증 (한컴 표준 OWPML DTD 순서: offset, orgSz, curSz, flip, rotationInfo, renderingInfo, lineShape, fillBrush, shadow, pt0~pt3, sz, pos, outMargin, shapeComment, drawText)
   assert.ok(pkg.sectionXml.includes('<hp:rect id="'));
   assert.ok(pkg.sectionXml.includes('<hp:orgSz width="34016" height="6000"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:curSz width="34016" height="6000"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:rotationInfo angle="0" centerX="17008" centerY="3000"'));
   assert.ok(pkg.sectionXml.includes('<hp:renderingInfo><hc:transMatrix'));
   assert.ok(pkg.sectionXml.includes('<hc:pt0 x="0" y="0"/><hc:pt1 x="34016" y="0"/><hc:pt2 x="34016" y="6000"/><hc:pt3 x="0" y="6000"/>'));
@@ -421,11 +422,15 @@ test('hwpxCollab: 새로 생성한 표(table)가 한컴 뷰어 및 OWPML 스펙(
   assert.ok(pkg.sectionXml.includes('<hp:inMargin left="510" right="510" top="141" bottom="141"/>'));
 
   // 2. hp:tc 필수 태그 및 순서 검증 (subList, cellAddr, cellSpan, cellSz, cellMargin)
+  assert.ok(pkg.sectionXml.includes('<hp:subList id="0"'));
   assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="0" rowAddr="0"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="1" rowAddr="1"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellSpan colSpan="1" rowSpan="1"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellSz width="21260" height="2834"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellMargin left="510" right="510" top="141" bottom="141"/>'));
+  // 셀 내부 문단 ID가 OWPML 정수 규격 준수하는지 검증 (언더스코어 등 비정수 문자 불포함)
+  assert.match(pkg.sectionXml, /<hp:p id="\d+"/);
+  assert.ok(!pkg.sectionXml.includes('id="0_0_0"'));
 
   // 3. header.xml의 borderFills 정의 포함 검증
   assert.ok(pkg.headerXml.includes('<hh:borderFills itemCnt="2">'));
