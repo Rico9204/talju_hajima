@@ -809,33 +809,53 @@ function HwpxEditorModalInner({
     }
   }, [blocks]);
 
-  // 위 문단으로 자연스러운 이동
+  // 위 문단으로 자연스러운 이동 (중간에 그림, 표, 도형, 수식 등의 개체가 있어도 건너뛰어 이전 문단으로 이동)
   const navigateToPrevParagraph = (currentIdx: number, clientX: number) => {
-    if (currentIdx <= 0) return;
-    const prevBlock = blocks[currentIdx - 1];
-    setSelectedIdx(currentIdx - 1);
-    if (prevBlock.type === "paragraph") {
-      const prevEl = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p[contenteditable="true"]`);
-      if (prevEl) {
-        setCaretAtPointOrEdge(prevEl, clientX, true);
-      } else {
-        pendingCaretRef.current = { mode: "point", blockId: prevBlock.id, x: clientX, toEnd: true };
+    let targetIdx = -1;
+    for (let i = currentIdx - 1; i >= 0; i--) {
+      if (blocks[i].type === "paragraph") {
+        targetIdx = i;
+        break;
       }
+    }
+    if (targetIdx === -1) return;
+
+    const prevBlock = blocks[targetIdx];
+    setSelectedIdx(targetIdx);
+    const prevEl = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p[contenteditable="true"]`);
+    if (prevEl) {
+      setCaretAtPointOrEdge(prevEl, clientX, true);
+    } else {
+      pendingCaretRef.current = { mode: "point", blockId: prevBlock.id, x: clientX, toEnd: true };
+      setTimeout(() => {
+        const el = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p[contenteditable="true"]`);
+        if (el) setCaretAtPointOrEdge(el, clientX, true);
+      }, 0);
     }
   };
 
-  // 아래 문단으로 자연스러운 이동
+  // 아래 문단으로 자연스러운 이동 (중간에 그림, 표, 도형, 수식 등의 개체가 있어도 건너뛰어 다음 문단으로 이동)
   const navigateToNextParagraph = (currentIdx: number, clientX: number) => {
-    if (currentIdx >= blocks.length - 1) return;
-    const nextBlock = blocks[currentIdx + 1];
-    setSelectedIdx(currentIdx + 1);
-    if (nextBlock.type === "paragraph") {
-      const nextEl = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p[contenteditable="true"]`);
-      if (nextEl) {
-        setCaretAtPointOrEdge(nextEl, clientX, false);
-      } else {
-        pendingCaretRef.current = { mode: "point", blockId: nextBlock.id, x: clientX, toEnd: false };
+    let targetIdx = -1;
+    for (let i = currentIdx + 1; i < blocks.length; i++) {
+      if (blocks[i].type === "paragraph") {
+        targetIdx = i;
+        break;
       }
+    }
+    if (targetIdx === -1) return;
+
+    const nextBlock = blocks[targetIdx];
+    setSelectedIdx(targetIdx);
+    const nextEl = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p[contenteditable="true"]`);
+    if (nextEl) {
+      setCaretAtPointOrEdge(nextEl, clientX, false);
+    } else {
+      pendingCaretRef.current = { mode: "point", blockId: nextBlock.id, x: clientX, toEnd: false };
+      setTimeout(() => {
+        const el = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p[contenteditable="true"]`);
+        if (el) setCaretAtPointOrEdge(el, clientX, false);
+      }, 0);
     }
   };
 
@@ -1502,6 +1522,30 @@ function HwpxEditorModalInner({
           if (blk && (blk.type === "table" || blk.type === "image" || blk.type === "shape" || blk.type === "equation")) {
             e.preventDefault();
             deleteBlock(selectedIdx);
+            return;
+          }
+        }
+      }
+      // 선택된 개체(표, 그림, 도형, 수식)에서 방향키로 앞/뒤 문단으로 이동
+      if (
+        (e.key === "ArrowDown" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowLeft") &&
+        !e.ctrlKey && !e.altKey && !e.metaKey
+      ) {
+        const activeEl = document.activeElement;
+        const isEditing = activeEl instanceof HTMLElement && (
+          activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable
+        );
+        if (!isEditing && selectedIdx !== null && selectedIdx >= 0) {
+          const blk = blocks[selectedIdx];
+          if (blk && blk.type !== "paragraph") {
+            e.preventDefault();
+            if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+              navigateToNextParagraph(selectedIdx, 0);
+            } else {
+              navigateToPrevParagraph(selectedIdx, 999999);
+            }
             return;
           }
         }
@@ -5524,6 +5568,68 @@ function HwpxEditorModalInner({
                                         value={cell.text}
                                         onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
                                         onFocus={() => setSelectedIdx(idx)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "ArrowUp") {
+                                            if (rIdx === 0) {
+                                              e.preventDefault();
+                                              const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                              navigateToPrevParagraph(idx, rect.left);
+                                            } else {
+                                              const tableEl = (e.target as HTMLElement).closest("table");
+                                              const targetInput = tableEl?.querySelectorAll("tr")[rIdx - 1]?.querySelectorAll("input")[cIdx];
+                                              if (targetInput) {
+                                                e.preventDefault();
+                                                targetInput.focus();
+                                              }
+                                            }
+                                          } else if (e.key === "ArrowDown") {
+                                            if (rIdx === block.rows.length - 1) {
+                                              e.preventDefault();
+                                              const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                              navigateToNextParagraph(idx, rect.left);
+                                            } else {
+                                              const tableEl = (e.target as HTMLElement).closest("table");
+                                              const targetInput = tableEl?.querySelectorAll("tr")[rIdx + 1]?.querySelectorAll("input")[cIdx];
+                                              if (targetInput) {
+                                                e.preventDefault();
+                                                targetInput.focus();
+                                              }
+                                            }
+                                          } else if (e.key === "ArrowLeft") {
+                                            const inputEl = e.currentTarget;
+                                            if (inputEl.selectionStart === 0 && inputEl.selectionEnd === 0) {
+                                              if (cIdx === 0 && rIdx === 0) {
+                                                e.preventDefault();
+                                                navigateToPrevParagraph(idx, 999999);
+                                              } else if (cIdx > 0) {
+                                                const tableEl = inputEl.closest("table");
+                                                const prevInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx - 1];
+                                                if (prevInput) {
+                                                  e.preventDefault();
+                                                  prevInput.focus();
+                                                  prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
+                                                }
+                                              }
+                                            }
+                                          } else if (e.key === "ArrowRight") {
+                                            const inputEl = e.currentTarget;
+                                            const valLen = inputEl.value.length;
+                                            if (inputEl.selectionStart === valLen && inputEl.selectionEnd === valLen) {
+                                              if (cIdx === row.length - 1 && rIdx === block.rows.length - 1) {
+                                                e.preventDefault();
+                                                navigateToNextParagraph(idx, 0);
+                                              } else if (cIdx < row.length - 1) {
+                                                const tableEl = inputEl.closest("table");
+                                                const nextInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx + 1];
+                                                if (nextInput) {
+                                                  e.preventDefault();
+                                                  nextInput.focus();
+                                                  nextInput.setSelectionRange(0, 0);
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }}
                                         className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs cursor-text"
                                       />
                                     </td>
@@ -5985,6 +6091,24 @@ function HwpxEditorModalInner({
                               value={block.text || ""}
                               onChange={(e) => updateShapeBlock(idx, { text: e.target.value })}
                               onFocus={() => setSelectedIdx(idx)}
+                              onKeyDown={(e) => {
+                                if (e.key === "ArrowUp") {
+                                  const target = e.currentTarget;
+                                  if (target.selectionStart === 0 && target.selectionEnd === 0) {
+                                    e.preventDefault();
+                                    const rect = target.getBoundingClientRect();
+                                    navigateToPrevParagraph(idx, rect.left);
+                                  }
+                                } else if (e.key === "ArrowDown") {
+                                  const target = e.currentTarget;
+                                  const valLen = target.value.length;
+                                  if (target.selectionStart === valLen && target.selectionEnd === valLen) {
+                                    e.preventDefault();
+                                    const rect = target.getBoundingClientRect();
+                                    navigateToNextParagraph(idx, rect.left);
+                                  }
+                                }
+                              }}
                               placeholder="도형 안 글상자 텍스트 입력..."
                               rows={Math.max(1, (block.text || "").split("\n").length)}
                               className="w-full bg-transparent border-none outline-none text-center text-xs text-neutral-900 resize-none font-sans leading-relaxed"
