@@ -725,6 +725,12 @@ export function serializeBlocksToHwpxPackage(
   const fontGroups = parseFontGroups(originalHeaderXml);
   const hangulFaces = fontGroups.find((g) => g.lang === "HANGUL")?.faceById;
 
+  interface NewParaDef {
+    id: string;
+    align: "left" | "center" | "right" | "justify";
+  }
+  const newParaDefs: NewParaDef[] = [];
+
   if (originalHeaderXml) {
     const paraPrRegex = /<hh:paraPr\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/hh:paraPr>)/g;
     let pm: RegExpExecArray | null;
@@ -873,6 +879,19 @@ export function serializeBlocksToHwpxPackage(
     return `      <hh:charPr id="${def.id}" height="${def.sizePt * 100}" textColor="${def.colorHex}" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="2">\n        ${children.join("")}\n      </hh:charPr>`;
   };
 
+  // 한컴 OWPML 표준 규격의 paraPr XML 생성 (신규 발급 정렬 서식 등록)
+  const renderParaPrXml = (def: NewParaDef): string => {
+    const alignVal = def.align === "center" ? "CENTER" : def.align === "right" ? "RIGHT" : def.align === "justify" ? "JUSTIFY" : "LEFT";
+    return `      <hh:paraPr id="${def.id}" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">\n` +
+      `        <hh:align horizontal="${alignVal}" vertical="BASELINE"/>\n` +
+      `        <hh:heading type="NONE" idRef="0" level="0"/>\n` +
+      `        <hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="BREAK_WORD"/>\n` +
+      `        <hh:margin intent="0" left="0" right="0" prev="0" next="0"/>\n` +
+      `        <hh:lineSpacing type="PERCENT" value="160" unit="PERCENT"/>\n` +
+      `        <hh:border borderFillIDRef="2" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>\n` +
+      `      </hh:paraPr>`;
+  };
+
   // 문단 정렬(paraPr) 매핑: 원본의 paraPrIDRef를 최대한 유지하여 문서 고유 여백/줄간격 손실 방지
   const getParaPrForAlign = (targetAlign: "left" | "center" | "right" | "justify", rawAttrs?: string): string => {
     if (rawAttrs) {
@@ -890,6 +909,7 @@ export function serializeBlocksToHwpxPackage(
     }
     const newId = String(++maxParaId);
     paraStyles.set(newId, { align: targetAlign });
+    newParaDefs.push({ id: newId, align: targetAlign });
     return newId;
   };
 
@@ -927,7 +947,10 @@ export function serializeBlocksToHwpxPackage(
         const cellsXml = row.map((cell, cIdx) => {
           const cellCharPr = getOrCreateCharPr({ bold: cell.bold });
           const cellParaPr = getParaPrForAlign(cell.align || "center", cell.rawAttrs);
-          const tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="1"`;
+          let tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="1"`;
+          if (!tcAttrs.includes("borderFillIDRef")) {
+            tcAttrs += ' borderFillIDRef="1"';
+          }
           const cellParaId = (idx + 1) * 10000 + (rIdx + 1) * 100 + (cIdx + 1);
           return `        <hp:tc${tcAttrs}>\n          <hp:cellAddr colAddr="${cIdx}" rowAddr="${rIdx}"/>\n          <hp:cellSpan colSpan="1" rowSpan="1"/>\n          <hp:cellSz width="${colWidthHw}" height="${rowHeightHw}"/>\n          <hp:cellMargin left="510" right="510" top="141" bottom="141"/>\n          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="${colWidthHw}" textHeight="${rowHeightHw}" hasTextRef="0" hasNumRef="0">\n            <hp:p id="${cellParaId}" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n              <hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run>\n            </hp:p>\n          </hp:subList>\n        </hp:tc>`;
         }).join("\n");
@@ -938,11 +961,22 @@ export function serializeBlocksToHwpxPackage(
       if (tblAttrs) {
         tblAttrs = tblAttrs.replace(/\bpageBreak="([^"]*)"/gi, (_m, val: string) => `pageBreak="${val.toUpperCase()}"`);
         tblAttrs = tblAttrs.replace(/\brepeatHeader="true"/gi, 'repeatHeader="1"').replace(/\brepeatHeader="false"/gi, 'repeatHeader="0"');
+        if (!tblAttrs.includes("borderFillIDRef")) {
+          tblAttrs += ' borderFillIDRef="1"';
+        }
       } else {
         tblAttrs = ` id="${tblId}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${rowCount}" colCnt="${colCount}" cellSpacing="0" borderFillIDRef="1" noAdjust="0"`;
       }
 
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n        <hp:sz width="${totalWidthHw}" widthRelTo="ABSOLUTE" height="${totalHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:inMargin left="510" right="510" top="141" bottom="141"/>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      const isFloatingTbl = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
+      const tblOffX = Math.round((block.offsetX || 0) * 100);
+      const tblOffY = Math.round((block.offsetY || 0) * 100);
+      const tblTreatAsChar = isFloatingTbl ? "0" : "1";
+      const tblTextWrap = isFloatingTbl ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM";
+      const tblAllowOverlap = isFloatingTbl ? "1" : "0";
+      const tblHorzRelTo = isFloatingTbl ? "PARA" : "COLUMN";
+
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n        <hp:sz width="${totalWidthHw}" widthRelTo="ABSOLUTE" height="${totalHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${tblTreatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${tblAllowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${tblHorzRelTo}" vertAlign="TOP" horzAlign="LEFT" vertOffset="${isFloatingTbl ? tblOffY : 0}" horzOffset="${isFloatingTbl ? tblOffX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:inMargin left="510" right="510" top="141" bottom="141"/>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
@@ -961,7 +995,8 @@ export function serializeBlocksToHwpxPackage(
     }
 
     if (block.type === "shape") {
-      if (block.rawXml) {
+      const isFloating = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
+      if (block.rawXml && !isFloating) {
         return block.rawXml;
       }
       const shapeType = block.shapeType || "rect";
@@ -972,14 +1007,21 @@ export function serializeBlocksToHwpxPackage(
       const strokeColor = colorToHex(block.strokeColor || "#2563EB");
       const fillColor = block.fillColor === "transparent" ? "none" : colorToHex(block.fillColor || "#EFF6FF");
       const strokeWidthHw = Math.max(33, Math.round((block.strokeWidth || 1.5) * 33));
-      const horzAlign = align === "left" ? "LEFT" : align === "right" ? "RIGHT" : "CENTER";
+      const offX = Math.round((block.offsetX || 0) * 100);
+      const offY = Math.round((block.offsetY || 0) * 100);
+      const treatAsChar = isFloating ? "0" : "1";
+      const textWrap = isFloating ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM";
+      const allowOverlap = isFloating ? "1" : "0";
+      const horzAlign = isFloating ? "LEFT" : (align === "left" ? "LEFT" : align === "right" ? "RIGHT" : "CENTER");
+      const horzRelTo = isFloating ? "PARA" : "COLUMN";
       const shapeId = Math.floor(Math.random() * 1000000000) + 1000000000;
       const instId = Math.floor(Math.random() * 1000000000) + 100000000;
+      const zOrder = isFloating ? 10 : 4;
       const centerX = Math.round(widthHw / 2);
       const centerY = Math.round(heightHw / 2);
 
       if (shapeType === "line") {
-        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="0"/>\n        <hp:curSz width="${widthHw}" height="0"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="0" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="0"/>\n        <hc:endPt x="${widthHw}" y="0"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
+        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="0"/>\n        <hp:curSz width="${widthHw}" height="0"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="0" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="0"/>\n        <hc:endPt x="${widthHw}" y="0"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
       }
 
       const tagName = shapeType === "ellipse" ? "hp:ellipse" : "hp:rect";
@@ -995,7 +1037,7 @@ export function serializeBlocksToHwpxPackage(
         ? `<hc:center x="${centerX}" y="${centerY}"/><hc:ax1 x="${widthHw}" y="${centerY}"/><hc:ax2 x="${centerX}" y="${heightHw}"/>`
         : `<hc:pt0 x="0" y="0"/><hc:pt1 x="${widthHw}" y="0"/><hc:pt2 x="${widthHw}" y="${heightHw}"/><hc:pt3 x="0" y="${heightHw}"/>`;
 
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="4" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단
@@ -1102,6 +1144,18 @@ export function serializeBlocksToHwpxPackage(
         headerXml = headerXml.replace(/<hh:charProperties\s+itemCnt="\d+"/, `<hh:charProperties itemCnt="${newCnt}"`);
       }
     }
+
+    if (newParaDefs.length > 0) {
+      const newParaXml = newParaDefs.map(renderParaPrXml).join("\n");
+      if (headerXml.includes("</hh:paraProperties>")) {
+        headerXml = headerXml.replace(/<\/hh:paraProperties>/, `${newParaXml}\n    </hh:paraProperties>`);
+        const pCntMatch = headerXml.match(/<hh:paraProperties\s+itemCnt="(\d+)"/);
+        if (pCntMatch) {
+          const newCnt = parseInt(pCntMatch[1], 10) + newParaDefs.length;
+          headerXml = headerXml.replace(/<hh:paraProperties\s+itemCnt="\d+"/, `<hh:paraProperties itemCnt="${newCnt}"`);
+        }
+      }
+    }
     headerXml = headerXml.replace(/<hh:fontface\b([^>]*)>([\s\S]*?)<\/hh:fontface>/g, (whole, attrs: string, inner: string) => {
       const lang = attrs.match(/\blang="([^"]+)"/)?.[1]?.toUpperCase();
       const group = fontGroups.find((g) => g.lang === lang);
@@ -1152,12 +1206,13 @@ export function serializeBlocksToHwpxPackage(
       defaultChar0 + (newCharDefs.length > 0 ? "\n" + newCharDefs.map(renderCharPrXml).join("\n") : "") +
       `\n    </hh:charProperties>`;
 
-    const paraPropertiesXml = `    <hh:paraProperties itemCnt="4">\n` +
+    const extraParaXml = newParaDefs.length > 0 ? "\n" + newParaDefs.map(renderParaPrXml).join("\n") : "";
+    const paraPropertiesXml = `    <hh:paraProperties itemCnt="${4 + newParaDefs.length}">\n` +
       `      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
       `      <hh:paraPr id="1">\n        <hh:align horizontal="CENTER" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
       `      <hh:paraPr id="2">\n        <hh:align horizontal="RIGHT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
-      `      <hh:paraPr id="3">\n        <hh:align horizontal="JUSTIFY" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n` +
-      `    </hh:paraProperties>`;
+      `      <hh:paraPr id="3">\n        <hh:align horizontal="JUSTIFY" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>` +
+      extraParaXml + `\n    </hh:paraProperties>`;
 
     headerXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
       `<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.31" secCnt="1">\n` +
@@ -1261,6 +1316,8 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.rawXml) yBlock.set("rawXml", block.rawXml);
         if (block.rawAttrs) yBlock.set("rawAttrs", block.rawAttrs);
       }
+      if ("offsetX" in block && block.offsetX !== undefined) yBlock.set("offsetX", block.offsetX);
+      if ("offsetY" in block && block.offsetY !== undefined) yBlock.set("offsetY", block.offsetY);
       yBlocks.push([yBlock]);
     }
   });

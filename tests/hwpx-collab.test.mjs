@@ -437,3 +437,50 @@ test('hwpxCollab: 새로 생성한 표(table)가 한컴 뷰어 및 OWPML 스펙(
   assert.ok(pkg.headerXml.includes('<hh:borderFill id="1"'));
   assert.ok(pkg.headerXml.includes('<hh:borderFill id="2"'));
 });
+
+test('hwpxCollab: 표 셀의 borderFillIDRef 보정 및 자유 이동(Floating) 도형/표의 오버레이 속성 직렬화 검증', () => {
+  const blocks = [
+    {
+      type: 'table',
+      id: 'tbl_float',
+      rawAttrs: 'name="tbl1"',
+      rows: [
+        [
+          { text: '테스트', rawAttrs: 'name="0_0"' },
+        ],
+      ],
+      offsetX: 15,
+      offsetY: 25,
+    },
+    {
+      type: 'shape',
+      id: 'shape_float',
+      shapeType: 'rect',
+      text: '부유 도형',
+      offsetX: 50,
+      offsetY: 100,
+    },
+    {
+      type: 'paragraph',
+      id: 'p_right',
+      text: '우측 정렬 문단',
+      align: 'right',
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+
+  // 1. 표 셀에 borderFillIDRef="1"이 자동 보충되었는지 검증
+  assert.ok(pkg.sectionXml.includes('borderFillIDRef="1"'));
+  // 2. 부유 표의 hp:pos treatAsChar="0", allowOverlap="1" 검증
+  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="1"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="2500" horzOffset="1500"'));
+
+  // 3. 부유 도형의 textWrap="IN_FRONT_OF_TEXT", treatAsChar="0", allowOverlap="1", zOrder="10" 검증
+  assert.ok(pkg.sectionXml.includes('textWrap="IN_FRONT_OF_TEXT"'));
+  assert.ok(pkg.sectionXml.includes('zOrder="10"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="10000" horzOffset="5000"'));
+
+  // 4. headerXml의 hh:paraProperties에 신규 정렬 서식이 등록되었는지 검증
+  assert.ok(pkg.headerXml.includes('<hh:align horizontal="RIGHT"'));
+});

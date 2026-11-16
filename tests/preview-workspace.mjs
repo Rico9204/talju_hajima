@@ -46,7 +46,7 @@ entries.set(
         <hp:outMargin left="0" right="0" top="0" bottom="0"/>
         <hp:inMargin left="510" right="510" top="141" bottom="141"/>
         <hp:tr>
-          <hp:tc name="0_0">
+          <hp:tc name="0_0" borderFillIDRef="1">
             <hp:cellAddr colAddr="0" rowAddr="0"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -55,7 +55,7 @@ entries.set(
               <hp:p id="101" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>구분</hp:t></hp:run></hp:p>
             </hp:subList>
           </hp:tc>
-          <hp:tc name="0_1">
+          <hp:tc name="0_1" borderFillIDRef="1">
             <hp:cellAddr colAddr="1" rowAddr="0"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -64,7 +64,7 @@ entries.set(
               <hp:p id="102" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>담당자</hp:t></hp:run></hp:p>
             </hp:subList>
           </hp:tc>
-          <hp:tc name="0_2">
+          <hp:tc name="0_2" borderFillIDRef="1">
             <hp:cellAddr colAddr="2" rowAddr="0"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -75,7 +75,7 @@ entries.set(
           </hp:tc>
         </hp:tr>
         <hp:tr>
-          <hp:tc name="1_0">
+          <hp:tc name="1_0" borderFillIDRef="1">
             <hp:cellAddr colAddr="0" rowAddr="1"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -84,7 +84,7 @@ entries.set(
               <hp:p id="104" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>한글 동시편집 에디터</hp:t></hp:run></hp:p>
             </hp:subList>
           </hp:tc>
-          <hp:tc name="1_1">
+          <hp:tc name="1_1" borderFillIDRef="1">
             <hp:cellAddr colAddr="1" rowAddr="1"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -93,7 +93,7 @@ entries.set(
               <hp:p id="105" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>홍길동</hp:t></hp:run></hp:p>
             </hp:subList>
           </hp:tc>
-          <hp:tc name="1_2">
+          <hp:tc name="1_2" borderFillIDRef="1">
             <hp:cellAddr colAddr="2" rowAddr="1"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -104,7 +104,7 @@ entries.set(
           </hp:tc>
         </hp:tr>
         <hp:tr>
-          <hp:tc name="2_0">
+          <hp:tc name="2_0" borderFillIDRef="1">
             <hp:cellAddr colAddr="0" rowAddr="2"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -113,7 +113,7 @@ entries.set(
               <hp:p id="107" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>표/수식 무손실 보존</hp:t></hp:run></hp:p>
             </hp:subList>
           </hp:tc>
-          <hp:tc name="2_1">
+          <hp:tc name="2_1" borderFillIDRef="1">
             <hp:cellAddr colAddr="1" rowAddr="2"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>
@@ -122,7 +122,7 @@ entries.set(
               <hp:p id="108" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>이순신</hp:t></hp:run></hp:p>
             </hp:subList>
           </hp:tc>
-          <hp:tc name="2_2">
+          <hp:tc name="2_2" borderFillIDRef="1">
             <hp:cellAddr colAddr="2" rowAddr="2"/>
             <hp:cellSpan colSpan="1" rowSpan="1"/>
             <hp:cellSz width="14173" height="2834"/>

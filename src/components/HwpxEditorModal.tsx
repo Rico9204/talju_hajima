@@ -375,6 +375,9 @@ function ContentEditableParagraph({
       e.preventDefault();
       const el = pRef.current;
       const { before, after } = getSplitText(el);
+      if (el) {
+        el.innerText = before || "";
+      }
       onSplit(before, after);
       return;
     }
@@ -699,6 +702,11 @@ function HwpxEditorModalInner({
   // 편집기 내에서 바로 수정된 최신 HWPX 파일 즉시 다운로드
   const handleDirectDownload = async () => {
     try {
+      // 현재 포커스된 contenteditable이 있다면 blur시켜 마지막 입력 텍스트를 Y.Doc에 즉각 커밋
+      if (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable) {
+        document.activeElement.blur();
+      }
+
       const currentBlocks = extractBlocksFromYDoc(doc);
       const { sectionXml: newSectionXml, headerXml: newHeaderXml } = serializeBlocksToHwpxPackage(
         currentBlocks,
@@ -900,6 +908,8 @@ function HwpxEditorModalInner({
         yText.delete(0, yText.length);
         yText.insert(0, textBefore);
       }
+      currentYBlock.delete("rawXml");
+      currentYBlock.delete("origText");
       yBlocks.insert(index + 1, [newYBlock]);
     });
 
@@ -926,6 +936,8 @@ function HwpxEditorModalInner({
         if (prevYText && currBlock.text) {
           prevYText.insert(prevTextLen, currBlock.text);
         }
+        prevYBlock.delete("rawXml");
+        prevYBlock.delete("origText");
         yBlocks.delete(index, 1);
       });
 
