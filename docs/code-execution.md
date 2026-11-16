@@ -10,12 +10,13 @@
 | JavaScript | `.js` `.mjs` `.cjs` | 내 브라우저(Web Worker) | top-level `await` 가능, `import`/`export`(모듈)는 불가 |
 | Python 3.12 | `.py` | 내 브라우저(Pyodide, WebAssembly) | 표준 라이브러리만. 처음 한 번 실행 환경(약 10MB)을 CDN에서 받아 몇 초 걸린다 |
 | C | `.c` | **서버**의 일회용 Docker 컨테이너 | gcc(C17), `-lm` 포함. 파일 하나(`main.c`)로 컴파일 |
+| C++ | `.cpp` `.cc` `.cxx` | **서버**의 일회용 Docker 컨테이너 | g++(C++20), 파일 하나(`main.cpp`)로 컴파일. 표준 라이브러리(STL 등) 사용 가능 |
 | Java 21 | `.java` | **서버**의 일회용 Docker 컨테이너 | 공개 클래스 이름으로 파일을 만든다. 공개 클래스가 없으면 `main`이 있는 클래스, 그것도 없으면 `Main` |
 
 ## 실행할 수 없는 언어 (색칠(하이라이트)만 되고 실행 버튼은 없다)
 
-TypeScript(`.ts` `.tsx`), JSX(`.jsx`), C++, C#, Kotlin, Go, Rust, Swift, PHP, Ruby, Shell, SQL, HTML·CSS·XML, JSON·YAML·Markdown·텍스트.
-(C++ 등은 컨테이너 이미지에 컴파일러를 추가하면 같은 방식으로 늘릴 수 있다.)
+TypeScript(`.ts` `.tsx`), JSX(`.jsx`), C#, Kotlin, Go, Rust, Swift, PHP, Ruby, Shell, SQL, HTML·CSS·XML, JSON·YAML·Markdown·텍스트.
+(C# 등은 컨테이너 이미지에 컴파일러를 추가하면 같은 방식으로 늘릴 수 있다.)
 
 ## 사용법
 
@@ -29,8 +30,8 @@ TypeScript(`.ts` `.tsx`), JSX(`.jsx`), C++, C#, Kotlin, Go, Rust, Swift, PHP, Ru
 | 항목 | JavaScript·Python | C·Java |
 |---|---|---|
 | 출력 | `console.log/info/debug`·`print` → 일반, `console.warn/error`·`sys.stderr`·예외 → 오류(빨간색) | `stdout` → 일반, `stderr`(컴파일 오류·예외 포함) → 오류(빨간색). 실행이 끝난 뒤 한꺼번에 보여 준다(실시간 아님) |
-| 실행 시간 | JavaScript 10초, Python 20초 | 프로그램 실행 10초(컴파일 제외), 컴파일 포함 전체 C 25초·Java 40초 |
-| 메모리 | 브라우저 제한 | C 128MB, Java 512MB(힙 128MB) |
+| 실행 시간 | JavaScript 10초, Python 20초 | 프로그램 실행 10초(컴파일 제외). 컴파일이 끝나 프로그램이 시작되는 순간부터 서버가 재고, 넘으면 컨테이너를 강제 종료한다. 컴파일 포함 전체 상한: C 25초·C++ 35초·Java 40초 |
+| 메모리 | 브라우저 제한 | C 128MB, C++·Java 512MB(Java 힙 128MB) |
 | 출력 길이 | 약 20만 글자까지 | 약 20만 글자까지(넘으면 중단) |
 | 입력 | 지원하지 않음 | 지원하지 않음(표준입력은 비어 있어 `scanf`·`Scanner`는 바로 끝을 읽는다) |
 | 상태 | 실행할 때마다 새 환경 | 실행할 때마다 새 컨테이너 |
@@ -43,10 +44,10 @@ C·Java는 임의의 코드를 서버에서 실행하는 기능이라 **기본�
 1. 서버 PC에 Docker가 실행 중이어야 한다.
 2. 실행용 이미지를 한 번 준비한다.
    ```bash
-   docker build -t talju-run-c -f server/sandbox/c.Dockerfile server/sandbox
-   docker pull eclipse-temurin:21-jdk-alpine
+   docker build -t talju-run-native -f server/sandbox/native.Dockerfile server/sandbox   # C·C++(gcc·g++)
+   docker pull eclipse-temurin:21-jdk-alpine                                              # Java
    ```
-3. `server/.env`에 `CODE_RUNNER=docker`를 넣고 서버를 다시 시작한다(이미지 이름을 바꾸려면 `CODE_RUNNER_IMAGE_C`, `CODE_RUNNER_IMAGE_JAVA`).
+3. `server/.env`에 `CODE_RUNNER=docker`를 넣고 서버를 다시 시작한다(이미지 이름을 바꾸려면 `CODE_RUNNER_IMAGE_C`, `CODE_RUNNER_IMAGE_CPP`, `CODE_RUNNER_IMAGE_JAVA`. C와 C++는 기본으로 같은 이미지 `talju-run-native`를 쓴다).
 
 꺼져 있거나 Docker·이미지가 없으면 실행 버튼은 보이지만, 누르면 서버가 안내 메시지를 돌려준다.
 `GET /api/code/status`로 켜져 있는지 확인할 수 있다.
@@ -60,17 +61,18 @@ C·Java는 임의의 코드를 서버에서 실행하는 기능이라 **기본�
 - 시간 초과·중지·출력 초과 시 iframe 전체를 제거해 실행 중인 코드를 확실히 멈춘다.
 
 **C·Java (서버, Docker 컨테이너)** — 임의 코드를 돌리는 만큼 겹겹이 막는다.
-- 컨테이너: **네트워크 없음**, 메모리·프로세스 수(C 64, Java 256)·파일 크기(32MB)·CPU 제한, **읽기 전용 파일시스템**(작업 폴더만 쓰기, 48MB),
+- 컨테이너: **네트워크 없음**, 메모리·프로세스 수(C 64, C++ 128, Java 256)·파일 크기(32MB)·CPU 제한, **읽기 전용 파일시스템**(작업 폴더만 쓰기, 48MB),
   모든 권한 제거, 일반(비루트) 사용자, 새 권한 획득 금지, 호스트 폴더 연결 없음, 끝나면 컨테이너 삭제. 이미지는 내려받지 않는다(`--pull never`).
 - 코드는 명령줄이 아니라 **표준입력**으로만 전달한다. 클래스 이름은 식별자 규칙에 맞는 값만 환경변수로 넘긴다(셸에 끼어들 수 없다).
 - 컴파일 오류 판별용 표시(marker)는 실행마다 무작위이고 실행되는 프로그램이 읽을 수 없어, 출력으로 흉내 낼 수 없다.
-- 로그인한 사용자만, **사용자당 동시 1개·분당 20번, 서버 전체 동시 3개**. 시간 초과·중지·연결 끊김·출력 초과면 컨테이너를 강제 종료한다.
+- 로그인한 사용자만, **사용자당 동시 1개·분당 20번, 서버 전체 동시 3개**. 시간 초과·중지(`POST /api/code/cancel`)·연결 끊김·출력 초과면 컨테이너를 강제 종료한다.
+- 실행 시간은 컨테이너 안의 `timeout` 명령이 아니라 서버가 잰다(안의 `timeout`은 이 옵션 조합에서 프로그램을 멈추지 못하는 것을 실제 시험에서 확인했다).
 - 남는 위험: 컨테이너 격리는 완벽하지 않다(커널 취약점 등). 서버 PC에는 중요한 개인 파일을 두지 않는 것이 안전하고, 필요 없으면 `CODE_RUNNER`를 끄면 된다.
 
 ## 확인한 내용
 
 - 브라우저 시나리오: JS·Python·C·Java 출력, 컴파일 오류, 저장 전 편집 내용 실행(`Ctrl+Enter`), 무한 루프 시간 초과, 중지 버튼(서버 컨테이너까지 종료), 자동 들여쓰기.
-- 실제 Docker 공격 시험: 포크 폭탄(프로세스 수 제한), 메모리 폭탄, 무한 루프, 네트워크 접속(차단), 루트 파일시스템 쓰기(차단), 32MB 초과 파일 쓰기(차단),
+- 실제 Docker 공격 시험(C·C++·Java): 포크 폭탄(프로세스 수 제한), 메모리 폭탄, 무한 루프, 네트워크 접속(차단), 루트 파일시스템 쓰기(차단), 32MB 초과 파일 쓰기(차단),
   환경변수 엿보기(불가), 과도한 출력(중단), 스택 오버플로, 비루트 사용자 확인. 실행 뒤 남은 컨테이너 없음.
 - 서버 테스트(`server/test/code-run.test.mjs`): 가짜 Docker로 안전 옵션, 인증·검증, 컴파일 오류 구분, 한도, 중지, 동시·횟수 제한.
 

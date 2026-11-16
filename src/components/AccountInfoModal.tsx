@@ -56,7 +56,7 @@ export default function AccountInfoModal({ onClose }: { onClose: () => void }) {
   async function submitWithdraw() {
     setWithdrawError("");
     if (idInput.trim().toLowerCase() !== email.toLowerCase()) return setWithdrawError("아이디(이메일)가 현재 로그인한 계정과 다릅니다.");
-    if (!window.confirm("정말 탈퇴를 신청할까요?\n\n신청하면 바로 로그아웃되고 로그인할 수 없어요. 14일 동안은 계정 정보가 보관되며 그 안에 복구를 신청할 수 있고, 그 뒤에는 운영자 승인으로 정보가 삭제돼요.")) return;
+    if (!window.confirm("정말 탈퇴를 신청할까요?\n\n신청하면 바로 로그아웃되고 로그인할 수 없어요. 14일 동안은 계정 정보가 보관되며 그 안에 복구를 신청할 수 있고, 그 뒤에는 자동으로 정보가 삭제돼요.")) return;
     setWithdrawing(true);
     const result = await withdrawAccount(idInput.trim(), pwInput, reason);
     setWithdrawing(false);
@@ -108,7 +108,7 @@ export default function AccountInfoModal({ onClose }: { onClose: () => void }) {
           <ul className="text-xs list-disc pl-4 mb-3 flex flex-col gap-1" style={labelStyle}>
             <li>탈퇴를 신청하면 바로 로그아웃되고, 로그인할 수 없어요.</li>
             <li>신청 후 14일 동안은 계정 정보를 그대로 보관하고, 그 안에 로그인 화면에서 복구를 신청할 수 있어요.</li>
-            <li>14일이 지난 뒤 운영자가 승인하면 계정 정보가 삭제되고 되돌릴 수 없어요.</li>
+            <li>14일이 지나면 계정 정보가 자동으로 삭제되고 되돌릴 수 없어요. (그 전에 운영자가 승인하면 바로 삭제될 수도 있어요.)</li>
           </ul>
 
           {locked ? (

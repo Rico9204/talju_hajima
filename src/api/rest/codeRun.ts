@@ -1,7 +1,7 @@
 import { ApiClient } from "./apiClient";
 import { accessToken } from "./session";
 
-// C·Java 코드 실행: 브라우저에서는 컴파일할 수 없어서 서버(일회용 Docker 컨테이너)에 맡긴다. 서버가 꺼 두었으면 안내 오류가 온다.
+// C·C++·Java 코드 실행: 브라우저에서는 컴파일할 수 없어서 서버(일회용 Docker 컨테이너)에 맡긴다. 서버가 꺼 두었으면 안내 오류가 온다.
 const client = new ApiClient(String(import.meta.env.VITE_API_URL ?? "").replace(/\/$/, ""), accessToken);
 
 export interface RemoteRunResult {
@@ -21,6 +21,6 @@ export function cancelRemoteRun(): Promise<void> {
 }
 
 // signal로 중단하면 연결도 끊긴다.
-export function runRemoteCode(language: "c" | "java", code: string, signal: AbortSignal): Promise<RemoteRunResult> {
+export function runRemoteCode(language: "c" | "cpp" | "java", code: string, signal: AbortSignal): Promise<RemoteRunResult> {
   return client.request<RemoteRunResult>("/code/run", { method: "POST", body: JSON.stringify({ language, code }), signal });
 }

@@ -27,11 +27,10 @@ import { useAuth } from "./AuthContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import CreateProjectModal from "../components/CreateProjectModal";
 import AdminPanel from "../components/AdminPanel";
-import AdminOperatorPanel from "../components/AdminOperatorPanel";
 import AdminReports from "../components/AdminReports";
 import NoProjectHome from "../components/NoProjectHome";
 import AccountInfoModal from "../components/AccountInfoModal";
-import AdminAccountWithdrawals from "../components/AdminAccountWithdrawals";
+import OperatorConsole from "../components/OperatorConsole";
 import UnreadNotifier from "../components/UnreadNotifier";
 import { isMentionForMember } from "../lib/chatMentions";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
@@ -289,8 +288,7 @@ function EmptyProjectsScreen({
         {/* 프로젝트가 없는 운영자도 운영자 기능을 쓸 수 있도록 여기에서도 보여준다. */}
         {isOperator && (
           <div className="p-6 pb-0 max-w-5xl mx-auto space-y-6">
-            <AdminOperatorPanel />
-            <AdminAccountWithdrawals />
+            <OperatorConsole />
             {/* 신고 관리도 운영자 기능이라 프로젝트가 없어도 볼 수 있어야 한다(예전엔 프로젝트가 있는 홈 화면에만 있었다). */}
             <section className="space-y-4">
               <h2 className="text-xl font-700">신고 관리</h2>

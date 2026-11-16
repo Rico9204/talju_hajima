@@ -10,6 +10,7 @@ import { isIP } from "node:net";
 import type { Request, Response } from "express";
 import { Db, selectOneJson, type Query } from "./db.js";
 import { Mailer, mailTemplates, type MailMessage } from "./mail.js";
+import { AuditService } from "./auditlog.js";
 import { WITHDRAWAL_STATUS_SQL, WithdrawnAccounts, withdrawalInfo, type WithdrawalRow } from "./withdrawn.js";
 
 // 로그인은 이 서버가 직접 한다(Supabase Auth 대체). 공유 브랜치(Temporary_Merge)의
@@ -228,7 +229,7 @@ export class AuthController {
   constructor(
     private readonly db: Db, private readonly tokens: TokenService, private readonly limits: AuthLimits,
     private readonly mailer: Mailer, private readonly mail: MailSettings, private readonly cookie: SessionCookie,
-    private readonly address: ClientAddress,
+    private readonly address: ClientAddress, private readonly audit: AuditService,
   ) {}
 
   // 확인 메일 다시 받기·비밀번호 재설정 요청 한도
@@ -418,6 +419,7 @@ export class AuthController {
     }
     return this.db.asSystem(async (query) => {
       await query("update auth.users set last_sign_in_at = now() where id = $1", [user.id]);
+      void this.audit.record({ userId: user.id, ip: this.audit.ipOf(req), kind: "login" }); // 접속 감사 기록
       return this.startSession(res, { id: user.id, email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
     });
   }
@@ -438,6 +440,7 @@ export class AuthController {
       if (!user) throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
       const [withdrawn] = await query("select 1 from public.account_withdrawals where user_id = $1", [user.id]);
       if (withdrawn) throw new UnauthorizedException("탈퇴 신청된 계정입니다.");
+      void this.audit.record({ userId: user.id, ip: this.audit.ipOf(req), kind: "refresh" }); // 로그인 유지(화면을 열어 둔 채 쓰는 동안 마지막 접속 시각이 갱신된다)
       return this.startSession(res, { id: user.id, email: user.email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
     });
   }

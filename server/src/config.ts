@@ -27,8 +27,8 @@ export interface ServerConfig {
   vapid?: { publicKey: string; privateKey: string; subject: string };
   // 오피스 편집(OnlyOffice 문서 서버). ONLYOFFICE_URL과 ONLYOFFICE_JWT_SECRET이 있으면 켜진다.
   onlyoffice?: { url: string; jwtSecret: string; callbackBaseUrl: string };
-  // C·Java 코드 실행(일회용 Docker 컨테이너). CODE_RUNNER=docker 일 때만 켜진다(기본은 꺼짐).
-  codeRunner: { enabled: boolean; images: { c?: string; java?: string } };
+  // C·C++·Java 코드 실행(일회용 Docker 컨테이너). CODE_RUNNER=docker 일 때만 켜진다(기본은 꺼짐).
+  codeRunner: { enabled: boolean; images: { c?: string; cpp?: string; java?: string } };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -73,7 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       url: onlyofficeUrl, jwtSecret: onlyofficeSecret,
       callbackBaseUrl: (env.ONLYOFFICE_CALLBACK_BASE_URL?.trim() || env.PUBLIC_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, ""),
     } : undefined,
-    codeRunner: { enabled: env.CODE_RUNNER?.trim().toLowerCase() === "docker", images: { c: env.CODE_RUNNER_IMAGE_C?.trim() || undefined, java: env.CODE_RUNNER_IMAGE_JAVA?.trim() || undefined } },
+    codeRunner: { enabled: env.CODE_RUNNER?.trim().toLowerCase() === "docker", images: { c: env.CODE_RUNNER_IMAGE_C?.trim() || undefined, cpp: env.CODE_RUNNER_IMAGE_CPP?.trim() || undefined, java: env.CODE_RUNNER_IMAGE_JAVA?.trim() || undefined } },
     vapid: vapidPublic && vapidPrivate ? { publicKey: vapidPublic, privateKey: vapidPrivate, subject: env.VAPID_SUBJECT?.trim() || "mailto:admin@example.com" } : undefined,
   };
 }

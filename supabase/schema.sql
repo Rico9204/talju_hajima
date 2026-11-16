@@ -5287,3 +5287,114 @@ begin
 end $$;
 revoke all on function public.reject_account_recovery(uuid) from public, anon;
 grant execute on function public.reject_account_recovery(uuid) to authenticated;
+
+-- ===== 계정 탈퇴: 유예 기간(14일)이 지나면 자동 삭제, 운영자 승인은 바로 삭제 =====
+-- 탈퇴 신청 목록에는 유예 기간 안의 계정만 보인다. 유예 기간이 지난 계정은 서버가 주기적으로(서버 시작 때와 1시간마다) 자동으로 지운다.
+-- 운영자가 "탈퇴 승인"을 누르면 유예 기간 안이어도 바로 삭제한다. 복구 신청이 접수된 계정은 운영자가 그 신청을 처리하기 전에는 지우지 않는다.
+
+-- 유예 기간이 지나 자동 삭제할 계정(복구 신청이 접수됐거나 참여한 프로젝트가 있는 계정은 제외). 서버 권한 전용.
+create or replace function public.expired_withdrawal_ids()
+returns uuid[] language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(w.user_id), '{}'::uuid[])
+  from public.account_withdrawals w
+  where w.requested_at + interval '14 days' <= now()
+    and w.recovery_requested_at is null
+    and not exists (select 1 from public.members m where m.user_id = w.user_id)
+$$;
+revoke all on function public.expired_withdrawal_ids() from public, anon, authenticated;
+
+-- 위 계정을 지우고 지운 계정 번호를 돌려준다(프로필·로그인 정보 등 계정에 딸린 정보가 함께 지워진다). 서버 권한 전용.
+create or replace function public.purge_expired_withdrawals()
+returns uuid[] language plpgsql security definer set search_path = public as $$
+declare ids uuid[] := public.expired_withdrawal_ids();
+begin
+  if cardinality(ids) > 0 then delete from auth.users where id = any (ids); end if;
+  return ids;
+end $$;
+revoke all on function public.purge_expired_withdrawals() from public, anon, authenticated;
+
+-- 운영자: 탈퇴 승인 = 바로 삭제. (예전에는 14일이 지나야 했지만, 이제 유예 기간 안에도 승인할 수 있다.)
+create or replace function public.approve_account_withdrawal(p_user_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare w public.account_withdrawals;
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 탈퇴를 승인할 수 있습니다.'; end if;
+  select * into w from public.account_withdrawals where user_id = p_user_id for update;
+  if not found then raise exception '탈퇴 신청을 찾을 수 없습니다.'; end if;
+  if w.recovery_requested_at is not null then raise exception '복구 신청이 접수된 계정입니다. 복구 신청을 먼저 처리해 주세요.'; end if;
+  if exists (select 1 from public.members where user_id = p_user_id) then raise exception '참여 중인 프로젝트가 있는 계정은 삭제할 수 없습니다.'; end if;
+  delete from auth.users where id = p_user_id; -- 프로필·알림·로그인 정보 등 계정에 딸린 정보가 함께 지워진다
+end $$;
+revoke all on function public.approve_account_withdrawal(uuid) from public, anon;
+grant execute on function public.approve_account_withdrawal(uuid) to authenticated;
+
+-- ===== 전체 알림: 관리자 공지(기간 동안)와 게시판 공지사항을 알림 목록에 모아 보여 주고, 읽음 표시는 사용자별로 기록 =====
+-- 알림 내용은 새로 저장하지 않는다(공지·게시글을 그대로 읽는다). 이 표는 "내가 읽은 것"만 기록한다.
+-- 관리자 공지는 "다시 보지 않기"(팝업 숨김)와 별개로 공지 기간 동안 알림 목록에 계속 남는다.
+create table if not exists public.notification_reads (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind text not null check (kind in ('announcement', 'board_notice')),
+  ref_id bigint not null,
+  read_at timestamptz not null default now(),
+  primary key (user_id, kind, ref_id)
+);
+
+alter table public.notification_reads enable row level security;
+revoke all on table public.notification_reads from anon, authenticated;
+grant select on table public.notification_reads to authenticated;
+drop policy if exists notification_reads_select on public.notification_reads;
+create policy notification_reads_select on public.notification_reads for select to authenticated using (user_id = auth.uid());
+
+-- 내 읽음 표시(여러 개를 한 번에). 종류 검사만 하고, 없는 번호를 넣어도 남에게 영향은 없다(내 기록일 뿐이다).
+create or replace function public.mark_notifications_read(p_kinds text[], p_refs bigint[])
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if coalesce(cardinality(p_kinds), 0) <> coalesce(cardinality(p_refs), 0) then raise exception '알림 목록이 올바르지 않습니다.'; end if;
+  if coalesce(cardinality(p_kinds), 0) > 200 then raise exception '한 번에 200개까지 표시할 수 있습니다.'; end if;
+  if exists (select 1 from unnest(p_kinds) k where k not in ('announcement', 'board_notice')) then raise exception '알림 종류가 올바르지 않습니다.'; end if;
+  insert into public.notification_reads(user_id, kind, ref_id)
+  select auth.uid(), k, r from unnest(p_kinds, p_refs) as t(k, r)
+  on conflict do nothing;
+end $$;
+revoke all on function public.mark_notifications_read(text[], bigint[]) from public, anon;
+grant execute on function public.mark_notifications_read(text[], bigint[]) to authenticated;
+
+-- ===== 접속 감사: 사용자별 접속(IP·처음~마지막 시각)과 업로드·삭제 활동 기록 =====
+-- 기록은 서버만 쓴다(앱 계정에는 쓰기 권한이 없어 수정·삭제할 수 없다). 읽기는 운영자만(운영자 창의 "접속 감사").
+-- 계정이 삭제돼도(탈퇴 승인·자동 삭제) 기록은 보관 기간(1년) 동안 남아야 하므로 user_id에 외래키를 걸지 않고, 그때의 이메일·이름을 함께 적어 둔다.
+-- 1년이 지난 기록은 서버가 하루에 한 번 purge_audit_log()로 지운다.
+create table if not exists public.audit_log (
+  id bigint generated always as identity primary key,
+  at timestamptz not null default now(),
+  user_id uuid not null,
+  user_email text not null default '',
+  user_name text not null default '',
+  ip text not null default '' check (char_length(ip) <= 64),
+  kind text not null check (kind in ('login', 'refresh', 'upload', 'delete')),
+  target_type text,  -- workspace_file, workspace_folder, project, member, task, schedule_event, board_post, board_comment, announcement, profile_image, board_attachment, admin_document
+  target_id text,
+  target_name text,
+  project_id text,
+  project_name text,
+  detail jsonb not null default '{}'::jsonb
+);
+create index if not exists audit_log_user_ip_idx on public.audit_log (user_id, ip, at desc);
+create index if not exists audit_log_at_idx on public.audit_log (at);
+
+alter table public.audit_log enable row level security;
+revoke all on table public.audit_log from anon, authenticated;
+grant select on table public.audit_log to authenticated;
+drop policy if exists audit_log_select on public.audit_log;
+create policy audit_log_select on public.audit_log for select to authenticated using (public.is_operator());
+
+-- 보관 기간(1년)이 지난 기록 삭제. 지운 개수를 돌려준다. 서버 권한 전용.
+create or replace function public.purge_audit_log()
+returns bigint language plpgsql security definer set search_path = public as $$
+declare removed bigint;
+begin
+  delete from public.audit_log where at < now() - interval '1 year';
+  get diagnostics removed = row_count;
+  return removed;
+end $$;
+revoke all on function public.purge_audit_log() from public, anon, authenticated;

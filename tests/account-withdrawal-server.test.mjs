@@ -35,8 +35,9 @@ const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 
 await db.exec(schema);
 // 마이그레이션 단독 파일도 이미 적용된 스키마 위에서 안전해야 한다.
 await db.exec(readFileSync(new URL('../supabase/migrations/2611162100_account_withdrawal.sql', import.meta.url), 'utf8'));
+await db.exec(readFileSync(new URL('../supabase/migrations/2611170930_withdrawal_auto_purge.sql', import.meta.url), 'utf8'));
 
-const ids = [0, 1, 2, 3].map((n) => `00000000-0000-0000-0000-${String(n + 1).padStart(12, '0')}`); // 0 운영자, 1 일반 사용자, 2 프로젝트 참여자, 3 다른 일반 사용자
+const ids = [0, 1, 2, 3, 4, 5].map((n) => `00000000-0000-0000-0000-${String(n + 1).padStart(12, '0')}`); // 0 운영자, 1 일반 사용자, 2 프로젝트 참여자, 3·4·5 다른 일반 사용자
 for (const id of ids) await db.query("insert into auth.users(id,email,raw_user_meta_data) values($1,$2,'{\"display_name\":\"사용자\"}')", [id, `${id}@example.test`]);
 await db.query('update profiles set is_operator=true, is_admin=true where id=$1', [ids[0]]);
 await db.query("insert into projects(id,name,org,period,status) values('pa','A','o','p','active')");
@@ -105,9 +106,8 @@ await check('복구 처리는 운영자만: 거절하면 탈퇴 신청으로 돌
   await rpc(0, 'select approve_account_recovery($1)', [ids[3]]);
   assert.ok(!(await withdrawn()).includes(ids[3]));
 });
-await check('탈퇴 승인(정보 삭제): 운영자만, 14일이 지나야 하고, 복구 신청이 접수된 계정은 안 된다', async () => {
+await check('탈퇴 승인(정보 삭제): 운영자만, 유예 기간 안에도 바로 삭제, 복구 신청이 접수된 계정은 안 된다', async () => {
   await rejects(rpc(1, 'select approve_account_withdrawal($1)', [ids[1]]), /운영자만/);
-  await rejects(rpc(0, 'select approve_account_withdrawal($1)', [ids[1]]), /14일/);
   await rejects(rpc(0, 'select approve_account_withdrawal($1)', [ids[2]]), /탈퇴 신청을 찾을 수 없/);
   await system("update account_withdrawals set requested_at = now() - interval '15 days' where user_id = $1", [ids[1]]);
   // 복구가 접수된 상태에서는 14일이 지나도 지울 수 없다
@@ -119,6 +119,23 @@ await check('탈퇴 승인(정보 삭제): 운영자만, 14일이 지나야 하�
   assert.equal((await system('select count(*)::int as n from profiles where id = $1', [ids[1]]))[0].n, 0);
   assert.ok(!(await withdrawn()).includes(ids[1]));
   assert.equal((await system('select count(*)::int as n from auth.users where id = $1', [ids[2]]))[0].n, 1); // 다른 계정은 그대로
+});
+await check('유예 기간(14일)이 지난 계정만 자동 삭제 대상이고, 복구 신청이 접수된 계정·유예 중인 계정은 건드리지 않는다(서버 권한 전용)', async () => {
+  await rpc(4, "select withdraw_my_account('')");
+  await rpc(5, "select withdraw_my_account('')");
+  await rpc(3, "select withdraw_my_account('')");
+  await system('select request_account_recovery($1)', [ids[3]]); // 복구 신청이 접수된 계정
+  await system("update account_withdrawals set requested_at = now() - interval '15 days' where user_id = $1", [ids[4]]); // 유예가 지났다
+  await system("update account_withdrawals set requested_at = now() - interval '30 days' where user_id = $1", [ids[3]]); // 지났지만 복구 신청 중
+  assert.deepEqual((await system('select expired_withdrawal_ids() as ids'))[0].ids, [ids[4]]);
+  // 사용자 권한으로는 부를 수 없다
+  await rejects(rpc(0, 'select expired_withdrawal_ids()'), /permission denied/);
+  await rejects(rpc(0, 'select purge_expired_withdrawals()'), /permission denied/);
+  assert.deepEqual((await system('select purge_expired_withdrawals() as ids'))[0].ids, [ids[4]]);
+  assert.equal((await system('select count(*)::int as n from auth.users where id = $1', [ids[4]]))[0].n, 0);
+  assert.equal((await system('select count(*)::int as n from profiles where id = $1', [ids[4]]))[0].n, 0);
+  assert.deepEqual(await withdrawn(), [ids[3], ids[5]].sort()); // 나머지는 그대로
+  assert.deepEqual((await system('select purge_expired_withdrawals() as ids'))[0].ids, []); // 다시 불러도 아무 일 없다
 });
 console.log(`\n${count} passed`);
 await db.close?.();

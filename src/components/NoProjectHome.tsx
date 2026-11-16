@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { NewProjectInput, Project } from "../api/types";
 import { recruitPostFromNotice, type BoardInitialState } from "../lib/recruitFromNotice";
 import AdminApplicationNotice from "./AdminApplicationNotice";
@@ -36,6 +37,14 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
   const [joinOpen, setJoinOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
+  // 알림·배너의 "보기"가 /home?tab=board&category=notice 로 보낸다: 게시판의 공지사항 분류를 연다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("tab") !== "board") return;
+    setTab("board");
+    setBoardInitialState({ category: searchParams.get("category") === "notice" ? "notice" : "all" });
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden" style={{ background: "var(--background)" }}>

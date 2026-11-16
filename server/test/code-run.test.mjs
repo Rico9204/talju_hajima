@@ -33,7 +33,7 @@ const envOf = (args, key) => args.find((a) => a.startsWith(`${key}=`))?.slice(ke
 before(async () => {
   let db;
   ({ pg, db } = await createTestDb());
-  ({ app, api } = await startApp(db, { codeRunner: { enabled: true, spawn: fakeSpawn } }));
+  ({ app, api } = await startApp(db, { codeRunner: { enabled: true, spawn: fakeSpawn, runSeconds: 1 } }));
   s = await setupProject(api, pg);
   runs = []; kills = [];
 });
@@ -52,8 +52,8 @@ test('Java 클래스 이름: 공개 클래스, 없으면 main이 있는 클래�
 });
 
 test('컨테이너 실행 옵션: 네트워크 없음·읽기 전용·권한 제거·자원 제한·이미지 내려받기 금지', () => {
-  for (const language of ['c', 'java']) {
-    const args = dockerArgs(language, 'img', 'talju-run-x', 'MARKER', 'Main');
+  for (const language of ['c', 'cpp', 'java']) {
+    const args = dockerArgs(language, 'img', 'talju-run-x', 'MARKER', 'RUNMARK', 'Main');
     const text = args.join(' ');
     for (const must of ['--rm', '--pull never', '--network none', '--read-only', '--cap-drop ALL', '--security-opt no-new-privileges', '--user 65534:65534', '--memory ', '--memory-swap ', '--pids-limit', '--cpus', '--ulimit fsize=']) {
       assert.ok(text.includes(must), `${language}: ${must}`);
@@ -72,10 +72,10 @@ test('인증이 필요하고, 언어·코드 길이를 검증한다', async () =
   assert.equal(runs.length, 0, '검증에 실패하면 컨테이너를 만들지 않는다');
 });
 
-test('상태 조회: 켜져 있으면 C·Java를 알려 준다', async () => {
+test('상태 조회: 켜져 있으면 C·C++·Java를 알려 준다', async () => {
   const res = await call(s.member, 'GET', '/code/status');
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { enabled: true, languages: ['c', 'java'] });
+  assert.deepEqual(res.body, { enabled: true, languages: ['c', 'cpp', 'java'] });
 });
 
 test('정상 실행: 코드는 명령줄이 아니라 표준입력으로만 전달되고, 출력이 돌아온다', async () => {
@@ -110,8 +110,8 @@ test('컴파일 오류: 표시(marker)가 있으면 compileError, 표시는 응�
   assert.equal(forged.body.ok, true);
 });
 
-test('시간·메모리 한도: 종료코드 124·137은 timedOut, 일반 실패는 timedOut이 아니다', async () => {
-  for (const [code, limit] of [[124, true], [137, true], [2, false]]) {
+test('메모리 한도: 종료코드 137은 timedOut, 일반 실패는 timedOut이 아니다', async () => {
+  for (const [code, limit] of [[137, true], [124, false], [2, false]]) {
     behave = (child) => child.finish(code);
     const res = await run(s.member, 'c', 'x');
     assert.equal(res.body.timedOut, limit, `종료코드 ${code}`);
@@ -203,4 +203,29 @@ test('중지(취소) 요청: 실행 중인 내 컨테이너만 종료하고, 아
   // 끝난 뒤에는 바로 다시 실행할 수 있다(동시 실행 제한에 걸리지 않는다)
   behave = (child) => child.finish(0);
   assert.equal((await run(s.member, 'c', 'ok')).status, 200);
+});
+
+test('실행 시간: 컴파일이 끝나 "실행 시작" 표시가 오면 그때부터 재고, 넘으면 컨테이너를 종료한다(컴파일 시간은 포함하지 않는다)', async () => {
+  kills.length = 0;
+  // 1) 실행이 시작됐는데 끝나지 않는다 → 약 1.5초(runSeconds 1초 + 여유) 뒤 강제 종료되고 timedOut
+  behave = (child, args) => { child.stderr.write(`${envOf(args, 'RUNMARK')}\n`); };
+  const started = Date.now();
+  const pending = run(s.member, 'c', 'for(;;){}');
+  await sleep(300);
+  assert.equal(kills.length, 0, '아직 제한 시간 전');
+  await sleep(1500);
+  assert.equal(kills.length, 1, '실행 시간을 넘으면 docker kill');
+  runs.at(-1).child.finish(137);
+  const res = await pending;
+  assert.equal(res.body.timedOut, true);
+  assert.equal(res.body.ok, false);
+  assert.ok(!/[0-9a-f]{32}/.test(res.body.stderr), '표시는 응답에서 지워진다');
+  assert.ok(Date.now() - started < 4000);
+  // 2) 컴파일이 오래 걸려도(표시 전) 실행 시간 제한에 걸리지 않는다
+  kills.length = 0;
+  behave = (child, args) => { setTimeout(() => { child.stderr.write(`${envOf(args, 'RUNMARK')}\n`); child.stdout.write('done\n'); child.finish(0); }, 1800); };
+  const slow = await run(s.leader, 'c', 'slow compile');
+  assert.equal(slow.body.ok, true);
+  assert.equal(slow.body.stdout, 'done\n');
+  assert.equal(kills.length, 0);
 });

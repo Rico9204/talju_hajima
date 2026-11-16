@@ -3,7 +3,7 @@ import { dataRepository } from "../api";
 import type { AccountWithdrawalRecord } from "../api/types";
 
 // 운영자 창의 "계정 탈퇴·복구": 왼쪽은 탈퇴를 신청한 계정, 오른쪽은 복구를 신청한 계정.
-// 탈퇴를 신청해도 14일 동안은 정보를 보관하며, 14일이 지난 계정만 "탈퇴 승인"(정보 삭제)할 수 있다.
+// 이 목록에는 유예 기간(탈퇴 신청 후 14일) 안의 계정만 보인다. 유예 기간이 지나면 서버가 자동으로 삭제하고, "탈퇴 승인"을 누르면 기간이 남아 있어도 바로 삭제한다.
 // 복구를 신청한 계정은 탈퇴 신청 목록에서 빠지고 오른쪽 복구 신청 목록으로 옮겨 간다.
 const DAY_MS = 86_400_000;
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" });
@@ -39,7 +39,7 @@ export default function AdminAccountWithdrawals() {
   }
 
   function approveWithdrawal(rec: AccountWithdrawalRecord) {
-    if (!window.confirm(`‘${rec.displayName || rec.email}’(${rec.email}) 계정의 정보를 삭제할까요?\n\n프로필·로그인 정보·프로필 사진이 지워지고 되돌릴 수 없어요.`)) return;
+    if (!window.confirm(`‘${rec.displayName || rec.email}’(${rec.email}) 계정의 정보를 지금 바로 삭제할까요?\n\n유예 기간이 아직 남아 있어도 바로 지워져요. 프로필·로그인 정보·프로필 사진이 삭제되고 되돌릴 수 없어요.`)) return;
     void act(rec.userId, () => dataRepository.approveAccountWithdrawal(rec.userId), "탈퇴를 승인해 계정 정보를 삭제했어요.");
   }
 
@@ -54,7 +54,7 @@ export default function AdminAccountWithdrawals() {
       <div className="mb-4">
         <div className="text-xs font-600 uppercase tracking-widest mb-1" style={{ ...muted, fontFamily: "var(--font-jetbrains)" }}>운영자</div>
         <h2 className="text-xl font-700">계정 탈퇴·복구 관리</h2>
-        <p className="text-sm mt-1" style={muted}>탈퇴를 신청해도 14일 동안은 계정 정보를 보관해요. 14일이 지난 계정만 승인해서 정보를 삭제할 수 있어요.</p>
+        <p className="text-sm mt-1" style={muted}>탈퇴를 신청한 계정은 유예 기간(14일) 동안 여기에 보이고, 기간이 지나면 자동으로 삭제돼요. ‘탈퇴 승인’을 누르면 기간이 남아 있어도 바로 삭제돼요.</p>
       </div>
 
       {error && <p role="alert" className="mb-3 text-sm text-red-600">{error}</p>}
@@ -72,16 +72,16 @@ export default function AdminAccountWithdrawals() {
                         <div className="text-sm font-700 break-words">{rec.displayName || "(이름 없음)"}</div>
                         <div className="text-xs mt-0.5 break-all" style={muted}>{rec.email}</div>
                       </div>
-                      <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: rec.purgeable ? "#22c55e18" : "var(--muted)", color: rec.purgeable ? "#16a34a" : "var(--muted-foreground)", borderRadius: "20px" }}>
-                        {rec.purgeable ? "삭제 가능" : `보관 중 · ${daysLeft(rec.purgeAt)}일 남음`}
+                      <span className="text-[11px] font-700 px-2 py-0.5 shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
+                        {`유예 중 · ${daysLeft(rec.purgeAt)}일 후 자동 삭제`}
                       </span>
                     </div>
-                    <div className="text-xs mt-2" style={muted}>신청일 {formatDate(rec.requestedAt)} · 삭제 가능일 {formatDate(rec.purgeAt)}</div>
+                    <div className="text-xs mt-2" style={muted}>신청일 {formatDate(rec.requestedAt)} · 자동 삭제일 {formatDate(rec.purgeAt)}</div>
                     <div className="text-xs mt-1 break-words" style={rec.reason ? undefined : muted}>사유: {rec.reason || "입력하지 않음"}</div>
                     {rec.recoveryRejected && <div className="text-[11px] mt-1" style={{ color: "#b45309" }}>복구 신청이 거절된 계정</div>}
-                    <button type="button" onClick={() => approveWithdrawal(rec)} disabled={!rec.purgeable || busyId === rec.userId} title={rec.purgeable ? "계정 정보를 삭제합니다" : "탈퇴 신청 후 14일이 지나야 승인할 수 있어요"}
-                      className="mt-3 text-xs font-700 px-3.5 py-2" style={{ background: rec.purgeable ? "#ef4444" : "var(--border)", color: rec.purgeable ? "#fff" : "var(--muted-foreground)", borderRadius: "40px", opacity: busyId === rec.userId ? 0.6 : 1 }}>
-                      {busyId === rec.userId ? "처리 중…" : "탈퇴 승인 (정보 삭제)"}
+                    <button type="button" onClick={() => approveWithdrawal(rec)} disabled={busyId === rec.userId} title="유예 기간이 남아 있어도 계정 정보를 바로 삭제합니다"
+                      className="mt-3 text-xs font-700 px-3.5 py-2" style={{ background: "#ef4444", color: "#fff", borderRadius: "40px", opacity: busyId === rec.userId ? 0.6 : 1 }}>
+                      {busyId === rec.userId ? "처리 중…" : "탈퇴 승인 (바로 삭제)"}
                     </button>
                   </li>
                 ))}

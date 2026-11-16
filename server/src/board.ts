@@ -5,6 +5,8 @@ import {
 } from "class-validator";
 import sanitizeHtml from "sanitize-html";
 import { AuthGuard, UserId } from "./auth.js";
+import { RealtimeHub } from "./realtime.js";
+import { PushSender } from "./push.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
 import { BOARD_FLAG_TAGS, mapBoardPost, normalizeBoardTags, storedBoardTags } from "./mappers.js";
 
@@ -175,7 +177,7 @@ async function mapReports(query: Query, rows: any[]) {
 @Controller("board")
 @UseGuards(AuthGuard)
 export class BoardController {
-  constructor(private readonly db: Db) {}
+  constructor(private readonly db: Db, private readonly hub: RealtimeHub, private readonly push: PushSender) {}
 
   @Get("posts")
   listPosts(@UserId() userId: string) {
@@ -193,9 +195,10 @@ export class BoardController {
 
   // 글 + (있으면) 투표를 한 트랜잭션으로. 투표를 만들지 못하면 글도 남지 않는다(예전에는 글만 남았다).
   @Post("posts")
-  createPost(@UserId() userId: string, @Body() body: CreatePostDto) {
+  async createPost(@UserId() userId: string, @Body() body: CreatePostDto) {
     const tags = storedBoardTags(normalizeBoardTags(body.tags ?? []), !!body.hideImagePreview);
-    return this.db.asUser(userId, async (query) => {
+    let createdId = 0;
+    const result = await this.db.asUser(userId, async (query) => {
       const [row] = await query<{ id: number }>(
         "insert into public.board_posts(category, title, content, author_user_id, attachments, tags) values ($1, $2, $3, auth.uid(), $4::jsonb, $5::text[]) returning id",
         [body.category, body.title.trim(), sanitizeBoardContent(body.content), JSON.stringify(body.attachments), tags]);
@@ -206,9 +209,18 @@ export class BoardController {
           [row.id, body.poll.question, body.poll.options, body.poll.allowMultiple, body.poll.isAnonymous, body.poll.closesAt || null]);
         poll = await singlePoll(query, Number(pollId), userId);
       }
+      createdId = row.id;
+      // 공지사항: 쓴 사람은 자기 글을 알림으로 또 받을 필요가 없어 읽은 것으로 둔다.
+      if (body.category === "notice") await query("select public.mark_notifications_read(array['board_notice']::text[], array[$1::bigint])", [row.id]);
       const post = await selectOneJson(query, "select * from public.board_posts where id = $1", [row.id]);
       return mapBoardPost(post, (await profilesById(query, [userId])).get(userId), false, poll);
     });
+    // 공지사항은 사용자 전체에게 알린다: 접속 중인 사람에게는 바로(알림 목록·상단 배너), 브라우저를 닫은 사람에게는 웹 푸시(켜져 있으면).
+    if (body.category === "notice") {
+      this.hub.notifyAnnouncementsChanged();
+      void this.push.broadcast({ title: "📋 공지사항", body: body.title.trim().slice(0, 120), url: "/home", tag: `board-notice-${createdId}` });
+    }
+    return result;
   }
 
   @Patch("posts/:postId")
@@ -234,6 +246,7 @@ export class BoardController {
       const sets = [...columns.map((c, i) => `${c} = $${i + 2}${cast[c] ?? ""}`), "updated_at = now()"].join(", ");
       await query(`update public.board_posts set ${sets} where id = $1`, [postId, ...columns.map((c) => updates[c])]);
     });
+    this.hub.notifyAnnouncementsChanged(); // 공지사항을 고치거나(제목·분류) 옮기면 알림 목록도 바뀐다
   }
 
   // 필독 지정·해제: 관리자만, 공지사항 글만(DB 함수가 검사한다).
@@ -247,6 +260,7 @@ export class BoardController {
   @HttpCode(204)
   async deletePost(@UserId() userId: string, @Param("postId", ParseIntPipe) postId: number) {
     await this.db.asUser(userId, (query) => query("delete from public.board_posts where id = $1", [postId]));
+    this.hub.notifyAnnouncementsChanged(); // 지운 공지사항은 알림 목록에서도 사라진다
   }
 
   @Post("posts/:postId/views")

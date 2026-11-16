@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useProject, useProjectManagement } from "../context/ProjectContext";
 import { useAuth } from "../context/AuthContext";
 import CreateProjectModal from "./CreateProjectModal";
@@ -9,8 +9,7 @@ import BoardView from "./BoardView";
 import Achievements from "./Achievements";
 import AllSchedule from "./AllSchedule";
 import AdminApplicationNotice from "./AdminApplicationNotice";
-import AdminOperatorPanel from "./AdminOperatorPanel";
-import AdminAccountWithdrawals from "./AdminAccountWithdrawals";
+import OperatorConsole from "./OperatorConsole";
 import ProfileModal from "./ProfileModal";
 import UserMenu from "./UserMenu";
 import AdminReports from "./AdminReports";
@@ -165,6 +164,14 @@ export default function Home() {
 
   // 공모전 공지에서 '팀원 모집' 클릭 시 게시판으로 전달할 상태
   const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
+  // 알림·배너의 "보기"가 /home?tab=board&category=notice 로 보낸다: 게시판의 공지사항 분류를 연다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("tab") !== "board") return;
+    setActiveTab("board");
+    setBoardInitialState({ category: searchParams.get("category") === "notice" ? "notice" : "all" });
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   function handleRecruitFromNotice(notice: { title: string; link: string; schoolName: string; thumbnail?: string }) {
     setBoardInitialState(recruitPostFromNotice(notice));
@@ -453,10 +460,7 @@ export default function Home() {
         <div className={activeTab === "board" ? "max-w-[1560px] mx-auto w-full transition-all" : activeTab === "campus" ? "max-w-7xl mx-auto w-full transition-all" : "max-w-5xl mx-auto"}>
           <AdminApplicationNotice />
           {activeTab === "operator" && isOperator ? (
-            <>
-              <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
-              <AdminAccountWithdrawals />
-            </>
+            <OperatorConsole onPendingCountChange={setPendingApplications} />
           ) : activeTab === "reports" && isOperator ? (
             <div className="space-y-4">
               <div>

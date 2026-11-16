@@ -1,9 +1,12 @@
 import "reflect-metadata";
 import { Module, ValidationPipe, type DynamicModule, type INestApplication } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { APP_INTERCEPTOR, NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AdminController } from "./admin.js";
-import { AccountController } from "./account.js";
+import { AccountController, WithdrawalPurger } from "./account.js";
+import { NotificationsController } from "./notifications.js";
+import { AuditController } from "./audit.js";
+import { AuditInterceptor, AuditService } from "./auditlog.js";
 import { CodeRunController, CodeRunService, type CodeRunnerSettings } from "./coderun.js";
 import { AnnouncementsController } from "./announcements.js";
 import { WithdrawnAccounts } from "./withdrawn.js";
@@ -51,17 +54,22 @@ export interface AppDeps {
 @Module({})
 class AppModule {
   static register(deps: AppDeps, urls: StorageUrls, tokens: TokenService, hub: RealtimeHub, push: PushSender, office: OnlyofficeService): DynamicModule {
+    const withdrawn = new WithdrawnAccounts(deps.db);
+    const audit = new AuditService(deps.db, new ClientAddress(deps.trustVercelIp)); // 접속·업로드·삭제 감사 기록
     return {
       module: AppModule,
       controllers: [
-        HealthController, AuthController, AccountController, CodeRunController, ProjectsController, AdminController, ChatController, WorkspaceController, AnnouncementsController, TasksController, BoardController, MajorsController, CampusController, PushController, OnlyofficeController,
+        HealthController, AuthController, AccountController, CodeRunController, ProjectsController, AdminController, ChatController, WorkspaceController, AnnouncementsController, NotificationsController, AuditController, TasksController, BoardController, MajorsController, CampusController, PushController, OnlyofficeController,
         StorageController,
       ],
       providers: [
         { provide: Db, useValue: deps.db },
         { provide: TokenService, useValue: tokens },
         { provide: CodeRunService, useValue: new CodeRunService(deps.codeRunner) },
-        { provide: WithdrawnAccounts, useValue: new WithdrawnAccounts(deps.db) },
+        { provide: WithdrawnAccounts, useValue: withdrawn },
+        { provide: AuditService, useValue: audit },
+        { provide: APP_INTERCEPTOR, useValue: new AuditInterceptor(audit) },
+        { provide: WithdrawalPurger, useValue: new WithdrawalPurger(deps.db, deps.store, withdrawn) }, // 유예 기간이 지난 탈퇴 계정 자동 삭제
         { provide: RealtimeHub, useValue: hub }, // app.close() 때 onModuleDestroy로 연결·알림 수신을 정리
         { provide: PushSender, useValue: push },
         { provide: OnlyofficeService, useValue: office },
