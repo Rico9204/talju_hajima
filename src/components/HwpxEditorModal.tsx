@@ -5751,21 +5751,6 @@ function HwpxEditorModalInner({
                               <span>그림</span>
                             </span>
 
-                            {/* 자유 이동 핸들 */}
-                            <div
-                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium"
-                              title="드래그하여 원하는 위치로 자유롭게 이동"
-                            >
-                              <span className="text-xs">✥</span>
-                              <span>이동</span>
-                              {isMoved && (
-                                <span className="text-[9px] text-neutral-400 font-mono">
-                                  ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
-                                </span>
-                              )}
-                            </div>
-
                             {/* 개체 속성 다이얼로그 (P) */}
                             <button
                               type="button"
@@ -5776,26 +5761,6 @@ function HwpxEditorModalInner({
                               <span>⚙</span>
                               <span>속성 (P)</span>
                             </button>
-
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
-
-                            {/* 정렬 버튼 */}
-                            <div className="flex items-center gap-0.5">
-                              {(["left", "center", "right"] as const).map((a) => (
-                                <button
-                                  key={a}
-                                  type="button"
-                                  onClick={() => updateImageBlock(idx, { align: a })}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
-                                    block.align === a || (!block.align && a === "center")
-                                      ? "bg-[#0066cc] text-white font-bold"
-                                      : "hover:bg-neutral-100 text-neutral-700"
-                                  }`}
-                                >
-                                  {a === "left" ? "좌" : a === "center" ? "중" : "우"}
-                                </button>
-                              ))}
-                            </div>
 
                             <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
@@ -5925,21 +5890,6 @@ function HwpxEditorModalInner({
                               </span>
                             </span>
 
-                            {/* 자유 이동 핸들 */}
-                            <div
-                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium"
-                              title="드래그하여 원하는 위치로 자유롭게 이동"
-                            >
-                              <span className="text-xs">✥</span>
-                              <span>이동</span>
-                              {isMoved && (
-                                <span className="text-[9px] text-neutral-400 font-mono">
-                                  ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
-                                </span>
-                              )}
-                            </div>
-
                             {/* 개체 속성 다이얼로그 (P) */}
                             <button
                               type="button"
@@ -6000,26 +5950,6 @@ function HwpxEditorModalInner({
                                   }`}
                                   style={{ background: c.color }}
                                 />
-                              ))}
-                            </div>
-
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
-
-                            {/* 정렬 버튼 */}
-                            <div className="flex items-center gap-0.5">
-                              {(["left", "center", "right"] as const).map((a) => (
-                                <button
-                                  key={a}
-                                  type="button"
-                                  onClick={() => updateShapeBlock(idx, { align: a })}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
-                                    block.align === a || (!block.align && a === "center")
-                                      ? "bg-[#0066cc] text-white font-bold"
-                                      : "hover:bg-neutral-100 text-neutral-700"
-                                  }`}
-                                >
-                                  {a === "left" ? "좌" : a === "center" ? "중" : "우"}
-                                </button>
                               ))}
                             </div>
 
@@ -6145,23 +6075,6 @@ function HwpxEditorModalInner({
                               <EquationIcon className="w-3.5 h-3.5" />
                               <span>수식</span>
                             </span>
-
-                            {/* 자유 이동 핸들 */}
-                            <div
-                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium"
-                              title="드래그하여 원하는 위치로 자유롭게 이동"
-                            >
-                              <span className="text-xs">✥</span>
-                              <span>이동</span>
-                              {isMoved && (
-                                <span className="text-[9px] text-neutral-400 font-mono">
-                                  ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
                             <button
                               type="button"
