@@ -5418,23 +5418,6 @@ function HwpxEditorModalInner({
                         />
                       )}
 
-                      {/* 표 잡고 직접 이동 핸들 바 (표 선택 시 상단 좌측에 노출) */}
-                      {isSelected && (
-                        <div
-                          onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                          className="absolute -top-7 left-0 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold cursor-move shadow-md select-none transition-colors"
-                          title="표를 잡고 원하는 위치로 드래그하여 이동하세요"
-                        >
-                          <span className="text-xs">✥</span>
-                          <span>표 잡고 이동</span>
-                          {isMoved && (
-                            <span className="text-[10px] font-mono text-blue-100 font-normal">
-                              ({currentOffset.x}, {currentOffset.y})
-                            </span>
-                          )}
-                        </div>
-                      )}
-
                       {/* 표 전용 플로팅 리모컨 (표 클릭/선택 시 우측 옆에 플로팅 리모컨 형태로 노출) */}
                       {isSelected && (
                         <div
@@ -5796,26 +5779,6 @@ function HwpxEditorModalInner({
 
                             <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
-                            {/* 크기 버튼 */}
-                            <div className="flex items-center gap-0.5">
-                              {[25, 50, 75, 100].map((w) => (
-                                <button
-                                  key={w}
-                                  type="button"
-                                  onClick={() => updateImageBlock(idx, { widthPercent: w })}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
-                                    block.widthPercent === w || (!block.widthPercent && w === 75)
-                                      ? "bg-[#0066cc] text-white font-bold"
-                                      : "hover:bg-neutral-100 text-neutral-700"
-                                  }`}
-                                >
-                                  {w}%
-                                </button>
-                              ))}
-                            </div>
-
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
-
                             {/* 정렬 버튼 */}
                             <div className="flex items-center gap-0.5">
                               {(["left", "center", "right"] as const).map((a) => (
@@ -6037,26 +6000,6 @@ function HwpxEditorModalInner({
                                   }`}
                                   style={{ background: c.color }}
                                 />
-                              ))}
-                            </div>
-
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
-
-                            {/* 크기 버튼 */}
-                            <div className="flex items-center gap-0.5">
-                              {[25, 50, 75, 100].map((w) => (
-                                <button
-                                  key={w}
-                                  type="button"
-                                  onClick={() => updateShapeBlock(idx, { widthPercent: w })}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
-                                    block.widthPercent === w || (!block.widthPercent && w === 75)
-                                      ? "bg-[#0066cc] text-white font-bold"
-                                      : "hover:bg-neutral-100 text-neutral-700"
-                                  }`}
-                                >
-                                  {w}%
-                                </button>
                               ))}
                             </div>
 
