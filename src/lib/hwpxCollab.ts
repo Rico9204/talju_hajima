@@ -929,13 +929,16 @@ export function serializeBlocksToHwpxPackage(
           const cellParaPr = getParaPrForAlign(cell.align || "center", cell.rawAttrs);
           const tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="1"`;
           const cellParaId = (idx + 1) * 10000 + (rIdx + 1) * 100 + (cIdx + 1);
-          return `        <hp:tc${tcAttrs}>\n          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="${colWidthHw}" textHeight="${rowHeightHw}" hasTextRef="0" hasNumRef="0">\n            <hp:p id="${cellParaId}" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n              <hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run>\n            </hp:p>\n          </hp:subList>\n          <hp:cellAddr colAddr="${cIdx}" rowAddr="${rIdx}"/>\n          <hp:cellSpan colSpan="1" rowSpan="1"/>\n          <hp:cellSz width="${colWidthHw}" height="${rowHeightHw}"/>\n          <hp:cellMargin left="510" right="510" top="141" bottom="141"/>\n        </hp:tc>`;
+          return `        <hp:tc${tcAttrs}>\n          <hp:cellAddr colAddr="${cIdx}" rowAddr="${rIdx}"/>\n          <hp:cellSpan colSpan="1" rowSpan="1"/>\n          <hp:cellSz width="${colWidthHw}" height="${rowHeightHw}"/>\n          <hp:cellMargin left="510" right="510" top="141" bottom="141"/>\n          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="${colWidthHw}" textHeight="${rowHeightHw}" hasTextRef="0" hasNumRef="0">\n            <hp:p id="${cellParaId}" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n              <hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run>\n            </hp:p>\n          </hp:subList>\n        </hp:tc>`;
         }).join("\n");
         return `      <hp:tr>\n${cellsXml}\n      </hp:tr>`;
       }).join("\n");
 
       let tblAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : "";
-      if (!tblAttrs) {
+      if (tblAttrs) {
+        tblAttrs = tblAttrs.replace(/\bpageBreak="([^"]*)"/gi, (_m, val: string) => `pageBreak="${val.toUpperCase()}"`);
+        tblAttrs = tblAttrs.replace(/\brepeatHeader="true"/gi, 'repeatHeader="1"').replace(/\brepeatHeader="false"/gi, 'repeatHeader="0"');
+      } else {
         tblAttrs = ` id="${tblId}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="${rowCount}" colCnt="${colCount}" cellSpacing="0" borderFillIDRef="1" noAdjust="0"`;
       }
 
@@ -1105,6 +1108,21 @@ export function serializeBlocksToHwpxPackage(
       const newAttrs = /\bfontCnt="\d+"/.test(attrs) ? attrs.replace(/\bfontCnt="\d+"/, `fontCnt="${cnt}"`) : `${attrs} fontCnt="${cnt}"`;
       return `<hh:fontface${newAttrs}>${inner}${fontsXml}</hh:fontface>`;
     });
+
+    // 기존 헤더에 7대 언어(FONT_LANGS) 중 누락된 언어가 있다면 자동 보충하여 한컴독스/오피스 폰트 파서 예외 차단
+    const existingLangs = new Set(fontGroups.map((g) => g.lang));
+    const missingLangs = FONT_LANGS.filter((l) => !existingLangs.has(l));
+    if (missingLangs.length > 0) {
+      const hangulGroup = fontGroups.find((g) => g.lang === "HANGUL");
+      const defaultFace = hangulGroup?.faceById.get("0") || "함초롬바탕";
+      const supplementXml = missingLangs.map((l) => `      <hh:fontface lang="${l}" fontCnt="1">\n        <hh:font id="0" face="${escapeXml(defaultFace)}" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n`).join("");
+      headerXml = headerXml.replace(/<\/hh:fontfaces>/, `${supplementXml}    </hh:fontfaces>`);
+      const ffMatch = headerXml.match(/<hh:fontfaces\s+itemCnt="(\d+)"/);
+      if (ffMatch) {
+        const totalFf = parseInt(ffMatch[1], 10) + missingLangs.length;
+        headerXml = headerXml.replace(/<hh:fontfaces\s+itemCnt="\d+"/, `<hh:fontfaces itemCnt="${totalFf}"`);
+      }
+    }
     // 표 및 서식 참조(borderFillIDRef="1", "2")에 필요한 borderFills가 없으면 refList 내에 보정 추가 (DTD 순서 준수: charProperties 앞)
     if (!headerXml.includes("<hh:borderFills")) {
       if (headerXml.includes("<hh:charProperties")) {

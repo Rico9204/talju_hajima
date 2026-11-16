@@ -40,21 +40,97 @@ entries.set(
   <hp:p id="1" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>1. 연구 배경 및 목적: 대학생들의 원활한 한글 문서 협업을 지원합니다.</hp:t></hp:run></hp:p>
   <hp:p id="2" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">
     <hp:run charPrIDRef="0">
-      <hp:tbl id="0" rowCnt="3" colCnt="3" width="10000" pageBreak="cell" repeatHeader="true">
+      <hp:tbl id="0" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="0" rowCnt="3" colCnt="3" cellSpacing="0" borderFillIDRef="1" noAdjust="0">
+        <hp:sz width="42520" widthRelTo="ABSOLUTE" height="8502" heightRelTo="ABSOLUTE" protect="0"/>
+        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>
+        <hp:outMargin left="0" right="0" top="0" bottom="0"/>
+        <hp:inMargin left="510" right="510" top="141" bottom="141"/>
         <hp:tr>
-          <hp:tc name="0_0"><hp:subList id="0"><hp:p id="101" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>구분</hp:t></hp:run></hp:p></hp:subList></hp:tc>
-          <hp:tc name="0_1"><hp:subList id="0"><hp:p id="102" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>담당자</hp:t></hp:run></hp:p></hp:subList></hp:tc>
-          <hp:tc name="0_2"><hp:subList id="0"><hp:p id="103" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>진행 상태</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="0_0">
+            <hp:cellAddr colAddr="0" rowAddr="0"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="101" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>구분</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
+          <hp:tc name="0_1">
+            <hp:cellAddr colAddr="1" rowAddr="0"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="102" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>담당자</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
+          <hp:tc name="0_2">
+            <hp:cellAddr colAddr="2" rowAddr="0"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="103" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>진행 상태</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
         </hp:tr>
         <hp:tr>
-          <hp:tc name="1_0"><hp:subList id="0"><hp:p id="104" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>한글 동시편집 에디터</hp:t></hp:run></hp:p></hp:subList></hp:tc>
-          <hp:tc name="1_1"><hp:subList id="0"><hp:p id="105" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>홍길동</hp:t></hp:run></hp:p></hp:subList></hp:tc>
-          <hp:tc name="1_2"><hp:subList id="0"><hp:p id="106" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>개발 완료 (Yjs CRDT)</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="1_0">
+            <hp:cellAddr colAddr="0" rowAddr="1"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="104" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>한글 동시편집 에디터</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
+          <hp:tc name="1_1">
+            <hp:cellAddr colAddr="1" rowAddr="1"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="105" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>홍길동</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
+          <hp:tc name="1_2">
+            <hp:cellAddr colAddr="2" rowAddr="1"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="106" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>개발 완료 (Yjs CRDT)</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
         </hp:tr>
         <hp:tr>
-          <hp:tc name="2_0"><hp:subList id="0"><hp:p id="107" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>표/수식 무손실 보존</hp:t></hp:run></hp:p></hp:subList></hp:tc>
-          <hp:tc name="2_1"><hp:subList id="0"><hp:p id="108" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>이순신</hp:t></hp:run></hp:p></hp:subList></hp:tc>
-          <hp:tc name="2_2"><hp:subList id="0"><hp:p id="109" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>검증 완료</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+          <hp:tc name="2_0">
+            <hp:cellAddr colAddr="0" rowAddr="2"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="107" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>표/수식 무손실 보존</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
+          <hp:tc name="2_1">
+            <hp:cellAddr colAddr="1" rowAddr="2"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="108" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>이순신</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
+          <hp:tc name="2_2">
+            <hp:cellAddr colAddr="2" rowAddr="2"/>
+            <hp:cellSpan colSpan="1" rowSpan="1"/>
+            <hp:cellSz width="14173" height="2834"/>
+            <hp:cellMargin left="510" right="510" top="141" bottom="141"/>
+            <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="14173" textHeight="2834" hasTextRef="0" hasNumRef="0">
+              <hp:p id="109" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>검증 완료</hp:t></hp:run></hp:p>
+            </hp:subList>
+          </hp:tc>
         </hp:tr>
       </hp:tbl>
     </hp:run>
