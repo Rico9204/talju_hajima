@@ -209,6 +209,66 @@ function setCaretOffset(element: HTMLElement, offset: number) {
   sel.addRange(range);
 }
 
+function getCrossParagraphSelection(): {
+  startIdx: number;
+  startOffset: number;
+  endIdx: number;
+  endOffset: number;
+} | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+
+  const startBlockEl = (
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as HTMLElement)
+      : range.startContainer.parentElement
+  )?.closest("[data-block-idx]");
+
+  const endBlockEl = (
+    range.endContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.endContainer as HTMLElement)
+      : range.endContainer.parentElement
+  )?.closest("[data-block-idx]");
+
+  if (!startBlockEl || !endBlockEl) return null;
+  const rawStartIdx = Number(startBlockEl.getAttribute("data-block-idx"));
+  const rawEndIdx = Number(endBlockEl.getAttribute("data-block-idx"));
+  if (isNaN(rawStartIdx) || isNaN(rawEndIdx) || rawStartIdx === rawEndIdx) return null;
+
+  const startP = startBlockEl.querySelector("p");
+  const endP = endBlockEl.querySelector("p");
+  if (!startP || !endP) return null;
+
+  let startOffset = 0;
+  let endOffset = 0;
+
+  try {
+    const preRangeA = range.cloneRange();
+    preRangeA.selectNodeContents(startP);
+    preRangeA.setEnd(range.startContainer, range.startOffset);
+    startOffset = preRangeA.toString().length;
+  } catch {
+    startOffset = 0;
+  }
+
+  try {
+    const preRangeB = range.cloneRange();
+    preRangeB.selectNodeContents(endP);
+    preRangeB.setEnd(range.endContainer, range.endOffset);
+    endOffset = preRangeB.toString().length;
+  } catch {
+    endOffset = 0;
+  }
+
+  return {
+    startIdx: Math.min(rawStartIdx, rawEndIdx),
+    startOffset: rawStartIdx < rawEndIdx ? startOffset : endOffset,
+    endIdx: Math.max(rawStartIdx, rawEndIdx),
+    endOffset: rawStartIdx < rawEndIdx ? endOffset : startOffset,
+  };
+}
+
 function getCaretClientPosition(): { x: number; y: number } | null {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;
@@ -323,7 +383,6 @@ function ContentEditableParagraph({
   alignClass,
   fontSize,
   showParaMarks,
-  isRangeSelected,
   onSelect,
   onChangeText,
   onSplit,
@@ -333,14 +392,12 @@ function ContentEditableParagraph({
   onIndent,
   onDragStart,
   onDragEnd,
-  onRangeSelectAnchor,
 }: {
   block: HwpxParagraphBlock;
   idx: number;
   alignClass: string;
   fontSize: string;
   showParaMarks: boolean;
-  isRangeSelected?: boolean;
   onSelect: () => void;
   onChangeText: (text: string) => void;
   onSplit: (before: string, after: string) => void;
@@ -350,7 +407,6 @@ function ContentEditableParagraph({
   onIndent: (increase: boolean) => void;
   onDragStart?: (idx: number) => void;
   onDragEnd?: () => void;
-  onRangeSelectAnchor?: (idx: number) => void;
 }) {
   const pRef = useRef<HTMLParagraphElement>(null);
   const isComposingRef = useRef(false);
@@ -359,7 +415,9 @@ function ContentEditableParagraph({
   useLayoutEffect(() => {
     const el = pRef.current;
     if (!el) return;
-    if (document.activeElement === el) return;
+    const sel = window.getSelection();
+    const isFocusedHere = document.activeElement === el || Boolean(sel && sel.anchorNode && el.contains(sel.anchorNode));
+    if (isFocusedHere) return;
     if (!block.text) {
       el.innerHTML = "<br>";
     } else if (el.innerText !== block.text) {
@@ -448,18 +506,11 @@ function ContentEditableParagraph({
   };
 
   return (
-    <div
-      onMouseDown={(e) => {
-        if ((e.target as HTMLElement).closest("button")) return;
-        onRangeSelectAnchor?.(idx);
-      }}
-      className={`w-full group my-0.5 relative transition-colors ${
-        isRangeSelected ? "bg-blue-500/15 ring-1 ring-blue-500/40 rounded px-1 -mx-1" : ""
-      }`}
-    >
+    <div className="w-full group my-0.5 relative">
       {/* 문단 좌측 드래그 핸들 (호버 시 표시, 드래그하여 문단 순서 이동) */}
       <button
         type="button"
+        contentEditable={false}
         draggable={true}
         onDragStart={(e) => {
           e.stopPropagation();
@@ -486,7 +537,6 @@ function ContentEditableParagraph({
 
       <p
         ref={pRef}
-        contentEditable={true}
         suppressContentEditableWarning={true}
         spellCheck={false}
         onFocus={onSelect}
@@ -1236,11 +1286,6 @@ function HwpxEditorModalInner({
     }
   };
 
-  // 문단 간 드래그 선택 (다중 문단 선택 범위)
-  const [selectedBlockRange, setSelectedBlockRange] = useState<{ start: number; end: number } | null>(null);
-  const isMouseSelectingRef = useRef(false);
-  const dragSelectAnchorIdxRef = useRef<number | null>(null);
-
   // 문단 드래그 앤 드롭 순서 이동 상태
   const [draggedBlockIdx, setDraggedBlockIdx] = useState<number | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{ idx: number; pos: "before" | "after" } | null>(null);
@@ -1267,67 +1312,15 @@ function HwpxEditorModalInner({
       yBlocks.insert(targetIndex, [cloned]);
     });
     setSelectedIdx(targetIndex);
-    setSelectedBlockRange(null);
   };
 
-  // 선택된 블록 범위 텍스트 복사
-  const copySelectedRange = () => {
-    if (!selectedBlockRange) return;
-    const { start, end } = selectedBlockRange;
-    const texts: string[] = [];
-    for (let i = start; i <= end; i++) {
-      const b = blocks[i];
-      if (!b) continue;
-      if (b.type === "paragraph") texts.push(b.text || "");
-      else if (b.type === "table") {
-        texts.push(b.rows.map((r) => r.map((c) => c.text).join("\t")).join("\n"));
-      } else if (b.type === "shape") texts.push(b.text || "");
-      else if (b.type === "equation") texts.push(b.script || "");
-    }
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(texts.join("\n")).catch(() => {});
-    }
-  };
-
-  // 선택된 블록 범위 일괄 삭제
-  const deleteSelectedRange = () => {
-    if (!selectedBlockRange) return;
-    const { start, end } = selectedBlockRange;
-    const count = end - start + 1;
-    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-    if (count >= yBlocks.length) {
-      doc.transact(() => {
-        yBlocks.delete(0, yBlocks.length);
-        const newP = new Y.Map<unknown>();
-        newP.set("id", `p_${Date.now()}`);
-        newP.set("type", "paragraph");
-        newP.set("text", new Y.Text(""));
-        newP.set("align", "left");
-        newP.set("sizePt", 10);
-        yBlocks.push([newP]);
-      });
-      setSelectedIdx(0);
-    } else {
-      doc.transact(() => {
-        yBlocks.delete(start, count);
-      });
-      setSelectedIdx(Math.max(0, start - 1));
-    }
-    setSelectedBlockRange(null);
-  };
-
-  // 선택된 블록 범위 잘라내기
-  const cutSelectedRange = () => {
-    copySelectedRange();
-    deleteSelectedRange();
-  };
-
-  // 문단 서식 변경 (폰트, 크기, 굵기, 기울임, 밑줄, 색상, 정렬) - 다중 선택 범위 일괄 지원
+  // 문단 서식 변경 (폰트, 크기, 굵기, 기울임, 밑줄, 색상, 정렬) - 다중 문단 드래그 선택 범위 동시 적용
   const updateParagraphStyle = (index: number, patch: Partial<HwpxParagraphBlock>) => {
+    const crossSel = getCrossParagraphSelection();
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
     const indicesToUpdate: number[] = [];
-    if (selectedBlockRange && index >= selectedBlockRange.start && index <= selectedBlockRange.end) {
-      for (let i = selectedBlockRange.start; i <= selectedBlockRange.end; i++) {
+    if (crossSel && index >= crossSel.startIdx && index <= crossSel.endIdx) {
+      for (let i = crossSel.startIdx; i <= crossSel.endIdx; i++) {
         indicesToUpdate.push(i);
       }
     } else {
@@ -1666,26 +1659,33 @@ function HwpxEditorModalInner({
   // 단축키 (Ctrl+S / Cmd+S: 클라우드 저장, Ctrl+Z: 실행 취소, Ctrl+Y / Ctrl+Shift+Z: 다시 실행, P: 선택된 개체 속성 다이얼로그, Delete/Backspace: 선택된 개체 삭제)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // 다중 문단 드래그 선택 범위 활성화 시 단축키 처리
-      if (selectedBlockRange) {
-        if (e.key === "Escape") {
+      // 다중 문단 드래그 선택 범위 활성화 시 Backspace / Delete 일괄 삭제 처리
+      const crossSel = getCrossParagraphSelection();
+      if (crossSel) {
+        if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && !e.metaKey) {
           e.preventDefault();
-          setSelectedBlockRange(null);
-          return;
-        }
-        if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey && !e.altKey && !e.metaKey) {
-          e.preventDefault();
-          deleteSelectedRange();
-          return;
-        }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-          e.preventDefault();
-          copySelectedRange();
-          return;
-        }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
-          e.preventDefault();
-          cutSelectedRange();
+          const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+          const startBlock = blocks[crossSel.startIdx];
+          const endBlock = blocks[crossSel.endIdx];
+          if (startBlock && endBlock && startBlock.type === "paragraph" && endBlock.type === "paragraph") {
+            const startText = startBlock.text || "";
+            const endText = endBlock.text || "";
+            const mergedText = startText.slice(0, crossSel.startOffset) + endText.slice(crossSel.endOffset);
+            doc.transact(() => {
+              const yStart = yBlocks.get(crossSel.startIdx);
+              if (yStart) {
+                const yText = yStart.get("text") as Y.Text;
+                if (yText) {
+                  yText.delete(0, yText.length);
+                  yText.insert(0, mergedText);
+                }
+              }
+              const deleteCount = crossSel.endIdx - crossSel.startIdx;
+              yBlocks.delete(crossSel.startIdx + 1, deleteCount);
+            });
+            pendingCaretRef.current = { mode: "offset", blockId: startBlock.id, offset: crossSel.startOffset };
+            setSelectedIdx(crossSel.startIdx);
+          }
           return;
         }
       }
@@ -1782,38 +1782,7 @@ function HwpxEditorModalInner({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runSave, blocks, selectedIdx, undoManager, selectedBlockRange]);
-
-  // 마우스 드래그 문단 간 다중 선택 리스너
-  useEffect(() => {
-    const handleWindowMouseMove = (e: MouseEvent) => {
-      if (!isMouseSelectingRef.current || e.buttons !== 1 || dragSelectAnchorIdxRef.current === null) return;
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const blockEl = el?.closest("[data-block-idx]");
-      if (blockEl) {
-        const targetIdx = Number(blockEl.getAttribute("data-block-idx"));
-        if (!isNaN(targetIdx) && targetIdx !== dragSelectAnchorIdxRef.current) {
-          setSelectedBlockRange({
-            start: Math.min(dragSelectAnchorIdxRef.current, targetIdx),
-            end: Math.max(dragSelectAnchorIdxRef.current, targetIdx),
-          });
-          window.getSelection()?.removeAllRanges();
-        }
-      }
-    };
-
-    const handleWindowMouseUp = () => {
-      isMouseSelectingRef.current = false;
-      dragSelectAnchorIdxRef.current = null;
-    };
-
-    window.addEventListener("mousemove", handleWindowMouseMove);
-    window.addEventListener("mouseup", handleWindowMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleWindowMouseMove);
-      window.removeEventListener("mouseup", handleWindowMouseUp);
-    };
-  }, []);
+  }, [runSave, blocks, selectedIdx, undoManager]);
 
   // 컨텍스트 메뉴 닫기 핸들러
   useEffect(() => {
@@ -2188,7 +2157,8 @@ function HwpxEditorModalInner({
   // 부분 색상 적용 (선택 영역이 있으면 부분 적용, 없으면 문단 전체 적용)
   const applyTextColor = (colorValue: string) => {
     restoreSelection();
-    if (selectedBlockRange) {
+    const crossSel = getCrossParagraphSelection();
+    if (crossSel) {
       updateParagraphStyle(selectedIdx, { color: colorValue });
     } else if (hasActiveTextSelection()) {
       document.execCommand("styleWithCSS", false, "true");
@@ -2202,7 +2172,8 @@ function HwpxEditorModalInner({
   // 부분 굵게 적용
   const applyBold = () => {
     restoreSelection();
-    if (selectedBlockRange) {
+    const crossSel = getCrossParagraphSelection();
+    if (crossSel) {
       updateParagraphStyle(selectedIdx, { bold: !currentPara?.bold });
     } else if (hasActiveTextSelection()) {
       document.execCommand("bold", false);
@@ -2215,7 +2186,8 @@ function HwpxEditorModalInner({
   // 부분 기울임 적용
   const applyItalic = () => {
     restoreSelection();
-    if (selectedBlockRange) {
+    const crossSel = getCrossParagraphSelection();
+    if (crossSel) {
       updateParagraphStyle(selectedIdx, { italic: !currentPara?.italic });
     } else if (hasActiveTextSelection()) {
       document.execCommand("italic", false);
@@ -2228,7 +2200,8 @@ function HwpxEditorModalInner({
   // 부분 밑줄 적용
   const applyUnderline = () => {
     restoreSelection();
-    if (selectedBlockRange) {
+    const crossSel = getCrossParagraphSelection();
+    if (crossSel) {
       updateParagraphStyle(selectedIdx, { underline: !currentPara?.underline });
     } else if (hasActiveTextSelection()) {
       document.execCommand("underline", false);
@@ -5505,6 +5478,8 @@ function HwpxEditorModalInner({
         >
           <div
             ref={canvasRef}
+            contentEditable={true}
+            suppressContentEditableWarning={true}
             spellCheck={false}
             onClick={(e) => {
               if (e.target === canvasRef.current && blocks.length > 0) {
@@ -5530,7 +5505,6 @@ function HwpxEditorModalInner({
               let pageCounter = 1;
               return blocks.map((block, idx) => {
                 const isSelected = selectedIdx === idx;
-                const isRangeSelected = selectedBlockRange !== null && idx >= selectedBlockRange.start && idx <= selectedBlockRange.end;
                 const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
                 const handleBlockDragOver = (e: React.DragEvent) => {
@@ -5606,6 +5580,7 @@ function HwpxEditorModalInner({
                       {showPageBreak && (
                         <div
                           data-page-break-line="true"
+                          contentEditable={false}
                           className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none cursor-default"
                         >
                           <div className="h-[1px] flex-1 bg-neutral-300" />
@@ -5622,11 +5597,7 @@ function HwpxEditorModalInner({
                         alignClass={alignClass}
                         fontSize={fontSize}
                         showParaMarks={showParaMarks}
-                        isRangeSelected={isRangeSelected}
-                        onSelect={() => {
-                          setSelectedIdx(idx);
-                          setSelectedBlockRange(null);
-                        }}
+                        onSelect={() => setSelectedIdx(idx)}
                         onChangeText={(newText) => updateParagraph(idx, newText)}
                         onSplit={(before, after) => splitParagraph(idx, before, after)}
                         onMergePrevious={() => mergeParagraphWithPrevious(idx)}
@@ -5637,11 +5608,6 @@ function HwpxEditorModalInner({
                         onDragEnd={() => {
                           setDraggedBlockIdx(null);
                           setDropIndicator(null);
-                        }}
-                        onRangeSelectAnchor={(anchorIdx) => {
-                          dragSelectAnchorIdxRef.current = anchorIdx;
-                          isMouseSelectingRef.current = true;
-                          setSelectedBlockRange(null);
                         }}
                       />
                     </div>
@@ -5679,10 +5645,7 @@ function HwpxEditorModalInner({
                       onDragOver={handleBlockDragOver}
                       onDragLeave={handleBlockDragLeave}
                       onDrop={handleBlockDrop}
-                      onClick={() => {
-                        setSelectedIdx(idx);
-                        setSelectedBlockRange(null);
-                      }}
+                      onClick={() => setSelectedIdx(idx)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -5719,7 +5682,7 @@ function HwpxEditorModalInner({
                       }}
                       className={`hwpx-resizable-box my-6 py-1 relative group/tbl cursor-default select-none ${
                         isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
-                      } ${isRangeSelected ? "ring-2 ring-blue-500/50 bg-blue-50/20 rounded" : ""}`}
+                      }`}
                     >
                       {renderDropIndicator()}
                       {/* 8방향 선택 조절점 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
@@ -6007,10 +5970,7 @@ function HwpxEditorModalInner({
                       onDragOver={handleBlockDragOver}
                       onDragLeave={handleBlockDragLeave}
                       onDrop={handleBlockDrop}
-                      onClick={() => {
-                        setSelectedIdx(idx);
-                        setSelectedBlockRange(null);
-                      }}
+                      onClick={() => setSelectedIdx(idx)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -6026,9 +5986,7 @@ function HwpxEditorModalInner({
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
                       }}
-                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass} ${
-                        isRangeSelected ? "ring-2 ring-blue-500/50 bg-blue-50/20 rounded" : ""
-                      }`}
+                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass}`}
                     >
                       {renderDropIndicator()}
                       {/* 그림 상단 캡션 */}
@@ -6147,10 +6105,7 @@ function HwpxEditorModalInner({
                       onDragOver={handleBlockDragOver}
                       onDragLeave={handleBlockDragLeave}
                       onDrop={handleBlockDrop}
-                      onClick={() => {
-                        setSelectedIdx(idx);
-                        setSelectedBlockRange(null);
-                      }}
+                      onClick={() => setSelectedIdx(idx)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -6166,9 +6121,7 @@ function HwpxEditorModalInner({
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
                       }}
-                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass} ${
-                        isRangeSelected ? "ring-2 ring-blue-500/50 bg-blue-50/20 rounded" : ""
-                      }`}
+                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass}`}
                     >
                       {renderDropIndicator()}
                       {/* 도형 상단 캡션 */}
@@ -6381,18 +6334,13 @@ function HwpxEditorModalInner({
                       onDragOver={handleBlockDragOver}
                       onDragLeave={handleBlockDragLeave}
                       onDrop={handleBlockDrop}
-                      onClick={() => {
-                        setSelectedIdx(idx);
-                        setSelectedBlockRange(null);
-                      }}
+                      onClick={() => setSelectedIdx(idx)}
                       onDoubleClick={() => openEditEquation(idx)}
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
                       }}
-                      className={`my-5 flex flex-col items-center cursor-default select-none relative group/eq ${
-                        isRangeSelected ? "ring-2 ring-blue-500/50 bg-blue-50/20 rounded" : ""
-                      }`}
+                      className="my-5 flex flex-col items-center cursor-default select-none relative group/eq"
                     >
                       {renderDropIndicator()}
                       <div
