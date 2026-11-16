@@ -1,25 +1,29 @@
 // 간단한 코드 실행: 파일을 만들거나 설치하지 않고, 코드를 돌려 출력(stdout·stderr)만 바로 보여 준다.
-// 이 서버나 외부 서비스로 코드를 보내지 않고 "내 브라우저 안"에서 실행한다.
+// JavaScript·Python은 코드를 서버나 외부 서비스로 보내지 않고 "내 브라우저 안"에서 실행한다.
+// C·Java는 브라우저에서 컴파일할 수 없어서 이 앱의 서버(네트워크가 막힌 일회용 Docker 컨테이너)에서 실행한다(server/src/coderun.ts).
 //  - sandbox="allow-scripts" iframe: 고유(opaque) 출처라서 이 사이트의 쿠키·저장소·로그인 정보에 닿을 수 없다.
 //  - 그 안의 Web Worker에서 실행: 무한 루프·시간 초과는 iframe을 통째로 없애 끊는다(화면은 멈추지 않는다).
 //  - JavaScript는 네트워크 API를 막는다. Python(Pyodide, WebAssembly)은 처음 실행할 때만 CDN에서 받아 오므로 네트워크가 필요하다.
-// 지원: JavaScript(.js .mjs .cjs, top-level await 가능, import/export 불가), Python(.py, 표준 라이브러리, 입력은 지원하지 않음).
+// 지원: JavaScript(.js .mjs .cjs, top-level await 가능, import/export 불가), Python(.py, 표준 라이브러리), C(.c), Java(.java). 입력은 지원하지 않음.
 
-export type RunLanguage = "javascript" | "python";
+import { cancelRemoteRun, runRemoteCode } from "../api/rest/codeRun";
+
+export type RunLanguage = "javascript" | "python" | "c" | "java";
+export const isRemoteLanguage = (language: RunLanguage): language is "c" | "java" => language === "c" || language === "java";
 export type RunStream = "stdout" | "stderr";
 
-export const RUN_TIMEOUT_MS: Record<RunLanguage, number> = { javascript: 10_000, python: 20_000 };
+export const RUN_TIMEOUT_MS: Record<RunLanguage, number> = { javascript: 10_000, python: 20_000, c: 10_000, java: 10_000 }; // C·Java는 컴파일을 뺀 프로그램 실행 시간
 const LOAD_TIMEOUT_MS = 90_000; // Pyodide 내려받기
 const MAX_OUTPUT_CHARS = 200_000;
 const PYODIDE_INDEX_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
 
-const RUNNABLE_BY_EXT: Record<string, RunLanguage> = { js: "javascript", mjs: "javascript", cjs: "javascript", py: "python" };
+const RUNNABLE_BY_EXT: Record<string, RunLanguage> = { js: "javascript", mjs: "javascript", cjs: "javascript", py: "python", c: "c", java: "java" };
 export function runnableLanguage(name: string): RunLanguage | null {
   return RUNNABLE_BY_EXT[name.split(".").pop()?.toLowerCase() ?? ""] ?? null;
 }
-export const LANGUAGE_LABEL: Record<RunLanguage, string> = { javascript: "JavaScript", python: "Python" };
+export const LANGUAGE_LABEL: Record<RunLanguage, string> = { javascript: "JavaScript", python: "Python", c: "C", java: "Java" };
 
-export interface RunResult { ok: boolean; timedOut: boolean; cancelled: boolean; durationMs: number }
+export interface RunResult { ok: boolean; timedOut: boolean; cancelled: boolean; durationMs: number; compileError?: boolean }
 export interface RunHandlers {
   onStatus?: (status: "loading" | "running") => void;
   onOutput: (stream: RunStream, text: string) => void;
@@ -140,7 +144,29 @@ function getSandbox(): Sandbox {
 
 let runCounter = 0;
 
+// C·Java: 서버에 보내 컴파일하고 실행한 결과를 한꺼번에 받는다(실행 중 출력은 실시간이 아니다). 중지하면 연결을 끊어 서버가 컨테이너를 종료한다.
+function runRemote(language: "c" | "java", code: string, handlers: RunHandlers): { promise: Promise<RunResult>; cancel: () => void } {
+  const controller = new AbortController();
+  const started = Date.now();
+  handlers.onStatus?.("running");
+  const promise = (async (): Promise<RunResult> => {
+    try {
+      const result = await runRemoteCode(language, code, controller.signal);
+      if (result.stdout) handlers.onOutput("stdout", result.stdout);
+      if (result.stderr) handlers.onOutput("stderr", result.stderr);
+      if (result.truncated) handlers.onOutput("stderr", "\n… 출력이 너무 길어 여기서 줄였어요.\n");
+      return { ok: result.ok, timedOut: result.timedOut, cancelled: false, durationMs: result.durationMs, compileError: result.compileError };
+    } catch (error) {
+      if (controller.signal.aborted) return { ok: false, timedOut: false, cancelled: true, durationMs: Date.now() - started };
+      handlers.onOutput("stderr", (error instanceof Error ? error.message : "실행하지 못했어요.") + "\n");
+      return { ok: false, timedOut: false, cancelled: false, durationMs: Date.now() - started };
+    }
+  })();
+  return { promise, cancel: () => { controller.abort(); void cancelRemoteRun().catch(() => {}); } };
+}
+
 export function runCode(language: RunLanguage, code: string, handlers: RunHandlers): { promise: Promise<RunResult>; cancel: () => void } {
+  if (isRemoteLanguage(language)) return runRemote(language, code, handlers);
   const started = Date.now();
   const id = ++runCounter;
   let finish: (result: Omit<RunResult, "durationMs">) => void = () => {};
