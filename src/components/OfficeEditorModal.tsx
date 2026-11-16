@@ -5,7 +5,7 @@ import { backendOrigin } from "../api/rest/backendUrl";
 import type { CollabEditor, CollabPresence } from "../lib/collab";
 import EditorAvatars from "./EditorAvatars";
 import AddFontModal from "./AddFontModal";
-import { injectAllWebFonts, loadDefaultFontName } from "../lib/editorFonts";
+import { injectAllWebFonts } from "../lib/editorFonts";
 
 // 워드·엑셀·PPT를 앱 안에서 편집(OnlyOffice 문서 서버, Temporary_Merge에서 이식).
 // 편집기 스크립트는 API 서버의 /onlyoffice/ 아래(문서 서버 중계)에서 받고, 설정은 서버가 서명해 준다.
@@ -78,18 +78,9 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
         holder.id = `office-editor-${fileId}-${Date.now()}`;
         container.current.appendChild(holder);
         const reveal = () => { if (!cancelled) setLoading(false); };
-        const defaultFont = loadDefaultFontName();
-        const editorConf = ((config as Record<string, unknown>).editorConfig ?? {}) as Record<string, unknown>;
-        const customization = (editorConf.customization ?? {}) as Record<string, unknown>;
+        // customization.font(name·size)는 무료판에서 쓰면 "유료기능" 팝업이 매번 뜬다(textCustomLoader) → 넘기지 않는다.
         const finalConfig = {
           ...config,
-          editorConfig: {
-            ...editorConf,
-            customization: {
-              ...customization,
-              font: defaultFont ? { name: defaultFont } : customization.font,
-            },
-          },
           width: "100%",
           height: "100%",
           type: "desktop",
