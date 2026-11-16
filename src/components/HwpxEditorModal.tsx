@@ -1,4 +1,4 @@
-import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import * as Y from "yjs";
 
 // React 19와 브라우저 ContentEditable 간의 DOM 불일치로 인한 removeChild / insertBefore NotFoundError 방어 가드
@@ -753,6 +753,36 @@ function HwpxEditorModalInner({
     | { mode: "offset"; blockId: string; offset: number }
     | { mode: "point"; blockId: string; x: number; toEnd: boolean };
   const pendingCaretRef = useRef<PendingCaret | null>(null);
+  const lastDeletedIdxRef = useRef<number | null>(null);
+
+  // Yjs UndoManager로 블록 삽입/삭제/수정 내역을 추적
+  const undoManager = useMemo(() => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    return new Y.UndoManager(yBlocks);
+  }, [doc]);
+
+  useEffect(() => {
+    // 문서 초기 진입 시 로드된 작업은 실행 취소 스택에서 초기화
+    undoManager.clear();
+  }, [undoManager]);
+
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  useEffect(() => {
+    const updateStackState = () => {
+      setCanUndo(undoManager.canUndo());
+      setCanRedo(undoManager.canRedo());
+    };
+    undoManager.on("stack-item-added", updateStackState);
+    undoManager.on("stack-item-popped", updateStackState);
+    undoManager.on("stack-cleared", updateStackState);
+    return () => {
+      undoManager.off("stack-item-added", updateStackState);
+      undoManager.off("stack-item-popped", updateStackState);
+      undoManager.off("stack-cleared", updateStackState);
+    };
+  }, [undoManager]);
 
   // Yjs CRDT 변경 시 로컬 블록 상태 동기화
   useEffect(() => {
@@ -832,7 +862,13 @@ function HwpxEditorModalInner({
   ) => {
     if (e.button !== 0) return;
     const targetEl = e.target as HTMLElement;
-    if (targetEl.tagName === "INPUT" || targetEl.tagName === "TEXTAREA" || targetEl.tagName === "BUTTON") {
+    if (
+      targetEl.tagName === "INPUT" ||
+      targetEl.tagName === "TEXTAREA" ||
+      targetEl.tagName === "BUTTON" ||
+      targetEl.closest("button") ||
+      targetEl.closest(".table-remote-control")
+    ) {
       return;
     }
 
@@ -1300,13 +1336,41 @@ function HwpxEditorModalInner({
     setPropertyTargetIdx(null);
   };
 
-  // 단축키 (Ctrl+S / Cmd+S: 클라우드 저장, P: 선택된 개체 속성 다이얼로그)
+  // 단축키 (Ctrl+S / Cmd+S: 클라우드 저장, Ctrl+Z: 실행 취소, Ctrl+Y / Ctrl+Shift+Z: 다시 실행, P: 선택된 개체 속성 다이얼로그, Delete/Backspace: 선택된 개체 삭제)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void runSave();
         return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        const activeEl = document.activeElement;
+        const isDialogInput =
+          activeEl instanceof HTMLElement &&
+          (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA") &&
+          Boolean(activeEl.closest("[role='dialog']") || activeEl.closest(".modal-backdrop") || activeEl.closest(".fixed"));
+        if (!isDialogInput) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+          return;
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        const activeEl = document.activeElement;
+        const isDialogInput =
+          activeEl instanceof HTMLElement &&
+          (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA") &&
+          Boolean(activeEl.closest("[role='dialog']") || activeEl.closest(".modal-backdrop") || activeEl.closest(".fixed"));
+        if (!isDialogInput) {
+          e.preventDefault();
+          handleRedo();
+          return;
+        }
       }
       if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const activeEl = document.activeElement;
@@ -1320,13 +1384,30 @@ function HwpxEditorModalInner({
           if (blk && (blk.type === "table" || blk.type === "image" || blk.type === "shape")) {
             e.preventDefault();
             openPropertyModal(selectedIdx);
+            return;
+          }
+        }
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const activeEl = document.activeElement;
+        const isEditing = activeEl instanceof HTMLElement && (
+          activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable
+        );
+        if (!isEditing && selectedIdx !== null && selectedIdx >= 0) {
+          const blk = blocks[selectedIdx];
+          if (blk && (blk.type === "table" || blk.type === "image" || blk.type === "shape" || blk.type === "equation")) {
+            e.preventDefault();
+            deleteBlock(selectedIdx);
+            return;
           }
         }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runSave, blocks, selectedIdx]);
+  }, [runSave, blocks, selectedIdx, undoManager]);
 
   // 컨텍스트 메뉴 닫기 핸들러
   useEffect(() => {
@@ -1379,10 +1460,31 @@ function HwpxEditorModalInner({
 
   // 실행 취소 / 다시 실행
   const handleUndo = () => {
-    document.execCommand("undo");
+    const prevLen = doc.getArray("hwpx_blocks").length;
+    if (undoManager.canUndo()) {
+      undoManager.undo();
+      const currentBlocks = extractBlocksFromYDoc(doc);
+      setBlocks(currentBlocks);
+      if (currentBlocks.length > prevLen) {
+        if (lastDeletedIdxRef.current !== null && lastDeletedIdxRef.current < currentBlocks.length) {
+          setSelectedIdx(lastDeletedIdxRef.current);
+          lastDeletedIdxRef.current = null;
+        } else {
+          setSelectedIdx(Math.min(selectedIdx + 1, currentBlocks.length - 1));
+        }
+      }
+    } else {
+      document.execCommand("undo");
+    }
   };
   const handleRedo = () => {
-    document.execCommand("redo");
+    if (undoManager.canRedo()) {
+      undoManager.redo();
+      const currentBlocks = extractBlocksFromYDoc(doc);
+      setBlocks(currentBlocks);
+    } else {
+      document.execCommand("redo");
+    }
   };
 
   // 모두 선택 (Ctrl+A)
@@ -1969,6 +2071,7 @@ function HwpxEditorModalInner({
   const deleteBlock = (index: number) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
     if (yBlocks.length <= 1) return;
+    lastDeletedIdxRef.current = index;
     doc.transact(() => {
       yBlocks.delete(index, 1);
     });
@@ -2187,19 +2290,23 @@ function HwpxEditorModalInner({
                   <button
                     type="button"
                     onClick={handleUndo}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded transition min-w-[44px] cursor-pointer ${
+                      canUndo ? "hover:bg-white hover:shadow-xs text-neutral-800" : "text-neutral-400 hover:bg-neutral-100/50"
+                    }`}
                     title="실행 취소 (Ctrl+Z)"
                   >
-                    <UndoIcon className="w-5 h-5 text-neutral-600" />
+                    <UndoIcon className="w-5 h-5 text-current" />
                     <span className="text-[10px] mt-0.5">되돌리기</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleRedo}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
+                    className={`flex flex-col items-center justify-center px-2 py-1 rounded transition min-w-[44px] cursor-pointer ${
+                      canRedo ? "hover:bg-white hover:shadow-xs text-neutral-800" : "text-neutral-400 hover:bg-neutral-100/50"
+                    }`}
                     title="다시 실행 (Ctrl+Y)"
                   >
-                    <RedoIcon className="w-5 h-5 text-neutral-600" />
+                    <RedoIcon className="w-5 h-5 text-current" />
                     <span className="text-[10px] mt-0.5">다시 실행</span>
                   </button>
                   <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
@@ -2697,7 +2804,9 @@ function HwpxEditorModalInner({
             <button
               type="button"
               onClick={handleUndo}
-              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 transition"
+              className={`w-6 h-6 rounded flex items-center justify-center transition cursor-pointer ${
+                canUndo ? "text-neutral-800 hover:bg-neutral-100" : "text-neutral-300 hover:bg-neutral-50"
+              }`}
               title="실행 취소 (Ctrl+Z)"
             >
               <UndoIcon className="w-3.5 h-3.5" />
@@ -2705,7 +2814,9 @@ function HwpxEditorModalInner({
             <button
               type="button"
               onClick={handleRedo}
-              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 transition"
+              className={`w-6 h-6 rounded flex items-center justify-center transition cursor-pointer ${
+                canRedo ? "text-neutral-800 hover:bg-neutral-100" : "text-neutral-300 hover:bg-neutral-50"
+              }`}
               title="다시 실행 (Ctrl+Y)"
             >
               <RedoIcon className="w-3.5 h-3.5" />
@@ -5087,6 +5198,20 @@ function HwpxEditorModalInner({
                           blockType: "table",
                         });
                       }}
+                      onPointerDown={(e) => {
+                        const targetEl = e.target as HTMLElement | null;
+                        if (!targetEl) return;
+                        if (
+                          targetEl.tagName === "INPUT" ||
+                          targetEl.tagName === "TEXTAREA" ||
+                          targetEl.tagName === "BUTTON" ||
+                          targetEl.closest("button") ||
+                          targetEl.closest(".table-remote-control")
+                        ) {
+                          return;
+                        }
+                        handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y);
+                      }}
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 20 : 1,
@@ -5103,13 +5228,30 @@ function HwpxEditorModalInner({
                       {/* 8방향 선택 조절점 핸들 */}
                       {isSelected && <HwpxSelectionHandles />}
 
+                      {/* 표 잡고 직접 이동 핸들 바 (표 선택 시 상단 좌측에 노출) */}
+                      {isSelected && (
+                        <div
+                          onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                          className="absolute -top-7 left-0 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold cursor-move shadow-md select-none transition-colors"
+                          title="표를 잡고 원하는 위치로 드래그하여 이동하세요"
+                        >
+                          <span className="text-xs">✥</span>
+                          <span>표 잡고 이동</span>
+                          {isMoved && (
+                            <span className="text-[10px] font-mono text-blue-100 font-normal">
+                              ({currentOffset.x}, {currentOffset.y})
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {/* 표 전용 플로팅 리모컨 (표 클릭/선택 시 우측 옆에 플로팅 리모컨 형태로 노출) */}
                       {isSelected && (
                         <div
                           contentEditable={false}
                           onMouseDown={(e) => e.stopPropagation()}
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute top-0 left-[calc(100%+14px)] z-40 flex flex-col gap-1.5 p-2.5 bg-white/95 backdrop-blur-md border border-neutral-300 shadow-2xl rounded-xl text-xs select-none w-38 animate-in fade-in zoom-in-95 duration-150"
+                          className="table-remote-control absolute top-0 left-[calc(100%+14px)] z-40 flex flex-col gap-1.5 p-2.5 bg-white/95 backdrop-blur-md border border-neutral-300 shadow-2xl rounded-xl text-xs select-none w-38 animate-in fade-in zoom-in-95 duration-150"
                           style={{ boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)" }}
                         >
                           {/* 리모컨 상단 타이틀 바 */}
@@ -5134,40 +5276,27 @@ function HwpxEditorModalInner({
                             </button>
                           </div>
 
-                          {/* 위치 및 개체 속성 */}
+                          {/* 개체 속성 및 원위치 */}
                           <div className="flex items-center gap-1">
-                            <div
-                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                              className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded bg-neutral-50 hover:bg-neutral-100 text-neutral-700 cursor-move border border-neutral-200 select-none font-medium text-[10px]"
-                              title="드래그하여 원하는 위치로 자유롭게 이동"
+                            <button
+                              type="button"
+                              onClick={() => openPropertyModal(idx)}
+                              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
+                              title="표/셀 개체 속성 (단축키 P)"
                             >
-                              <span className="text-xs">✥</span>
-                              <span>이동</span>
-                              {isMoved && (
-                                <span className="text-[9px] text-neutral-400 font-mono">
-                                  ({currentOffset.x},{currentOffset.y})
-                                </span>
-                              )}
-                            </div>
+                              <span>⚙</span>
+                              <span>개체 속성 (P)</span>
+                            </button>
                             {isMoved && (
                               <button
                                 type="button"
                                 onClick={() => commitObjectOffset(idx, 0, 0)}
-                                className="px-1.5 py-1 rounded text-[10px] text-blue-600 hover:bg-blue-50 border border-blue-200 font-medium cursor-pointer"
+                                className="px-2 py-1.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 border border-blue-200 font-medium cursor-pointer whitespace-nowrap"
                                 title="원래 위치로 초기화"
                               >
                                 원위치
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => openPropertyModal(idx)}
-                              className="flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
-                              title="표/셀 개체 속성 (단축키 P)"
-                            >
-                              <span>⚙</span>
-                              <span>속성(P)</span>
-                            </button>
                           </div>
 
                           {/* 행 / 열 편집 조작 */}
@@ -5280,14 +5409,14 @@ function HwpxEditorModalInner({
                                         borderRight: `${bWidth} ${bStyle} ${bColor}`,
                                         backgroundColor: cell.bgColor || undefined,
                                       }}
-                                      className="last:border-r-0 min-w-[70px]"
+                                      className="last:border-r-0 min-w-[70px] cursor-move"
                                     >
                                       <input
                                         type="text"
                                         value={cell.text}
                                         onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
                                         onFocus={() => setSelectedIdx(idx)}
-                                        className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs"
+                                        className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs cursor-text"
                                       />
                                     </td>
                                   ))}
