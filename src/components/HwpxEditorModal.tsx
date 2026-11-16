@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import * as Y from "yjs";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
@@ -96,6 +96,295 @@ const FONT_COLORS = [
   { label: "보라", value: "#8b5cf6" },
 ];
 
+function isCaretAtStart(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+  const preRange = range.cloneRange();
+  preRange.selectNodeContents(element);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  return preRange.toString().length === 0;
+}
+
+function isCaretAtEnd(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+  const postRange = range.cloneRange();
+  postRange.selectNodeContents(element);
+  postRange.setStart(range.endContainer, range.endOffset);
+  return postRange.toString().length === 0;
+}
+
+function getSplitText(element: HTMLElement | null): { before: string; after: string } {
+  if (!element) return { before: "", after: "" };
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) {
+    return { before: element.innerText || "", after: "" };
+  }
+  const range = sel.getRangeAt(0);
+  const preRange = range.cloneRange();
+  preRange.selectNodeContents(element);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  const before = preRange.toString().replace(/\r?\n$/, "");
+
+  const postRange = range.cloneRange();
+  postRange.selectNodeContents(element);
+  postRange.setStart(range.endContainer, range.endOffset);
+  const after = postRange.toString().replace(/^\r?\n/, "").replace(/\r?\n$/, "");
+
+  return { before, after };
+}
+
+function setCaretOffset(element: HTMLElement, offset: number) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+
+  if (!element.firstChild || offset === 0) {
+    range.selectNodeContents(element);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return;
+  }
+
+  let charIndex = 0;
+  let targetNode: Node | null = null;
+  let targetOffset = 0;
+
+  function traverse(node: Node): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const textLen = node.nodeValue?.length || 0;
+      if (charIndex + textLen >= offset) {
+        targetNode = node;
+        targetOffset = Math.max(0, offset - charIndex);
+        return true;
+      }
+      charIndex += textLen;
+    } else {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        if (traverse(node.childNodes[i])) return true;
+      }
+    }
+    return false;
+  }
+
+  traverse(element);
+
+  if (targetNode) {
+    range.setStart(targetNode, targetOffset);
+    range.collapse(true);
+  } else {
+    range.selectNodeContents(element);
+    range.collapse(false);
+  }
+
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function ContentEditableParagraph({
+  block,
+  idx,
+  alignClass,
+  fontSize,
+  showParaMarks,
+  onSelect,
+  onChangeText,
+  onSplit,
+  onMergePrevious,
+  onNavigatePrev,
+  onNavigateNext,
+  onIndent,
+}: {
+  block: HwpxParagraphBlock;
+  idx: number;
+  alignClass: string;
+  fontSize: string;
+  showParaMarks: boolean;
+  onSelect: () => void;
+  onChangeText: (text: string) => void;
+  onSplit: (before: string, after: string) => void;
+  onMergePrevious: () => void;
+  onNavigatePrev: () => void;
+  onNavigateNext: () => void;
+  onIndent: (increase: boolean) => void;
+}) {
+  const pRef = useRef<HTMLParagraphElement>(null);
+  const isComposingRef = useRef(false);
+
+  // 외부(Yjs 동기화 또는 서식 변경 등)에서 텍스트가 갱신되었을 때 DOM 동기화
+  useLayoutEffect(() => {
+    const el = pRef.current;
+    if (!el) return;
+    if (document.activeElement === el) return;
+    if (!block.text) {
+      el.innerHTML = "<br>";
+    } else if (el.innerText !== block.text) {
+      el.innerText = block.text;
+    }
+  }, [block.text]);
+
+  const handleInput = () => {
+    const el = pRef.current;
+    if (!el) return;
+    const text = el.innerText || "";
+    const clean = text.endsWith("\n") ? text.slice(0, -1) : text;
+    onChangeText(clean);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLParagraphElement>) => {
+    if (e.key === "Process" || e.nativeEvent.isComposing || isComposingRef.current) {
+      return;
+    }
+
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const el = pRef.current;
+      const { before, after } = getSplitText(el);
+      onSplit(before, after);
+      return;
+    }
+
+    if (e.key === "Backspace") {
+      const el = pRef.current;
+      if (isCaretAtStart(el)) {
+        e.preventDefault();
+        onMergePrevious();
+        return;
+      }
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      onIndent(!e.shiftKey);
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      const el = pRef.current;
+      if (isCaretAtStart(el)) {
+        onNavigatePrev();
+      }
+    }
+
+    if (e.key === "ArrowDown") {
+      const el = pRef.current;
+      if (isCaretAtEnd(el)) {
+        onNavigateNext();
+      }
+    }
+  };
+
+  return (
+    <div className="w-full group my-0.5 relative">
+      <p
+        ref={pRef}
+        contentEditable={true}
+        suppressContentEditableWarning={true}
+        spellCheck={false}
+        onFocus={onSelect}
+        onClick={onSelect}
+        onInput={handleInput}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          isComposingRef.current = false;
+          handleInput();
+        }}
+        onKeyDown={handleKeyDown}
+        className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words cursor-text ${alignClass}`}
+        style={{
+          fontSize,
+          fontWeight: block.bold ? "bold" : "normal",
+          fontStyle: block.italic ? "italic" : "normal",
+          textDecoration: block.underline ? "underline" : "none",
+          color: block.color || "#111827",
+          fontFamily: block.fontFamily || "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
+          lineHeight: 1.65,
+          textJustify: block.align === "justify" ? "auto" : undefined,
+          wordBreak: "break-all",
+        }}
+      />
+      {showParaMarks && (
+        <span
+          contentEditable={false}
+          data-para-mark="true"
+          className="absolute right-0 bottom-0 text-[10px] text-blue-400 select-none pointer-events-none opacity-60"
+        >
+          ↵
+        </span>
+      )}
+    </div>
+  );
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class HwpxEditorErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  override state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+  };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("[HwpxEditor] 에디터 렌더링 오류 감지 및 복구:", error, errorInfo);
+    this.props.onError?.(error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  override render() {
+    if (this.state.hasError) {
+      if (this.props.fallback) return this.props.fallback;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-neutral-300 p-6 max-w-md w-full flex flex-col items-center gap-3.5 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xl font-bold">
+              !
+            </div>
+            <h3 className="text-base font-bold text-neutral-800">에디터 렌더링 중 오류가 발생했습니다</h3>
+            <p className="text-xs text-neutral-600 bg-neutral-100 p-2.5 rounded border border-neutral-200 font-mono text-left w-full break-all max-h-32 overflow-y-auto">
+              {this.state.error?.message}
+            </p>
+            <div className="flex gap-2 w-full pt-2">
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="flex-1 py-2 bg-[#0066cc] text-white text-xs font-semibold rounded hover:bg-[#0055aa] transition cursor-pointer"
+              >
+                에디터 다시 시도
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function HwpxEditorModal({
   projectId,
   file,
@@ -160,20 +449,22 @@ export default function HwpxEditorModal({
   }
 
   return (
-    <HwpxEditorModalInner
-      projectId={projectId}
-      file={file}
-      room={room}
-      mode={mode}
-      zipEntries={zipEntries}
-      originalXml={originalXml}
-      originalHeaderXml={originalHeaderXml}
-      initialBlocks={initialBlocks}
-      presence={presence}
-      editors={editors}
-      save={save}
-      onClose={onClose}
-    />
+    <HwpxEditorErrorBoundary>
+      <HwpxEditorModalInner
+        projectId={projectId}
+        file={file}
+        room={room}
+        mode={mode}
+        zipEntries={zipEntries}
+        originalXml={originalXml}
+        originalHeaderXml={originalHeaderXml}
+        initialBlocks={initialBlocks}
+        presence={presence}
+        editors={editors}
+        save={save}
+        onClose={onClose}
+      />
+    </HwpxEditorErrorBoundary>
   );
 }
 
@@ -314,166 +605,100 @@ function HwpxEditorModalInner({
   const [newShapeWidth, setNewShapeWidth] = useState(75);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const isLocalInputRef = useRef(false);
-  const localInputTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingCaretRef = useRef<{ blockId: string; offset: number } | null>(null);
 
+  // Yjs CRDT 변경 시 로컬 블록 상태 동기화
   useEffect(() => {
     const onUpdate = () => {
-      if (isLocalInputRef.current) return;
       setBlocks(extractBlocksFromYDoc(doc));
     };
     doc.on("update", onUpdate);
     return () => { doc.off("update", onUpdate); };
   }, [doc]);
 
-  // 캔버스 내 커서 위치 변경 시 현재 문단 인덱스 추적
-  const handleCanvasSelection = () => {
-    const sel = window.getSelection();
-    if (!sel || !sel.anchorNode) return;
-    const node = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? (sel.anchorNode as HTMLElement) : sel.anchorNode.parentElement;
-    const p = node?.closest("[data-block-idx]");
-    if (p) {
-      const idxStr = p.getAttribute("data-block-idx");
-      if (idxStr !== null) {
-        const idx = parseInt(idxStr, 10);
-        if (!isNaN(idx) && idx !== selectedIdx) {
-          setSelectedIdx(idx);
-        }
-      }
+  // 블록 추가/삭제/분할 후 지정된 문단 및 오프셋으로 커서 복원
+  useLayoutEffect(() => {
+    if (!pendingCaretRef.current) return;
+    const { blockId, offset } = pendingCaretRef.current;
+    pendingCaretRef.current = null;
+    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${blockId}"] p[contenteditable="true"]`);
+    if (pEl) {
+      pEl.focus();
+      setCaretOffset(pEl, offset);
     }
-  };
+  }, [blocks]);
 
-  // 캔버스 입력 이벤트: 자연스러운 드래그/삭제/입력을 Yjs CRDT에 즉시 동기화
-  const handleCanvasInput = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    isLocalInputRef.current = true;
-    if (localInputTimerRef.current) clearTimeout(localInputTimerRef.current);
-    localInputTimerRef.current = setTimeout(() => {
-      isLocalInputRef.current = false;
-    }, 400);
-
-    const children = Array.from(canvas.children);
-    const newBlocks: HwpxCollabBlock[] = [];
-
-    for (let i = 0; i < children.length; i++) {
-      const el = children[i] as HTMLElement;
-      if (el.getAttribute("data-page-break-line") === "true") continue;
-
-      const blockType = el.getAttribute("data-block-type") || "paragraph";
-      const blockId = el.getAttribute("data-block-id") || `p_${Date.now()}_${i}`;
-
-      if (blockType === "paragraph") {
-        const clone = el.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll("[data-para-mark]").forEach((m) => m.remove());
-        let html = clone.innerHTML;
-        if (html === "<br>" || html === "<br/>") html = "";
-
-        const existing = blocks.find((b) => b.id === blockId);
-        newBlocks.push({
-          type: "paragraph",
-          id: blockId,
-          text: html,
-          align: (existing?.type === "paragraph" ? existing.align : "left") || "left",
-          sizePt: existing?.type === "paragraph" ? existing.sizePt : 10,
-          color: existing?.type === "paragraph" ? existing.color : undefined,
-          bold: existing?.type === "paragraph" ? existing.bold : false,
-          italic: existing?.type === "paragraph" ? existing.italic : false,
-          underline: existing?.type === "paragraph" ? existing.underline : false,
-          fontFamily: existing?.type === "paragraph" ? existing.fontFamily : undefined,
-          pageBreak: existing?.type === "paragraph" ? existing.pageBreak : false,
-        });
-      } else {
-        const existing = blocks.find((b) => b.id === blockId);
-        if (existing) {
-          newBlocks.push(existing);
-        }
-      }
-    }
-
-    if (newBlocks.length === 0) {
-      newBlocks.push({
-        type: "paragraph",
-        id: `p_${Date.now()}`,
-        text: "",
-        align: "left",
-        sizePt: 10,
-      });
-    }
-
+  // 문단 분할 (Enter 키): 커서 위치를 기준으로 문단을 나누어 새 문단 생성
+  const splitParagraph = (index: number, textBefore: string, textAfter: string) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const currentYBlock = yBlocks.get(index);
+    if (!currentYBlock) return;
+
+    const newBlockId = `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newYBlock = new Y.Map<unknown>();
+    newYBlock.set("id", newBlockId);
+    newYBlock.set("type", "paragraph");
+    newYBlock.set("text", new Y.Text(textAfter));
+
+    // 이전 문단의 서식(정렬, 글자 크기, 글꼴 등) 상속
+    const align = currentYBlock.get("align");
+    if (align) newYBlock.set("align", align);
+    const sizePt = currentYBlock.get("sizePt");
+    if (sizePt) newYBlock.set("sizePt", sizePt);
+    const bold = currentYBlock.get("bold");
+    if (bold !== undefined) newYBlock.set("bold", bold);
+    const italic = currentYBlock.get("italic");
+    if (italic !== undefined) newYBlock.set("italic", italic);
+    const underline = currentYBlock.get("underline");
+    if (underline !== undefined) newYBlock.set("underline", underline);
+    const color = currentYBlock.get("color");
+    if (color) newYBlock.set("color", color);
+    const fontFamily = currentYBlock.get("fontFamily");
+    if (fontFamily) newYBlock.set("fontFamily", fontFamily);
+
     doc.transact(() => {
-      if (newBlocks.length === yBlocks.length) {
-        for (let i = 0; i < newBlocks.length; i++) {
-          const nb = newBlocks[i];
-          const yb = yBlocks.get(i);
-          if (nb.type === "paragraph" && yb.get("type") === "paragraph") {
-            const yt = yb.get("text") as Y.Text | undefined;
-            if (yt && yt.toString() !== nb.text) {
-              yt.delete(0, yt.length);
-              yt.insert(0, nb.text);
-            }
-          }
-        }
-      } else {
-        yBlocks.delete(0, yBlocks.length);
-        for (const b of newBlocks) {
-          const yb = new Y.Map<unknown>();
-          yb.set("id", b.id);
-          yb.set("type", b.type);
-          if (b.type === "paragraph") {
-            yb.set("text", new Y.Text(b.text));
-            if (b.align) yb.set("align", b.align);
-            if (b.sizePt) yb.set("sizePt", b.sizePt);
-            if (b.bold !== undefined) yb.set("bold", b.bold);
-            if (b.italic !== undefined) yb.set("italic", b.italic);
-            if (b.underline !== undefined) yb.set("underline", b.underline);
-            if (b.color) yb.set("color", b.color);
-            if (b.fontFamily) yb.set("fontFamily", b.fontFamily);
-            if (b.pageBreak !== undefined) yb.set("pageBreak", b.pageBreak);
-          } else if (b.type === "table") {
-            const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
-            for (const row of b.rows) {
-              const yRow = new Y.Array<Y.Map<unknown>>();
-              for (const cell of row) {
-                const yCell = new Y.Map<unknown>();
-                yCell.set("text", new Y.Text(cell.text));
-                if (cell.bold) yCell.set("bold", cell.bold);
-                if (cell.align) yCell.set("align", cell.align);
-                yRow.push([yCell]);
-              }
-              yRows.push([yRow]);
-            }
-            yb.set("rows", yRows);
-          } else if (b.type === "equation") {
-            yb.set("script", new Y.Text(b.script));
-          } else if (b.type === "shape") {
-            yb.set("shapeType", b.shapeType);
-            yb.set("text", new Y.Text(b.text));
-            yb.set("fillColor", b.fillColor);
-            yb.set("strokeColor", b.strokeColor);
-            yb.set("strokeWidth", b.strokeWidth);
-            yb.set("widthPercent", b.widthPercent);
-            yb.set("heightPt", b.heightPt);
-          } else if (b.type === "image") {
-            yb.set("src", b.src);
-            yb.set("widthPercent", b.widthPercent);
-            yb.set("align", b.align);
-          }
-          yBlocks.push([yb]);
-        }
+      const yText = currentYBlock.get("text") as Y.Text | undefined;
+      if (yText) {
+        yText.delete(0, yText.length);
+        yText.insert(0, textBefore);
       }
+      yBlocks.insert(index + 1, [newYBlock]);
     });
 
-    handleCanvasSelection();
+    pendingCaretRef.current = { blockId: newBlockId, offset: 0 };
+    setSelectedIdx(index + 1);
   };
 
-  const handleCanvasKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      handleIndent(!e.shiftKey);
-      setTimeout(handleCanvasInput, 0);
+  // 문단 병합 (Backspace 키): 커서가 문단 맨 앞일 때 이전 문단 끝에 병합
+  const mergeParagraphWithPrevious = (index: number) => {
+    if (index <= 0) return;
+    const prevBlock = blocks[index - 1];
+    const currBlock = blocks[index];
+    if (!currBlock || currBlock.type !== "paragraph") return;
+
+    if (prevBlock.type === "paragraph") {
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const prevYBlock = yBlocks.get(index - 1);
+      if (!prevYBlock) return;
+      const prevYText = prevYBlock.get("text") as Y.Text | undefined;
+      const prevText = prevYText ? prevYText.toString() : "";
+      const prevTextLen = prevText.length;
+
+      doc.transact(() => {
+        if (prevYText && currBlock.text) {
+          prevYText.insert(prevTextLen, currBlock.text);
+        }
+        yBlocks.delete(index, 1);
+      });
+
+      pendingCaretRef.current = { blockId: prevBlock.id, offset: prevTextLen };
+      setSelectedIdx(index - 1);
+    } else {
+      // 이전 블록이 도형/표/이미지 등인 경우
+      if (!currBlock.text) {
+        deleteBlock(index);
+      }
+      setSelectedIdx(index - 1);
     }
   };
 
@@ -995,8 +1220,9 @@ function HwpxEditorModalInner({
   // 새 문단 추가
   const addParagraph = (afterIdx: number) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const newId = `p_${Date.now()}`;
     const yBlock = new Y.Map<unknown>();
-    yBlock.set("id", `p_${Date.now()}`);
+    yBlock.set("id", newId);
     yBlock.set("type", "paragraph");
     yBlock.set("text", new Y.Text(""));
     yBlock.set("align", "left");
@@ -1004,6 +1230,7 @@ function HwpxEditorModalInner({
     doc.transact(() => {
       yBlocks.insert(afterIdx + 1, [yBlock]);
     });
+    pendingCaretRef.current = { blockId: newId, offset: 0 };
     setSelectedIdx(afterIdx + 1);
   };
 
@@ -3028,16 +3255,32 @@ function HwpxEditorModalInner({
         )}
 
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90">
+        <main
+          className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && blocks.length > 0) {
+              const lastIdx = blocks.length - 1;
+              setSelectedIdx(lastIdx);
+              const lastBlock = blocks[lastIdx];
+              if (lastBlock.type === "paragraph") {
+                pendingCaretRef.current = { blockId: lastBlock.id, offset: lastBlock.text.length };
+              }
+            }
+          }}
+        >
           <div
             ref={canvasRef}
-            contentEditable={true}
-            suppressContentEditableWarning={true}
             spellCheck={false}
-            onInput={handleCanvasInput}
-            onKeyDown={handleCanvasKeyDown}
-            onKeyUp={handleCanvasSelection}
-            onMouseUp={handleCanvasSelection}
+            onClick={(e) => {
+              if (e.target === canvasRef.current && blocks.length > 0) {
+                const lastIdx = blocks.length - 1;
+                setSelectedIdx(lastIdx);
+                const lastBlock = blocks[lastIdx];
+                if (lastBlock.type === "paragraph") {
+                  pendingCaretRef.current = { blockId: lastBlock.id, offset: lastBlock.text.length };
+                }
+              }
+            }}
             className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 transition-transform outline-none cursor-text ${
               showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
             }`}
@@ -3071,12 +3314,10 @@ function HwpxEditorModalInner({
                       data-block-id={block.id}
                       data-block-idx={idx}
                       data-block-type="paragraph"
-                      onClick={() => setSelectedIdx(idx)}
-                      className={`w-full relative transition-all rounded ${isSelected ? "ring-1 ring-blue-400/40 bg-blue-50/20" : ""}`}
+                      className="w-full relative"
                     >
                       {showPageBreak && (
                         <div
-                          contentEditable={false}
                           data-page-break-line="true"
                           className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none cursor-default"
                         >
@@ -3088,32 +3329,36 @@ function HwpxEditorModalInner({
                         </div>
                       )}
 
-                      <div className="w-full group my-0.5 relative">
-                        <p
-                          className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words ${alignClass}`}
-                          style={{
-                            fontSize,
-                            fontWeight: block.bold ? "bold" : "normal",
-                            fontStyle: block.italic ? "italic" : "normal",
-                            textDecoration: block.underline ? "underline" : "none",
-                            color: block.color || "#111827",
-                            fontFamily: block.fontFamily || "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-                            lineHeight: 1.65,
-                            textJustify: block.align === "justify" ? "auto" : undefined,
-                            wordBreak: "break-all",
-                          }}
-                          dangerouslySetInnerHTML={{ __html: block.text || "<br>" }}
-                        />
-                        {showParaMarks && (
-                          <span
-                            contentEditable={false}
-                            data-para-mark="true"
-                            className="absolute right-0 bottom-0 text-[10px] text-blue-400 select-none pointer-events-none opacity-60"
-                          >
-                            ↵
-                          </span>
-                        )}
-                      </div>
+                      <ContentEditableParagraph
+                        block={block}
+                        idx={idx}
+                        alignClass={alignClass}
+                        fontSize={fontSize}
+                        showParaMarks={showParaMarks}
+                        onSelect={() => setSelectedIdx(idx)}
+                        onChangeText={(newText) => updateParagraph(idx, newText)}
+                        onSplit={(before, after) => splitParagraph(idx, before, after)}
+                        onMergePrevious={() => mergeParagraphWithPrevious(idx)}
+                        onNavigatePrev={() => {
+                          if (idx > 0) {
+                            const prev = blocks[idx - 1];
+                            setSelectedIdx(idx - 1);
+                            if (prev.type === "paragraph") {
+                              pendingCaretRef.current = { blockId: prev.id, offset: prev.text.length };
+                            }
+                          }
+                        }}
+                        onNavigateNext={() => {
+                          if (idx < blocks.length - 1) {
+                            const next = blocks[idx + 1];
+                            setSelectedIdx(idx + 1);
+                            if (next.type === "paragraph") {
+                              pendingCaretRef.current = { blockId: next.id, offset: 0 };
+                            }
+                          }
+                        }}
+                        onIndent={(inc) => handleIndent(inc)}
+                      />
                     </div>
                   );
                 }
