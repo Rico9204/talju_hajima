@@ -1,6 +1,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,400&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+KR:wght@300;400;500;700&family=Nanum+Myeongjo:wght@400;700;800&display=swap');
 @import 'tailwindcss';
 
+/* HWPX MathML Equation Typography (Hancom Office style) */
+.hwpx-rendered-equation,
+math.hwpx-rendered-equation,
+.hwpx-rendered-equation-wrapper math {
+  font-family: 'Cambria Math', 'KaTeX_Math', 'STIX Two Math', 'Latin Modern Math', 'Times New Roman', serif;
+  font-size: 1.16em;
+  line-height: 1.4;
+  color: #111827;
+}
+
+math.hwpx-rendered-equation mfrac,
+.hwpx-rendered-equation-wrapper math mfrac {
+  padding: 0 0.12em;
+}
+
+math.hwpx-rendered-equation msqrt,
+.hwpx-rendered-equation-wrapper math msqrt {
+  padding: 0 0.1em;
+}
+
+math.hwpx-rendered-equation mo,
+.hwpx-rendered-equation-wrapper math mo {
+  padding: 0 0.12em;
+}
+
 @keyframes reaction-pop {
   0% { opacity: 0; transform: translateY(8px) scale(0.65); }
   65% { opacity: 1; transform: translateY(-2px) scale(1.08); }

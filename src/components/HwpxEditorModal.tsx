@@ -20,6 +20,13 @@ import {
 } from "../lib/hwpxCollab";
 import { readZipEntries, writeZipEntries } from "../lib/hwpx";
 import {
+  parseHwpEquation,
+  HWPX_EQUATION_TEMPLATES,
+  HWPX_OPERATOR_SYMBOLS,
+  HWPX_GREEK_SYMBOLS,
+} from "../lib/hwpxEquation";
+import { HwpxSelectionHandles, HwpxFloatingToolbar } from "./HwpxObjectHandles";
+import {
   SaveIcon,
   CutIcon,
   CopyIcon,
@@ -302,8 +309,8 @@ function HwpxEditorModalInner({
   const [showShapeModal, setShowShapeModal] = useState(false);
   const [newShapeType, setNewShapeType] = useState<"rect" | "roundRect" | "ellipse" | "line">("rect");
   const [newShapeText, setNewShapeText] = useState("");
-  const [newShapeFill, setNewShapeFill] = useState("#EFF6FF");
-  const [newShapeStroke, setNewShapeStroke] = useState("#2563EB");
+  const [newShapeFill, setNewShapeFill] = useState("#FFFFFF");
+  const [newShapeStroke, setNewShapeStroke] = useState("#1F2937");
   const [newShapeWidth, setNewShapeWidth] = useState(75);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -535,7 +542,34 @@ function HwpxEditorModalInner({
   const [zoomPercent, setZoomPercent] = useState<number>(100);
   const [showSymbolModal, setShowSymbolModal] = useState(false);
   const [showEquationModal, setShowEquationModal] = useState(false);
+  const [editingEquationIdx, setEditingEquationIdx] = useState<number | null>(null);
   const [newEquationScript, setNewEquationScript] = useState("");
+
+  const openNewEquation = () => {
+    setEditingEquationIdx(null);
+    setNewEquationScript("f(x) = {x + 1} over {x - 1}");
+    setShowEquationModal(true);
+  };
+
+  const openEditEquation = (idx: number) => {
+    const block = blocks[idx];
+    if (block && block.type === "equation") {
+      setEditingEquationIdx(idx);
+      setNewEquationScript(block.script || "");
+      setShowEquationModal(true);
+    }
+  };
+
+  const saveEquation = () => {
+    if (editingEquationIdx !== null) {
+      updateEquation(editingEquationIdx, newEquationScript);
+    } else {
+      addEquation(newEquationScript, selectedIdx);
+    }
+    setShowEquationModal(false);
+    setEditingEquationIdx(null);
+    setNewEquationScript("");
+  };
   const [showCharShapeModal, setShowCharShapeModal] = useState(false);
   const [showParaShapeModal, setShowParaShapeModal] = useState(false);
   const [showHighlightPalette, setShowHighlightPalette] = useState(false);
@@ -1547,6 +1581,13 @@ function HwpxEditorModalInner({
               {/* [입력 탭] */}
               {activeTab === "insert" && (
                 <>
+                  <input
+                    type="file"
+                    ref={imageInputRef}
+                    onChange={handleImageFileSelect}
+                    accept="image/*"
+                    className="hidden"
+                  />
                   <button
                     type="button"
                     onClick={() => setShowShapeModal(true)}
@@ -1576,7 +1617,7 @@ function HwpxEditorModalInner({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowEquationModal(true)}
+                    onClick={openNewEquation}
                     className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
                     title="수식 편집기 (Ctrl+N, M)"
                   >
@@ -2281,12 +2322,12 @@ function HwpxEditorModalInner({
               <span className="text-[11px] font-semibold text-neutral-600">색상 스타일:</span>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
+                  { name: "기본 오피스", fill: "#FFFFFF", stroke: "#1F2937" },
+                  { name: "투명 배경", fill: "transparent", stroke: "#1F2937" },
+                  { name: "소프트 그레이", fill: "#F1F5F9", stroke: "#64748B" },
                   { name: "한컴 블루", fill: "#EFF6FF", stroke: "#2563EB" },
                   { name: "앰버 골드", fill: "#FEF3C7", stroke: "#D97706" },
                   { name: "에메랄드", fill: "#DCFCE7", stroke: "#16A34A" },
-                  { name: "소프트 그레이", fill: "#F1F5F9", stroke: "#64748B" },
-                  { name: "클린 화이트", fill: "#FFFFFF", stroke: "#94A3B8" },
-                  { name: "투명 배경", fill: "transparent", stroke: "#2563EB" },
                 ].map((c) => (
                   <button
                     key={c.name}
@@ -2506,42 +2547,125 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* 새 수식 삽입 모달 */}
+        {/* 수식 편집 / 삽입 모달 (한컴오피스 표준 스타일) */}
         {showEquationModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <span>∑</span>
-                <span>새 수식 삽입</span>
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3.5 w-[540px] max-w-[95vw] text-neutral-800">
+            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2.5">
+              <span className="flex items-center gap-1.5 text-sm text-[#0066cc]">
+                <EquationIcon className="w-4 h-4" />
+                <span>{editingEquationIdx !== null ? "수식 편집" : "새 수식 만들기"}</span>
               </span>
-              <button type="button" onClick={() => setShowEquationModal(false)} className="text-neutral-400 hover:text-neutral-700">✕</button>
-            </h4>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] font-medium text-neutral-600">수식 스크립트 (한글 수식 또는 LaTeX 문법):</label>
-              <input
-                type="text"
-                autoFocus
-                value={newEquationScript}
-                onChange={(e) => setNewEquationScript(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addEquation(newEquationScript, selectedIdx)}
-                placeholder="예: f(x) = ax^2 + bx + c"
-                className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc] font-mono"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
               <button
                 type="button"
-                onClick={() => setShowEquationModal(false)}
-                className="px-3 py-1 rounded text-xs text-neutral-600 hover:bg-neutral-100"
+                onClick={() => {
+                  setShowEquationModal(false);
+                  setEditingEquationIdx(null);
+                }}
+                className="text-neutral-400 hover:text-neutral-700 cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            </h4>
+
+            {/* 1. 빠른 수식 템플릿 팔레트 */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-semibold text-neutral-600">수식 템플릿:</span>
+              <div className="flex flex-wrap gap-1">
+                {HWPX_EQUATION_TEMPLATES.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => setNewEquationScript((prev) => (prev ? `${prev} ${item.template}` : item.template))}
+                    className="px-2 py-1 rounded border border-neutral-200 bg-neutral-50 hover:bg-blue-50 hover:border-blue-300 text-xs font-serif text-neutral-800 cursor-pointer transition flex items-center gap-1"
+                    title={`${item.label} (${item.template})`}
+                  >
+                    <span className="font-bold text-[#0066cc]">{item.preview}</span>
+                    <span className="text-[10px] text-neutral-500 font-sans">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. 연산 기호 & 그리스 문자 */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold text-neutral-600">기호 및 그리스 문자:</span>
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1 border border-neutral-200 rounded-md bg-neutral-50/50">
+                {HWPX_OPERATOR_SYMBOLS.slice(0, 16).map((sym) => (
+                  <button
+                    key={sym.script}
+                    type="button"
+                    onClick={() => setNewEquationScript((prev) => (prev ? `${prev} ${sym.script}` : sym.script))}
+                    className="w-7 h-7 flex items-center justify-center rounded border border-neutral-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-xs font-serif text-neutral-800 cursor-pointer transition"
+                    title={`${sym.label} (${sym.script})`}
+                  >
+                    {sym.symbol}
+                  </button>
+                ))}
+                <div className="w-[1px] h-6 bg-neutral-300 my-auto mx-0.5" />
+                {HWPX_GREEK_SYMBOLS.map((sym) => (
+                  <button
+                    key={sym.script}
+                    type="button"
+                    onClick={() => setNewEquationScript((prev) => (prev ? `${prev} ${sym.script}` : sym.script))}
+                    className="w-7 h-7 flex items-center justify-center rounded border border-neutral-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-xs font-serif text-neutral-800 cursor-pointer transition"
+                    title={`${sym.label} (${sym.script})`}
+                  >
+                    {sym.symbol}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. 스크립트 입력창 */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-neutral-600">수식 스크립트 (한글 표준 수식 또는 LaTeX):</label>
+                <span className="text-[10px] text-neutral-400 font-mono">예: f(x) = {"{x+1}"} over {"{x-1}"}</span>
+              </div>
+              <textarea
+                autoFocus
+                rows={2}
+                value={newEquationScript}
+                onChange={(e) => setNewEquationScript(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    saveEquation();
+                  }
+                }}
+                placeholder="수식 스크립트 입력 (예: E = mc^2, sqrt {a^2 + b^2}, {a} over {b})..."
+                className="bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc] font-mono leading-relaxed resize-none"
+              />
+            </div>
+
+            {/* 4. 실시간 수식 렌더링 미리보기 */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold text-neutral-600">실시간 수식 렌더링 미리보기:</span>
+              <div className="min-h-[56px] max-h-36 overflow-auto bg-neutral-50/70 border border-neutral-200 rounded-lg p-3 flex items-center justify-center shadow-inner">
+                <div
+                  dangerouslySetInnerHTML={{ __html: parseHwpEquation(newEquationScript) }}
+                  className="hwpx-rendered-equation-wrapper select-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2.5 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEquationModal(false);
+                  setEditingEquationIdx(null);
+                }}
+                className="px-3.5 py-1.5 rounded text-xs text-neutral-600 hover:bg-neutral-100 cursor-pointer"
               >
                 취소
               </button>
               <button
                 type="button"
-                onClick={() => addEquation(newEquationScript, selectedIdx)}
-                className="px-3 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
+                onClick={saveEquation}
+                className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer shadow-xs"
               >
-                삽입하기
+                {editingEquationIdx !== null ? "수식 변경 완료" : "수식 삽입하기"}
               </button>
             </div>
           </div>
@@ -3094,93 +3218,94 @@ function HwpxEditorModalInner({
                       data-block-type="image"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-6 flex flex-col items-center group/img rounded p-2 transition cursor-default select-none ${
-                        isSelected ? "ring-2 ring-blue-500 bg-blue-50/10" : ""
-                      }`}
+                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass}`}
                     >
-                      {/* 이미지 제어 바 (hover 시 노출) */}
-                      <div className="mb-2 flex items-center justify-between text-[11px] bg-neutral-100 px-3 py-1 rounded-md border border-neutral-300 w-full max-w-lg">
-                        <span className="flex items-center gap-1.5 font-semibold text-neutral-600">
-                          <ImageIcon className="w-4 h-4 text-emerald-600" />
-                          <span>이미지</span>
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { widthPercent: 25 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.widthPercent === 25 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            25%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { widthPercent: 50 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.widthPercent === 50 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            50%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { widthPercent: 75 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.widthPercent === 75 || !block.widthPercent ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            75%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { widthPercent: 100 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.widthPercent === 100 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            100%
-                          </button>
-                          <div className="w-[1px] h-3.5 bg-neutral-300 mx-1" />
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { align: "left" })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.align === "left" ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            좌
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { align: "center" })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.align === "center" || !block.align ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            중
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateImageBlock(idx, { align: "right" })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] ${block.align === "right" ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            우
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteBlock(idx)}
-                            className="px-2 py-0.5 rounded bg-red-100 text-red-700 font-bold ml-1 text-[10px]"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      </div>
+                      <div
+                        className={`relative flex flex-col items-center transition-all ${
+                          isSelected
+                            ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
+                            : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
+                        }`}
+                        style={{ width: widthStyle }}
+                      >
+                        {/* 8방향 선택 핸들 */}
+                        {isSelected && <HwpxSelectionHandles />}
 
-                      <div className={`w-full flex ${alignClass}`}>
+                        {/* 부유 제어 바 (선택 시에만 노출) */}
+                        {isSelected && (
+                          <HwpxFloatingToolbar>
+                            <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
+                              <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>그림</span>
+                            </span>
+
+                            {/* 크기 버튼 */}
+                            <div className="flex items-center gap-0.5">
+                              {[25, 50, 75, 100].map((w) => (
+                                <button
+                                  key={w}
+                                  type="button"
+                                  onClick={() => updateImageBlock(idx, { widthPercent: w })}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
+                                    block.widthPercent === w || (!block.widthPercent && w === 75)
+                                      ? "bg-[#0066cc] text-white font-bold"
+                                      : "hover:bg-neutral-100 text-neutral-700"
+                                  }`}
+                                >
+                                  {w}%
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            {/* 정렬 버튼 */}
+                            <div className="flex items-center gap-0.5">
+                              {(["left", "center", "right"] as const).map((a) => (
+                                <button
+                                  key={a}
+                                  type="button"
+                                  onClick={() => updateImageBlock(idx, { align: a })}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
+                                    block.align === a || (!block.align && a === "center")
+                                      ? "bg-[#0066cc] text-white font-bold"
+                                      : "hover:bg-neutral-100 text-neutral-700"
+                                  }`}
+                                >
+                                  {a === "left" ? "좌" : a === "center" ? "중" : "우"}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            <button
+                              type="button"
+                              onClick={() => deleteBlock(idx)}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                            >
+                              삭제
+                            </button>
+                          </HwpxFloatingToolbar>
+                        )}
+
                         <img
                           src={block.src}
-                          alt={block.caption || "이미지"}
-                          className="rounded border border-neutral-300 shadow-sm max-h-[500px] object-contain"
-                          style={{ width: widthStyle }}
+                          alt={block.caption || "그림"}
+                          className="w-full h-auto object-contain max-h-[600px] block select-none pointer-events-none"
                         />
                       </div>
 
-                      <input
-                        type="text"
-                        value={block.caption || ""}
-                        onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
-                        placeholder="그림 캡션 입력..."
-                        className="mt-2 text-center text-xs text-neutral-600 bg-transparent border-b border-transparent focus:border-neutral-400 outline-none w-1/2 font-sans"
-                      />
+                      {/* 캡션: 문서 스타일 정돈된 캡션 */}
+                      <div className="mt-2 text-center text-xs text-neutral-700 font-sans w-full max-w-lg">
+                        <input
+                          type="text"
+                          value={block.caption || ""}
+                          onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
+                          placeholder="[그림 설명(캡션) 입력...]"
+                          className="text-center text-xs text-neutral-700 placeholder:text-neutral-400 bg-transparent border-b border-transparent hover:border-neutral-300 focus:border-[#0066cc] outline-none px-2 py-0.5 w-auto min-w-[120px] max-w-full font-sans transition-colors"
+                        />
+                      </div>
                     </div>
                   );
                 }
@@ -3189,7 +3314,10 @@ function HwpxEditorModalInner({
                   const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
                   const widthStyle = `${block.widthPercent || 75}%`;
                   const isLine = block.shapeType === "line";
-                  const borderRadius = block.shapeType === "roundRect" ? "12px" : block.shapeType === "ellipse" ? "9999px" : "2px";
+                  const borderRadius = block.shapeType === "roundRect" ? "8px" : block.shapeType === "ellipse" ? "9999px" : "0px";
+                  const fillColor = block.fillColor === "transparent" ? "transparent" : (block.fillColor || "#FFFFFF");
+                  const strokeColor = block.strokeColor || "#1F2937";
+                  const strokeWidth = block.strokeWidth || 1.5;
 
                   return (
                     <div
@@ -3199,120 +3327,167 @@ function HwpxEditorModalInner({
                       data-block-type="shape"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-5 flex flex-col items-center group/shape rounded p-2 transition cursor-default select-none ${
-                        isSelected ? "ring-2 ring-blue-500 bg-blue-50/10" : ""
-                      }`}
+                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass}`}
                     >
-                      {/* 도형 제어 바 (hover 시 또는 선택 시 노출) */}
-                      <div className="mb-2 flex items-center justify-between text-[11px] bg-neutral-100 px-3 py-1 rounded-md border border-neutral-300 w-full max-w-lg">
-                        <span className="flex items-center gap-1.5 font-semibold text-neutral-600">
-                          <ShapesIcon className="w-4 h-4 text-[#0066cc]" />
-                          <span>
-                            {block.shapeType === "rect"
-                              ? "직사각형"
-                              : block.shapeType === "roundRect"
-                              ? "둥근 사각형"
-                              : block.shapeType === "ellipse"
-                              ? "타원"
-                              : "가로선"}
-                          </span>
-                        </span>
+                      <div
+                        className={`relative flex flex-col items-center transition-all ${
+                          isSelected
+                            ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
+                            : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
+                        }`}
+                        style={{ width: widthStyle }}
+                      >
+                        {/* 8방향 선택 핸들 */}
+                        {isSelected && <HwpxSelectionHandles />}
 
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { widthPercent: 25 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 25 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            25%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { widthPercent: 50 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 50 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            50%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { widthPercent: 75 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 75 || !block.widthPercent ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            75%
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { widthPercent: 100 })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.widthPercent === 100 ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            100%
-                          </button>
+                        {/* 부유 제어 바 (선택 시에만 노출) */}
+                        {isSelected && (
+                          <HwpxFloatingToolbar>
+                            <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
+                              <ShapesIcon className="w-3.5 h-3.5" />
+                              <span>
+                                {block.shapeType === "rect"
+                                  ? "직사각형"
+                                  : block.shapeType === "roundRect"
+                                  ? "둥근 사각형"
+                                  : block.shapeType === "ellipse"
+                                  ? "타원"
+                                  : "가로선"}
+                              </span>
+                            </span>
 
-                          <div className="w-[1px] h-3.5 bg-neutral-300 mx-1" />
+                            {/* 면 채우기 (선이 아닐 때) */}
+                            {!isLine && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-neutral-500">채우기:</span>
+                                {[
+                                  { name: "투명", color: "transparent" },
+                                  { name: "흰색", color: "#FFFFFF" },
+                                  { name: "연회색", color: "#F1F5F9" },
+                                  { name: "연파랑", color: "#EFF6FF" },
+                                  { name: "연노랑", color: "#FEF3C7" },
+                                  { name: "연초록", color: "#DCFCE7" },
+                                ].map((c) => (
+                                  <button
+                                    key={c.name}
+                                    type="button"
+                                    title={c.name}
+                                    onClick={() => updateShapeBlock(idx, { fillColor: c.color })}
+                                    className={`w-3.5 h-3.5 rounded-full border border-neutral-400 cursor-pointer ${
+                                      fillColor === c.color ? "ring-2 ring-[#0066cc] scale-110" : "hover:scale-105"
+                                    }`}
+                                    style={{ background: c.color === "transparent" ? "linear-gradient(45deg, #fff 40%, #ef4444 40%, #ef4444 60%, #fff 60%)" : c.color }}
+                                  />
+                                ))}
+                              </div>
+                            )}
 
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { align: "left" })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.align === "left" ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            좌
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { align: "center" })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.align === "center" || !block.align ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            중
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateShapeBlock(idx, { align: "right" })}
-                            className={`px-1.5 py-0.5 rounded border text-[10px] cursor-pointer ${block.align === "right" ? "bg-blue-600 text-white" : "bg-white text-neutral-700"}`}
-                          >
-                            우
-                          </button>
+                            {!isLine && <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />}
 
-                          <button
-                            type="button"
-                            onClick={() => deleteBlock(idx)}
-                            className="px-2 py-0.5 rounded bg-red-100 text-red-700 font-bold ml-1 text-[10px] cursor-pointer hover:bg-red-200"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      </div>
+                            {/* 선 색상 */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-neutral-500">선:</span>
+                              {[
+                                { name: "검정", color: "#1F2937" },
+                                { name: "회색", color: "#94A3B8" },
+                                { name: "파랑", color: "#2563EB" },
+                                { name: "빨강", color: "#DC2626" },
+                              ].map((c) => (
+                                <button
+                                  key={c.name}
+                                  type="button"
+                                  title={c.name}
+                                  onClick={() => updateShapeBlock(idx, { strokeColor: c.color })}
+                                  className={`w-3.5 h-3.5 rounded-full border border-neutral-400 cursor-pointer ${
+                                    strokeColor === c.color ? "ring-2 ring-[#0066cc] scale-110" : "hover:scale-105"
+                                  }`}
+                                  style={{ background: c.color }}
+                                />
+                              ))}
+                            </div>
 
-                      {/* 도형 시각 표현 */}
-                      <div className={`w-full flex ${alignClass}`}>
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            {/* 크기 버튼 */}
+                            <div className="flex items-center gap-0.5">
+                              {[25, 50, 75, 100].map((w) => (
+                                <button
+                                  key={w}
+                                  type="button"
+                                  onClick={() => updateShapeBlock(idx, { widthPercent: w })}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
+                                    block.widthPercent === w || (!block.widthPercent && w === 75)
+                                      ? "bg-[#0066cc] text-white font-bold"
+                                      : "hover:bg-neutral-100 text-neutral-700"
+                                  }`}
+                                >
+                                  {w}%
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            {/* 정렬 버튼 */}
+                            <div className="flex items-center gap-0.5">
+                              {(["left", "center", "right"] as const).map((a) => (
+                                <button
+                                  key={a}
+                                  type="button"
+                                  onClick={() => updateShapeBlock(idx, { align: a })}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
+                                    block.align === a || (!block.align && a === "center")
+                                      ? "bg-[#0066cc] text-white font-bold"
+                                      : "hover:bg-neutral-100 text-neutral-700"
+                                  }`}
+                                >
+                                  {a === "left" ? "좌" : a === "center" ? "중" : "우"}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            <button
+                              type="button"
+                              onClick={() => deleteBlock(idx)}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                            >
+                              삭제
+                            </button>
+                          </HwpxFloatingToolbar>
+                        )}
+
+                        {/* 도형 렌더링 */}
                         {isLine ? (
                           <div
                             style={{
-                              width: widthStyle,
-                              height: `${Math.max(1, block.strokeWidth || 2)}px`,
-                              backgroundColor: block.strokeColor || "#2563EB",
+                              width: "100%",
+                              height: `${Math.max(1, strokeWidth)}px`,
+                              backgroundColor: strokeColor,
                             }}
                             className="my-3 transition-all"
                           />
                         ) : (
                           <div
                             style={{
-                              width: widthStyle,
+                              width: "100%",
                               minHeight: `${block.heightPt || 60}px`,
-                              backgroundColor: block.fillColor === "transparent" ? "transparent" : block.fillColor || "#EFF6FF",
-                              borderColor: block.strokeColor || "#2563EB",
-                              borderWidth: `${block.strokeWidth || 1.5}px`,
+                              backgroundColor: fillColor,
+                              borderColor: strokeColor,
+                              borderWidth: `${strokeWidth}px`,
                               borderStyle: "solid",
                               borderRadius,
                             }}
-                            className="p-3 shadow-xs flex items-center justify-center transition-all"
+                            className="p-3 flex items-center justify-center transition-all relative overflow-hidden"
                           >
-                            <input
-                              type="text"
+                            <textarea
                               value={block.text || ""}
                               onChange={(e) => updateShapeBlock(idx, { text: e.target.value })}
                               onFocus={() => setSelectedIdx(idx)}
                               placeholder="도형 안 글상자 텍스트 입력..."
-                              className="w-full bg-transparent border-none outline-none text-center text-xs text-neutral-900 font-sans"
+                              rows={Math.max(1, (block.text || "").split("\n").length)}
+                              className="w-full bg-transparent border-none outline-none text-center text-xs text-neutral-900 resize-none font-sans leading-relaxed"
                             />
                           </div>
                         )}
@@ -3322,6 +3497,8 @@ function HwpxEditorModalInner({
                 }
 
                 if (block.type === "equation") {
+                  const mathML = parseHwpEquation(block.script || "");
+
                   return (
                     <div
                       key={block.id}
@@ -3330,27 +3507,54 @@ function HwpxEditorModalInner({
                       data-block-type="equation"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-4 p-2.5 rounded border border-neutral-300 bg-neutral-50 flex items-center gap-3 cursor-default select-none ${
-                        isSelected ? "ring-1 ring-blue-500" : ""
-                      }`}
+                      onDoubleClick={() => openEditEquation(idx)}
+                      className="my-5 flex flex-col items-center cursor-default select-none relative group/eq"
                     >
-                      <span className="text-xs font-bold text-neutral-500 select-none">∑ 수식</span>
-                      <input
-                        type="text"
-                        value={block.script}
-                        onChange={(e) => updateEquation(idx, e.target.value)}
-                        onFocus={() => setSelectedIdx(idx)}
-                        className="flex-1 bg-white border border-neutral-300 rounded px-2 py-1 text-xs text-neutral-800 outline-none focus:border-blue-500 font-mono"
-                        placeholder="수식 스크립트..."
-                      />
-                      <button
-                        type="button"
-                        onClick={() => deleteBlock(idx)}
-                        className="text-red-500 hover:text-red-700 text-xs px-1"
-                        title="수식 삭제"
+                      <div
+                        className={`relative inline-flex items-center justify-center px-4 py-2 rounded-xs transition-all ${
+                          isSelected
+                            ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-2 bg-blue-50/20"
+                            : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
+                        }`}
                       >
-                        ✕
-                      </button>
+                        {/* 8방향 선택 핸들 */}
+                        {isSelected && <HwpxSelectionHandles />}
+
+                        {/* 부유 제어 바 (선택 시에만 노출) */}
+                        {isSelected && (
+                          <HwpxFloatingToolbar>
+                            <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
+                              <EquationIcon className="w-3.5 h-3.5" />
+                              <span>수식</span>
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={() => openEditEquation(idx)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 cursor-pointer"
+                            >
+                              <span>✏️</span>
+                              <span>수식 편집</span>
+                            </button>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            <button
+                              type="button"
+                              onClick={() => deleteBlock(idx)}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                            >
+                              삭제
+                            </button>
+                          </HwpxFloatingToolbar>
+                        )}
+
+                        {/* 미려한 한글 MathML 수식 렌더링 */}
+                        <div
+                          dangerouslySetInnerHTML={{ __html: mathML }}
+                          className="hwpx-rendered-equation-wrapper py-1 px-2 pointer-events-none select-none"
+                        />
+                      </div>
                     </div>
                   );
                 }
