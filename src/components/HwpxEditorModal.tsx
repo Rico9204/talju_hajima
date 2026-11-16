@@ -1158,6 +1158,17 @@ function HwpxEditorModalInner({
     });
   };
 
+  // 자동 캡션 번호 생성기 ([표 1], [그림 1], [도형 1])
+  const getAutoCaptionText = (blockIdx: number, type: "table" | "image" | "shape") => {
+    let count = 1;
+    for (let i = 0; i < blockIdx; i++) {
+      if (blocks[i]?.type === type) count++;
+    }
+    if (type === "table") return `표 ${count}`;
+    if (type === "image") return `그림 ${count}`;
+    return `도형 ${count}`;
+  };
+
   const openPropertyModal = (idx: number) => {
     const block = blocks[idx];
     if (!block || (block.type !== "table" && block.type !== "image" && block.type !== "shape")) return;
@@ -1181,7 +1192,7 @@ function HwpxEditorModalInner({
     setPropMarginBottomMm(block.marginBottomMm ?? 0.0);
 
     // 캡션
-    setPropCaption(block.caption ?? "");
+    setPropCaption(block.caption !== undefined && block.caption !== "" ? block.caption : getAutoCaptionText(idx, block.type));
     setPropCaptionPos(block.captionPos ?? "bottom_center");
 
     if (block.type === "table") {
@@ -1248,8 +1259,13 @@ function HwpxEditorModalInner({
       yBlock.set("marginRightMm", propMarginRightMm);
       yBlock.set("marginTopMm", propMarginTopMm);
       yBlock.set("marginBottomMm", propMarginBottomMm);
-      yBlock.set("caption", propCaption);
-      yBlock.set("captionPos", propCaptionPos);
+      if (propCaptionPos === "none" || !propCaption.trim()) {
+        yBlock.delete("caption");
+        yBlock.set("captionPos", "none");
+      } else {
+        yBlock.set("caption", propCaption.trim());
+        yBlock.set("captionPos", propCaptionPos);
+      }
 
       // 테두리
       yBlock.set("borderColor", propBorderColor);
@@ -3773,7 +3789,7 @@ function HwpxEditorModalInner({
         {/* ── 한컴오피스 / 한컴독스 표준 개체 우클릭 컨텍스트 메뉴 (첨부 1번 이미지 100% 매칭) ── */}
         {contextMenu && (() => {
           const targetBlock = blocks[contextMenu.blockIdx];
-          const hasCaption = !!(targetBlock && "caption" in targetBlock && targetBlock.caption);
+          const hasCaption = !!(targetBlock && "caption" in targetBlock && targetBlock.caption && targetBlock.captionPos !== "none");
           const isShape = targetBlock?.type === "shape";
           const shapeHasText = isShape && !!((targetBlock as HwpxShapeBlock).text);
 
@@ -3908,8 +3924,18 @@ function HwpxEditorModalInner({
               <button
                 type="button"
                 onClick={() => {
-                  openPropertyModal(contextMenu.blockIdx);
-                  setPropActiveTab("margin");
+                  const autoText = getAutoCaptionText(contextMenu.blockIdx, contextMenu.blockType);
+                  const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                  const yBlock = yBlocks.get(contextMenu.blockIdx);
+                  if (yBlock) {
+                    doc.transact(() => {
+                      const existingCap = targetBlock && "caption" in targetBlock ? targetBlock.caption : "";
+                      const nextCap = existingCap && existingCap.trim() ? existingCap : autoText;
+                      yBlock.set("caption", nextCap);
+                      const currentPos = targetBlock && "captionPos" in targetBlock ? targetBlock.captionPos : "";
+                      yBlock.set("captionPos", currentPos && currentPos !== "none" ? currentPos : "bottom_center");
+                    });
+                  }
                   setContextMenu(null);
                 }}
                 className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
@@ -3932,7 +3958,7 @@ function HwpxEditorModalInner({
                     if (yBlock) {
                       doc.transact(() => {
                         yBlock.delete("caption");
-                        yBlock.delete("captionPos");
+                        yBlock.set("captionPos", "none");
                       });
                     }
                   }
@@ -5028,9 +5054,10 @@ function HwpxEditorModalInner({
                   const padRight = block.cellPaddingRightMm !== undefined ? `${block.cellPaddingRightMm * 3.78}px` : "6.8px";
                   const hasCellSpacing = !!(block.cellSpacingEnabled && (block.cellSpacingMm || 0) > 0);
                   const cellSpacingPx = hasCellSpacing && block.cellSpacingMm ? `${block.cellSpacingMm * 3.78}px` : "0px";
-                  const isCaptionTop = block.caption && block.captionPos?.startsWith("top");
-                  const isCaptionBottom = block.caption && !isCaptionTop;
-                  const captionAlignClass = block.captionPos?.includes("left") ? "text-left" : block.captionPos?.includes("right") ? "text-right" : "text-center";
+                  const hasTableCaption = block.caption !== undefined && block.caption !== null && block.caption !== "" && block.captionPos !== "none";
+                  const isCaptionTop = hasTableCaption && block.captionPos?.startsWith("top");
+                  const isCaptionBottom = hasTableCaption && !isCaptionTop;
+                  const captionAlignClass = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
 
                   return (
                     <div
@@ -5150,8 +5177,21 @@ function HwpxEditorModalInner({
 
                       {/* 상단 캡션 */}
                       {isCaptionTop && (
-                        <div className={`mb-1.5 text-xs text-neutral-700 font-medium ${captionAlignClass}`}>
-                          <span>{block.caption}</span>
+                        <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${captionAlignClass}`}>
+                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                            <input
+                              type="text"
+                              value={block.caption || ""}
+                              onChange={(e) => {
+                                const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                                const yBlock = yBlocks.get(idx);
+                                if (yBlock) yBlock.set("caption", e.target.value);
+                              }}
+                              placeholder="[표 캡션 입력...]"
+                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                            />
+                          </div>
                         </div>
                       )}
 
@@ -5205,8 +5245,21 @@ function HwpxEditorModalInner({
 
                       {/* 하단 캡션 */}
                       {isCaptionBottom && (
-                        <div className={`mt-1.5 text-xs text-neutral-700 font-medium ${captionAlignClass}`}>
-                          <span>{block.caption}</span>
+                        <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${captionAlignClass}`}>
+                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                            <input
+                              type="text"
+                              value={block.caption || ""}
+                              onChange={(e) => {
+                                const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                                const yBlock = yBlocks.get(idx);
+                                if (yBlock) yBlock.set("caption", e.target.value);
+                              }}
+                              placeholder="[표 캡션 입력...]"
+                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -5218,6 +5271,10 @@ function HwpxEditorModalInner({
                   const widthStyle = `${block.widthPercent || 75}%`;
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+                  const hasImageCaption = block.caption !== undefined && block.caption !== null && block.caption !== "" && block.captionPos !== "none";
+                  const isImageCaptionTop = hasImageCaption && block.captionPos?.startsWith("top");
+                  const isImageCaptionBottom = hasImageCaption && !isImageCaptionTop;
+                  const imageCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
 
                   return (
                     <div
@@ -5244,6 +5301,22 @@ function HwpxEditorModalInner({
                       }}
                       className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass}`}
                     >
+                      {/* 그림 상단 캡션 */}
+                      {isImageCaptionTop && (
+                        <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${imageCaptionAlign}`} style={{ width: widthStyle }}>
+                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                            <input
+                              type="text"
+                              value={block.caption || ""}
+                              onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
+                              placeholder="[그림 캡션 입력...]"
+                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       <div
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
                         className={`relative flex flex-col items-center transition-all cursor-move ${
@@ -5360,16 +5433,21 @@ function HwpxEditorModalInner({
                         />
                       </div>
 
-                      {/* 캡션: 문서 스타일 정돈된 캡션 */}
-                      <div className="mt-2 text-center text-xs text-neutral-700 font-sans w-full max-w-lg">
-                        <input
-                          type="text"
-                          value={block.caption || ""}
-                          onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
-                          placeholder="[그림 설명(캡션) 입력...]"
-                          className="text-center text-xs text-neutral-700 placeholder:text-neutral-400 bg-transparent border-b border-transparent hover:border-neutral-300 focus:border-[#0066cc] outline-none px-2 py-0.5 w-auto min-w-[120px] max-w-full font-sans transition-colors"
-                        />
-                      </div>
+                      {/* 그림 하단 캡션 */}
+                      {isImageCaptionBottom && (
+                        <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${imageCaptionAlign}`} style={{ width: widthStyle }}>
+                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                            <input
+                              type="text"
+                              value={block.caption || ""}
+                              onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
+                              placeholder="[그림 캡션 입력...]"
+                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -5384,6 +5462,10 @@ function HwpxEditorModalInner({
                   const strokeWidth = block.strokeWidth || 1.5;
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+                  const hasShapeCaption = block.caption !== undefined && block.caption !== null && block.caption !== "" && block.captionPos !== "none";
+                  const isShapeCaptionTop = hasShapeCaption && block.captionPos?.startsWith("top");
+                  const isShapeCaptionBottom = hasShapeCaption && !isShapeCaptionTop;
+                  const shapeCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
 
                   return (
                     <div
@@ -5410,6 +5492,22 @@ function HwpxEditorModalInner({
                       }}
                       className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass}`}
                     >
+                      {/* 도형 상단 캡션 */}
+                      {isShapeCaptionTop && (
+                        <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${shapeCaptionAlign}`} style={{ width: widthStyle }}>
+                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                            <input
+                              type="text"
+                              value={block.caption || ""}
+                              onChange={(e) => updateShapeBlock(idx, { caption: e.target.value })}
+                              placeholder="[도형 캡션 입력...]"
+                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       <div
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
                         className={`relative flex flex-col items-center transition-all cursor-move ${
@@ -5613,6 +5711,22 @@ function HwpxEditorModalInner({
                           </div>
                         )}
                       </div>
+
+                      {/* 도형 하단 캡션 */}
+                      {isShapeCaptionBottom && (
+                        <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${shapeCaptionAlign}`} style={{ width: widthStyle }}>
+                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                            <input
+                              type="text"
+                              value={block.caption || ""}
+                              onChange={(e) => updateShapeBlock(idx, { caption: e.target.value })}
+                              placeholder="[도형 캡션 입력...]"
+                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 }
