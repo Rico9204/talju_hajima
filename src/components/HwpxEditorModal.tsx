@@ -5096,93 +5096,137 @@ function HwpxEditorModalInner({
                         marginRight: block.marginRightMm ? `${block.marginRightMm * 3.78}px` : "auto",
                         width: tblWidth,
                       }}
-                      className={`my-6 overflow-x-auto py-1 relative group/tbl cursor-default select-none transition-shadow ${
+                      className={`my-6 py-1 relative group/tbl cursor-default select-none transition-shadow ${
                         isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
                       }`}
                     >
-                      {/* 표 제어 툴바 */}
-                      <div className="mb-2 flex items-center justify-between text-[11px] bg-neutral-100 p-1.5 rounded border border-neutral-300">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-neutral-600 flex items-center gap-1">
-                            ⊞ 표 ({block.rows.length}행 × {block.rows[0]?.length || 0}열)
-                          </span>
-                          {/* 표 자유 드래그 이동 핸들 */}
-                          <div
-                            onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium text-[10px]"
-                            title="드래그하여 원하는 위치로 자유롭게 이동"
-                          >
-                            <span className="text-xs">✥</span>
-                            <span>자유 이동</span>
-                            {isMoved && (
-                              <span className="text-[9px] text-neutral-400 font-mono">
-                                ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
+                      {/* 8방향 선택 조절점 핸들 */}
+                      {isSelected && <HwpxSelectionHandles />}
+
+                      {/* 표 전용 플로팅 리모컨 (표 클릭/선택 시 우측 옆에 플로팅 리모컨 형태로 노출) */}
+                      {isSelected && (
+                        <div
+                          contentEditable={false}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute top-0 left-[calc(100%+14px)] z-40 flex flex-col gap-1.5 p-2.5 bg-white/95 backdrop-blur-md border border-neutral-300 shadow-2xl rounded-xl text-xs select-none w-38 animate-in fade-in zoom-in-95 duration-150"
+                          style={{ boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)" }}
+                        >
+                          {/* 리모컨 상단 타이틀 바 */}
+                          <div className="flex items-center justify-between pb-1.5 border-b border-neutral-200">
+                            <div className="flex items-center gap-1.5 font-bold text-neutral-800 text-[11px]">
+                              <span className="text-blue-600 font-bold">⊞</span>
+                              <span>표 리모컨</span>
+                              <span className="text-[10px] font-mono text-neutral-500 bg-neutral-100 px-1 py-0.5 rounded border border-neutral-200">
+                                {block.rows.length}×{block.rows[0]?.length || 0}
                               </span>
-                            )}
-                          </div>
-                          {isMoved && (
+                            </div>
                             <button
                               type="button"
-                              onClick={() => commitObjectOffset(idx, 0, 0)}
-                              className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
-                              title="원래 위치로 초기화"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedIdx(-1);
+                              }}
+                              className="text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded w-4 h-4 flex items-center justify-center text-[11px] cursor-pointer"
+                              title="리모컨 닫기 (선택 해제)"
                             >
-                              원위치
+                              ✕
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => openPropertyModal(idx)}
-                            className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-200 bg-white border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
-                            title="표/셀 개체 속성 (단축키 P)"
-                          >
-                            <span>⚙</span>
-                            <span>속성 (P)</span>
-                          </button>
+                          </div>
+
+                          {/* 위치 및 개체 속성 */}
+                          <div className="flex items-center gap-1">
+                            <div
+                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                              className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded bg-neutral-50 hover:bg-neutral-100 text-neutral-700 cursor-move border border-neutral-200 select-none font-medium text-[10px]"
+                              title="드래그하여 원하는 위치로 자유롭게 이동"
+                            >
+                              <span className="text-xs">✥</span>
+                              <span>이동</span>
+                              {isMoved && (
+                                <span className="text-[9px] text-neutral-400 font-mono">
+                                  ({currentOffset.x},{currentOffset.y})
+                                </span>
+                              )}
+                            </div>
+                            {isMoved && (
+                              <button
+                                type="button"
+                                onClick={() => commitObjectOffset(idx, 0, 0)}
+                                className="px-1.5 py-1 rounded text-[10px] text-blue-600 hover:bg-blue-50 border border-blue-200 font-medium cursor-pointer"
+                                title="원래 위치로 초기화"
+                              >
+                                원위치
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openPropertyModal(idx)}
+                              className="flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
+                              title="표/셀 개체 속성 (단축키 P)"
+                            >
+                              <span>⚙</span>
+                              <span>속성(P)</span>
+                            </button>
+                          </div>
+
+                          {/* 행 / 열 편집 조작 */}
+                          <div className="space-y-1">
+                            <div className="text-[10px] font-semibold text-neutral-500 px-0.5">행 / 열 편집</div>
+                            <div className="grid grid-cols-2 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => addTableRow(idx, block.rows.length - 1)}
+                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                title="표 맨 아래에 행 추가"
+                              >
+                                <span>+</span>
+                                <span>행 추가</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteTableRow(idx, block.rows.length - 1)}
+                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                title="마지막 행 삭제"
+                              >
+                                <span>-</span>
+                                <span>행 삭제</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => addTableCol(idx, (block.rows[0]?.length || 1) - 1)}
+                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                title="표 맨 오른쪽에 열 추가"
+                              >
+                                <span>+</span>
+                                <span>열 추가</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteTableCol(idx, (block.rows[0]?.length || 1) - 1)}
+                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                title="마지막 열 삭제"
+                              >
+                                <span>-</span>
+                                <span>열 삭제</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 표 삭제 */}
+                          <div className="pt-1 border-t border-neutral-200">
+                            <button
+                              type="button"
+                              onClick={() => deleteBlock(idx)}
+                              className="w-full py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                              title="표 전체 삭제"
+                            >
+                              <span>🗑</span>
+                              <span>표 삭제</span>
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => addTableRow(idx, block.rows.length - 1)}
-                            className="px-2 py-0.5 bg-white border border-neutral-300 rounded hover:bg-neutral-50 text-neutral-700 font-medium"
-                            title="표 맨 아래에 행 추가"
-                          >
-                            + 행 추가
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => addTableCol(idx, (block.rows[0]?.length || 1) - 1)}
-                            className="px-2 py-0.5 bg-white border border-neutral-300 rounded hover:bg-neutral-50 text-neutral-700 font-medium"
-                            title="표 맨 오른쪽에 열 추가"
-                          >
-                            + 열 추가
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteTableRow(idx, block.rows.length - 1)}
-                            className="px-2 py-0.5 bg-white border border-neutral-300 rounded hover:bg-neutral-50 text-red-600"
-                            title="마지막 행 삭제"
-                          >
-                            - 행 삭제
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteTableCol(idx, (block.rows[0]?.length || 1) - 1)}
-                            className="px-2 py-0.5 bg-white border border-neutral-300 rounded hover:bg-neutral-50 text-red-600"
-                            title="마지막 열 삭제"
-                          >
-                            - 열 삭제
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteBlock(idx)}
-                            className="px-2 py-0.5 bg-red-50 border border-red-200 rounded hover:bg-red-100 text-red-600 font-bold ml-1"
-                            title="표 전체 삭제"
-                          >
-                            표 삭제
-                          </button>
-                        </div>
-                      </div>
+                      )}
 
                       {/* 상단 캡션 */}
                       {isCaptionTop && (
@@ -5204,53 +5248,55 @@ function HwpxEditorModalInner({
                         </div>
                       )}
 
-                      <table
-                        style={{
-                          backgroundColor: tblBg,
-                          borderCollapse: hasCellSpacing ? "separate" : "collapse",
-                          borderSpacing: cellSpacingPx,
-                          border: hasOuterBorder ? `${bWidth} ${bStyle} ${bColor}` : "none",
-                        }}
-                        className="w-full text-xs text-neutral-900"
-                      >
-                        <tbody>
-                          {block.rows.map((row, rIdx) => {
-                            const isHeaderRow = rIdx === 0;
-                            return (
-                              <tr
-                                key={rIdx}
-                                style={{
-                                  borderBottom: `${bWidth} ${bStyle} ${bColor}`,
-                                }}
-                                className={isHeaderRow && !tblBg ? "bg-neutral-50/60 font-semibold" : ""}
-                              >
-                                {row.map((cell, cIdx) => (
-                                  <td
-                                    key={cIdx}
-                                    style={{
-                                      paddingTop: padTop,
-                                      paddingBottom: padBottom,
-                                      paddingLeft: padLeft,
-                                      paddingRight: padRight,
-                                      borderRight: `${bWidth} ${bStyle} ${bColor}`,
-                                      backgroundColor: cell.bgColor || undefined,
-                                    }}
-                                    className="last:border-r-0 min-w-[70px]"
-                                  >
-                                    <input
-                                      type="text"
-                                      value={cell.text}
-                                      onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
-                                      onFocus={() => setSelectedIdx(idx)}
-                                      className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs"
-                                    />
-                                  </td>
-                                ))}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                      <div className="w-full overflow-x-auto">
+                        <table
+                          style={{
+                            backgroundColor: tblBg,
+                            borderCollapse: hasCellSpacing ? "separate" : "collapse",
+                            borderSpacing: cellSpacingPx,
+                            border: hasOuterBorder ? `${bWidth} ${bStyle} ${bColor}` : "none",
+                          }}
+                          className="w-full text-xs text-neutral-900"
+                        >
+                          <tbody>
+                            {block.rows.map((row, rIdx) => {
+                              const isHeaderRow = rIdx === 0;
+                              return (
+                                <tr
+                                  key={rIdx}
+                                  style={{
+                                    borderBottom: `${bWidth} ${bStyle} ${bColor}`,
+                                  }}
+                                  className={isHeaderRow && !tblBg ? "bg-neutral-50/60 font-semibold" : ""}
+                                >
+                                  {row.map((cell, cIdx) => (
+                                    <td
+                                      key={cIdx}
+                                      style={{
+                                        paddingTop: padTop,
+                                        paddingBottom: padBottom,
+                                        paddingLeft: padLeft,
+                                        paddingRight: padRight,
+                                        borderRight: `${bWidth} ${bStyle} ${bColor}`,
+                                        backgroundColor: cell.bgColor || undefined,
+                                      }}
+                                      className="last:border-r-0 min-w-[70px]"
+                                    >
+                                      <input
+                                        type="text"
+                                        value={cell.text}
+                                        onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
+                                        onFocus={() => setSelectedIdx(idx)}
+                                        className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs"
+                                      />
+                                    </td>
+                                  ))}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
 
                       {/* 하단 캡션 */}
                       {isCaptionBottom && (
