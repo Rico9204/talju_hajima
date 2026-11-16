@@ -55,3 +55,10 @@ test('ngrok 로그: 터널 연결과 경고·오류만 한 줄로 보여 주고 
   assert.equal(ngrokLogLine('ERROR:  plain text'), '[ngrok] ERROR:  plain text');
   assert.equal(ngrokLogLine('   '), null);
 });
+
+test('TUNNEL_URL(Cloudflare)이 있으면 NGROK_URL보다 우선한다', () => {
+  const base = { FRONTEND_URL: 'https://team.vercel.app', NGROK_URL: 'https://team.ngrok-free.dev' };
+  assert.equal(ngrokConfig({ ...base, TUNNEL_URL: 'https://api.example.com/' }).env.PUBLIC_BASE_URL, 'https://api.example.com');
+  assert.equal(ngrokConfig({ FRONTEND_URL: base.FRONTEND_URL, TUNNEL_URL: 'https://api.example.com' }).publicUrl, 'https://api.example.com');
+  assert.throws(() => ngrokConfig({ ...base, TUNNEL_URL: 'http://api.example.com' }));
+});

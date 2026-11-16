@@ -184,3 +184,14 @@ npx.cmd --yes pnpm@10.34.3 run dev:ngrok
 Vercel의 주소를 바꾸면 `FRONTEND_URL` 수정 후 명령을 재실행한다. API 도메인을 바꾸면 `vercel.json`과 Vercel의 `VITE_BACKEND_URL`도 수정하고 재배포해야 하며, 이전 도메인으로 저장된 파일 링크가 영향을 받을 수 있으므로 같은 고정 도메인을 유지한다. 이 명령이 Vercel 설정이나 배포를 자동 변경하지는 않는다.
 
 확인: `https://고정-ngrok-도메인/api/health`와 Vercel 사이트에서 로그인·파일 업로드·채팅을 확인한다. `MAIL_TRANSPORT=console`이면 가입 확인 링크는 백엔드 터미널에 출력된다. 팀원이 직접 메일을 받아야 한다면 SMTP를 설정한다. PC·PostgreSQL·백엔드·ngrok이 실행 중이어야 서비스를 이용할 수 있다.
+
+## Cloudflare Tunnel로 공개하기 (ngrok 대체)
+
+ngrok 무료 한도(월 대역폭)가 차면 `ERR_NGROK_725`(403)로 막힌다. Cloudflare Tunnel은 대역폭 제한이 없다. 도메인이 Cloudflare에 등록돼 있어야 한다.
+
+1. Cloudflare 대시보드 → Zero Trust → Networks → Tunnels → **Create a tunnel**(Cloudflared) → 토큰을 복사한다.
+2. 그 터널의 **Public hostname**: 호스트 `api.teammates.website`, 서비스 `HTTP` → `localhost:3000`(`PORT`와 같게).
+3. `server/.env`에 `TUNNEL_URL=https://api.teammates.website`, `CLOUDFLARE_TUNNEL_TOKEN=<토큰>`을 넣는다. 토큰은 저장소에 올리지 않는다.
+4. 루트 `vercel.json`의 `/api/:path*` 전달 주소를 `https://api.teammates.website`로 맞추고(`TUNNEL_URL`과 같게) 커밋·푸시한다. Vercel `VITE_BACKEND_URL`도 같은 주소로 바꾸고 Redeploy한다.
+5. `winget install Cloudflare.cloudflared` 후 `pnpm run dev:cloudflare`(`dev:ngrok`과 같은 스크립트, 토큰이 있으면 cloudflared를 쓴다).
+6. 확인: `https://api.teammates.website/api/health`. Cloudflare는 브라우저 경고 페이지가 없어서 ngrok용 `ngrok-skip-browser-warning` 헤더는 그대로 두어도 무해하다.

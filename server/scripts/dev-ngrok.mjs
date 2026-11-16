@@ -48,9 +48,12 @@ process.once('SIGTERM', () => stop(0));
 try {
   const config = ngrokConfig(process.env);
   loadConfig(config.env);
-  const executable = process.platform === 'win32' ? 'ngrok.exe' : 'ngrok';
-  const check = spawnSync(executable, ['version'], { windowsHide: true, stdio: 'ignore', timeout: 5000 });
-  if (check.error || check.status !== 0) throw new Error('ngrok을 설치하고 ngrok config add-authtoken 명령으로 인증을 설정하세요.');
+  // CLOUDFLARE_TUNNEL_TOKEN이 있으면 Cloudflare Tunnel(cloudflared), 없으면 ngrok으로 공개한다.
+  const cloudflare = Boolean(process.env.CLOUDFLARE_TUNNEL_TOKEN);
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  const executable = (cloudflare ? 'cloudflared' : 'ngrok') + exe;
+  const check = spawnSync(executable, [cloudflare ? '--version' : 'version'], { windowsHide: true, stdio: 'ignore', timeout: 5000 });
+  if (check.error || check.status !== 0) throw new Error(cloudflare ? 'cloudflared를 설치하세요(winget install Cloudflare.cloudflared).' : 'ngrok을 설치하고 ngrok config add-authtoken 명령으로 인증을 설정하세요.');
   // Fail before changing DB settings if another API server owns this port.
   await new Promise((resolve, reject) => {
     const probe = createServer();
@@ -79,8 +82,16 @@ try {
     console.log(`  VITE_BACKEND_URL = ${config.publicUrl}`);
     console.log('최초 한 번 등록하고 Redeploy하세요. Ctrl+C로 서버와 ngrok을 함께 종료합니다.');
     const target = await readFile(new URL('../../vercel.json', import.meta.url), 'utf8').then((text) => vercelApiTarget(JSON.parse(text))).catch(() => null);
-    if (target !== config.publicUrl) console.warn(`경고: vercel.json의 /api 전달 주소(${target ?? '없음'})가 NGROK_URL과 다릅니다. 고친 뒤 커밋·재배포해야 로그인이 됩니다.`);
-    startNgrok(executable, ['http', `http://127.0.0.1:${config.port}`, `--url=${config.publicUrl}`], config.env);
+    if (target !== config.publicUrl) console.warn(`경고: vercel.json의 /api 전달 주소(${target ?? '없음'})가 TUNNEL_URL(NGROK_URL)과 다릅니다. 고친 뒤 커밋·재배포해야 로그인이 됩니다.`);
+    if (cloudflare) {
+      // 토큰은 인자가 아니라 환경변수(TUNNEL_TOKEN)로 넘겨 프로세스 목록에 보이지 않게 한다. 공개 호스트 이름 → localhost:PORT 연결은 Cloudflare 대시보드에서 설정한다.
+      const child = start(executable, ['tunnel', '--no-autoupdate', 'run'], { ...config.env, TUNNEL_TOKEN: process.env.CLOUDFLARE_TUNNEL_TOKEN }, ['ignore', 'pipe', 'pipe']);
+      for (const stream of [child.stdout, child.stderr]) {
+        createInterface({ input: stream }).on('line', (line) => {
+          if (/Registered tunnel connection|ERR|WRN/.test(line)) console.log(`[cloudflared] ${line.replace(/^\S+\s+/, '').trim()}`);
+        });
+      }
+    } else startNgrok(executable, ['http', `http://127.0.0.1:${config.port}`, `--url=${config.publicUrl}`], config.env);
   }
 } catch (error) {
   console.error(startupError(error));

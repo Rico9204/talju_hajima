@@ -13,7 +13,8 @@ function httpsOrigin(value, name) {
 // FRONTEND_URL은 쉼표로 여러 주소를 받는다(예: 운영 주소, 미리보기 브랜치 주소). 모두 로그인·CORS 허용 출처가 되고,
 // 메일 링크(APP_URL)에는 첫 번째 주소를 쓴다.
 export function ngrokConfig(env) {
-  const publicUrl = httpsOrigin(env.NGROK_URL, 'NGROK_URL');
+  // TUNNEL_URL(Cloudflare 등)이 있으면 그것을, 없으면 예전 NGROK_URL을 공개 주소로 쓴다.
+  const publicUrl = env.TUNNEL_URL ? httpsOrigin(env.TUNNEL_URL, 'TUNNEL_URL') : httpsOrigin(env.NGROK_URL, 'NGROK_URL');
   const frontends = [...new Set(String(env.FRONTEND_URL ?? '').split(',').map((value) => value.trim()).filter(Boolean).map((value) => httpsOrigin(value, 'FRONTEND_URL')))];
   if (frontends.length === 0) httpsOrigin(undefined, 'FRONTEND_URL');
   const frontend = frontends[0];
