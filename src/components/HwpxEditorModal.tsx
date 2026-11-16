@@ -46,7 +46,7 @@ import {
   HWPX_OPERATOR_SYMBOLS,
   HWPX_GREEK_SYMBOLS,
 } from "../lib/hwpxEquation";
-import { HwpxSelectionHandles, HwpxFloatingToolbar } from "./HwpxObjectHandles";
+import { HwpxSelectionHandles, HwpxFloatingToolbar, type ResizeDirection } from "./HwpxObjectHandles";
 import {
   SaveIcon,
   CutIcon,
@@ -842,6 +842,9 @@ function HwpxEditorModalInner({
   // 개체(도형, 그림, 표, 수식) 자유 이동 실시간 드래그 오프셋 (60fps 무지연)
   const [dragOffsets, setDragOffsets] = useState<Record<number, { x: number; y: number }>>({});
 
+  // 개체(표, 그림, 도형) 실시간 크기 조절 상태 (60fps 무지연)
+  const [dragResize, setDragResize] = useState<Record<number, { widthPercent?: number; heightPt?: number }>>({});
+
   // 최종 위치를 Yjs CRDT에 영구 커밋
   const commitObjectOffset = (blockIndex: number, offsetX: number, offsetY: number) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
@@ -851,6 +854,104 @@ function HwpxEditorModalInner({
       yBlock.set("offsetX", offsetX);
       yBlock.set("offsetY", offsetY);
     });
+  };
+
+  // 최종 크기(폭 %, 높이 pt)를 Yjs CRDT에 영구 커밋 (Undo/Redo 지원)
+  const commitObjectResize = (blockIndex: number, widthPercent?: number, heightPt?: number) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(blockIndex);
+    if (!yBlock) return;
+    doc.transact(() => {
+      if (widthPercent !== undefined) {
+        yBlock.set("widthPercent", Math.max(10, Math.min(100, Math.round(widthPercent))));
+      }
+      if (heightPt !== undefined) {
+        yBlock.set("heightPt", Math.max(5, Math.round(heightPt)));
+      }
+    });
+  };
+
+  // 개체 8방향 모서리/변 핸들 드래그 크기 조절 시작 핸들러
+  const handleObjectResizeStart = (
+    e: React.PointerEvent,
+    blockIdx: number,
+    dir: ResizeDirection
+  ) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedIdx(blockIdx);
+
+    const block = blocks[blockIdx];
+    if (!block) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const zoom = Math.max(0.2, zoomPercent / 100);
+
+    const handleEl = e.currentTarget as HTMLElement;
+    const blockEl = (handleEl.closest("[data-block-id]") as HTMLElement) || handleEl.parentElement;
+    const startRect = blockEl ? blockEl.getBoundingClientRect() : null;
+
+    const canvasEl = canvasRef.current;
+    const contentWidth = canvasEl ? Math.max(200, canvasEl.clientWidth - 80) : 680;
+
+    const blockWidthPct = "widthPercent" in block ? (block as { widthPercent?: number }).widthPercent : undefined;
+    const blockHeightPt = "heightPt" in block ? (block as { heightPt?: number }).heightPt : undefined;
+
+    const startWidthPx = startRect ? startRect.width / zoom : (contentWidth * ((blockWidthPct || (block.type === "table" ? 100 : 75)) / 100));
+    const startHeightPx = startRect ? startRect.height / zoom : (blockHeightPt || 60);
+
+    let currentWidthPct = blockWidthPct ?? (block.type === "table" ? 100 : 75);
+    let currentHeightPt = blockHeightPt ?? (block.type === "shape" ? 60 : 30);
+
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      const dx = (moveEvt.clientX - startX) / zoom;
+      const dy = (moveEvt.clientY - startY) / zoom;
+
+      let newWidthPx = startWidthPx;
+      let newHeightPx = startHeightPx;
+
+      if (dir.includes("e")) {
+        newWidthPx = startWidthPx + dx;
+      } else if (dir.includes("w")) {
+        newWidthPx = startWidthPx - dx;
+      }
+
+      if (dir.includes("s")) {
+        newHeightPx = startHeightPx + dy;
+      } else if (dir.includes("n")) {
+        newHeightPx = startHeightPx - dy;
+      }
+
+      currentWidthPct = Math.max(10, Math.min(100, Math.round((newWidthPx / contentWidth) * 100)));
+      currentHeightPt = Math.max(5, Math.min(1200, Math.round(newHeightPx)));
+
+      setDragResize((prev) => ({
+        ...prev,
+        [blockIdx]: {
+          widthPercent: currentWidthPct,
+          heightPt: currentHeightPt,
+        },
+      }));
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+
+      setDragResize((prev) => {
+        const next = { ...prev };
+        delete next[blockIdx];
+        return next;
+      });
+
+      const isShape = block.type === "shape";
+      commitObjectResize(blockIdx, currentWidthPct, isShape ? currentHeightPt : undefined);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
   };
 
   // 개체 자유 드래그 이동 시작 핸들러
@@ -867,7 +968,8 @@ function HwpxEditorModalInner({
       targetEl.tagName === "TEXTAREA" ||
       targetEl.tagName === "BUTTON" ||
       targetEl.closest("button") ||
-      targetEl.closest(".table-remote-control")
+      targetEl.closest(".table-remote-control") ||
+      targetEl.closest(".hwpx-resize-handle")
     ) {
       return;
     }
@@ -5173,7 +5275,8 @@ function HwpxEditorModalInner({
                 if (block.type === "table") {
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
-                  const tblWidth = `${block.widthPercent || 100}%`;
+                  const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 100;
+                  const tblWidth = `${currentWidthPct}%`;
                   const tblBg = block.fillMode === "none" || !block.fillColor || block.fillColor === "transparent" ? "transparent" : block.fillColor;
                   const bStyle = block.borderType === "DASH" ? "dashed" : block.borderType === "DOT" ? "dotted" : block.borderType === "DOUBLE" ? "double" : block.borderType === "NONE" ? "none" : "solid";
                   const bColor = block.borderColor || "#000000";
@@ -5236,8 +5339,12 @@ function HwpxEditorModalInner({
                         isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
                       }`}
                     >
-                      {/* 8방향 선택 조절점 핸들 */}
-                      {isSelected && <HwpxSelectionHandles />}
+                      {/* 8방향 선택 조절점 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
+                      {isSelected && (
+                        <HwpxSelectionHandles
+                          onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                        />
+                      )}
 
                       {/* 표 잡고 직접 이동 핸들 바 (표 선택 시 상단 좌측에 노출) */}
                       {isSelected && (
@@ -5287,27 +5394,17 @@ function HwpxEditorModalInner({
                             </button>
                           </div>
 
-                          {/* 개체 속성 및 원위치 */}
+                          {/* 개체 속성 */}
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => openPropertyModal(idx)}
-                              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
+                              className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
                               title="표/셀 개체 속성 (단축키 P)"
                             >
                               <span>⚙</span>
                               <span>개체 속성 (P)</span>
                             </button>
-                            {isMoved && (
-                              <button
-                                type="button"
-                                onClick={() => commitObjectOffset(idx, 0, 0)}
-                                className="px-2 py-1.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 border border-blue-200 font-medium cursor-pointer whitespace-nowrap"
-                                title="원래 위치로 초기화"
-                              >
-                                원위치
-                              </button>
-                            )}
                           </div>
 
                           {/* 행 / 열 편집 조작 */}
@@ -5463,7 +5560,8 @@ function HwpxEditorModalInner({
 
                 if (block.type === "image") {
                   const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
-                  const widthStyle = `${block.widthPercent || 75}%`;
+                  const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 75;
+                  const widthStyle = `${currentWidthPct}%`;
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
                   const hasImageCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
@@ -5521,8 +5619,12 @@ function HwpxEditorModalInner({
                         }`}
                         style={{ width: widthStyle }}
                       >
-                        {/* 8방향 선택 핸들 */}
-                        {isSelected && <HwpxSelectionHandles />}
+                        {/* 8방향 선택 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
+                        {isSelected && (
+                          <HwpxSelectionHandles
+                            onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                          />
+                        )}
 
                         {/* 부유 제어 바 (선택 시에만 노출) */}
                         {isSelected && (
@@ -5546,17 +5648,6 @@ function HwpxEditorModalInner({
                                 </span>
                               )}
                             </div>
-
-                            {isMoved && (
-                              <button
-                                type="button"
-                                onClick={() => commitObjectOffset(idx, 0, 0)}
-                                className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
-                                title="원래 위치로 초기화"
-                              >
-                                원위치
-                              </button>
-                            )}
 
                             {/* 개체 속성 다이얼로그 (P) */}
                             <button
@@ -5649,7 +5740,9 @@ function HwpxEditorModalInner({
 
                 if (block.type === "shape") {
                   const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
-                  const widthStyle = `${block.widthPercent || 75}%`;
+                  const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 75;
+                  const currentHeightPt = dragResize[idx]?.heightPt ?? block.heightPt ?? (block.shapeType === "line" ? 2 : 60);
+                  const widthStyle = `${currentWidthPct}%`;
                   const isLine = block.shapeType === "line";
                   const borderRadius = block.shapeType === "roundRect" ? "8px" : block.shapeType === "ellipse" ? "9999px" : "0px";
                   const fillColor = block.fillColor === "transparent" ? "transparent" : (block.fillColor || "#FFFFFF");
@@ -5712,8 +5805,12 @@ function HwpxEditorModalInner({
                         }`}
                         style={{ width: widthStyle }}
                       >
-                        {/* 8방향 선택 핸들 */}
-                        {isSelected && <HwpxSelectionHandles />}
+                        {/* 8방향 선택 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
+                        {isSelected && (
+                          <HwpxSelectionHandles
+                            onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                          />
+                        )}
 
                         {/* 부유 제어 바 (선택 시에만 노출) */}
                         {isSelected && (
@@ -5745,17 +5842,6 @@ function HwpxEditorModalInner({
                                 </span>
                               )}
                             </div>
-
-                            {isMoved && (
-                              <button
-                                type="button"
-                                onClick={() => commitObjectOffset(idx, 0, 0)}
-                                className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
-                                title="원래 위치로 초기화"
-                              >
-                                원위치
-                              </button>
-                            )}
 
                             {/* 개체 속성 다이얼로그 (P) */}
                             <button
@@ -5886,7 +5972,7 @@ function HwpxEditorModalInner({
                           <div
                             style={{
                               width: "100%",
-                              minHeight: `${block.heightPt || 60}px`,
+                              minHeight: `${currentHeightPt}px`,
                               backgroundColor: fillColor,
                               borderColor: strokeColor,
                               borderWidth: `${strokeWidth}px`,
@@ -5979,17 +6065,6 @@ function HwpxEditorModalInner({
                                 </span>
                               )}
                             </div>
-
-                            {isMoved && (
-                              <button
-                                type="button"
-                                onClick={() => commitObjectOffset(idx, 0, 0)}
-                                className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
-                                title="원래 위치로 초기화"
-                              >
-                                원위치
-                              </button>
-                            )}
 
                             <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
