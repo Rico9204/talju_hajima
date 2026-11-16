@@ -188,6 +188,114 @@ function setCaretOffset(element: HTMLElement, offset: number) {
   sel.addRange(range);
 }
 
+function getCaretClientPosition(): { x: number; y: number } | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  const rects = range.getClientRects();
+  if (rects.length > 0) {
+    return { x: rects[0].left, y: (rects[0].top + rects[0].bottom) / 2 };
+  }
+  const node = range.startContainer;
+  const offset = range.startOffset;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const textNode = node as Text;
+    const tempRange = range.cloneRange();
+    if (offset < textNode.length) {
+      tempRange.setEnd(textNode, offset + 1);
+      const r = tempRange.getClientRects();
+      if (r.length > 0) return { x: r[0].left, y: (r[0].top + r[0].bottom) / 2 };
+    } else if (offset > 0) {
+      tempRange.setStart(textNode, offset - 1);
+      const r = tempRange.getClientRects();
+      if (r.length > 0) return { x: r[0].right, y: (r[0].top + r[0].bottom) / 2 };
+    }
+  }
+  const parent = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+  if (parent) {
+    const r = parent.getBoundingClientRect();
+    return { x: r.left, y: (r.top + r.bottom) / 2 };
+  }
+  return null;
+}
+
+function isCaretOnFirstLine(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const startRange = document.createRange();
+  startRange.selectNodeContents(element);
+  startRange.collapse(true);
+  const startRects = startRange.getClientRects();
+  const startTop = startRects.length > 0 ? startRects[0].top : element.getBoundingClientRect().top;
+
+  const caretPos = getCaretClientPosition();
+  if (!caretPos) return isCaretAtStart(element);
+
+  return (caretPos.y - startTop) < 24;
+}
+
+function isCaretOnLastLine(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const endRange = document.createRange();
+  endRange.selectNodeContents(element);
+  endRange.collapse(false);
+  const endRects = endRange.getClientRects();
+  const endBottom = endRects.length > 0 ? endRects[endRects.length - 1].bottom : element.getBoundingClientRect().bottom;
+
+  const caretPos = getCaretClientPosition();
+  if (!caretPos) return isCaretAtEnd(element);
+
+  return (endBottom - caretPos.y) < 24;
+}
+
+function setCaretAtPointOrEdge(element: HTMLElement, targetX: number, toEnd: boolean) {
+  element.focus();
+  const rect = element.getBoundingClientRect();
+  const y = toEnd ? (rect.bottom - 6) : (rect.top + 6);
+  const clampedX = Math.max(rect.left + 4, Math.min(targetX, rect.right - 4));
+
+  const doc = document as unknown as {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+
+  if (doc.caretRangeFromPoint) {
+    const range = doc.caretRangeFromPoint(clampedX, y);
+    if (range && element.contains(range.startContainer)) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
+    }
+  } else if (doc.caretPositionFromPoint) {
+    const pos = doc.caretPositionFromPoint(clampedX, y);
+    if (pos && element.contains(pos.offsetNode)) {
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return;
+      }
+    }
+  }
+
+  setCaretOffset(element, toEnd ? 999999 : 0);
+}
+
 function ContentEditableParagraph({
   block,
   idx,
@@ -211,8 +319,8 @@ function ContentEditableParagraph({
   onChangeText: (text: string) => void;
   onSplit: (before: string, after: string) => void;
   onMergePrevious: () => void;
-  onNavigatePrev: () => void;
-  onNavigateNext: () => void;
+  onNavigatePrev: (clientX: number) => void;
+  onNavigateNext: (clientX: number) => void;
   onIndent: (increase: boolean) => void;
 }) {
   const pRef = useRef<HTMLParagraphElement>(null);
@@ -268,15 +376,41 @@ function ContentEditableParagraph({
 
     if (e.key === "ArrowUp") {
       const el = pRef.current;
-      if (isCaretAtStart(el)) {
-        onNavigatePrev();
+      if (isCaretOnFirstLine(el)) {
+        e.preventDefault();
+        const pos = getCaretClientPosition();
+        const x = pos ? pos.x : (el?.getBoundingClientRect().left ?? 0);
+        onNavigatePrev(x);
+        return;
       }
     }
 
     if (e.key === "ArrowDown") {
       const el = pRef.current;
+      if (isCaretOnLastLine(el)) {
+        e.preventDefault();
+        const pos = getCaretClientPosition();
+        const x = pos ? pos.x : (el?.getBoundingClientRect().left ?? 0);
+        onNavigateNext(x);
+        return;
+      }
+    }
+
+    if (e.key === "ArrowLeft") {
+      const el = pRef.current;
+      if (isCaretAtStart(el)) {
+        e.preventDefault();
+        onNavigatePrev(999999);
+        return;
+      }
+    }
+
+    if (e.key === "ArrowRight") {
+      const el = pRef.current;
       if (isCaretAtEnd(el)) {
-        onNavigateNext();
+        e.preventDefault();
+        onNavigateNext(0);
+        return;
       }
     }
   };
@@ -605,7 +739,10 @@ function HwpxEditorModalInner({
   const [newShapeWidth, setNewShapeWidth] = useState(75);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const pendingCaretRef = useRef<{ blockId: string; offset: number } | null>(null);
+  type PendingCaret =
+    | { mode: "offset"; blockId: string; offset: number }
+    | { mode: "point"; blockId: string; x: number; toEnd: boolean };
+  const pendingCaretRef = useRef<PendingCaret | null>(null);
 
   // Yjs CRDT 변경 시 로컬 블록 상태 동기화
   useEffect(() => {
@@ -616,17 +753,51 @@ function HwpxEditorModalInner({
     return () => { doc.off("update", onUpdate); };
   }, [doc]);
 
-  // 블록 추가/삭제/분할 후 지정된 문단 및 오프셋으로 커서 복원
+  // 블록 추가/삭제/분할 후 지정된 문단 및 오프셋/위치로 커서 복원
   useLayoutEffect(() => {
     if (!pendingCaretRef.current) return;
-    const { blockId, offset } = pendingCaretRef.current;
+    const target = pendingCaretRef.current;
     pendingCaretRef.current = null;
-    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${blockId}"] p[contenteditable="true"]`);
+    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${target.blockId}"] p[contenteditable="true"]`);
     if (pEl) {
-      pEl.focus();
-      setCaretOffset(pEl, offset);
+      if (target.mode === "point") {
+        setCaretAtPointOrEdge(pEl, target.x, target.toEnd);
+      } else {
+        pEl.focus();
+        setCaretOffset(pEl, target.offset);
+      }
     }
   }, [blocks]);
+
+  // 위 문단으로 자연스러운 이동
+  const navigateToPrevParagraph = (currentIdx: number, clientX: number) => {
+    if (currentIdx <= 0) return;
+    const prevBlock = blocks[currentIdx - 1];
+    setSelectedIdx(currentIdx - 1);
+    if (prevBlock.type === "paragraph") {
+      const prevEl = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p[contenteditable="true"]`);
+      if (prevEl) {
+        setCaretAtPointOrEdge(prevEl, clientX, true);
+      } else {
+        pendingCaretRef.current = { mode: "point", blockId: prevBlock.id, x: clientX, toEnd: true };
+      }
+    }
+  };
+
+  // 아래 문단으로 자연스러운 이동
+  const navigateToNextParagraph = (currentIdx: number, clientX: number) => {
+    if (currentIdx >= blocks.length - 1) return;
+    const nextBlock = blocks[currentIdx + 1];
+    setSelectedIdx(currentIdx + 1);
+    if (nextBlock.type === "paragraph") {
+      const nextEl = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p[contenteditable="true"]`);
+      if (nextEl) {
+        setCaretAtPointOrEdge(nextEl, clientX, false);
+      } else {
+        pendingCaretRef.current = { mode: "point", blockId: nextBlock.id, x: clientX, toEnd: false };
+      }
+    }
+  };
 
   // 문단 분할 (Enter 키): 커서 위치를 기준으로 문단을 나누어 새 문단 생성
   const splitParagraph = (index: number, textBefore: string, textAfter: string) => {
@@ -665,7 +836,7 @@ function HwpxEditorModalInner({
       yBlocks.insert(index + 1, [newYBlock]);
     });
 
-    pendingCaretRef.current = { blockId: newBlockId, offset: 0 };
+    pendingCaretRef.current = { mode: "offset", blockId: newBlockId, offset: 0 };
     setSelectedIdx(index + 1);
   };
 
@@ -691,7 +862,7 @@ function HwpxEditorModalInner({
         yBlocks.delete(index, 1);
       });
 
-      pendingCaretRef.current = { blockId: prevBlock.id, offset: prevTextLen };
+      pendingCaretRef.current = { mode: "offset", blockId: prevBlock.id, offset: prevTextLen };
       setSelectedIdx(index - 1);
     } else {
       // 이전 블록이 도형/표/이미지 등인 경우
@@ -1230,7 +1401,7 @@ function HwpxEditorModalInner({
     doc.transact(() => {
       yBlocks.insert(afterIdx + 1, [yBlock]);
     });
-    pendingCaretRef.current = { blockId: newId, offset: 0 };
+    pendingCaretRef.current = { mode: "offset", blockId: newId, offset: 0 };
     setSelectedIdx(afterIdx + 1);
   };
 
@@ -3263,7 +3434,7 @@ function HwpxEditorModalInner({
               setSelectedIdx(lastIdx);
               const lastBlock = blocks[lastIdx];
               if (lastBlock.type === "paragraph") {
-                pendingCaretRef.current = { blockId: lastBlock.id, offset: lastBlock.text.length };
+                pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
               }
             }
           }}
@@ -3277,7 +3448,7 @@ function HwpxEditorModalInner({
                 setSelectedIdx(lastIdx);
                 const lastBlock = blocks[lastIdx];
                 if (lastBlock.type === "paragraph") {
-                  pendingCaretRef.current = { blockId: lastBlock.id, offset: lastBlock.text.length };
+                  pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
                 }
               }
             }}
@@ -3339,24 +3510,8 @@ function HwpxEditorModalInner({
                         onChangeText={(newText) => updateParagraph(idx, newText)}
                         onSplit={(before, after) => splitParagraph(idx, before, after)}
                         onMergePrevious={() => mergeParagraphWithPrevious(idx)}
-                        onNavigatePrev={() => {
-                          if (idx > 0) {
-                            const prev = blocks[idx - 1];
-                            setSelectedIdx(idx - 1);
-                            if (prev.type === "paragraph") {
-                              pendingCaretRef.current = { blockId: prev.id, offset: prev.text.length };
-                            }
-                          }
-                        }}
-                        onNavigateNext={() => {
-                          if (idx < blocks.length - 1) {
-                            const next = blocks[idx + 1];
-                            setSelectedIdx(idx + 1);
-                            if (next.type === "paragraph") {
-                              pendingCaretRef.current = { blockId: next.id, offset: 0 };
-                            }
-                          }
-                        }}
+                        onNavigatePrev={(clientX) => navigateToPrevParagraph(idx, clientX)}
+                        onNavigateNext={(clientX) => navigateToNextParagraph(idx, clientX)}
                         onIndent={(inc) => handleIndent(inc)}
                       />
                     </div>
