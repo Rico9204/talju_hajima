@@ -1009,6 +1009,9 @@ export function serializeBlocksToHwpxPackage(
       rawXml = rawXml.replace(/\bcolumnBreak="(?:false|0)"/g, 'columnBreak="0"').replace(/\bcolumnBreak="(?:true|1)"/g, 'columnBreak="1"');
       rawXml = rawXml.replace(/\bmerged="(?:false|0)"/g, 'merged="0"').replace(/\bmerged="(?:true|1)"/g, 'merged="1"');
 
+      // 텍스트/문단 수정 시 한컴오피스의 손상 경고를 방지하기 위해 구형 줄 배치 캐시(linesegarray)를 안전하게 제거
+      rawXml = rawXml.replace(/<hp:linesegarray\b(?:[^>]*\/>|[\s\S]*?<\/hp:linesegarray>)/gi, "");
+
       if (idx === 0) {
         if (rawXml.includes("<hp:secPr")) {
           return rawXml;
@@ -1409,23 +1412,19 @@ export function prepareHwpxPackageEntries(
   const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
   newEntries.set(headerKey, new TextEncoder().encode(headerXml));
 
-  // 표준 OCF 및 HWPX 필수 컨테이너 엔트리 보장 (한컴독스/한글오피스 완벽 호환)
-  const hasValidVersion = newEntries.has("version.xml") &&
-    new TextDecoder().decode(newEntries.get("version.xml")!).includes("http://www.hancom.co.kr/hwpml/2011/version");
-  if (!hasValidVersion) {
+  // ── 표준 OCF 및 HWPX 필수 컨테이너 엔트리 보장 ──
+  // 원본 문서에 이미 해당 파일이 존재하는 경우 원본의 온전한 구조/메타데이터를 100% 보존합니다.
+  // 오직 새 문서 생성 등 파일이 존재하지 않는 경우에만 표준 기본 템플릿을 보충합니다.
+  if (!newEntries.has("version.xml")) {
     newEntries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.31" application="Hancom Office Hangul"/>`));
   }
 
-  const hasValidContainer = newEntries.has("META-INF/container.xml") &&
-    !new TextDecoder().decode(newEntries.get("META-INF/container.xml")!).includes("ocf:");
-  if (!hasValidContainer) {
+  if (!newEntries.has("META-INF/container.xml")) {
     newEntries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n  <rootfiles>\n    <rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/>\n  </rootfiles>\n</container>`));
   }
 
-  const hasValidHpf = newEntries.has("Contents/content.hpf") &&
-    !new TextDecoder().decode(newEntries.get("Contents/content.hpf")!).includes("opf:package");
-  if (!hasValidHpf) {
-    newEntries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:title>문서</dc:title>\n    <dc:language>ko</dc:language>\n  </metadata>\n  <manifest>\n    <item id="header" href="header.xml" media-type="application/xml"/>\n    <item id="section0" href="section0.xml" media-type="application/xml"/>\n  </manifest>\n  <spine>\n    <itemref idref="section0"/>\n  </spine>\n</package>`));
+  if (!newEntries.has("Contents/content.hpf")) {
+    newEntries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata>\n    <opf:title>문서</opf:title>\n    <opf:language>ko</opf:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="section0"/>\n  </opf:spine>\n</opf:package>`));
   }
 
   return newEntries;

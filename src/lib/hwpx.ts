@@ -131,14 +131,16 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
     }
 
     const crc = crc32(content);
-    // UTF-8 언어 인코딩 플래그: 비트 11 (0x0800)
-    const bitFlag = 0x0800;
+    // mimetype은 flags = 0 필수. 파일명에 비-ASCII가 포함된 경우에만 UTF-8 비트(0x0800) 세팅
+    const hasNonAscii = /[^\x00-\x7F]/.test(name);
+    const bitFlag = (!isMimetype && hasNonAscii) ? 0x0800 : 0;
+    const versionNeeded = isMimetype ? 10 : 20;
 
     // Local Header (30 + nameBytes.length)
     const lh = new Uint8Array(30 + nameBytes.length);
     const lhView = new DataView(lh.buffer);
     lhView.setUint32(0, 0x04034b50, true);
-    lhView.setUint16(4, 20, true);
+    lhView.setUint16(4, versionNeeded, true);
     lhView.setUint16(6, bitFlag, true);
     lhView.setUint16(8, method, true);
     lhView.setUint16(10, dosTime, true);
@@ -157,8 +159,8 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
     const cdh = new Uint8Array(46 + nameBytes.length);
     const cdhView = new DataView(cdh.buffer);
     cdhView.setUint32(0, 0x02014b50, true);
-    cdhView.setUint16(4, 20, true);
-    cdhView.setUint16(6, 20, true);
+    cdhView.setUint16(4, isMimetype ? 10 : 20, true);
+    cdhView.setUint16(6, versionNeeded, true);
     cdhView.setUint16(8, bitFlag, true);
     cdhView.setUint16(10, method, true);
     cdhView.setUint16(12, dosTime, true);
