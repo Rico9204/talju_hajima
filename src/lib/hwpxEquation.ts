@@ -79,15 +79,55 @@ export function parseHwpEquation(rawScript: string): string {
 
     // A. 분수: {num} over {den} 또는 num over den
     // HWP에서 over는 앞뒤의 블록(중괄호 묶음 또는 단일 토큰)을 분자와 분모로 묶습니다.
-    const overRegex = /(\{(?:[^{}]+|\{[^{}]*\})*\}|[a-zA-Z0-9_.\^]+)\s+(?:over|OVER)\s+(\{(?:[^{}]+|\{[^{}]*\})*\}|[a-zA-Z0-9_.\^]+)/;
-    const overMatch = text.match(overRegex);
-    if (overMatch && overMatch.index !== undefined) {
-      const before = text.slice(0, overMatch.index);
-      const num = unwrapBraces(overMatch[1]);
-      const den = unwrapBraces(overMatch[2]);
-      const after = text.slice(overMatch.index + overMatch[0].length);
-      const fracXml = `<mfrac><mrow>${convertToMathML(num)}</mrow><mrow>${convertToMathML(den)}</mrow></mfrac>`;
-      return `${convertToMathML(before)}${fracXml}${convertToMathML(after)}`;
+    if (/\b(?:over|OVER)\b/.test(text)) {
+      const overIdx = findTopLevelKeyword(text, ["over"]);
+      if (overIdx !== -1) {
+        const beforeText = text.slice(0, overIdx).trimEnd();
+        const afterText = text.slice(overIdx + 4).trimStart();
+
+        let num = "";
+        let beforePrefix = "";
+        if (beforeText.endsWith("}")) {
+          const lastOpen = findMatchingBraceReverse(beforeText, beforeText.length - 1);
+          if (lastOpen !== -1) {
+            num = unwrapBraces(beforeText.slice(lastOpen));
+            beforePrefix = beforeText.slice(0, lastOpen).trimEnd();
+          } else {
+            num = beforeText;
+          }
+        } else {
+          const m = beforeText.match(/([a-zA-Z0-9_.\^]+)$/);
+          if (m) {
+            num = m[1];
+            beforePrefix = beforeText.slice(0, beforeText.length - m[1].length).trimEnd();
+          } else {
+            num = beforeText;
+          }
+        }
+
+        let den = "";
+        let afterSuffix = "";
+        if (afterText.startsWith("{")) {
+          const closeIdx = findMatchingBrace(afterText, 0);
+          if (closeIdx !== -1) {
+            den = unwrapBraces(afterText.slice(0, closeIdx + 1));
+            afterSuffix = afterText.slice(closeIdx + 1).trimStart();
+          } else {
+            den = afterText;
+          }
+        } else {
+          const m = afterText.match(/^([a-zA-Z0-9_.\^]+)/);
+          if (m) {
+            den = m[1];
+            afterSuffix = afterText.slice(m[1].length).trimStart();
+          } else {
+            den = afterText;
+          }
+        }
+
+        const fracXml = `<mfrac><mrow>${convertToMathML(num)}</mrow><mrow>${convertToMathML(den)}</mrow></mfrac>`;
+        return `${beforePrefix ? convertToMathML(beforePrefix) : ""}${fracXml}${afterSuffix ? convertToMathML(afterSuffix) : ""}`;
+      }
     }
 
     // B. 거대 연산자 및 극한: sum_{i=1}^n, int_0^infty, lim_{x->0}
@@ -262,6 +302,18 @@ export function parseHwpEquation(rawScript: string): string {
     for (let i = startIdx; i < str.length; i++) {
       if (str[i] === "{") depth++;
       else if (str[i] === "}") {
+        depth--;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  function findMatchingBraceReverse(str: string, endIdx: number): number {
+    let depth = 0;
+    for (let i = endIdx; i >= 0; i--) {
+      if (str[i] === "}") depth++;
+      else if (str[i] === "{") {
         depth--;
         if (depth === 0) return i;
       }

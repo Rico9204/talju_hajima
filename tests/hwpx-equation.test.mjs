@@ -55,3 +55,12 @@ test('parseHwpEquation: LaTeX 수식 문법(\\frac, \\sqrt)도 호환 지원한�
   assert.ok(latexResult.includes('<msqrt>'));
 });
 
+test('parseHwpEquation: 중첩 중괄호 및 따옴표가 포함된 복합 수식을 ReDoS 지연 없이 즉시 파싱한다', () => {
+  const complexScript = '{hat{I}} (x,y)=`Median"{"I _{n} (i,j)vert  (i,j) IN  C _{"neu"}^{`(r)} (x,y)"}"';
+  const t0 = Date.now();
+  const result = parseHwpEquation(complexScript);
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 100, `Parsing should take <100ms but took ${elapsed}ms`);
+  assert.ok(result.includes('math'));
+});
+
