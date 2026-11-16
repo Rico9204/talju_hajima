@@ -198,8 +198,25 @@ export const HWPX_SERIF_CSS = "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', seri
 export const HWPX_SANS_CSS = "Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif";
 const FONT_LANGS = ["HANGUL", "LATIN", "HANJA", "JAPANESE", "OTHER", "SYMBOL", "USER"] as const;
 const FACE_ALIASES: Record<string, string> = {
-  batang: "바탕", batangche: "바탕체", dotum: "돋움", dotumche: "돋움체", gulim: "굴림", gulimche: "굴림체",
-  gungsuh: "궁서", gungsuhche: "궁서체", "malgun gothic": "맑은 고딕",
+  batang: "바탕",
+  batangche: "바탕체",
+  dotum: "돋움",
+  dotumche: "돋움체",
+  gulim: "굴림",
+  gulimche: "굴림체",
+  gungsuh: "궁서",
+  gungsuhche: "궁서체",
+  "malgun gothic": "맑은 고딕",
+  malgungothic: "맑은 고딕",
+  "nanum myeongjo": "나눔명조",
+  nanummyeongjo: "나눔명조",
+  "nanum gothic": "나눔고딕",
+  nanumgothic: "나눔고딕",
+  "courier new": "Courier New",
+  couriernew: "Courier New",
+  "times new roman": "Times New Roman",
+  timesnewroman: "Times New Roman",
+  arial: "Arial",
 };
 
 const normalizeFontCss = (css?: string) => (css ?? "").toLowerCase().replace(/["'\s]/g, "");
@@ -1215,12 +1232,16 @@ export function serializeBlocksToHwpxPackage(
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
     if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
       let rawXml = block.fontEdited && block.fontFamily
-        ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")/g, (_m, a: string, id: string, b: string) => {
+        ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")([\s\S]*?<\/hp:run>)/g, (whole, a: string, id: string, b: string, rest: string) => {
+            // secPr 또는 텍스트가 없는 순수 ctrl 런은 기본 서식 ID(charPrIDRef="0") 유지
+            if (rest.includes("<hp:secPr") || (!rest.includes("<hp:t") && rest.includes("<hp:ctrl"))) {
+              return whole;
+            }
             const orig = existingCharStyleMap.get(id);
             const style = orig
               ? { color: orig.colorHex, sizePt: orig.sizePt, bold: orig.bold, italic: orig.italic, underline: orig.underline }
               : { color: block.color, sizePt: block.sizePt, bold: block.bold, italic: block.italic, underline: block.underline };
-            return `${a}${getOrCreateCharPr({ ...style, fontFamily: block.fontFamily })}${b}`;
+            return `${a}${getOrCreateCharPr({ ...style, fontFamily: block.fontFamily })}${b}${rest}`;
           })
         : block.rawXml;
 
@@ -1331,7 +1352,29 @@ export function serializeBlocksToHwpxPackage(
       const lang = attrs.match(/\blang="([^"]+)"/)?.[1]?.toUpperCase();
       const group = fontGroups.find((g) => g.lang === lang);
       if (!group || group.added.length === 0) return whole;
-      const fontsXml = group.added.map((f) => `<hh:font id="${f.id}" face="${escapeXml(f.face)}" type="TTF" isEmbedded="0"/>`).join("");
+      const buildFontXml = (f: { id: number; face: string }) => {
+        let typeInfo = "";
+        let subst = "";
+        const faceLower = f.face.toLowerCase();
+        if (/명조|바탕|myeongjo|batang|serif|buri|부리/i.test(faceLower)) {
+          typeInfo = `<hh:typeInfo familyType="FCAT_MYEONGJO" weight="6" proportion="4" contrast="0" strokeVariation="1" armStyle="1" letterform="1" midline="1" xHeight="1"/>`;
+          if (f.face !== "바탕") subst = `<hh:substFont face="바탕" type="TTF" isEmbedded="0" binaryItemIDRef=""/>`;
+        } else if (/고딕|돋움|gothic|dotum|sans|pretendard|square|dream/i.test(faceLower)) {
+          typeInfo = `<hh:typeInfo familyType="FCAT_GOTHIC" weight="6" proportion="4" contrast="0" strokeVariation="1" armStyle="1" letterform="1" midline="1" xHeight="1"/>`;
+          if (f.face !== "맑은 고딕") subst = `<hh:substFont face="맑은 고딕" type="TTF" isEmbedded="0" binaryItemIDRef=""/>`;
+        } else if (/궁서|gungsuh/i.test(faceLower)) {
+          typeInfo = `<hh:typeInfo familyType="FCAT_GUNGSEO" weight="6" proportion="4" contrast="0" strokeVariation="1" armStyle="1" letterform="1" midline="1" xHeight="1"/>`;
+          if (f.face !== "궁서체") subst = `<hh:substFont face="궁서체" type="TTF" isEmbedded="0" binaryItemIDRef=""/>`;
+        } else if (/굴림|gulim/i.test(faceLower)) {
+          typeInfo = `<hh:typeInfo familyType="FCAT_GOTHIC" weight="6" proportion="4" contrast="0" strokeVariation="1" armStyle="1" letterform="1" midline="1" xHeight="1"/>`;
+          if (f.face !== "굴림체") subst = `<hh:substFont face="굴림체" type="TTF" isEmbedded="0" binaryItemIDRef=""/>`;
+        }
+        if (typeInfo || subst) {
+          return `<hh:font id="${f.id}" face="${escapeXml(f.face)}" type="TTF" isEmbedded="0">${typeInfo}${subst}</hh:font>`;
+        }
+        return `<hh:font id="${f.id}" face="${escapeXml(f.face)}" type="TTF" isEmbedded="0"/>`;
+      };
+      const fontsXml = group.added.map(buildFontXml).join("");
       const cnt = parseInt(attrs.match(/\bfontCnt="(\d+)"/)?.[1] ?? String(group.next - group.added.length), 10) + group.added.length;
       const newAttrs = /\bfontCnt="\d+"/.test(attrs) ? attrs.replace(/\bfontCnt="\d+"/, `fontCnt="${cnt}"`) : `${attrs} fontCnt="${cnt}"`;
       return `<hh:fontface${newAttrs}>${inner}${fontsXml}</hh:fontface>`;

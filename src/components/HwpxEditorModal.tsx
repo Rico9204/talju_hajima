@@ -2001,18 +2001,18 @@ function HwpxEditorModalInner({
   // 글꼴 적용
   const applyFontFamily = (fontVal: string) => {
     restoreSelection();
+    updateParagraphStyle(selectedIdx, { fontFamily: fontVal });
     if (hasActiveTextSelection()) {
       document.execCommand("styleWithCSS", false, "true");
       document.execCommand("fontName", false, fontVal);
       triggerActiveBlockInput();
-    } else {
-      updateParagraphStyle(selectedIdx, { fontFamily: fontVal });
     }
   };
 
   // 글자 크기 적용
   const applyFontSize = (sizePt: number) => {
     restoreSelection();
+    updateParagraphStyle(selectedIdx, { sizePt });
     if (hasActiveTextSelection()) {
       const sel = window.getSelection();
       if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
@@ -2023,8 +2023,6 @@ function HwpxEditorModalInner({
         range.insertNode(span);
         triggerActiveBlockInput();
       }
-    } else {
-      updateParagraphStyle(selectedIdx, { sizePt });
     }
   };
 
