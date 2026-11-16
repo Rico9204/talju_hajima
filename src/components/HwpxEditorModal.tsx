@@ -2175,17 +2175,8 @@ function HwpxEditorModalInner({
 
               <button
                 type="button"
-                onClick={() => setRibbonCollapsed(!ribbonCollapsed)}
-                className="p-1 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-800 transition"
-                title={ribbonCollapsed ? "메뉴 툴바 펼치기" : "메뉴 툴바 접기"}
-              >
-                {ribbonCollapsed ? "⌄" : "⌃"}
-              </button>
-
-              <button
-                type="button"
                 onClick={() => requestClose(onClose)}
-                className="p-1 rounded hover:bg-red-50 text-neutral-400 hover:text-red-600 transition"
+                className="p-1 rounded hover:bg-red-50 text-neutral-400 hover:text-red-600 transition cursor-pointer"
                 title="편집기 닫기"
               >
                 ✕
@@ -2193,40 +2184,60 @@ function HwpxEditorModalInner({
             </div>
           </div>
 
-          {/* 2열: 메뉴 탭 바 (파일, 편집, 보기, 입력, 서식, 쪽, 표, 검토, 도구) */}
-          <div className="flex items-center gap-0.5 px-2 bg-white text-xs border-b border-neutral-200">
-            {(
-              [
-                { id: "file", label: "파일" },
-                { id: "edit", label: "편집" },
-                { id: "view", label: "보기" },
-                { id: "insert", label: "입력" },
-                { id: "format", label: "서식" },
-                { id: "page", label: "쪽" },
-                { id: "table", label: "표" },
-                { id: "review", label: "검토" },
-                { id: "tools", label: "도구" },
-              ] as const
-            ).map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    if (ribbonCollapsed) setRibbonCollapsed(false);
-                  }}
-                  className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 ${
-                    isActive
-                      ? "border-[#0066cc] text-[#0066cc] font-bold"
-                      : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
+          {/* 2열: 메뉴 탭 바 (파일, 편집, 보기, 입력, 서식, 쪽, 표, 검토, 도구) 및 리본 접기/펼치기 */}
+          <div className="flex items-center justify-between px-2 bg-white text-xs border-b border-neutral-200">
+            <div className="flex items-center gap-0.5">
+              {(
+                [
+                  { id: "file", label: "파일" },
+                  { id: "edit", label: "편집" },
+                  { id: "view", label: "보기" },
+                  { id: "insert", label: "입력" },
+                  { id: "format", label: "서식" },
+                  { id: "page", label: "쪽" },
+                  { id: "table", label: "표" },
+                  { id: "review", label: "검토" },
+                  { id: "tools", label: "도구" },
+                ] as const
+              ).map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      if (ribbonCollapsed) setRibbonCollapsed(false);
+                    }}
+                    className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 ${
+                      isActive
+                        ? "border-[#0066cc] text-[#0066cc] font-bold"
+                        : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 메뉴 툴바 접기/펼치기 버튼 (한컴 표준: 탭 바 우측 끝에 배치) */}
+            <button
+              type="button"
+              onClick={() => setRibbonCollapsed(!ribbonCollapsed)}
+              className="p-1 mr-1 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-800 transition cursor-pointer flex items-center justify-center"
+              title={ribbonCollapsed ? "메뉴 툴바 펼치기 (리본 메뉴 표시)" : "메뉴 툴바 접기 (리본 메뉴 숨김)"}
+              aria-label={ribbonCollapsed ? "메뉴 툴바 펼치기" : "메뉴 툴바 접기"}
+            >
+              <svg
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${ribbonCollapsed ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
+              </svg>
+            </button>
           </div>
 
           {/* 3열: 한글 대형 리본 툴바 (선택된 탭에 따라 해당 기능 즉시 표시) */}
