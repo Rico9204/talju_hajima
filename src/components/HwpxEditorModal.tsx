@@ -905,47 +905,70 @@ function HwpxEditorModalInner({
     const block = blocks[blockIdx];
     if (!block) return;
 
+    const handleEl = e.currentTarget as HTMLElement;
+    const pointerId = e.pointerId;
+    try {
+      handleEl.setPointerCapture(pointerId);
+    } catch {
+      // ignore
+    }
+
     const startX = e.clientX;
     const startY = e.clientY;
     const zoom = Math.max(0.2, zoomPercent / 100);
 
-    const handleEl = e.currentTarget as HTMLElement;
-    const blockEl = (handleEl.closest("[data-block-id]") as HTMLElement) || handleEl.parentElement;
-    const startRect = blockEl ? blockEl.getBoundingClientRect() : null;
+    const resizableBox = (handleEl.closest(".hwpx-resizable-box") as HTMLElement) || handleEl.parentElement;
+    const startRect = resizableBox ? resizableBox.getBoundingClientRect() : null;
 
     const canvasEl = canvasRef.current;
-    const contentWidth = canvasEl ? Math.max(200, canvasEl.clientWidth - 80) : 680;
+    const canvasStyle = canvasEl ? window.getComputedStyle(canvasEl) : null;
+    const padLeft = canvasStyle ? parseFloat(canvasStyle.paddingLeft) || 40 : 40;
+    const padRight = canvasStyle ? parseFloat(canvasStyle.paddingRight) || 40 : 40;
+    const contentWidth = canvasEl ? Math.max(200, canvasEl.clientWidth - padLeft - padRight) : 680;
 
     const blockWidthPct = "widthPercent" in block ? (block as { widthPercent?: number }).widthPercent : undefined;
     const blockHeightPt = "heightPt" in block ? (block as { heightPt?: number }).heightPt : undefined;
 
-    const startWidthPx = startRect ? startRect.width / zoom : (contentWidth * ((blockWidthPct || (block.type === "table" ? 100 : 75)) / 100));
-    const startHeightPx = startRect ? startRect.height / zoom : (blockHeightPt || 60);
+    const initialWidthPct = blockWidthPct ?? (block.type === "table" ? 100 : 75);
+    const startWidthPx = startRect ? (startRect.width / zoom) : (contentWidth * (initialWidthPct / 100));
+    const startHeightPt = blockHeightPt ?? (startRect ? (startRect.height / zoom) : 60);
 
-    let currentWidthPct = blockWidthPct ?? (block.type === "table" ? 100 : 75);
-    let currentHeightPt = blockHeightPt ?? (block.type === "shape" ? 60 : 30);
+    const align = ("align" in block ? (block as { align?: string }).align : undefined) || "center";
+    const factorX = align === "center" ? 2 : 1;
+
+    let currentWidthPct = initialWidthPct;
+    let currentHeightPt = startHeightPt;
 
     const onPointerMove = (moveEvt: PointerEvent) => {
       const dx = (moveEvt.clientX - startX) / zoom;
       const dy = (moveEvt.clientY - startY) / zoom;
 
-      let newWidthPx = startWidthPx;
-      let newHeightPx = startHeightPx;
-
+      let deltaW = 0;
       if (dir.includes("e")) {
-        newWidthPx = startWidthPx + dx;
+        deltaW = dx * factorX;
       } else if (dir.includes("w")) {
-        newWidthPx = startWidthPx - dx;
+        deltaW = -dx * factorX;
       }
 
+      let deltaH = 0;
       if (dir.includes("s")) {
-        newHeightPx = startHeightPx + dy;
+        deltaH = dy;
       } else if (dir.includes("n")) {
-        newHeightPx = startHeightPx - dy;
+        deltaH = -dy;
       }
 
-      currentWidthPct = Math.max(10, Math.min(100, Math.round((newWidthPx / contentWidth) * 100)));
-      currentHeightPt = Math.max(5, Math.min(1200, Math.round(newHeightPx)));
+      if (dir.includes("e") || dir.includes("w")) {
+        const newWidthPx = Math.max(40, startWidthPx + deltaW);
+        currentWidthPct = Math.max(10, Math.min(100, Math.round((newWidthPx / contentWidth) * 100)));
+      }
+
+      if (dir.includes("n") || dir.includes("s")) {
+        if (block.type === "shape" && (block as { shapeType?: string }).shapeType === "line") {
+          currentHeightPt = 2;
+        } else {
+          currentHeightPt = Math.max(15, Math.min(1200, Math.round(startHeightPt + deltaH)));
+        }
+      }
 
       setDragResize((prev) => ({
         ...prev,
@@ -957,6 +980,11 @@ function HwpxEditorModalInner({
     };
 
     const onPointerUp = () => {
+      try {
+        handleEl.releasePointerCapture(pointerId);
+      } catch {
+        // ignore
+      }
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
 
@@ -5379,7 +5407,7 @@ function HwpxEditorModalInner({
                         marginRight: block.marginRightMm ? `${block.marginRightMm * 3.78}px` : "auto",
                         width: tblWidth,
                       }}
-                      className={`my-6 py-1 relative group/tbl cursor-default select-none transition-shadow ${
+                      className={`hwpx-resizable-box my-6 py-1 relative group/tbl cursor-default select-none ${
                         isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
                       }`}
                     >
@@ -5718,7 +5746,7 @@ function HwpxEditorModalInner({
 
                       <div
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                        className={`relative flex flex-col items-center transition-all cursor-move ${
+                        className={`hwpx-resizable-box relative flex flex-col items-center cursor-move ${
                           isSelected
                             ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
                             : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
@@ -5904,7 +5932,7 @@ function HwpxEditorModalInner({
 
                       <div
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                        className={`relative flex flex-col items-center transition-all cursor-move ${
+                        className={`hwpx-resizable-box relative flex flex-col items-center cursor-move ${
                           isSelected
                             ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
                             : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
@@ -6072,20 +6100,20 @@ function HwpxEditorModalInner({
                               height: `${Math.max(1, strokeWidth)}px`,
                               backgroundColor: strokeColor,
                             }}
-                            className="my-3 transition-all"
+                            className="my-3"
                           />
                         ) : (
                           <div
                             style={{
                               width: "100%",
-                              minHeight: `${currentHeightPt}px`,
+                              height: `${currentHeightPt}px`,
                               backgroundColor: fillColor,
                               borderColor: strokeColor,
                               borderWidth: `${strokeWidth}px`,
                               borderStyle: block.strokeType === "DASH" ? "dashed" : block.strokeType === "DOT" ? "dotted" : "solid",
                               borderRadius,
                             }}
-                            className="p-3 flex items-center justify-center transition-all relative overflow-hidden"
+                            className="p-3 flex items-center justify-center relative overflow-hidden"
                           >
                             <textarea
                               value={block.text || ""}
@@ -6111,7 +6139,7 @@ function HwpxEditorModalInner({
                               }}
                               placeholder="도형 안 글상자 텍스트 입력..."
                               rows={Math.max(1, (block.text || "").split("\n").length)}
-                              className="w-full bg-transparent border-none outline-none text-center text-xs text-neutral-900 resize-none font-sans leading-relaxed"
+                              className="w-full h-full bg-transparent border-none outline-none text-center text-xs text-neutral-900 resize-none font-sans leading-relaxed"
                             />
                           </div>
                         )}

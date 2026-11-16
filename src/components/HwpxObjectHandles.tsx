@@ -41,9 +41,9 @@ export function HwpxSelectionHandles({ onResizeStart }: HwpxSelectionHandlesProp
                 }
               : undefined
           }
-          className={`hwpx-resize-handle absolute z-30 w-2.5 h-2.5 bg-white border border-[#0066cc] shadow-xs select-none transition-transform before:absolute before:-inset-1.5 before:content-[''] ${
+          className={`hwpx-resize-handle absolute z-30 w-2.5 h-2.5 bg-white border border-[#0066cc] rounded-[1px] shadow-xs select-none before:absolute before:-inset-2 before:content-[''] ${
             isInteractive
-              ? `${cursorClass} pointer-events-auto hover:bg-[#0066cc] hover:scale-125`
+              ? `${cursorClass} pointer-events-auto hover:bg-[#0066cc] hover:border-[#004499] active:bg-[#004499]`
               : "pointer-events-none"
           } ${posClass}`}
         />
