@@ -40,8 +40,26 @@ export const isOfficeEditable = (name: string) => OFFICE_EXTENSIONS.includes(nam
 // 서버에 오피스 편집이 켜져 있는지(한 번만 묻는다).
 let statusPromise: Promise<boolean> | null = null;
 export function officeEditorEnabled(): Promise<boolean> {
-  statusPromise ??= dataRepository.getOfficeEditorStatus().then((s) => s.enabled).catch(() => { statusPromise = null; return false; });
+  statusPromise ??= dataRepository.getOfficeEditorStatus().then((s) => { if (s.enabled) warmOfficeEditor(); return s.enabled; }).catch(() => { statusPromise = null; return false; });
   return statusPromise;
+}
+
+// 편집 버튼을 누르기 전에 편집기 서버와의 연결(DNS·TCP·TLS)을 열어 두고 편집기 스크립트(api.js)를 받아 둔다.
+// 터널을 거치면 연결을 새로 맺는 데만 0.4초 안팎이 걸려서, 버튼을 누른 뒤의 대기 시간을 줄인다. 실패해도 조용히 넘어가고(열 때 다시 시도) 화면은 영향이 없다.
+let warmed = false;
+export function warmOfficeEditor(): void {
+  if (warmed || typeof document === "undefined") return;
+  warmed = true;
+  try {
+    const origin = backendOrigin();
+    if (origin && !document.head.querySelector(`link[rel="preconnect"][href="${origin}"]`)) {
+      const link = document.createElement("link");
+      link.rel = "preconnect";
+      link.href = origin;
+      document.head.appendChild(link);
+    }
+  } catch { /* 연결 미리 열기는 선택 사항 */ }
+  void loadEditorScript().catch(() => { warmed = false; });
 }
 
 export default function OfficeEditorModal({ fileId, fileName, readOnly, presence = null, editors = [], onClose }: { fileId: number; fileName: string; readOnly: boolean; presence?: CollabPresence | null; editors?: CollabEditor[]; onClose: () => void }) {
