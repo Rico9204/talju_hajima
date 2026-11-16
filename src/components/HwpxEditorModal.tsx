@@ -799,6 +799,72 @@ function HwpxEditorModalInner({
     }
   };
 
+  // 개체(도형, 그림, 표, 수식) 자유 이동 실시간 드래그 오프셋 (60fps 무지연)
+  const [dragOffsets, setDragOffsets] = useState<Record<number, { x: number; y: number }>>({});
+
+  // 최종 위치를 Yjs CRDT에 영구 커밋
+  const commitObjectOffset = (blockIndex: number, offsetX: number, offsetY: number) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(blockIndex);
+    if (!yBlock) return;
+    doc.transact(() => {
+      yBlock.set("offsetX", offsetX);
+      yBlock.set("offsetY", offsetY);
+    });
+  };
+
+  // 개체 자유 드래그 이동 시작 핸들러
+  const handleObjectDragStart = (
+    e: React.PointerEvent,
+    blockIdx: number,
+    initialOffsetX: number = 0,
+    initialOffsetY: number = 0
+  ) => {
+    if (e.button !== 0) return;
+    const targetEl = e.target as HTMLElement;
+    if (targetEl.tagName === "INPUT" || targetEl.tagName === "TEXTAREA" || targetEl.tagName === "BUTTON") {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedIdx(blockIdx);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const zoom = Math.max(0.2, zoomPercent / 100);
+
+    let currentOffX = initialOffsetX;
+    let currentOffY = initialOffsetY;
+
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      const dx = (moveEvt.clientX - startX) / zoom;
+      const dy = (moveEvt.clientY - startY) / zoom;
+      currentOffX = Math.round(initialOffsetX + dx);
+      currentOffY = Math.round(initialOffsetY + dy);
+
+      setDragOffsets((prev) => ({
+        ...prev,
+        [blockIdx]: { x: currentOffX, y: currentOffY },
+      }));
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+
+      setDragOffsets((prev) => {
+        const next = { ...prev };
+        delete next[blockIdx];
+        return next;
+      });
+      commitObjectOffset(blockIdx, currentOffX, currentOffY);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  };
+
   // 문단 분할 (Enter 키): 커서 위치를 기준으로 문단을 나누어 새 문단 생성
   const splitParagraph = (index: number, textBefore: string, textAfter: string) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
@@ -1539,6 +1605,8 @@ function HwpxEditorModalInner({
       if (patch.widthPercent !== undefined) yBlock.set("widthPercent", patch.widthPercent);
       if (patch.align !== undefined) yBlock.set("align", patch.align);
       if (patch.caption !== undefined) yBlock.set("caption", patch.caption);
+      if (patch.offsetX !== undefined) yBlock.set("offsetX", patch.offsetX);
+      if (patch.offsetY !== undefined) yBlock.set("offsetY", patch.offsetY);
     });
   };
 
@@ -1585,6 +1653,8 @@ function HwpxEditorModalInner({
       if (patch.strokeColor !== undefined) yBlock.set("strokeColor", patch.strokeColor);
       if (patch.strokeWidth !== undefined) yBlock.set("strokeWidth", patch.strokeWidth);
       if (patch.align !== undefined) yBlock.set("align", patch.align);
+      if (patch.offsetX !== undefined) yBlock.set("offsetX", patch.offsetX);
+      if (patch.offsetY !== undefined) yBlock.set("offsetY", patch.offsetY);
       if (patch.text !== undefined) {
         let yText = yBlock.get("text") as Y.Text | undefined;
         if (!yText) {
@@ -3519,6 +3589,9 @@ function HwpxEditorModalInner({
                 }
 
                 if (block.type === "table") {
+                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+
                   return (
                     <div
                       key={block.id}
@@ -3527,15 +3600,45 @@ function HwpxEditorModalInner({
                       data-block-type="table"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
-                      className={`my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white relative group/tbl cursor-default select-none ${
-                        isSelected ? "ring-1 ring-blue-500 rounded" : ""
+                      style={{
+                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                        zIndex: isSelected ? 20 : 1,
+                      }}
+                      className={`my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white relative group/tbl cursor-default select-none transition-shadow ${
+                        isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
                       }`}
                     >
-                      {/* 표 제어 툴바 (hover 시 노출) */}
+                      {/* 표 제어 툴바 */}
                       <div className="mb-2 flex items-center justify-between text-[11px] bg-neutral-100 p-1.5 rounded border border-neutral-300">
-                        <span className="font-bold text-neutral-600 flex items-center gap-1">
-                          ⊞ 표 ({block.rows.length}행 × {block.rows[0]?.length || 0}열)
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-neutral-600 flex items-center gap-1">
+                            ⊞ 표 ({block.rows.length}행 × {block.rows[0]?.length || 0}열)
+                          </span>
+                          {/* 표 자유 드래그 이동 핸들 */}
+                          <div
+                            onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium text-[10px]"
+                            title="드래그하여 원하는 위치로 자유롭게 이동"
+                          >
+                            <span className="text-xs">✥</span>
+                            <span>자유 이동</span>
+                            {isMoved && (
+                              <span className="text-[9px] text-neutral-400 font-mono">
+                                ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
+                              </span>
+                            )}
+                          </div>
+                          {isMoved && (
+                            <button
+                              type="button"
+                              onClick={() => commitObjectOffset(idx, 0, 0)}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
+                              title="원래 위치로 초기화"
+                            >
+                              원위치
+                            </button>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -3609,6 +3712,8 @@ function HwpxEditorModalInner({
                 if (block.type === "image") {
                   const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
                   const widthStyle = `${block.widthPercent || 75}%`;
+                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
 
                   return (
                     <div
@@ -3618,10 +3723,15 @@ function HwpxEditorModalInner({
                       data-block-type="image"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
+                      style={{
+                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                        zIndex: isSelected ? 30 : 1,
+                      }}
                       className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass}`}
                     >
                       <div
-                        className={`relative flex flex-col items-center transition-all ${
+                        onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                        className={`relative flex flex-col items-center transition-all cursor-move ${
                           isSelected
                             ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
                             : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
@@ -3638,6 +3748,34 @@ function HwpxEditorModalInner({
                               <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
                               <span>그림</span>
                             </span>
+
+                            {/* 자유 이동 핸들 */}
+                            <div
+                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium"
+                              title="드래그하여 원하는 위치로 자유롭게 이동"
+                            >
+                              <span className="text-xs">✥</span>
+                              <span>이동</span>
+                              {isMoved && (
+                                <span className="text-[9px] text-neutral-400 font-mono">
+                                  ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
+                                </span>
+                              )}
+                            </div>
+
+                            {isMoved && (
+                              <button
+                                type="button"
+                                onClick={() => commitObjectOffset(idx, 0, 0)}
+                                className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
+                                title="원래 위치로 초기화"
+                              >
+                                원위치
+                              </button>
+                            )}
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
                             {/* 크기 버튼 */}
                             <div className="flex items-center gap-0.5">
@@ -3718,6 +3856,8 @@ function HwpxEditorModalInner({
                   const fillColor = block.fillColor === "transparent" ? "transparent" : (block.fillColor || "#FFFFFF");
                   const strokeColor = block.strokeColor || "#1F2937";
                   const strokeWidth = block.strokeWidth || 1.5;
+                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
 
                   return (
                     <div
@@ -3727,10 +3867,15 @@ function HwpxEditorModalInner({
                       data-block-type="shape"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
+                      style={{
+                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                        zIndex: isSelected ? 30 : 1,
+                      }}
                       className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass}`}
                     >
                       <div
-                        className={`relative flex flex-col items-center transition-all ${
+                        onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                        className={`relative flex flex-col items-center transition-all cursor-move ${
                           isSelected
                             ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
                             : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
@@ -3755,6 +3900,34 @@ function HwpxEditorModalInner({
                                   : "가로선"}
                               </span>
                             </span>
+
+                            {/* 자유 이동 핸들 */}
+                            <div
+                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium"
+                              title="드래그하여 원하는 위치로 자유롭게 이동"
+                            >
+                              <span className="text-xs">✥</span>
+                              <span>이동</span>
+                              {isMoved && (
+                                <span className="text-[9px] text-neutral-400 font-mono">
+                                  ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
+                                </span>
+                              )}
+                            </div>
+
+                            {isMoved && (
+                              <button
+                                type="button"
+                                onClick={() => commitObjectOffset(idx, 0, 0)}
+                                className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
+                                title="원래 위치로 초기화"
+                              >
+                                원위치
+                              </button>
+                            )}
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
                             {/* 면 채우기 (선이 아닐 때) */}
                             {!isLine && (
@@ -3898,6 +4071,8 @@ function HwpxEditorModalInner({
 
                 if (block.type === "equation") {
                   const mathML = parseHwpEquation(block.script || "");
+                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
 
                   return (
                     <div
@@ -3908,10 +4083,15 @@ function HwpxEditorModalInner({
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
                       onDoubleClick={() => openEditEquation(idx)}
+                      style={{
+                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                        zIndex: isSelected ? 30 : 1,
+                      }}
                       className="my-5 flex flex-col items-center cursor-default select-none relative group/eq"
                     >
                       <div
-                        className={`relative inline-flex items-center justify-center px-4 py-2 rounded-xs transition-all ${
+                        onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                        className={`relative inline-flex items-center justify-center px-4 py-2 rounded-xs transition-all cursor-move ${
                           isSelected
                             ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-2 bg-blue-50/20"
                             : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
@@ -3927,6 +4107,34 @@ function HwpxEditorModalInner({
                               <EquationIcon className="w-3.5 h-3.5" />
                               <span>수식</span>
                             </span>
+
+                            {/* 자유 이동 핸들 */}
+                            <div
+                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 hover:bg-neutral-200 text-neutral-700 cursor-move border border-neutral-300 select-none font-medium"
+                              title="드래그하여 원하는 위치로 자유롭게 이동"
+                            >
+                              <span className="text-xs">✥</span>
+                              <span>이동</span>
+                              {isMoved && (
+                                <span className="text-[9px] text-neutral-400 font-mono">
+                                  ({currentOffset.x > 0 ? `+${currentOffset.x}` : currentOffset.x}, {currentOffset.y > 0 ? `+${currentOffset.y}` : currentOffset.y})
+                                </span>
+                              )}
+                            </div>
+
+                            {isMoved && (
+                              <button
+                                type="button"
+                                onClick={() => commitObjectOffset(idx, 0, 0)}
+                                className="px-1.5 py-0.5 rounded text-[10px] text-blue-600 hover:bg-blue-50 font-medium cursor-pointer"
+                                title="원래 위치로 초기화"
+                              >
+                                원위치
+                              </button>
+                            )}
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
                             <button
                               type="button"

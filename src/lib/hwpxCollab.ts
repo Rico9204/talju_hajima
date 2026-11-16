@@ -39,6 +39,8 @@ export interface HwpxTableBlock {
   id: string;
   rows: HwpxTableCell[][];
   rawAttrs?: string;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface HwpxEquationBlock {
@@ -46,6 +48,8 @@ export interface HwpxEquationBlock {
   id: string;
   script: string;
   rawAttrs?: string;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface HwpxImageBlock {
@@ -57,6 +61,8 @@ export interface HwpxImageBlock {
   caption?: string;
   rawAttrs?: string;
   rawXml?: string;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface HwpxShapeBlock {
@@ -72,6 +78,8 @@ export interface HwpxShapeBlock {
   align?: "left" | "center" | "right";
   rawAttrs?: string;
   rawXml?: string;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<string, string> {
@@ -1275,14 +1283,20 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
           rows.push(cells);
         }
       }
-      blocks.push({ type: "table", id, rows, rawAttrs });
+      const offsetX = yBlock.get("offsetX") as number | undefined;
+      const offsetY = yBlock.get("offsetY") as number | undefined;
+      blocks.push({ type: "table", id, rows, rawAttrs, offsetX, offsetY });
     } else if (type === "equation") {
       const yScript = yBlock.get("script") as Y.Text | undefined;
+      const offsetX = yBlock.get("offsetX") as number | undefined;
+      const offsetY = yBlock.get("offsetY") as number | undefined;
       blocks.push({
         type: "equation",
         id,
         script: yScript ? yScript.toString() : "",
         rawAttrs,
+        offsetX,
+        offsetY,
       });
     } else if (type === "image") {
       const src = (yBlock.get("src") as string) || "";
@@ -1290,6 +1304,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
       const caption = (yBlock.get("caption") as string) || "";
       const rawXml = yBlock.get("rawXml") as string | undefined;
+      const offsetX = yBlock.get("offsetX") as number | undefined;
+      const offsetY = yBlock.get("offsetY") as number | undefined;
       blocks.push({
         type: "image",
         id,
@@ -1299,6 +1315,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         caption,
         rawAttrs,
         rawXml,
+        offsetX,
+        offsetY,
       });
     } else if (type === "shape") {
       const shapeType = (yBlock.get("shapeType") as "rect" | "roundRect" | "ellipse" | "line") || "rect";
@@ -1310,6 +1328,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const yText = yBlock.get("text") as Y.Text | undefined;
       const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
       const rawXml = yBlock.get("rawXml") as string | undefined;
+      const offsetX = yBlock.get("offsetX") as number | undefined;
+      const offsetY = yBlock.get("offsetY") as number | undefined;
       blocks.push({
         type: "shape",
         id,
@@ -1323,6 +1343,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         align,
         rawAttrs,
         rawXml,
+        offsetX,
+        offsetY,
       });
     }
   }
