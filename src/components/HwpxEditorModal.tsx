@@ -1053,17 +1053,110 @@ function HwpxEditorModalInner({
   const [propertyTargetIdx, setPropertyTargetIdx] = useState<number | null>(null);
   const [propActiveTab, setPropActiveTab] = useState<"basic" | "margin" | "border" | "background" | "table">("basic");
 
-  // 모달 내부 편집 폼 상태
+  // [기본] 탭 상세 상태
+  const [propWidthType, setPropWidthType] = useState<"고정값" | "비율">("고정값");
+  const [propWidthMm, setPropWidthMm] = useState<number>(150.0);
+  const [propHeightType, setPropHeightType] = useState<"고정값">("고정값");
+  const [propHeightMm, setPropHeightMm] = useState<number>(29.99);
+  const [propLockSize, setPropLockSize] = useState<boolean>(false);
   const [propTreatAsChar, setPropTreatAsChar] = useState(true);
   const [propTextWrap, setPropTextWrap] = useState<"TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT">("TOP_AND_BOTTOM");
-  const [propWidthPercent, setPropWidthPercent] = useState(75);
-  const [propHeightPt, setPropHeightPt] = useState(60);
-  const [propOffsetX, setPropOffsetX] = useState(0);
-  const [propOffsetY, setPropOffsetY] = useState(0);
-  const [propCaption, setPropCaption] = useState("");
-  const [propFillColor, setPropFillColor] = useState("#FFFFFF");
-  const [propStrokeColor, setPropStrokeColor] = useState("#1F2937");
-  const [propStrokeWidth, setPropStrokeWidth] = useState(1.5);
+  const [propTextPos, setPropTextPos] = useState<"양쪽" | "왼쪽" | "오른쪽">("양쪽");
+  const [propHorzRelTo, setPropHorzRelTo] = useState<"단" | "문단" | "쪽">("단");
+  const [propHorzAlign, setPropHorzAlign] = useState<"왼쪽" | "가운데" | "오른쪽">("왼쪽");
+  const [propHorzOffsetMm, setPropHorzOffsetMm] = useState<number>(0.0);
+  const [propVertRelTo, setPropVertRelTo] = useState<"문단" | "쪽">("문단");
+  const [propVertAlign, setPropVertAlign] = useState<"위쪽" | "가운데" | "아래쪽">("위쪽");
+  const [propVertOffsetMm, setPropVertOffsetMm] = useState<number>(0.0);
+  const [propLimitToPage, setPropLimitToPage] = useState<boolean>(true);
+  const [propAllowOverlap, setPropAllowOverlap] = useState<boolean>(false);
+  const [propKeepWithAnchor, setPropKeepWithAnchor] = useState<boolean>(false);
+
+  // [여백/캡션] 탭 상세 상태
+  const [propMarginLeftMm, setPropMarginLeftMm] = useState<number>(0.0);
+  const [propMarginRightMm, setPropMarginRightMm] = useState<number>(0.0);
+  const [propMarginTopMm, setPropMarginTopMm] = useState<number>(0.0);
+  const [propMarginBottomMm, setPropMarginBottomMm] = useState<number>(0.0);
+  const [propCaptionPos, setPropCaptionPos] = useState<string>("bottom_center");
+  const [propCaptionSizeMm, setPropCaptionSizeMm] = useState<number>(30.0);
+  const [propCaptionGapMm, setPropCaptionGapMm] = useState<number>(3.0);
+  const [propCaptionExpandWidth, setPropCaptionExpandWidth] = useState<boolean>(false);
+  const [propCaptionSingleLine, setPropCaptionSingleLine] = useState<boolean>(false);
+  const [propCaption, setPropCaption] = useState<string>("");
+
+  // [테두리] 탭 상세 상태
+  const [propBorderType, setPropBorderType] = useState<string>("SOLID");
+  const [propBorderThickness, setPropBorderThickness] = useState<string>("0.12mm");
+  const [propBorderColor, setPropBorderColor] = useState<string>("#000000");
+  const [propCellSpacingEnabled, setPropCellSpacingEnabled] = useState<boolean>(false);
+  const [propCellSpacingMm, setPropCellSpacingMm] = useState<number>(0.0);
+  const [propBorderTarget, setPropBorderTarget] = useState<"all" | "outer" | "inner" | "none" | "custom">("all");
+
+  // [배경] 탭 상세 상태
+  const [propFillMode, setPropFillMode] = useState<"none" | "color">("color");
+  const [propFillColor, setPropFillColor] = useState<string>("#FFFFFF");
+  const [propPatternColor, setPropPatternColor] = useState<string>("#000000");
+  const [propPatternType, setPropPatternType] = useState<string>("none");
+  const [propFillImageEnabled, setPropFillImageEnabled] = useState<boolean>(false);
+  const [propFillImageMode, setPropFillImageMode] = useState<string>("fit");
+  const [propFillImageBrightness, setPropFillImageBrightness] = useState<number>(0);
+  const [propFillImageContrast, setPropFillImageContrast] = useState<number>(0);
+  const [propFillImageEffect, setPropFillImageEffect] = useState<string>("none");
+  const [propFillImageWatermark, setPropFillImageWatermark] = useState<boolean>(false);
+
+  // [표] 탭 상세 상태
+  const [propTablePageBreak, setPropTablePageBreak] = useState<"divide" | "cell_divide" | "no_divide">("divide");
+  const [propRepeatHeader, setPropRepeatHeader] = useState<boolean>(false);
+  const [propSplitBorderEnabled, setPropSplitBorderEnabled] = useState<boolean>(false);
+  const [propSplitBorderType, setPropSplitBorderType] = useState<string>("SOLID");
+  const [propSplitBorderThickness, setPropSplitBorderThickness] = useState<string>("0.1mm");
+  const [propSplitBorderColor, setPropSplitBorderColor] = useState<string>("#7F7F7F");
+  const [propCellPaddingLeftMm, setPropCellPaddingLeftMm] = useState<number>(1.8);
+  const [propCellPaddingRightMm, setPropCellPaddingRightMm] = useState<number>(1.8);
+  const [propCellPaddingTopMm, setPropCellPaddingTopMm] = useState<number>(0.5);
+  const [propCellPaddingBottomMm, setPropCellPaddingBottomMm] = useState<number>(0.5);
+
+  // 복사된 개체 버퍼
+  const [copiedBlockBuffer, setCopiedBlockBuffer] = useState<HwpxCollabBlock | null>(null);
+
+  const copyBlockToBuffer = (idx: number) => {
+    const blk = blocks[idx];
+    if (blk) {
+      setCopiedBlockBuffer(JSON.parse(JSON.stringify(blk)));
+    }
+  };
+
+  const cutBlockToBuffer = (idx: number) => {
+    copyBlockToBuffer(idx);
+    deleteBlock(idx);
+  };
+
+  // 블록 순서 재배치 (맨 앞으로, 앞으로, 뒤로, 맨 뒤로)
+  const reorderBlock = (idx: number, action: "front" | "forward" | "backward" | "back") => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    if (idx < 0 || idx >= yBlocks.length) return;
+    doc.transact(() => {
+      const target = yBlocks.get(idx);
+      if (!target) return;
+      if (action === "front") {
+        yBlocks.delete(idx, 1);
+        yBlocks.push([target]);
+        setSelectedIdx(yBlocks.length - 1);
+      } else if (action === "forward" && idx < yBlocks.length - 1) {
+        yBlocks.delete(idx, 1);
+        yBlocks.insert(idx + 1, [target]);
+        setSelectedIdx(idx + 1);
+      } else if (action === "backward" && idx > 0) {
+        yBlocks.delete(idx, 1);
+        yBlocks.insert(idx - 1, [target]);
+        setSelectedIdx(idx - 1);
+      } else if (action === "back") {
+        yBlocks.delete(idx, 1);
+        yBlocks.insert(0, [target]);
+        setSelectedIdx(0);
+      }
+    });
+  };
 
   const openPropertyModal = (idx: number) => {
     const block = blocks[idx];
@@ -1072,20 +1165,58 @@ function HwpxEditorModalInner({
     setPropertyTargetIdx(idx);
     setPropActiveTab("basic");
 
-    const isFloating = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
+    const isFloating = block.treatAsChar !== undefined ? !block.treatAsChar : ((block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0));
     setPropTreatAsChar(!isFloating);
-    setPropTextWrap(isFloating ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM");
-    setPropWidthPercent("widthPercent" in block && block.widthPercent ? block.widthPercent : (block.type === "table" ? 100 : 75));
-    setPropHeightPt(block.type === "shape" ? (block.heightPt || 60) : 60);
-    setPropOffsetX(block.offsetX || 0);
-    setPropOffsetY(block.offsetY || 0);
+    setPropTextWrap(block.textWrap || (isFloating ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM"));
 
-    if (block.type === "image") {
-      setPropCaption(block.caption || "");
+    const offX = block.offsetX || 0;
+    const offY = block.offsetY || 0;
+    setPropHorzOffsetMm(Number((offX / 3.78).toFixed(2)));
+    setPropVertOffsetMm(Number((offY / 3.78).toFixed(2)));
+
+    // 바깥 여백
+    setPropMarginLeftMm(block.marginLeftMm ?? 0.0);
+    setPropMarginRightMm(block.marginRightMm ?? 0.0);
+    setPropMarginTopMm(block.marginTopMm ?? 0.0);
+    setPropMarginBottomMm(block.marginBottomMm ?? 0.0);
+
+    // 캡션
+    setPropCaption(block.caption ?? "");
+    setPropCaptionPos(block.captionPos ?? "bottom_center");
+
+    if (block.type === "table") {
+      const wPct = block.widthPercent || 100;
+      setPropWidthMm(Number(((wPct / 100) * 150).toFixed(2)));
+      setPropHeightMm(block.heightPt ? Number((block.heightPt * 0.3527).toFixed(2)) : 29.99);
+      setPropFillMode(block.fillMode || (block.fillColor && block.fillColor !== "transparent" ? "color" : "none"));
+      setPropFillColor(block.fillColor && block.fillColor !== "transparent" ? block.fillColor : "#FFFFFF");
+      setPropBorderType(block.borderType || "SOLID");
+      setPropBorderThickness(block.borderThickness || "0.12mm");
+      setPropBorderColor(block.borderColor || "#000000");
+      setPropCellSpacingEnabled(!!block.cellSpacingEnabled);
+      setPropCellSpacingMm(block.cellSpacingMm ?? 0.0);
+      setPropTablePageBreak(block.pageBreak || "divide");
+      setPropRepeatHeader(!!block.repeatHeader);
+      setPropCellPaddingLeftMm(block.cellPaddingLeftMm ?? 1.8);
+      setPropCellPaddingRightMm(block.cellPaddingRightMm ?? 1.8);
+      setPropCellPaddingTopMm(block.cellPaddingTopMm ?? 0.5);
+      setPropCellPaddingBottomMm(block.cellPaddingBottomMm ?? 0.5);
+    } else if (block.type === "image") {
+      const wPct = block.widthPercent || 75;
+      setPropWidthMm(Number(((wPct / 100) * 150).toFixed(2)));
+      setPropHeightMm(block.heightPt ? Number((block.heightPt * 0.3527).toFixed(2)) : 60.0);
+      setPropBorderType(block.borderType || "SOLID");
+      setPropBorderThickness(block.borderThickness || "0.12mm");
+      setPropBorderColor(block.borderColor || "#000000");
     } else if (block.type === "shape") {
-      setPropFillColor(block.fillColor || "#EFF6FF");
-      setPropStrokeColor(block.strokeColor || "#2563EB");
-      setPropStrokeWidth(block.strokeWidth || 1.5);
+      const wPct = block.widthPercent || 75;
+      setPropWidthMm(Number(((wPct / 100) * 150).toFixed(2)));
+      setPropHeightMm(Number(((block.heightPt || 60) * 0.3527).toFixed(2)));
+      setPropFillMode(block.fillColor === "transparent" ? "none" : (block.fillMode || "color"));
+      setPropFillColor(block.fillColor === "transparent" ? "#FFFFFF" : (block.fillColor || "#EFF6FF"));
+      setPropBorderColor(block.strokeColor || "#2563EB");
+      setPropBorderThickness(block.strokeWidth ? `${(block.strokeWidth * 0.1).toFixed(2)}mm` : "0.15mm");
+      setPropBorderType(block.strokeType || "SOLID");
     }
 
     setShowPropertyModal(true);
@@ -1101,22 +1232,50 @@ function HwpxEditorModalInner({
     if (!yBlock) return;
 
     doc.transact(() => {
-      const finalOffX = propTreatAsChar ? 0 : propOffsetX;
-      const finalOffY = propTreatAsChar ? 0 : propOffsetY;
+      const finalOffX = propTreatAsChar ? 0 : Math.round(propHorzOffsetMm * 3.78);
+      const finalOffY = propTreatAsChar ? 0 : Math.round(propVertOffsetMm * 3.78);
       yBlock.set("offsetX", finalOffX);
       yBlock.set("offsetY", finalOffY);
+      yBlock.set("treatAsChar", propTreatAsChar);
+      yBlock.set("textWrap", propTextWrap);
+
+      const computedWidthPct = Math.max(10, Math.min(100, Math.round((propWidthMm / 150) * 100)));
+      yBlock.set("widthPercent", computedWidthPct);
+      yBlock.set("heightPt", Math.max(5, Math.round(propHeightMm / 0.3527)));
+
+      // 여백 및 캡션
+      yBlock.set("marginLeftMm", propMarginLeftMm);
+      yBlock.set("marginRightMm", propMarginRightMm);
+      yBlock.set("marginTopMm", propMarginTopMm);
+      yBlock.set("marginBottomMm", propMarginBottomMm);
+      yBlock.set("caption", propCaption);
+      yBlock.set("captionPos", propCaptionPos);
+
+      // 테두리
+      yBlock.set("borderColor", propBorderColor);
+      yBlock.set("borderThickness", propBorderThickness);
+      yBlock.set("borderType", propBorderType);
 
       if (block.type === "table") {
-        yBlock.set("widthPercent", propWidthPercent);
+        yBlock.set("fillMode", propFillMode);
+        yBlock.set("fillColor", propFillMode === "none" ? "transparent" : propFillColor);
+        yBlock.set("cellSpacingEnabled", propCellSpacingEnabled);
+        yBlock.set("cellSpacingMm", propCellSpacingMm);
+        yBlock.set("pageBreak", propTablePageBreak);
+        yBlock.set("repeatHeader", propRepeatHeader);
+        yBlock.set("cellPaddingLeftMm", propCellPaddingLeftMm);
+        yBlock.set("cellPaddingRightMm", propCellPaddingRightMm);
+        yBlock.set("cellPaddingTopMm", propCellPaddingTopMm);
+        yBlock.set("cellPaddingBottomMm", propCellPaddingBottomMm);
       } else if (block.type === "image") {
-        yBlock.set("widthPercent", propWidthPercent);
-        yBlock.set("caption", propCaption);
+        // 이미지 추가 속성 반영
       } else if (block.type === "shape") {
-        yBlock.set("widthPercent", propWidthPercent);
-        yBlock.set("heightPt", propHeightPt);
-        yBlock.set("fillColor", propFillColor);
-        yBlock.set("strokeColor", propStrokeColor);
-        yBlock.set("strokeWidth", propStrokeWidth);
+        yBlock.set("fillMode", propFillMode);
+        yBlock.set("fillColor", propFillMode === "none" ? "transparent" : propFillColor);
+        yBlock.set("strokeColor", propBorderColor);
+        const parsedThick = parseFloat(propBorderThickness) || 0.15;
+        yBlock.set("strokeWidth", Math.max(0.5, parsedThick * 10));
+        yBlock.set("strokeType", propBorderType);
         yBlock.delete("rawXml");
       }
     });
@@ -3611,90 +3770,141 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* ── 한컴오피스 / 한컴독스 표준 개체 우클릭 컨텍스트 메뉴 ── */}
-        {contextMenu && (
-          <div
-            style={{
-              top: `${Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 260)}px`,
-              left: `${Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 210)}px`,
-            }}
-            className="fixed z-70 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 w-52 text-xs text-neutral-800 select-none animate-in fade-in duration-100 font-sans"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 오려 두기 */}
-            <button
-              type="button"
-              onClick={() => {
-                deleteBlock(contextMenu.blockIdx);
-                setContextMenu(null);
+        {/* ── 한컴오피스 / 한컴독스 표준 개체 우클릭 컨텍스트 메뉴 (첨부 1번 이미지 100% 매칭) ── */}
+        {contextMenu && (() => {
+          const targetBlock = blocks[contextMenu.blockIdx];
+          const hasCaption = !!(targetBlock && "caption" in targetBlock && targetBlock.caption);
+          const isShape = targetBlock?.type === "shape";
+          const shapeHasText = isShape && !!((targetBlock as HwpxShapeBlock).text);
+
+          return (
+            <div
+              style={{
+                top: `${Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 340)}px`,
+                left: `${Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 220)}px`,
               }}
-              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+              className="fixed z-70 bg-white border border-neutral-300 shadow-2xl rounded-sm py-1 w-52 text-xs text-neutral-800 select-none animate-in fade-in duration-100 font-sans"
+              onClick={(e) => e.stopPropagation()}
             >
-              <span className="flex items-center gap-2">
-                <span className="text-sm">✂</span>
-                <span>오려 두기</span>
-              </span>
-              <span className="text-[10px] text-neutral-400 font-mono">Ctrl+X</span>
-            </button>
-
-            {/* 복사하기 */}
-            <button
-              type="button"
-              onClick={() => {
-                setContextMenu(null);
-              }}
-              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
-            >
-              <span className="flex items-center gap-2">
-                <span className="text-sm">📄</span>
-                <span>복사하기</span>
-              </span>
-              <span className="text-[10px] text-neutral-400 font-mono">Ctrl+C</span>
-            </button>
-
-            {/* 지우기 */}
-            <button
-              type="button"
-              onClick={() => {
-                deleteBlock(contextMenu.blockIdx);
-                setContextMenu(null);
-              }}
-              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-red-50 text-red-600 cursor-pointer text-left"
-            >
-              <span className="flex items-center gap-2">
-                <span className="text-sm">🗑</span>
-                <span>지우기</span>
-              </span>
-              <span className="text-[10px] text-neutral-400 font-mono">Delete</span>
-            </button>
-
-            <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
-
-            {/* 순서 (맨 앞으로 / 맨 뒤로) */}
-            <div className="relative group/order">
-              <div className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer">
+              {/* 1. 오려 두기 (Ctrl+X) */}
+              <button
+                type="button"
+                onClick={() => {
+                  cutBlockToBuffer(contextMenu.blockIdx);
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
+              >
                 <span className="flex items-center gap-2">
-                  <span className="text-xs">🔀</span>
-                  <span>순서</span>
+                  <svg className="w-4 h-4 text-neutral-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="6" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <line x1="20" y1="4" x2="8.12" y2="15.88" />
+                    <line x1="14.47" y1="14.48" x2="20" y2="20" />
+                    <line x1="8.12" y1="8.12" x2="12" y2="12" />
+                  </svg>
+                  <span>오려 두기</span>
                 </span>
-                <span className="text-[10px] text-neutral-400">▶</span>
-              </div>
-              <div className="hidden group-hover/order:block absolute left-full top-0 ml-0.5 bg-white border border-neutral-300 shadow-xl rounded-md py-1 w-28">
-                <button
-                  type="button"
-                  onClick={() => {
-                    commitObjectOffset(contextMenu.blockIdx, 0, 0);
-                    setContextMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-blue-50 hover:text-[#0066cc] text-xs cursor-pointer"
-                >
-                  원래 위치
-                </button>
-              </div>
-            </div>
+                <span className="text-[11px] text-neutral-400 font-mono">Ctrl+X</span>
+              </button>
 
-            {/* 캡션 넣기 / 수정 (그림, 표) */}
-            {(contextMenu.blockType === "image" || contextMenu.blockType === "table") && (
+              {/* 2. 복사하기 (Ctrl+C) */}
+              <button
+                type="button"
+                onClick={() => {
+                  copyBlockToBuffer(contextMenu.blockIdx);
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-neutral-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <rect x="9" y="9" width="13" height="13" rx="1.5" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <span>복사하기</span>
+                </span>
+                <span className="text-[11px] text-neutral-400 font-mono">Ctrl+C</span>
+              </button>
+
+              {/* 3. 지우기 */}
+              <button
+                type="button"
+                onClick={() => {
+                  deleteBlock(contextMenu.blockIdx);
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <rect x="3" y="4" width="18" height="16" rx="1" fill="#e0edff" stroke="#3b82f6" strokeWidth="1.5" />
+                    <line x1="3" y1="10" x2="21" y2="10" stroke="#3b82f6" strokeWidth="1" />
+                    <line x1="10" y1="4" x2="10" y2="20" stroke="#3b82f6" strokeWidth="1" />
+                    <path d="M14 13l6 6m0-6l-6 6" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  <span>지우기</span>
+                </span>
+              </button>
+
+              <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+
+              {/* 4. 순서 ▶ (서브메뉴: 맨 앞으로, 앞으로, 뒤로, 맨 뒤로) */}
+              <div className="relative group/order">
+                <div className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer">
+                  <span className="flex items-center gap-2 pl-6">
+                    <span>순서</span>
+                  </span>
+                  <span className="text-[10px] text-neutral-400">▶</span>
+                </div>
+                {/* 우측 호버 서브메뉴 */}
+                <div className="hidden group-hover/order:block absolute left-full top-0 -ml-1 bg-white border border-neutral-300 shadow-2xl rounded-sm py-1 w-32 z-80 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reorderBlock(contextMenu.blockIdx, "front");
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-[#ebf3fb] cursor-pointer text-neutral-800"
+                  >
+                    맨 앞으로
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reorderBlock(contextMenu.blockIdx, "forward");
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-[#ebf3fb] cursor-pointer text-neutral-800"
+                  >
+                    앞으로
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reorderBlock(contextMenu.blockIdx, "backward");
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-[#ebf3fb] cursor-pointer text-neutral-800"
+                  >
+                    뒤로
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reorderBlock(contextMenu.blockIdx, "back");
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-[#ebf3fb] cursor-pointer text-neutral-800"
+                  >
+                    맨 뒤로
+                  </button>
+                </div>
+              </div>
+
+              <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+
+              {/* 5. 캡션 넣기 */}
               <button
                 type="button"
                 onClick={() => {
@@ -3702,72 +3912,162 @@ function HwpxEditorModalInner({
                   setPropActiveTab("margin");
                   setContextMenu(null);
                 }}
-                className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+                className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
               >
-                <span className="text-xs font-mono border border-neutral-300 px-0.5 rounded text-[9px]">A1</span>
-                <span>캡션 넣기 / 수정</span>
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="4" width="18" height="13" rx="1.5" stroke="#4b5563" strokeWidth="1.5" />
+                  <text x="4" y="22" fill="#2563eb" fontSize="9" fontWeight="bold" fontFamily="sans-serif">A1</text>
+                </svg>
+                <span>캡션 넣기</span>
               </button>
-            )}
 
-            {/* 도형 안에 글자 넣기 (도형) */}
-            {contextMenu.blockType === "shape" && (
+              {/* 캡션 지우기 */}
               <button
                 type="button"
+                disabled={!hasCaption}
                 onClick={() => {
-                  const currText = blocks[contextMenu.blockIdx]?.type === "shape" ? (blocks[contextMenu.blockIdx] as HwpxShapeBlock).text || "" : "";
-                  const nextText = window.prompt("도형 안 글자 텍스트 입력:", currText);
-                  if (nextText !== null) {
-                    updateShapeBlock(contextMenu.blockIdx, { text: nextText });
+                  if (hasCaption) {
+                    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                    const yBlock = yBlocks.get(contextMenu.blockIdx);
+                    if (yBlock) {
+                      doc.transact(() => {
+                        yBlock.delete("caption");
+                        yBlock.delete("captionPos");
+                      });
+                    }
                   }
                   setContextMenu(null);
                 }}
-                className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left pl-9 ${
+                  hasCaption
+                    ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                    : "text-neutral-300 cursor-not-allowed"
+                }`}
               >
-                <span className="text-xs">💬</span>
+                <span>캡션 지우기</span>
+              </button>
+
+              {/* 6. 도형 안에 글자 넣기 */}
+              <button
+                type="button"
+                disabled={!isShape}
+                onClick={() => {
+                  if (isShape) {
+                    const currText = (targetBlock as HwpxShapeBlock).text || "";
+                    const nextText = window.prompt("도형 안 글자 텍스트 입력:", currText);
+                    if (nextText !== null) {
+                      updateShapeBlock(contextMenu.blockIdx, { text: nextText });
+                    }
+                  }
+                  setContextMenu(null);
+                }}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left ${
+                  isShape
+                    ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                    : "text-neutral-300 cursor-not-allowed"
+                }`}
+              >
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="5" width="18" height="14" rx="1" stroke={isShape ? "#3b82f6" : "#cbd5e1"} strokeWidth="1.2" strokeDasharray="2 2" fill={isShape ? "#eff6ff" : "#f8fafc"} />
+                  <line x1="8" y1="9" x2="8" y2="15" stroke={isShape ? "#3b82f6" : "#cbd5e1"} strokeWidth="1.5" />
+                </svg>
                 <span>도형 안에 글자 넣기</span>
               </button>
-            )}
 
-            <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+              {/* 글상자 속성 없애기 */}
+              <button
+                type="button"
+                disabled={!shapeHasText}
+                onClick={() => {
+                  if (shapeHasText) {
+                    updateShapeBlock(contextMenu.blockIdx, { text: "" });
+                  }
+                  setContextMenu(null);
+                }}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left pl-9 ${
+                  shapeHasText
+                    ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                    : "text-neutral-300 cursor-not-allowed"
+                }`}
+              >
+                <span>글상자 속성 없애기</span>
+              </button>
 
-            {/* 개체 속성... (P) */}
-            <button
-              type="button"
-              onClick={() => {
-                openPropertyModal(contextMenu.blockIdx);
-                setContextMenu(null);
-              }}
-              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 text-[#0066cc] font-semibold cursor-pointer text-left"
-            >
-              <span className="flex items-center gap-2">
-                <span className="text-sm">⚙</span>
-                <span>개체 속성...</span>
-              </span>
-              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">P</span>
-            </button>
-          </div>
-        )}
+              <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+
+              {/* 7. 하이퍼링크... (Ctrl+K+H) */}
+              <button
+                type="button"
+                onClick={() => {
+                  const currentLink = ("hyperlink" in (targetBlock || {}) && (targetBlock as any).hyperlink) ? (targetBlock as any).hyperlink : "https://";
+                  const nextLink = window.prompt("하이퍼링크 URL을 입력하세요:", currentLink);
+                  if (nextLink !== null) {
+                    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                    const yBlock = yBlocks.get(contextMenu.blockIdx);
+                    if (yBlock) {
+                      doc.transact(() => {
+                        if (nextLink.trim()) yBlock.set("hyperlink", nextLink.trim());
+                        else yBlock.delete("hyperlink");
+                      });
+                    }
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-neutral-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M3.6 9h16.8M3.6 15h16.8" />
+                    <ellipse cx="12" cy="12" rx="4" ry="9" />
+                    <path d="M10 14a3.5 3.5 0 0 0 5 0l2-2a3.5 3.5 0 0 0-5-5l-1 1" stroke="#2563eb" strokeWidth="1.8" />
+                  </svg>
+                  <span>하이퍼링크...</span>
+                </span>
+                <span className="text-[11px] text-neutral-400 font-mono">Ctrl+K+H</span>
+              </button>
+
+              <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+
+              {/* 8. 개체 속성... (P) */}
+              <button
+                type="button"
+                onClick={() => {
+                  openPropertyModal(contextMenu.blockIdx);
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-900 font-normal cursor-pointer text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <rect x="4" y="4" width="14" height="14" rx="1.5" stroke="#4b5563" strokeWidth="1.5" />
+                    <path d="M8 16l4 4 8-9" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>개체 속성...</span>
+                </span>
+                <span className="text-[11px] text-neutral-500 font-mono">P</span>
+              </button>
+            </div>
+          );
+        })()}
 
         {/* ── 한컴오피스 / 한컴독스 표준 [표/셀 속성 / 그림 속성 / 도형 속성] 모달 ── */}
         {showPropertyModal && propertyTargetIdx !== null && blocks[propertyTargetIdx] && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs select-none">
-            <div className="bg-white border border-neutral-300 shadow-2xl rounded-xl flex flex-col w-[600px] max-w-[96vw] max-h-[90vh] text-neutral-800 overflow-hidden font-sans">
+            <div className="bg-white border border-neutral-300 shadow-2xl rounded-sm flex flex-col w-[640px] max-w-[96vw] max-h-[92vh] text-neutral-800 overflow-hidden font-sans">
               {/* 상단 윈도우 타이틀바 */}
-              <div className="flex items-center justify-between px-4 py-2.5 bg-[#f0f4f9] border-b border-neutral-200">
-                <h4 className="text-xs font-bold text-neutral-900 flex items-center gap-2">
-                  <span className="text-[#0066cc] text-sm">⚙</span>
-                  <span>
-                    {blocks[propertyTargetIdx]?.type === "table"
-                      ? "표/셀 속성"
-                      : blocks[propertyTargetIdx]?.type === "image"
-                      ? "그림 개체 속성"
-                      : "도형 개체 속성"}
-                  </span>
-                </h4>
+              <div className="flex items-center justify-between px-3 py-2 bg-[#f0f4f9] border-b border-neutral-200">
+                <span className="text-xs font-bold text-neutral-900">
+                  {blocks[propertyTargetIdx]?.type === "table"
+                    ? "표/셀 속성"
+                    : blocks[propertyTargetIdx]?.type === "image"
+                    ? "그림 개체 속성"
+                    : "도형 개체 속성"}
+                </span>
                 <button
                   type="button"
                   onClick={() => setShowPropertyModal(false)}
-                  className="text-neutral-400 hover:text-neutral-700 text-sm cursor-pointer p-0.5"
+                  className="text-neutral-400 hover:text-neutral-700 text-sm cursor-pointer p-0.5 leading-none"
                   title="닫기"
                 >
                   ✕
@@ -3775,7 +4075,7 @@ function HwpxEditorModalInner({
               </div>
 
               {/* 본문: 좌측 탭 및 내용 영역 + 우측 [확인], [취소] 버튼 영역 (한컴 고유 스타일) */}
-              <div className="flex flex-1 min-h-[380px] overflow-hidden">
+              <div className="flex flex-1 min-h-[420px] overflow-hidden">
                 <div className="flex-1 flex flex-col border-r border-neutral-200 overflow-hidden">
                   {/* 상단 탭 바 */}
                   <div className="flex items-center gap-1 px-3 pt-2 bg-neutral-50/80 border-b border-neutral-200 text-xs shrink-0">
@@ -3790,9 +4090,9 @@ function HwpxEditorModalInner({
                         key={tab.id}
                         type="button"
                         onClick={() => setPropActiveTab(tab.id)}
-                        className={`px-3 py-1.5 font-medium transition cursor-pointer border-b-2 text-xs ${
+                        className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 text-xs ${
                           propActiveTab === tab.id
-                            ? "border-[#0066cc] text-[#0066cc] font-bold bg-white -mb-px rounded-t border-t border-x border-neutral-200"
+                            ? "border-[#0066cc] text-[#0066cc] font-bold bg-white -mb-px border-t border-x border-neutral-200"
                             : "border-transparent text-neutral-600 hover:text-neutral-900"
                         }`}
                       >
@@ -3802,296 +4102,787 @@ function HwpxEditorModalInner({
                   </div>
 
                   {/* 탭 내용 영역 */}
-                  <div className="flex-1 p-5 overflow-y-auto text-xs flex flex-col gap-4">
-                    {/* [기본 탭] */}
+                  <div className="flex-1 p-4 overflow-y-auto text-xs flex flex-col gap-3.5">
+                    {/* [1. 기본 탭 - 첨부 2번 이미지 100% 매칭] */}
                     {propActiveTab === "basic" && (
-                      <div className="flex flex-col gap-4">
-                        {/* 1. 크기 */}
-                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50">
-                          <span className="font-bold text-[#0066cc] block mb-2">크기</span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-neutral-600">너비:</span>
-                            <div className="flex items-center gap-1">
-                              {[25, 50, 75, 100].map((w) => (
-                                <button
-                                  key={w}
-                                  type="button"
-                                  onClick={() => setPropWidthPercent(w)}
-                                  className={`px-2 py-1 rounded text-xs border ${
-                                    propWidthPercent === w
-                                      ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
-                                      : "bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-100"
-                                  }`}
-                                >
-                                  {w}%
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          {blocks[propertyTargetIdx]?.type === "shape" && (
-                            <div className="flex items-center gap-3 mt-3">
-                              <span className="text-neutral-600">높이:</span>
+                      <div className="flex flex-col gap-3.5">
+                        {/* 크기 */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white">
+                          <span className="font-bold text-[#0066cc] block mb-2.5">크기</span>
+                          <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                            <div className="flex items-center gap-2">
+                              <span className="w-10 text-neutral-600">너비</span>
+                              <select
+                                value={propWidthType}
+                                onChange={(e) => setPropWidthType(e.target.value as "고정값" | "비율")}
+                                className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none"
+                              >
+                                <option value="고정값">고정값</option>
+                                <option value="비율">비율</option>
+                              </select>
                               <input
                                 type="number"
-                                min={10}
-                                max={400}
-                                value={propHeightPt}
-                                onChange={(e) => setPropHeightPt(Number(e.target.value))}
-                                className="bg-white border border-neutral-300 rounded px-2 py-0.5 w-20 text-center text-xs"
+                                step="0.1"
+                                min="10"
+                                max="300"
+                                value={propWidthMm}
+                                onChange={(e) => setPropWidthMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
                               />
-                              <span className="text-neutral-500 font-mono">pt</span>
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
-                          )}
+                            <div className="flex items-center gap-2">
+                              <span className="w-10 text-neutral-600">높이</span>
+                              <select
+                                value={propHeightType}
+                                onChange={(e) => setPropHeightType(e.target.value as "고정값")}
+                                className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none"
+                              >
+                                <option value="고정값">고정값</option>
+                              </select>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="5"
+                                max="300"
+                                value={propHeightMm}
+                                onChange={(e) => setPropHeightMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                            </div>
+                          </div>
+                          <div className="mt-2.5">
+                            <label className="flex items-center gap-1.5 cursor-pointer text-neutral-700">
+                              <input
+                                type="checkbox"
+                                checked={propLockSize}
+                                onChange={(e) => setPropLockSize(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>크기 고정</span>
+                            </label>
+                          </div>
                         </div>
 
-                        {/* 2. 위치 및 본문과의 배치 */}
-                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2.5">
+                        {/* 위치 */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-2.5">
                           <span className="font-bold text-[#0066cc] block">위치</span>
 
                           {/* 글자처럼 취급 */}
-                          <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-900">
+                          <label className="flex items-center gap-1.5 cursor-pointer text-neutral-900 font-medium">
                             <input
                               type="checkbox"
                               checked={propTreatAsChar}
                               onChange={(e) => {
                                 const checked = e.target.checked;
                                 setPropTreatAsChar(checked);
-                                if (checked) {
-                                  setPropTextWrap("TOP_AND_BOTTOM");
-                                } else {
-                                  setPropTextWrap("IN_FRONT_OF_TEXT");
-                                }
+                                if (checked) setPropTextWrap("TOP_AND_BOTTOM");
+                                else setPropTextWrap("IN_FRONT_OF_TEXT");
                               }}
-                              className="accent-[#0066cc] w-4 h-4 cursor-pointer"
+                              className="accent-[#0066cc]"
                             />
                             <span>글자처럼 취급</span>
                           </label>
 
-                          {/* 본문과의 배치 (글자처럼 취급 해제 시 활성화) */}
-                          <div className={`flex flex-col gap-1.5 mt-1 ${propTreatAsChar ? "opacity-40 pointer-events-none" : ""}`}>
-                            <span className="text-neutral-600 text-[11px]">본문과의 배치:</span>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                          {/* 본문과의 배치 (4개 나비 아이콘) */}
+                          <div className={`flex flex-col gap-1 mt-1 ${propTreatAsChar ? "opacity-40 pointer-events-none" : ""}`}>
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-600 text-[11px]">본문과의 배치</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-neutral-500 text-[11px]">본문 위치</span>
+                                <select
+                                  value={propTextPos}
+                                  onChange={(e) => setPropTextPos(e.target.value as "양쪽" | "왼쪽" | "오른쪽")}
+                                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-0.5 text-xs outline-none"
+                                >
+                                  <option value="양쪽">양쪽</option>
+                                  <option value="왼쪽">왼쪽</option>
+                                  <option value="오른쪽">오른쪽</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1">
                               {[
-                                { id: "TOP_AND_BOTTOM" as const, label: "자리 차지" },
-                                { id: "SQUARE" as const, label: "어울림" },
-                                { id: "IN_FRONT_OF_TEXT" as const, label: "글 앞으로" },
-                                { id: "BEHIND_TEXT" as const, label: "글 뒤로" },
+                                { id: "SQUARE" as const, label: "어울림", symbol: "🦋" },
+                                { id: "TOP_AND_BOTTOM" as const, label: "자리차지", symbol: "🦋" },
+                                { id: "IN_FRONT_OF_TEXT" as const, label: "글 앞으로", symbol: "🦋" },
+                                { id: "BEHIND_TEXT" as const, label: "글 뒤로", symbol: "🦋" },
                               ].map((item) => (
                                 <button
                                   key={item.id}
                                   type="button"
                                   onClick={() => setPropTextWrap(item.id)}
-                                  className={`p-2 rounded border flex flex-col items-center gap-1 text-xs cursor-pointer transition ${
+                                  className={`px-3 py-1.5 rounded border flex items-center gap-1 text-xs cursor-pointer transition ${
                                     propTextWrap === item.id
                                       ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold shadow-xs"
                                       : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
                                   }`}
+                                  title={item.label}
                                 >
-                                  <span>🦋</span>
-                                  <span className="text-[11px]">{item.label}</span>
+                                  <span>{item.symbol}</span>
+                                  <span>{item.label}</span>
                                 </button>
                               ))}
                             </div>
                           </div>
 
-                          {/* 가로/세로 오프셋 */}
-                          <div className={`grid grid-cols-2 gap-3 mt-1 ${propTreatAsChar ? "opacity-40 pointer-events-none" : ""}`}>
+                          {/* 가로 / 세로 기준 설정 */}
+                          <div className={`grid grid-cols-1 gap-2 mt-1 ${propTreatAsChar ? "opacity-40 pointer-events-none" : ""}`}>
                             <div className="flex items-center gap-2">
-                              <span className="text-neutral-600">가로 오프셋:</span>
+                              <span className="w-10 text-neutral-600">가로</span>
+                              <select
+                                value={propHorzRelTo}
+                                onChange={(e) => setPropHorzRelTo(e.target.value as "단" | "문단" | "쪽")}
+                                className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                              >
+                                <option value="단">단</option>
+                                <option value="문단">문단</option>
+                                <option value="쪽">쪽</option>
+                              </select>
+                              <select
+                                value={propHorzAlign}
+                                onChange={(e) => setPropHorzAlign(e.target.value as "왼쪽" | "가운데" | "오른쪽")}
+                                className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                              >
+                                <option value="왼쪽">왼쪽</option>
+                                <option value="가운데">가운데</option>
+                                <option value="오른쪽">오른쪽</option>
+                              </select>
+                              <span className="text-neutral-500 text-[11px] ml-1">기준</span>
                               <input
                                 type="number"
-                                value={propOffsetX}
-                                onChange={(e) => setPropOffsetX(Number(e.target.value))}
-                                className="bg-white border border-neutral-300 rounded px-2 py-0.5 w-20 text-center text-xs"
+                                step="0.1"
+                                value={propHorzOffsetMm}
+                                onChange={(e) => setPropHorzOffsetMm(Number(e.target.value))}
+                                className="w-16 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
                               />
-                              <span className="text-neutral-400 font-mono">px</span>
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-neutral-600">세로 오프셋:</span>
+                              <span className="w-10 text-neutral-600">세로</span>
+                              <select
+                                value={propVertRelTo}
+                                onChange={(e) => setPropVertRelTo(e.target.value as "문단" | "쪽")}
+                                className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                              >
+                                <option value="문단">문단</option>
+                                <option value="쪽">쪽</option>
+                              </select>
+                              <select
+                                value={propVertAlign}
+                                onChange={(e) => setPropVertAlign(e.target.value as "위쪽" | "가운데" | "아래쪽")}
+                                className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                              >
+                                <option value="위쪽">위쪽</option>
+                                <option value="가운데">가운데</option>
+                                <option value="아래쪽">아래쪽</option>
+                              </select>
+                              <span className="text-neutral-500 text-[11px] ml-1">기준</span>
                               <input
                                 type="number"
-                                value={propOffsetY}
-                                onChange={(e) => setPropOffsetY(Number(e.target.value))}
-                                className="bg-white border border-neutral-300 rounded px-2 py-0.5 w-20 text-center text-xs"
+                                step="0.1"
+                                value={propVertOffsetMm}
+                                onChange={(e) => setPropVertOffsetMm(Number(e.target.value))}
+                                className="w-16 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
                               />
-                              <span className="text-neutral-400 font-mono">px</span>
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
+                          </div>
+
+                          {/* 하단 체크박스 3개 */}
+                          <div className="flex flex-col gap-1.5 mt-1 border-t border-neutral-100 pt-2 text-[11px] text-neutral-700">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={propLimitToPage}
+                                onChange={(e) => setPropLimitToPage(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>쪽 영역 안으로 제한</span>
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={propAllowOverlap}
+                                onChange={(e) => setPropAllowOverlap(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>서로 겹침 허용</span>
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={propKeepWithAnchor}
+                                onChange={(e) => setPropKeepWithAnchor(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>개체와 조판 부호를 항상 같은 쪽에 놓기</span>
+                            </label>
                           </div>
                         </div>
                       </div>
                     )}
 
-                    {/* [여백/캡션 탭] */}
+                    {/* [2. 여백/캡션 탭 - 첨부 3번 이미지 100% 매칭] */}
                     {propActiveTab === "margin" && (
-                      <div className="flex flex-col gap-4">
-                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2">
-                          <span className="font-bold text-[#0066cc] block">바깥 여백</span>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
-                              <span className="text-neutral-600">왼쪽:</span>
-                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                      <div className="flex flex-col gap-3.5">
+                        {/* 바깥 여백 */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white">
+                          <span className="font-bold text-[#0066cc] block mb-2.5">바깥 여백</span>
+                          <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">왼쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propMarginLeftMm}
+                                onChange={(e) => setPropMarginLeftMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
-                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
-                              <span className="text-neutral-600">오른쪽:</span>
-                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">위쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propMarginTopMm}
+                                onChange={(e) => setPropMarginTopMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
-                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
-                              <span className="text-neutral-600">위쪽:</span>
-                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">오른쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propMarginRightMm}
+                                onChange={(e) => setPropMarginRightMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
-                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
-                              <span className="text-neutral-600">아래쪽:</span>
-                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">아래쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propMarginBottomMm}
+                                onChange={(e) => setPropMarginBottomMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
                           </div>
                         </div>
 
-                        {blocks[propertyTargetIdx]?.type === "image" && (
-                          <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2">
-                            <span className="font-bold text-[#0066cc] block">캡션</span>
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-neutral-600">설명문(캡션) 내용:</label>
-                              <input
-                                type="text"
-                                value={propCaption}
-                                onChange={(e) => setPropCaption(e.target.value)}
-                                placeholder="[그림 설명 입력...]"
-                                className="bg-white border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* [테두리 탭] */}
-                    {propActiveTab === "border" && (
-                      <div className="flex flex-col gap-4">
-                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-3">
-                          <span className="font-bold text-[#0066cc] block">선 / 테두리 속성</span>
-                          <div className="flex items-center justify-between">
-                            <span className="text-neutral-600">선 굵기:</span>
-                            <div className="flex items-center gap-1">
-                              {[0.5, 1, 1.5, 2, 3].map((w) => (
+                        {/* 캡션 */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-3">
+                          <span className="font-bold text-[#0066cc] block">캡션</span>
+                          <div className="flex items-start gap-5">
+                            {/* 8방향 캡션 위치 버튼 그리드 */}
+                            <div className="grid grid-cols-3 gap-1 bg-neutral-100 p-1.5 rounded border border-neutral-300 shrink-0">
+                              {[
+                                { id: "top_left", label: "#1 ⬉" },
+                                { id: "top_center", label: "#1 ⬆" },
+                                { id: "top_right", label: "⬈ #1" },
+                                { id: "left_center", label: "#1 ⬅" },
+                                { id: "none", label: "■" },
+                                { id: "right_center", label: "➡ #1" },
+                                { id: "bottom_left", label: "#1 ⬋" },
+                                { id: "bottom_center", label: "#1 ⬇" },
+                                { id: "bottom_right", label: "⬊ #1" },
+                              ].map((btn) => (
                                 <button
-                                  key={w}
+                                  key={btn.id}
                                   type="button"
-                                  onClick={() => setPropStrokeWidth(w)}
-                                  className={`px-2 py-0.5 rounded text-xs border ${
-                                    propStrokeWidth === w
+                                  onClick={() => setPropCaptionPos(btn.id)}
+                                  className={`w-9 h-8 rounded text-[10px] font-mono flex items-center justify-center border cursor-pointer transition ${
+                                    propCaptionPos === btn.id
                                       ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
-                                      : "bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-100"
+                                      : "bg-white text-blue-700 border-neutral-300 hover:bg-neutral-50"
                                   }`}
+                                  title={btn.id}
                                 >
-                                  {w}px
+                                  {btn.label}
                                 </button>
                               ))}
                             </div>
+
+                            {/* 크기 및 간격 */}
+                            <div className="flex flex-col gap-2 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="w-24 text-neutral-600">크기</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  value={propCaptionSizeMm}
+                                  onChange={(e) => setPropCaptionSizeMm(Number(e.target.value))}
+                                  className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                                />
+                                <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="w-24 text-neutral-600">개체와의 간격</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  value={propCaptionGapMm}
+                                  onChange={(e) => setPropCaptionGapMm(Number(e.target.value))}
+                                  className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                                />
+                                <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                              </div>
+                              <div className="flex flex-col gap-1 mt-1 text-[11px] text-neutral-700">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={propCaptionExpandWidth}
+                                    onChange={(e) => setPropCaptionExpandWidth(e.target.checked)}
+                                    className="accent-[#0066cc]"
+                                  />
+                                  <span>여백 부분까지 너비 확대</span>
+                                </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={propCaptionSingleLine}
+                                    onChange={(e) => setPropCaptionSingleLine(e.target.checked)}
+                                    className="accent-[#0066cc]"
+                                  />
+                                  <span>한 줄로 입력</span>
+                                </label>
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="flex items-center justify-between">
-                            <span className="text-neutral-600">선 색상:</span>
-                            <div className="flex items-center gap-1.5">
-                              {["#1F2937", "#2563EB", "#DC2626", "#059669", "#D97706", "#7C3AED"].map((c) => (
-                                <button
-                                  key={c}
-                                  type="button"
-                                  onClick={() => setPropStrokeColor(c)}
-                                  style={{ backgroundColor: c }}
-                                  className={`w-5 h-5 rounded-full border border-neutral-300 cursor-pointer ${
-                                    propStrokeColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""
-                                  }`}
-                                />
-                              ))}
+                          {/* 캡션 텍스트 내용 */}
+                          <div className="flex flex-col gap-1 border-t border-neutral-100 pt-2">
+                            <span className="text-neutral-600 text-[11px]">캡션 내용 입력:</span>
+                            <input
+                              type="text"
+                              value={propCaption}
+                              onChange={(e) => setPropCaption(e.target.value)}
+                              placeholder="[그림/표 캡션 입력...]"
+                              className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1 text-xs outline-none focus:border-[#0066cc]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* [3. 테두리 탭 - 첨부 4번 이미지 100% 매칭] */}
+                    {propActiveTab === "border" && (
+                      <div className="flex flex-col gap-3.5">
+                        <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-2.5">
+                          <span className="font-bold text-[#0066cc] block">테두리</span>
+                          <div className="flex items-center gap-4">
+                            <span className="w-12 text-neutral-600">종류</span>
+                            <select
+                              value={propBorderType}
+                              onChange={(e) => setPropBorderType(e.target.value)}
+                              className="bg-neutral-50 border border-neutral-300 rounded px-2 py-0.5 text-xs outline-none w-44"
+                            >
+                              <option value="SOLID">실선 ───────</option>
+                              <option value="DASH">쇄선 ‑ ‑ ‑ ‑ ‑ ‑ ‑</option>
+                              <option value="DOT">점선 ·················</option>
+                              <option value="DOUBLE">이중실선 ═══════</option>
+                              <option value="NONE">테두리 없음</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="w-12 text-neutral-600">굵기</span>
+                            <select
+                              value={propBorderThickness}
+                              onChange={(e) => setPropBorderThickness(e.target.value)}
+                              className="bg-neutral-50 border border-neutral-300 rounded px-2 py-0.5 text-xs outline-none w-44"
+                            >
+                              <option value="0.1mm">0.10mm ─</option>
+                              <option value="0.12mm">0.12mm ──</option>
+                              <option value="0.2mm">0.20mm ───</option>
+                              <option value="0.3mm">0.30mm ━━━━</option>
+                              <option value="0.5mm">0.50mm ━━━━━</option>
+                              <option value="0.7mm">0.70mm ━━━━━━</option>
+                              <option value="1.0mm">1.00mm ━━━━━━━━</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="w-12 text-neutral-600">색</span>
+                            <div className="flex items-center gap-2">
                               <input
                                 type="color"
-                                value={propStrokeColor.startsWith("#") ? propStrokeColor : "#000000"}
-                                onChange={(e) => setPropStrokeColor(e.target.value)}
-                                className="w-6 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
+                                value={propBorderColor.startsWith("#") ? propBorderColor : "#000000"}
+                                onChange={(e) => setPropBorderColor(e.target.value)}
+                                className="w-12 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
                               />
+                              <div className="flex items-center gap-1">
+                                {["#000000", "#1F2937", "#2563EB", "#DC2626", "#059669", "#7C3AED"].map((c) => (
+                                  <button
+                                    key={c}
+                                    type="button"
+                                    onClick={() => setPropBorderColor(c)}
+                                    style={{ backgroundColor: c }}
+                                    className={`w-4 h-4 rounded-full border border-neutral-300 cursor-pointer ${
+                                      propBorderColor === c ? "ring-2 ring-blue-500" : ""
+                                    }`}
+                                  />
+                                ))}
+                              </div>
                             </div>
                           </div>
+                          <div className="mt-1">
+                            <label className="flex items-center gap-2 cursor-pointer text-neutral-700">
+                              <input
+                                type="checkbox"
+                                checked={propCellSpacingEnabled}
+                                onChange={(e) => setPropCellSpacingEnabled(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>셀 간격</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                disabled={!propCellSpacingEnabled}
+                                value={propCellSpacingMm}
+                                onChange={(e) => setPropCellSpacingMm(Number(e.target.value))}
+                                className="w-16 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs disabled:opacity-40"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* 적용 위치 (5개 그리드 버튼) */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-2">
+                          <span className="font-bold text-[#0066cc] block">적용 위치</span>
+                          <div className="flex items-center gap-2">
+                            {[
+                              { id: "all" as const, label: "모두", icon: "⊞" },
+                              { id: "outer" as const, label: "바깥쪽", icon: "□" },
+                              { id: "inner" as const, label: "안쪽", icon: "┼" },
+                              { id: "none" as const, label: "없음", icon: "✕" },
+                              { id: "custom" as const, label: "대각선", icon: "◸" },
+                            ].map((pos) => (
+                              <button
+                                key={pos.id}
+                                type="button"
+                                onClick={() => setPropBorderTarget(pos.id)}
+                                className={`w-10 h-10 rounded border flex flex-col items-center justify-center text-xs cursor-pointer transition ${
+                                  propBorderTarget === pos.id
+                                    ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold"
+                                    : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+                                }`}
+                                title={pos.label}
+                              >
+                                <span className="text-sm">{pos.icon}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-neutral-400 mt-2 border-t border-neutral-100 pt-2">
+                            표 테두리는 [셀 간격]에 값을 입력해야 나타납니다.
+                          </p>
                         </div>
                       </div>
                     )}
 
-                    {/* [배경 탭] */}
+                    {/* [4. 배경 탭 - 첨부 5번 이미지 100% 매칭] */}
                     {propActiveTab === "background" && (
-                      <div className="flex flex-col gap-4">
-                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-3">
+                      <div className="flex flex-col gap-3.5">
+                        <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-3">
                           <span className="font-bold text-[#0066cc] block">채우기</span>
+
+                          {/* 라디오: 색 채우기 없음 */}
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="fillType"
+                              checked={propFillMode === "none"}
+                              onChange={() => setPropFillMode("none")}
+                              className="accent-[#0066cc]"
+                            />
+                            <span>색 채우기 없음</span>
+                          </label>
+
+                          {/* 라디오: 색 */}
                           <div className="flex flex-col gap-2">
                             <label className="flex items-center gap-2 cursor-pointer">
                               <input
                                 type="radio"
                                 name="fillType"
-                                checked={propFillColor === "transparent"}
-                                onChange={() => setPropFillColor("transparent")}
-                                className="accent-[#0066cc] cursor-pointer"
+                                checked={propFillMode === "color"}
+                                onChange={() => setPropFillMode("color")}
+                                className="accent-[#0066cc]"
                               />
-                              <span>색 채우기 없음 (투명)</span>
+                              <span>색</span>
                             </label>
-
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="fillType"
-                                checked={propFillColor !== "transparent"}
-                                onChange={() => {
-                                  if (propFillColor === "transparent") setPropFillColor("#EFF6FF");
-                                }}
-                                className="accent-[#0066cc] cursor-pointer"
-                              />
-                              <span>단색 채우기</span>
-                            </label>
-
-                            {propFillColor !== "transparent" && (
-                              <div className="ml-6 flex items-center gap-2 mt-1">
-                                <span className="text-neutral-600 text-[11px]">면 색:</span>
-                                <div className="flex items-center gap-1.5">
-                                  {["#FFFFFF", "#F1F5F9", "#EFF6FF", "#FEF3C7", "#DCFCE7", "#FCE7F3"].map((c) => (
+                            <div className={`ml-6 flex flex-col gap-2 ${propFillMode !== "color" ? "opacity-40 pointer-events-none" : ""}`}>
+                              <div className="flex items-center gap-4">
+                                <span className="w-16 text-neutral-600">면 색</span>
+                                <input
+                                  type="color"
+                                  value={propFillColor.startsWith("#") ? propFillColor : "#FFFFFF"}
+                                  onChange={(e) => setPropFillColor(e.target.value)}
+                                  className="w-16 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
+                                />
+                                <div className="flex items-center gap-1">
+                                  {["#FFFFFF", "#F1F5F9", "#EFF6FF", "#FEF3C7", "#DCFCE7", "#FCE7F3", "#E0E7FF"].map((c) => (
                                     <button
                                       key={c}
                                       type="button"
                                       onClick={() => setPropFillColor(c)}
                                       style={{ backgroundColor: c }}
-                                      className={`w-6 h-6 rounded border border-neutral-300 cursor-pointer ${
-                                        propFillColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""
+                                      className={`w-5 h-5 rounded border border-neutral-300 cursor-pointer ${
+                                        propFillColor === c ? "ring-2 ring-blue-500" : ""
                                       }`}
                                     />
                                   ))}
-                                  <input
-                                    type="color"
-                                    value={propFillColor.startsWith("#") ? propFillColor : "#FFFFFF"}
-                                    onChange={(e) => setPropFillColor(e.target.value)}
-                                    className="w-6 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
-                                  />
                                 </div>
                               </div>
-                            )}
+                              <div className="flex items-center gap-4">
+                                <span className="w-16 text-neutral-600">무늬 색</span>
+                                <input
+                                  type="color"
+                                  value={propPatternColor}
+                                  onChange={(e) => setPropPatternColor(e.target.value)}
+                                  className="w-16 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
+                                />
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="w-16 text-neutral-600">무늬 모양</span>
+                                <select
+                                  value={propPatternType}
+                                  onChange={(e) => setPropPatternType(e.target.value)}
+                                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-0.5 text-xs outline-none w-36"
+                                >
+                                  <option value="none">없음</option>
+                                  <option value="horizontal">가로선</option>
+                                  <option value="vertical">세로선</option>
+                                  <option value="cross">격자 십자</option>
+                                  <option value="diagonal_up">오른쪽 위 대각선</option>
+                                  <option value="diagonal_down">오른쪽 아래 대각선</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 그림 채우기 */}
+                          <div className="border-t border-neutral-100 pt-3 flex flex-col gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-800">
+                              <input
+                                type="checkbox"
+                                checked={propFillImageEnabled}
+                                onChange={(e) => setPropFillImageEnabled(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>그림</span>
+                            </label>
+                            <div className={`ml-6 flex flex-col gap-2 ${!propFillImageEnabled ? "opacity-40 pointer-events-none" : ""}`}>
+                              <div className="flex items-center gap-2">
+                                <span className="w-16 text-neutral-600">그림 파일</span>
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value="그림 없음"
+                                  className="bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 text-neutral-500 text-xs w-44"
+                                />
+                                <button
+                                  type="button"
+                                  className="px-2 py-0.5 rounded border border-neutral-300 bg-neutral-50 hover:bg-neutral-100 text-xs"
+                                >
+                                  파일 선택
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="w-16 text-neutral-600">채우기 유형</span>
+                                <select
+                                  value={propFillImageMode}
+                                  onChange={(e) => setPropFillImageMode(e.target.value)}
+                                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-0.5 text-xs"
+                                >
+                                  <option value="fit">크기에 맞추어</option>
+                                  <option value="tile">바둑판식</option>
+                                  <option value="center">가운데로</option>
+                                </select>
+                                <span className="text-neutral-600 ml-2">밝기</span>
+                                <input
+                                  type="number"
+                                  value={propFillImageBrightness}
+                                  onChange={(e) => setPropFillImageBrightness(Number(e.target.value))}
+                                  className="w-14 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                                />
+                                <span className="text-neutral-500 font-mono text-[11px]">%</span>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="w-16 text-neutral-600">그림 효과</span>
+                                <select
+                                  value={propFillImageEffect}
+                                  onChange={(e) => setPropFillImageEffect(e.target.value)}
+                                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-0.5 text-xs"
+                                >
+                                  <option value="none">효과 없음</option>
+                                  <option value="grayscale">회색조(그레이스케일)</option>
+                                  <option value="watermark">워터마크</option>
+                                </select>
+                                <span className="text-neutral-600 ml-2">대비</span>
+                                <input
+                                  type="number"
+                                  value={propFillImageContrast}
+                                  onChange={(e) => setPropFillImageContrast(Number(e.target.value))}
+                                  className="w-14 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                                />
+                                <span className="text-neutral-500 font-mono text-[11px]">%</span>
+                              </div>
+                              <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-neutral-700 mt-1">
+                                <input
+                                  type="checkbox"
+                                  checked={propFillImageWatermark}
+                                  onChange={(e) => setPropFillImageWatermark(e.target.checked)}
+                                  className="accent-[#0066cc]"
+                                />
+                                <span>워터마크 효과</span>
+                              </label>
+                            </div>
                           </div>
                         </div>
                       </div>
                     )}
 
-                    {/* [표 탭] (표인 경우) */}
+                    {/* [5. 표 탭 - 첨부 6번 이미지 100% 매칭] */}
                     {propActiveTab === "table" && blocks[propertyTargetIdx]?.type === "table" && (
-                      <div className="flex flex-col gap-4">
-                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2.5">
-                          <span className="font-bold text-[#0066cc] block">표 구성 및 여백</span>
-                          <div className="flex justify-between py-1 border-b border-neutral-200 text-xs">
-                            <span className="text-neutral-600">행 / 열 개수:</span>
-                            <span className="font-bold text-neutral-900">
-                              {(blocks[propertyTargetIdx] as HwpxTableBlock).rows.length} 행 × {(blocks[propertyTargetIdx] as HwpxTableBlock).rows[0]?.length || 0} 열
-                            </span>
+                      <div className="flex flex-col gap-3.5">
+                        {/* 여러 쪽 지원 */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-2.5">
+                          <span className="font-bold text-[#0066cc] block">여러 쪽 지원</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-neutral-600">쪽 경계에서</span>
+                            <div className="flex items-center gap-1">
+                              {[
+                                { id: "divide" as const, label: "나눔", icon: "⫴" },
+                                { id: "cell_divide" as const, label: "셀 단위로 나눔", icon: "⫵" },
+                                { id: "no_divide" as const, label: "나누지 않음", icon: "⊔" },
+                              ].map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => setPropTablePageBreak(item.id)}
+                                  className={`px-3 py-1.5 rounded border text-xs cursor-pointer flex items-center gap-1.5 transition ${
+                                    propTablePageBreak === item.id
+                                      ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold"
+                                      : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+                                  }`}
+                                  title={item.label}
+                                >
+                                  <span>{item.icon}</span>
+                                  <span>{item.label}</span>
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <div className="flex flex-col gap-1 mt-1">
-                            <span className="text-neutral-600 text-[11px]">모든 셀의 기본 안 여백:</span>
-                            <div className="grid grid-cols-2 gap-2 text-[11px] bg-white p-2 rounded border border-neutral-200">
-                              <span>왼쪽: 1.80 mm</span>
-                              <span>위쪽: 0.50 mm</span>
-                              <span>오른쪽: 1.80 mm</span>
-                              <span>아래쪽: 0.50 mm</span>
+                          <div className="flex flex-col gap-1.5 mt-1 border-t border-neutral-100 pt-2 text-[11px] text-neutral-700">
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={propRepeatHeader}
+                                onChange={(e) => setPropRepeatHeader(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>제목 줄 자동 반복</span>
+                            </label>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={propSplitBorderEnabled}
+                                onChange={(e) => setPropSplitBorderEnabled(e.target.checked)}
+                                className="accent-[#0066cc]"
+                              />
+                              <span>자동으로 나뉜 표의 경계선 설정</span>
+                            </label>
+                            {propSplitBorderEnabled && (
+                              <div className="ml-5 grid grid-cols-3 gap-2 mt-1">
+                                <select
+                                  value={propSplitBorderType}
+                                  onChange={(e) => setPropSplitBorderType(e.target.value)}
+                                  className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                                >
+                                  <option value="SOLID">실선 ───</option>
+                                  <option value="DASH">점선 ····</option>
+                                </select>
+                                <select
+                                  value={propSplitBorderThickness}
+                                  onChange={(e) => setPropSplitBorderThickness(e.target.value)}
+                                  className="bg-neutral-50 border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                                >
+                                  <option value="0.1mm">0.10mm</option>
+                                  <option value="0.2mm">0.20mm</option>
+                                </select>
+                                <input
+                                  type="color"
+                                  value={propSplitBorderColor}
+                                  onChange={(e) => setPropSplitBorderColor(e.target.value)}
+                                  className="w-12 h-6 p-0 border border-neutral-300 rounded"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 모든 셀의 안 여백 */}
+                        <div className="border border-neutral-200 rounded p-3 bg-white">
+                          <span className="font-bold text-[#0066cc] block mb-2.5">모든 셀의 안 여백</span>
+                          <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">왼쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propCellPaddingLeftMm}
+                                onChange={(e) => setPropCellPaddingLeftMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">위쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propCellPaddingTopMm}
+                                onChange={(e) => setPropCellPaddingTopMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">오른쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propCellPaddingRightMm}
+                                onChange={(e) => setPropCellPaddingRightMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-12 text-neutral-600">아래쪽</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={propCellPaddingBottomMm}
+                                onChange={(e) => setPropCellPaddingBottomMm(Number(e.target.value))}
+                                className="w-20 bg-white border border-neutral-300 rounded px-1.5 py-0.5 text-right text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono text-[11px]">mm</span>
                             </div>
                           </div>
                         </div>
@@ -4100,19 +4891,19 @@ function HwpxEditorModalInner({
                   </div>
                 </div>
 
-                {/* 우측 상단 한컴오피스 고유 버튼 영역 ([확인], [취소]) */}
+                {/* 우측 상단 한컴오피스 고유 버튼 영역 ([확인], [취소] - 첨부 2~6번 동일 위치) */}
                 <div className="w-28 p-3 bg-neutral-50/50 flex flex-col gap-2 shrink-0 border-l border-neutral-200">
                   <button
                     type="button"
                     onClick={saveProperties}
-                    className="w-full py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] transition cursor-pointer shadow-xs"
+                    className="w-full py-1.5 rounded text-xs bg-white text-neutral-800 border border-neutral-400 font-normal hover:bg-neutral-100 hover:border-neutral-500 transition cursor-pointer shadow-xs"
                   >
                     확인
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowPropertyModal(false)}
-                    className="w-full py-1.5 rounded text-xs bg-white text-neutral-700 border border-neutral-300 font-medium hover:bg-neutral-100 transition cursor-pointer"
+                    className="w-full py-1.5 rounded text-xs bg-white text-neutral-800 border border-neutral-400 font-normal hover:bg-neutral-100 hover:border-neutral-500 transition cursor-pointer shadow-xs"
                   >
                     취소
                   </button>
@@ -4225,6 +5016,21 @@ function HwpxEditorModalInner({
                 if (block.type === "table") {
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+                  const tblWidth = `${block.widthPercent || 100}%`;
+                  const tblBg = block.fillMode === "none" || !block.fillColor || block.fillColor === "transparent" ? "transparent" : block.fillColor;
+                  const bStyle = block.borderType === "DASH" ? "dashed" : block.borderType === "DOT" ? "dotted" : block.borderType === "DOUBLE" ? "double" : block.borderType === "NONE" ? "none" : "solid";
+                  const bColor = block.borderColor || "#000000";
+                  const bWidth = block.borderThickness || "1px";
+                  const hasOuterBorder = block.borderType !== "NONE";
+                  const padTop = block.cellPaddingTopMm !== undefined ? `${block.cellPaddingTopMm * 3.78}px` : "4px";
+                  const padBottom = block.cellPaddingBottomMm !== undefined ? `${block.cellPaddingBottomMm * 3.78}px` : "4px";
+                  const padLeft = block.cellPaddingLeftMm !== undefined ? `${block.cellPaddingLeftMm * 3.78}px` : "6.8px";
+                  const padRight = block.cellPaddingRightMm !== undefined ? `${block.cellPaddingRightMm * 3.78}px` : "6.8px";
+                  const hasCellSpacing = !!(block.cellSpacingEnabled && (block.cellSpacingMm || 0) > 0);
+                  const cellSpacingPx = hasCellSpacing && block.cellSpacingMm ? `${block.cellSpacingMm * 3.78}px` : "0px";
+                  const isCaptionTop = block.caption && block.captionPos?.startsWith("top");
+                  const isCaptionBottom = block.caption && !isCaptionTop;
+                  const captionAlignClass = block.captionPos?.includes("left") ? "text-left" : block.captionPos?.includes("right") ? "text-right" : "text-center";
 
                   return (
                     <div
@@ -4248,8 +5054,13 @@ function HwpxEditorModalInner({
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 20 : 1,
+                        marginTop: block.marginTopMm ? `${block.marginTopMm * 3.78}px` : undefined,
+                        marginBottom: block.marginBottomMm ? `${block.marginBottomMm * 3.78}px` : undefined,
+                        marginLeft: block.marginLeftMm ? `${block.marginLeftMm * 3.78}px` : "auto",
+                        marginRight: block.marginRightMm ? `${block.marginRightMm * 3.78}px` : "auto",
+                        width: tblWidth,
                       }}
-                      className={`my-6 overflow-x-auto border-t-2 border-b-2 border-neutral-900 py-1 bg-white relative group/tbl cursor-default select-none transition-shadow ${
+                      className={`my-6 overflow-x-auto py-1 relative group/tbl cursor-default select-none transition-shadow ${
                         isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
                       }`}
                     >
@@ -4337,14 +5148,46 @@ function HwpxEditorModalInner({
                         </div>
                       </div>
 
-                      <table className="w-full border-collapse border-b border-neutral-800 text-xs text-neutral-900 bg-white">
+                      {/* 상단 캡션 */}
+                      {isCaptionTop && (
+                        <div className={`mb-1.5 text-xs text-neutral-700 font-medium ${captionAlignClass}`}>
+                          <span>{block.caption}</span>
+                        </div>
+                      )}
+
+                      <table
+                        style={{
+                          backgroundColor: tblBg,
+                          borderCollapse: hasCellSpacing ? "separate" : "collapse",
+                          borderSpacing: cellSpacingPx,
+                          border: hasOuterBorder ? `${bWidth} ${bStyle} ${bColor}` : "none",
+                        }}
+                        className="w-full text-xs text-neutral-900"
+                      >
                         <tbody>
                           {block.rows.map((row, rIdx) => {
                             const isHeaderRow = rIdx === 0;
                             return (
-                              <tr key={rIdx} className={isHeaderRow ? "border-b border-neutral-800 bg-neutral-50/60 font-semibold" : "border-b border-neutral-200"}>
+                              <tr
+                                key={rIdx}
+                                style={{
+                                  borderBottom: `${bWidth} ${bStyle} ${bColor}`,
+                                }}
+                                className={isHeaderRow && !tblBg ? "bg-neutral-50/60 font-semibold" : ""}
+                              >
                                 {row.map((cell, cIdx) => (
-                                  <td key={cIdx} className="border-r border-neutral-200 last:border-r-0 p-1.5 min-w-[70px]">
+                                  <td
+                                    key={cIdx}
+                                    style={{
+                                      paddingTop: padTop,
+                                      paddingBottom: padBottom,
+                                      paddingLeft: padLeft,
+                                      paddingRight: padRight,
+                                      borderRight: `${bWidth} ${bStyle} ${bColor}`,
+                                      backgroundColor: cell.bgColor || undefined,
+                                    }}
+                                    className="last:border-r-0 min-w-[70px]"
+                                  >
                                     <input
                                       type="text"
                                       value={cell.text}
@@ -4359,6 +5202,13 @@ function HwpxEditorModalInner({
                           })}
                         </tbody>
                       </table>
+
+                      {/* 하단 캡션 */}
+                      {isCaptionBottom && (
+                        <div className={`mt-1.5 text-xs text-neutral-700 font-medium ${captionAlignClass}`}>
+                          <span>{block.caption}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -4747,7 +5597,7 @@ function HwpxEditorModalInner({
                               backgroundColor: fillColor,
                               borderColor: strokeColor,
                               borderWidth: `${strokeWidth}px`,
-                              borderStyle: "solid",
+                              borderStyle: block.strokeType === "DASH" ? "dashed" : block.strokeType === "DOT" ? "dotted" : "solid",
                               borderRadius,
                             }}
                             className="p-3 flex items-center justify-center transition-all relative overflow-hidden"

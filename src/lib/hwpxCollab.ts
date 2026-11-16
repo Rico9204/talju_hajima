@@ -31,6 +31,8 @@ export interface HwpxTableCell {
   bold?: boolean;
   colSpan?: number;
   rowSpan?: number;
+  bgColor?: string;
+  color?: string;
   rawAttrs?: string;
 }
 
@@ -41,6 +43,29 @@ export interface HwpxTableBlock {
   rawAttrs?: string;
   offsetX?: number;
   offsetY?: number;
+  widthPercent?: number;
+  heightPt?: number;
+  caption?: string;
+  captionPos?: string;
+  borderColor?: string;
+  borderThickness?: string;
+  borderType?: string;
+  cellSpacingMm?: number;
+  cellSpacingEnabled?: boolean;
+  fillColor?: string;
+  fillMode?: "none" | "color";
+  cellPaddingLeftMm?: number;
+  cellPaddingRightMm?: number;
+  cellPaddingTopMm?: number;
+  cellPaddingBottomMm?: number;
+  pageBreak?: "divide" | "cell_divide" | "no_divide";
+  repeatHeader?: boolean;
+  treatAsChar?: boolean;
+  textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
 }
 
 export interface HwpxEquationBlock {
@@ -57,12 +82,24 @@ export interface HwpxImageBlock {
   id: string;
   src: string;
   widthPercent?: number;
+  heightPt?: number;
   align?: "left" | "center" | "right";
   caption?: string;
+  captionPos?: string;
   rawAttrs?: string;
   rawXml?: string;
   offsetX?: number;
   offsetY?: number;
+  treatAsChar?: boolean;
+  textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  borderColor?: string;
+  borderThickness?: string;
+  borderType?: string;
+  hyperlink?: string;
 }
 
 export interface HwpxShapeBlock {
@@ -72,14 +109,25 @@ export interface HwpxShapeBlock {
   widthPercent?: number;
   heightPt?: number;
   fillColor?: string;
+  fillMode?: "none" | "color";
   strokeColor?: string;
   strokeWidth?: number;
+  strokeType?: string;
   text?: string;
   align?: "left" | "center" | "right";
+  caption?: string;
+  captionPos?: string;
   rawAttrs?: string;
   rawXml?: string;
   offsetX?: number;
   offsetY?: number;
+  treatAsChar?: boolean;
+  textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  hyperlink?: string;
 }
 
 export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<string, string> {
@@ -1288,33 +1336,81 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
             if (cell.rawAttrs) yCell.set("rawAttrs", cell.rawAttrs);
             if (cell.align) yCell.set("align", cell.align);
             if (cell.bold !== undefined) yCell.set("bold", cell.bold);
+            if (cell.bgColor) yCell.set("bgColor", cell.bgColor);
+            if (cell.color) yCell.set("color", cell.color);
             yRow.push([yCell]);
           }
           yRows.push([yRow]);
         }
         yBlock.set("rows", yRows);
+        if (block.widthPercent !== undefined) yBlock.set("widthPercent", block.widthPercent);
+        if (block.heightPt !== undefined) yBlock.set("heightPt", block.heightPt);
+        if (block.caption !== undefined) yBlock.set("caption", block.caption);
+        if (block.captionPos !== undefined) yBlock.set("captionPos", block.captionPos);
+        if (block.borderColor !== undefined) yBlock.set("borderColor", block.borderColor);
+        if (block.borderThickness !== undefined) yBlock.set("borderThickness", block.borderThickness);
+        if (block.borderType !== undefined) yBlock.set("borderType", block.borderType);
+        if (block.cellSpacingMm !== undefined) yBlock.set("cellSpacingMm", block.cellSpacingMm);
+        if (block.cellSpacingEnabled !== undefined) yBlock.set("cellSpacingEnabled", block.cellSpacingEnabled);
+        if (block.fillColor !== undefined) yBlock.set("fillColor", block.fillColor);
+        if (block.fillMode !== undefined) yBlock.set("fillMode", block.fillMode);
+        if (block.cellPaddingLeftMm !== undefined) yBlock.set("cellPaddingLeftMm", block.cellPaddingLeftMm);
+        if (block.cellPaddingRightMm !== undefined) yBlock.set("cellPaddingRightMm", block.cellPaddingRightMm);
+        if (block.cellPaddingTopMm !== undefined) yBlock.set("cellPaddingTopMm", block.cellPaddingTopMm);
+        if (block.cellPaddingBottomMm !== undefined) yBlock.set("cellPaddingBottomMm", block.cellPaddingBottomMm);
+        if (block.pageBreak !== undefined) yBlock.set("pageBreak", block.pageBreak);
+        if (block.repeatHeader !== undefined) yBlock.set("repeatHeader", block.repeatHeader);
+        if (block.treatAsChar !== undefined) yBlock.set("treatAsChar", block.treatAsChar);
+        if (block.textWrap !== undefined) yBlock.set("textWrap", block.textWrap);
+        if (block.marginLeftMm !== undefined) yBlock.set("marginLeftMm", block.marginLeftMm);
+        if (block.marginRightMm !== undefined) yBlock.set("marginRightMm", block.marginRightMm);
+        if (block.marginTopMm !== undefined) yBlock.set("marginTopMm", block.marginTopMm);
+        if (block.marginBottomMm !== undefined) yBlock.set("marginBottomMm", block.marginBottomMm);
       } else if (block.type === "equation") {
         const yScript = new Y.Text(block.script);
         yBlock.set("script", yScript);
       } else if (block.type === "image") {
         yBlock.set("src", block.src);
         if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
+        if (block.heightPt) yBlock.set("heightPt", block.heightPt);
         if (block.align) yBlock.set("align", block.align);
         if (block.caption) yBlock.set("caption", block.caption);
+        if (block.captionPos) yBlock.set("captionPos", block.captionPos);
         if (block.rawXml) yBlock.set("rawXml", block.rawXml);
         if (block.rawAttrs) yBlock.set("rawAttrs", block.rawAttrs);
+        if (block.treatAsChar !== undefined) yBlock.set("treatAsChar", block.treatAsChar);
+        if (block.textWrap !== undefined) yBlock.set("textWrap", block.textWrap);
+        if (block.marginLeftMm !== undefined) yBlock.set("marginLeftMm", block.marginLeftMm);
+        if (block.marginRightMm !== undefined) yBlock.set("marginRightMm", block.marginRightMm);
+        if (block.marginTopMm !== undefined) yBlock.set("marginTopMm", block.marginTopMm);
+        if (block.marginBottomMm !== undefined) yBlock.set("marginBottomMm", block.marginBottomMm);
+        if (block.borderColor) yBlock.set("borderColor", block.borderColor);
+        if (block.borderThickness) yBlock.set("borderThickness", block.borderThickness);
+        if (block.borderType) yBlock.set("borderType", block.borderType);
+        if (block.hyperlink) yBlock.set("hyperlink", block.hyperlink);
       } else if (block.type === "shape") {
         yBlock.set("shapeType", block.shapeType);
         if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
         if (block.heightPt) yBlock.set("heightPt", block.heightPt);
         if (block.fillColor) yBlock.set("fillColor", block.fillColor);
+        if (block.fillMode) yBlock.set("fillMode", block.fillMode);
         if (block.strokeColor) yBlock.set("strokeColor", block.strokeColor);
         if (block.strokeWidth) yBlock.set("strokeWidth", block.strokeWidth);
+        if (block.strokeType) yBlock.set("strokeType", block.strokeType);
         const yText = new Y.Text(block.text || "");
         yBlock.set("text", yText);
         if (block.align) yBlock.set("align", block.align);
+        if (block.caption) yBlock.set("caption", block.caption);
+        if (block.captionPos) yBlock.set("captionPos", block.captionPos);
         if (block.rawXml) yBlock.set("rawXml", block.rawXml);
         if (block.rawAttrs) yBlock.set("rawAttrs", block.rawAttrs);
+        if (block.treatAsChar !== undefined) yBlock.set("treatAsChar", block.treatAsChar);
+        if (block.textWrap !== undefined) yBlock.set("textWrap", block.textWrap);
+        if (block.marginLeftMm !== undefined) yBlock.set("marginLeftMm", block.marginLeftMm);
+        if (block.marginRightMm !== undefined) yBlock.set("marginRightMm", block.marginRightMm);
+        if (block.marginTopMm !== undefined) yBlock.set("marginTopMm", block.marginTopMm);
+        if (block.marginBottomMm !== undefined) yBlock.set("marginBottomMm", block.marginBottomMm);
+        if (block.hyperlink) yBlock.set("hyperlink", block.hyperlink);
       }
       if ("offsetX" in block && block.offsetX !== undefined) yBlock.set("offsetX", block.offsetX);
       if ("offsetY" in block && block.offsetY !== undefined) yBlock.set("offsetY", block.offsetY);
@@ -1379,14 +1475,70 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
             const cellAttrs = yCell.get("rawAttrs") as string | undefined;
             const align = yCell.get("align") as "left" | "center" | "right" | "justify" | undefined;
             const bold = yCell.get("bold") as boolean | undefined;
-            cells.push({ text: yText ? yText.toString() : "", rawAttrs: cellAttrs, align, bold });
+            const bgColor = yCell.get("bgColor") as string | undefined;
+            const color = yCell.get("color") as string | undefined;
+            cells.push({ text: yText ? yText.toString() : "", rawAttrs: cellAttrs, align, bold, bgColor, color });
           }
           rows.push(cells);
         }
       }
       const offsetX = yBlock.get("offsetX") as number | undefined;
       const offsetY = yBlock.get("offsetY") as number | undefined;
-      blocks.push({ type: "table", id, rows, rawAttrs, offsetX, offsetY });
+      const widthPercent = yBlock.get("widthPercent") as number | undefined;
+      const heightPt = yBlock.get("heightPt") as number | undefined;
+      const caption = yBlock.get("caption") as string | undefined;
+      const captionPos = yBlock.get("captionPos") as string | undefined;
+      const borderColor = yBlock.get("borderColor") as string | undefined;
+      const borderThickness = yBlock.get("borderThickness") as string | undefined;
+      const borderType = yBlock.get("borderType") as string | undefined;
+      const cellSpacingMm = yBlock.get("cellSpacingMm") as number | undefined;
+      const cellSpacingEnabled = yBlock.get("cellSpacingEnabled") as boolean | undefined;
+      const fillColor = yBlock.get("fillColor") as string | undefined;
+      const fillMode = yBlock.get("fillMode") as "none" | "color" | undefined;
+      const cellPaddingLeftMm = yBlock.get("cellPaddingLeftMm") as number | undefined;
+      const cellPaddingRightMm = yBlock.get("cellPaddingRightMm") as number | undefined;
+      const cellPaddingTopMm = yBlock.get("cellPaddingTopMm") as number | undefined;
+      const cellPaddingBottomMm = yBlock.get("cellPaddingBottomMm") as number | undefined;
+      const pageBreak = yBlock.get("pageBreak") as "divide" | "cell_divide" | "no_divide" | undefined;
+      const repeatHeader = yBlock.get("repeatHeader") as boolean | undefined;
+      const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const marginLeftMm = yBlock.get("marginLeftMm") as number | undefined;
+      const marginRightMm = yBlock.get("marginRightMm") as number | undefined;
+      const marginTopMm = yBlock.get("marginTopMm") as number | undefined;
+      const marginBottomMm = yBlock.get("marginBottomMm") as number | undefined;
+
+      blocks.push({
+        type: "table",
+        id,
+        rows,
+        rawAttrs,
+        offsetX,
+        offsetY,
+        widthPercent,
+        heightPt,
+        caption,
+        captionPos,
+        borderColor,
+        borderThickness,
+        borderType,
+        cellSpacingMm,
+        cellSpacingEnabled,
+        fillColor,
+        fillMode,
+        cellPaddingLeftMm,
+        cellPaddingRightMm,
+        cellPaddingTopMm,
+        cellPaddingBottomMm,
+        pageBreak,
+        repeatHeader,
+        treatAsChar,
+        textWrap,
+        marginLeftMm,
+        marginRightMm,
+        marginTopMm,
+        marginBottomMm,
+      });
     } else if (type === "equation") {
       const yScript = yBlock.get("script") as Y.Text | undefined;
       const offsetX = yBlock.get("offsetX") as number | undefined;
@@ -1402,35 +1554,70 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
     } else if (type === "image") {
       const src = (yBlock.get("src") as string) || "";
       const widthPercent = (yBlock.get("widthPercent") as number) || 100;
+      const heightPt = yBlock.get("heightPt") as number | undefined;
       const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
       const caption = (yBlock.get("caption") as string) || "";
+      const captionPos = yBlock.get("captionPos") as string | undefined;
       const rawXml = yBlock.get("rawXml") as string | undefined;
       const offsetX = yBlock.get("offsetX") as number | undefined;
       const offsetY = yBlock.get("offsetY") as number | undefined;
+      const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const marginLeftMm = yBlock.get("marginLeftMm") as number | undefined;
+      const marginRightMm = yBlock.get("marginRightMm") as number | undefined;
+      const marginTopMm = yBlock.get("marginTopMm") as number | undefined;
+      const marginBottomMm = yBlock.get("marginBottomMm") as number | undefined;
+      const borderColor = yBlock.get("borderColor") as string | undefined;
+      const borderThickness = yBlock.get("borderThickness") as string | undefined;
+      const borderType = yBlock.get("borderType") as string | undefined;
+      const hyperlink = yBlock.get("hyperlink") as string | undefined;
       blocks.push({
         type: "image",
         id,
         src,
         widthPercent,
+        heightPt,
         align,
         caption,
+        captionPos,
         rawAttrs,
         rawXml,
         offsetX,
         offsetY,
+        treatAsChar,
+        textWrap,
+        marginLeftMm,
+        marginRightMm,
+        marginTopMm,
+        marginBottomMm,
+        borderColor,
+        borderThickness,
+        borderType,
+        hyperlink,
       });
     } else if (type === "shape") {
       const shapeType = (yBlock.get("shapeType") as "rect" | "roundRect" | "ellipse" | "line") || "rect";
       const widthPercent = (yBlock.get("widthPercent") as number) || 75;
       const heightPt = (yBlock.get("heightPt") as number) || (shapeType === "line" ? 2 : 60);
       const fillColor = (yBlock.get("fillColor") as string) || "#EFF6FF";
+      const fillMode = (yBlock.get("fillMode") as "none" | "color") || "color";
       const strokeColor = (yBlock.get("strokeColor") as string) || "#2563EB";
       const strokeWidth = (yBlock.get("strokeWidth") as number) || 1.5;
+      const strokeType = yBlock.get("strokeType") as string | undefined;
       const yText = yBlock.get("text") as Y.Text | undefined;
       const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const caption = yBlock.get("caption") as string | undefined;
+      const captionPos = yBlock.get("captionPos") as string | undefined;
       const rawXml = yBlock.get("rawXml") as string | undefined;
       const offsetX = yBlock.get("offsetX") as number | undefined;
       const offsetY = yBlock.get("offsetY") as number | undefined;
+      const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const marginLeftMm = yBlock.get("marginLeftMm") as number | undefined;
+      const marginRightMm = yBlock.get("marginRightMm") as number | undefined;
+      const marginTopMm = yBlock.get("marginTopMm") as number | undefined;
+      const marginBottomMm = yBlock.get("marginBottomMm") as number | undefined;
+      const hyperlink = yBlock.get("hyperlink") as string | undefined;
       blocks.push({
         type: "shape",
         id,
@@ -1438,14 +1625,25 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         widthPercent,
         heightPt,
         fillColor,
+        fillMode,
         strokeColor,
         strokeWidth,
+        strokeType,
         text: yText ? yText.toString() : "",
         align,
+        caption,
+        captionPos,
         rawAttrs,
         rawXml,
         offsetX,
         offsetY,
+        treatAsChar,
+        textWrap,
+        marginLeftMm,
+        marginRightMm,
+        marginTopMm,
+        marginBottomMm,
+        hyperlink,
       });
     }
   }
