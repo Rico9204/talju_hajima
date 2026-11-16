@@ -946,8 +946,11 @@ export function serializeBlocksToHwpxPackage(
     }
 
     if (block.type === "equation") {
-      const eqAttrs = block.rawAttrs ? ` ${block.rawAttrs}` : ` version="1.0" baseLine="0" textColor="#000000" baseUnit="1000"`;
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation${eqAttrs}><hp:script>${escapeXml(block.script)}</hp:script></hp:equation></hp:run>\n    </hp:p>`;
+      const eqId = 2000000000 + (idx + 1);
+      const scriptText = block.script || "";
+      const width = Math.max(4000, Math.min(42520, Math.round((scriptText.length || 1) * 800)));
+      const height = 2400;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation id="${eqId}" zOrder="0" numberingType="EQUATION" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" version="Equation Version 60" baseLine="85" textColor="#000000" baseUnit="1000" lineMode="CHAR" font="HYhwpEQ">\n        <hp:sz width="${width}" widthRelTo="ABSOLUTE" height="${height}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="56" right="56" top="0" bottom="0"/>\n        <hp:shapeComment>수식입니다.</hp:shapeComment>\n        <hp:script>${escapeXml(scriptText)}</hp:script>\n      </hp:equation></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "image") {
@@ -1157,7 +1160,7 @@ export function serializeBlocksToHwpxPackage(
       `    </hh:paraProperties>`;
 
     headerXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
-      `<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n` +
+      `<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.31" secCnt="1">\n` +
       `  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n` +
       `  <hh:refList>\n` +
       `    <hh:fontfaces itemCnt="${fontGroups.length}">\n` +
@@ -1167,12 +1170,21 @@ export function serializeBlocksToHwpxPackage(
       `    </hh:fontfaces>\n` +
       `${defaultBorderFillsXml}\n` +
       `${charPropertiesXml}\n` +
+      `    <hh:tabProperties itemCnt="0"/>\n` +
+      `    <hh:numberings itemCnt="0"/>\n` +
+      `    <hh:bullets itemCnt="0"/>\n` +
       `${paraPropertiesXml}\n` +
       `    <hh:styles itemCnt="1">\n` +
       `      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n` +
       `    </hh:styles>\n` +
       `  </hh:refList>\n` +
+      `  <hh:compatibleDocument targetProgram="HWP2018"><hh:layoutCompatibility/></hh:compatibleDocument>\n` +
       `</hh:head>`;
+  }
+
+  // 기존 헤더에 secCnt 속성이 없는 경우 한컴 규격에 맞춰 기본 secCnt="1" 보정
+  if (!headerXml.includes('secCnt="')) {
+    headerXml = headerXml.replace(/<hh:head\b([^>]*)>/, '<hh:head$1 secCnt="1">');
   }
 
   return { sectionXml, headerXml };
@@ -1434,16 +1446,36 @@ export function prepareHwpxPackageEntries(
   // ── 표준 OCF 및 HWPX 필수 컨테이너 엔트리 보장 ──
   // 원본 문서에 이미 해당 파일이 존재하는 경우 원본의 온전한 구조/메타데이터를 100% 보존합니다.
   // 오직 새 문서 생성 등 파일이 존재하지 않는 경우에만 표준 기본 템플릿을 보충합니다.
+  if (!newEntries.has("settings.xml")) {
+    newEntries.set("settings.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ha:HWPApplicationSetting xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app">\n  <ha:CaretPosition listIDRef="0" paraIDRef="0" pos="0"/>\n</ha:HWPApplicationSetting>`));
+  }
+
   if (!newEntries.has("version.xml")) {
     newEntries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.31" application="Hancom Office Hangul"/>`));
   }
 
   if (!newEntries.has("META-INF/container.xml")) {
-    newEntries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n  <rootfiles>\n    <rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/>\n  </rootfiles>\n</container>`));
+    newEntries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf">\n  <ocf:rootfiles>\n    <ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/>\n  </ocf:rootfiles>\n</ocf:container>`));
   }
 
-  if (!newEntries.has("Contents/content.hpf")) {
-    newEntries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata>\n    <opf:title>문서</opf:title>\n    <opf:language>ko</opf:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="section0"/>\n  </opf:spine>\n</opf:package>`));
+  const hpfKey = Array.from(newEntries.keys()).find((k) => /^Contents\/content\.hpf$/i.test(k)) ?? "Contents/content.hpf";
+  if (!newEntries.has(hpfKey)) {
+    newEntries.set(hpfKey, new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:title>문서</dc:title>\n    <dc:language>ko</dc:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="Contents/header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="Contents/section0.xml" media-type="application/xml"/>\n    <opf:item id="settings" href="settings.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="header" linear="no"/>\n    <opf:itemref idref="section0" linear="yes"/>\n  </opf:spine>\n</opf:package>`));
+  } else {
+    // 기존 content.hpf가 있더라도 href="header.xml"을 href="Contents/header.xml"로 정규화
+    let hpfStr = new TextDecoder().decode(newEntries.get(hpfKey)!);
+    let hpfChanged = false;
+    if (hpfStr.includes('href="header.xml"')) {
+      hpfStr = hpfStr.replace('href="header.xml"', 'href="Contents/header.xml"');
+      hpfChanged = true;
+    }
+    if (hpfStr.includes('href="section0.xml"')) {
+      hpfStr = hpfStr.replace('href="section0.xml"', 'href="Contents/section0.xml"');
+      hpfChanged = true;
+    }
+    if (hpfChanged) {
+      newEntries.set(hpfKey, new TextEncoder().encode(hpfStr));
+    }
   }
 
   return newEntries;

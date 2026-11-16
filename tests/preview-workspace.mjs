@@ -137,7 +137,11 @@ entries.set(
   </hp:p>
   <hp:p id="3" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">
     <hp:run charPrIDRef="0">
-      <hp:equation version="1.0" baseLine="0" textColor="#000000" baseUnit="1000">
+      <hp:equation id="2000000003" zOrder="0" numberingType="EQUATION" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" version="Equation Version 60" baseLine="85" textColor="#000000" baseUnit="1000" lineMode="CHAR" font="HYhwpEQ">
+        <hp:sz width="7200" widthRelTo="ABSOLUTE" height="2400" heightRelTo="ABSOLUTE" protect="0"/>
+        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>
+        <hp:outMargin left="56" right="56" top="0" bottom="0"/>
+        <hp:shapeComment>수식입니다.</hp:shapeComment>
         <hp:script>E = mc^2</hp:script>
       </hp:equation>
     </hp:run>
