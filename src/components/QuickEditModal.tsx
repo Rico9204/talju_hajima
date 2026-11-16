@@ -5,6 +5,7 @@ import { useLeaveGuard } from "../lib/useLeaveGuard";
 import CodeHighlight from "./CodeHighlight";
 import CodeRunPanel, { useCodeRun } from "./CodeRunPanel";
 import { runnableLanguage } from "../lib/codeRunner";
+import { enterEdit, indentUnitFor, tabEdit } from "../lib/codeIndent";
 import { codeLanguageOf } from "../lib/codeHighlight";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta, type RemoteCursor } from "../lib/collab";
 
@@ -252,8 +253,19 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           onKeyDown={(e) => {
             if (runnable && (e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); runner.run(); }
             else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); }
-            // 코드 파일에서는 Tab이 다음 칸으로 넘어가지 않고 탭 문자를 넣는다(입력 이벤트로 들어가 되돌리기·동시 편집에 그대로 반영).
-            else if (language && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && composing.current === null) { e.preventDefault(); document.execCommand("insertText", false, "\t"); }
+            // 코드 파일의 자동 들여쓰기(규칙은 lib/codeIndent.ts): Tab·Shift+Tab은 다음 칸으로 넘어가지 않고 들여쓰기/내어쓰기,
+            // Enter는 직전 줄의 들여쓰기를 이어받는다. insertText로 넣어 되돌리기·동시 편집에 보통 타이핑처럼 반영된다(IME 조합 중에는 건드리지 않는다).
+            else if (language && composing.current === null && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "Tab" || e.key === "Enter")) {
+              e.preventDefault();
+              const ta = e.currentTarget;
+              const unit = indentUnitFor(language);
+              const edit = e.key === "Tab" ? tabEdit(ta.value, ta.selectionStart, ta.selectionEnd, e.shiftKey, unit) : enterEdit(ta.value, ta.selectionStart, ta.selectionEnd, unit);
+              if (edit) {
+                ta.setSelectionRange(edit.start, edit.end);
+                document.execCommand("insertText", false, edit.text);
+                ta.setSelectionRange(edit.selStart, edit.selEnd);
+              }
+            }
           }}
           onCompositionStart={() => { composing.current = valueRef.current; remoteWhileComposing.current = []; }}
           onCompositionEnd={(e) => onCompositionEnd(e.currentTarget)}
