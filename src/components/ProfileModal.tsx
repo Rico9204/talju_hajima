@@ -1,3 +1,4 @@
+import AccountInfoModal from "./AccountInfoModal";
 import { useEffect, useState, type ChangeEvent, type CSSProperties, type ReactNode } from "react";
 import { dataRepository } from "../api";
 import { useProject, useProjectManagement, type ProfileSection } from "../context/ProjectContext";
@@ -74,7 +75,7 @@ function HoverTip({ children, label, detail }: { children: ReactNode; label: str
 // open it, and it renders itself wherever it's mounted with zero props.
 export default function ProfileModal() {
   const { currentMember, team, project, viewedMemberId, profileSection, closeMemberProfile, updateMyProfile } = useProject();
-  const { user, updatePassword } = useAuth();
+  const { user } = useAuth();
   const { isAdmin } = useProjectManagement();
 
   const myAvatar = currentMember?.avatar ?? "?";
@@ -177,9 +178,6 @@ export default function ProfileModal() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
-  const [passwordNotice, setPasswordNotice] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -196,7 +194,7 @@ export default function ProfileModal() {
   // single entry point.
   useEffect(() => {
     if (viewedMemberId !== currentMember?.id || !currentMember) return;
-    // 메뉴에서 "비밀번호 변경"을 고르면 프로필 카드 대신 비밀번호 창만 연다.
+    // 메뉴에서 "계정 정보"를 고르면 프로필 카드 대신 계정 정보 창(비밀번호 변경·탈퇴)만 연다.
     if (profileSection === "password") {
       closeMemberProfile();
       setPasswordOpen(true);
@@ -367,45 +365,6 @@ export default function ProfileModal() {
     } finally {
       setSavingProfile(false);
     }
-  }
-
-  // 닫을 때 입력한 비밀번호도 지운다(다시 열었을 때 남아 있지 않게).
-  function closePasswordDialog() {
-    setPasswordOpen(false);
-    setPasswordNotice("");
-    setPasswordForm({ current: "", next: "", confirm: "" });
-  }
-
-  async function submitPasswordChange() {
-    if (!passwordForm.current) {
-      setPasswordNotice("현재 비밀번호를 입력해 주세요.");
-      return;
-    }
-    if (passwordForm.current === passwordForm.next) {
-      setPasswordNotice("새 비밀번호는 기존 비밀번호와 다르게 설정해야 합니다.");
-      return;
-    }
-    if (passwordForm.next.length < 6) {
-      setPasswordNotice("새 비밀번호는 6자 이상이어야 합니다.");
-      return;
-    }
-    if (passwordForm.next !== passwordForm.confirm) {
-      setPasswordNotice("새 비밀번호와 확인이 일치하지 않습니다.");
-      return;
-    }
-    setChangingPassword(true);
-    const result = await updatePassword(passwordForm.current, passwordForm.next);
-    setChangingPassword(false);
-    if (result.error) {
-      setPasswordNotice(result.error);
-      return;
-    }
-    setPasswordNotice("비밀번호가 변경되었습니다.");
-    setPasswordForm({ current: "", next: "", confirm: "" });
-    setTimeout(() => {
-      setPasswordOpen(false);
-      setPasswordNotice("");
-    }, 1200);
   }
 
   return (
@@ -627,7 +586,7 @@ export default function ProfileModal() {
                     })}
                   </div>
                 </div>}
-                {isSelfProfile && editSection && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>비밀번호 변경</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
+                {isSelfProfile && editSection && <div className="flex gap-2 mt-4"><button type="button" onClick={() => { closeMemberProfile(); setPasswordOpen(true); }} className="px-3 py-2 text-xs font-700" style={{ background: "var(--muted)", borderRadius: "10px" }}>계정 정보</button><button type="button" onClick={saveProfile} disabled={savingProfile} className="px-3 py-2 text-xs font-700" style={{ background: "var(--primary)", color: "#fff", borderRadius: "10px" }}>{savingProfile ? "저장 중…" : "저장"}</button></div>}
                 {profileError && <p className="text-xs mt-2" style={{ color: "#ef4444" }}>{profileError}</p>}
               </section>
               {isSelfProfile ? (
@@ -681,85 +640,7 @@ export default function ProfileModal() {
           </div>
         </div>
       )}
-      {passwordOpen && (
-        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }} onClick={closePasswordDialog}>
-          <div className="w-[380px] max-w-[92vw] p-5" style={{ background: "var(--card)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.22)" }} onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-700">비밀번호 변경</h3>
-              <button
-                type="button"
-                onClick={closePasswordDialog}
-                className="w-8 h-8 flex items-center justify-center text-lg"
-                style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>현재 비밀번호</label>
-                <input
-                  type="password"
-                  value={passwordForm.current}
-                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, current: e.target.value }))}
-                  className="w-full px-3 py-2.5 text-sm outline-none"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호</label>
-                <input
-                  type="password"
-                  value={passwordForm.next}
-                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, next: e.target.value }))}
-                  placeholder="6자 이상 (기존과 다른 비밀번호)"
-                  className="w-full px-3 py-2.5 text-sm outline-none"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>새 비밀번호 확인</label>
-                <input
-                  type="password"
-                  value={passwordForm.confirm}
-                  onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirm: e.target.value }))}
-                  onKeyDown={(e) => e.key === "Enter" && submitPasswordChange()}
-                  placeholder="새 비밀번호 다시 입력"
-                  className="w-full px-3 py-2.5 text-sm outline-none"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--foreground)" }}
-                />
-              </div>
-            </div>
-
-            {passwordNotice && (
-              <div className="mt-3 text-xs font-600" style={{ color: passwordNotice.includes("변경되었습니다") ? "#22c55e" : "#ef4444" }}>
-                {passwordNotice}
-              </div>
-            )}
-
-            <div className="flex gap-2 mt-5">
-              <button
-                type="button"
-                onClick={closePasswordDialog}
-                className="flex-1 py-2.5 text-sm font-600"
-                style={{ background: "var(--muted)", borderRadius: "40px", color: "var(--muted-foreground)" }}
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={submitPasswordChange}
-                disabled={changingPassword}
-                className="flex-1 py-2.5 text-sm font-700"
-                style={{ background: "var(--primary)", borderRadius: "40px", color: "#fff" }}
-              >
-                {changingPassword ? "변경 중…" : "변경하기"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {passwordOpen && <AccountInfoModal onClose={() => setPasswordOpen(false)} />}
     </>
   );
 }

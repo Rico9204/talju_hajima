@@ -7,8 +7,10 @@ import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import BoardView from "./BoardView";
 import Achievements from "./Achievements";
+import AllSchedule from "./AllSchedule";
 import AdminApplicationNotice from "./AdminApplicationNotice";
 import AdminOperatorPanel from "./AdminOperatorPanel";
+import AdminAccountWithdrawals from "./AdminAccountWithdrawals";
 import ProfileModal from "./ProfileModal";
 import UserMenu from "./UserMenu";
 import AdminReports from "./AdminReports";
@@ -47,7 +49,7 @@ function periodProgress(p: { status: "active" | "done"; startDate?: string; endD
   return Math.max(0, Math.min(100, Math.round(((now - start) / (end - start)) * 100)));
 }
 
-type HomeTab = "projects" | "campus" | "board" | "achievements" | "operator" | "reports";
+type HomeTab = "projects" | "schedule" | "campus" | "board" | "achievements" | "operator" | "reports";
 
 export default function Home() {
   const { projects, setProjectId, addProject, lookupProject, joinProject, project, chatUnreadTotal, tasksUnread, scheduleUnread, workspaceUnread } = useProject();
@@ -310,6 +312,24 @@ export default function Home() {
                   </span>
                 </button>
               );
+            } else if (tabId === "schedule") {
+              buttonContent = (
+                <button
+                  type="button"
+                  onClick={() => selectTab("schedule")}
+                  className="flex items-center justify-between gap-2.5 px-3 py-2.5 text-left text-xs font-700 transition-all w-full cursor-grab"
+                  style={{ borderRadius: "10px", background: activeTab === "schedule" ? "var(--primary)" : "transparent", color: activeTab === "schedule" ? "#fff" : "var(--foreground)" }}
+                  title="전체 일정 (드래그하여 순서 변경)"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <NavIcon id="schedule" />
+                    <span>전체 일정</span>
+                  </span>
+                  <span className="text-xs opacity-0 group-hover:opacity-40 transition-opacity select-none hidden md:inline-block text-muted-foreground" aria-hidden="true">
+                    ⠿
+                  </span>
+                </button>
+              );
             } else if (tabId === "campus") {
               buttonContent = (
                 <button
@@ -433,7 +453,10 @@ export default function Home() {
         <div className={activeTab === "board" ? "max-w-[1560px] mx-auto w-full transition-all" : activeTab === "campus" ? "max-w-7xl mx-auto w-full transition-all" : "max-w-5xl mx-auto"}>
           <AdminApplicationNotice />
           {activeTab === "operator" && isOperator ? (
-            <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
+            <>
+              <AdminOperatorPanel onPendingCountChange={setPendingApplications} />
+              <AdminAccountWithdrawals />
+            </>
           ) : activeTab === "reports" && isOperator ? (
             <div className="space-y-4">
               <div>
@@ -442,6 +465,8 @@ export default function Home() {
               </div>
               <AdminReports onOpenCountChange={setOpenReports} />
             </div>
+          ) : activeTab === "schedule" ? (
+            <AllSchedule />
           ) : activeTab === "campus" ? (
             <CampusNoticesView onRecruitFromNotice={handleRecruitFromNotice} />
           ) : activeTab === "board" ? (

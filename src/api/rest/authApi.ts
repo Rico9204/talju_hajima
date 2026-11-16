@@ -14,3 +14,7 @@ export const resetPassword = (token: string, password: string) => request<void>(
 // 계정이 있든 없든 같은 응답(가입 여부를 알려 주지 않는다).
 export const requestPasswordReset = (email: string) => request<unknown>("/auth/password-reset/request", { email });
 export const resendConfirmation = (email: string) => request<unknown>("/auth/resend-confirmation", { email });
+
+// 탈퇴 신청된 계정의 복구 신청(로그인할 수 없으므로 아이디·비밀번호로 확인). 운영자가 승인하면 다시 로그인할 수 있다.
+export const requestAccountRecovery = (email: string, password: string) =>
+  request<{ withdrawal: import("../types").AccountWithdrawalState }>("/auth/recover-request", { email, password });

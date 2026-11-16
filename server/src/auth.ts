@@ -10,6 +10,7 @@ import { isIP } from "node:net";
 import type { Request, Response } from "express";
 import { Db, selectOneJson, type Query } from "./db.js";
 import { Mailer, mailTemplates, type MailMessage } from "./mail.js";
+import { WITHDRAWAL_STATUS_SQL, WithdrawnAccounts, withdrawalInfo, type WithdrawalRow } from "./withdrawn.js";
 
 // 로그인은 이 서버가 직접 한다(Supabase Auth 대체). 공유 브랜치(Temporary_Merge)의
 // bcrypt 가입·로그인, JwtAuthGuard·@CurrentUser 구조를 옮기되 약점을 고쳤다:
@@ -166,7 +167,7 @@ type AuthedRequest = Request & { userId?: string };
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly tokens: TokenService) {}
+  constructor(private readonly tokens: TokenService, private readonly withdrawn: WithdrawnAccounts) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthedRequest>();
@@ -177,6 +178,8 @@ export class AuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
     }
+    // 탈퇴 신청된 계정은 이미 받은 토큰으로도 쓸 수 없다(복구가 승인되면 다시 로그인).
+    if (await this.withdrawn.has(request.userId!)) throw new UnauthorizedException("탈퇴 신청된 계정입니다.");
     return true;
   }
 }
@@ -408,6 +411,11 @@ export class AuthController {
     this.limits.loginPair.clear(key);
     // 비밀번호가 맞은 사람에게만 알리므로 가입 여부가 새지 않는다.
     if (!user.confirmed) throw new ForbiddenException("이메일 인증을 완료해 주세요. 가입할 때 받은 메일의 링크를 눌러 주세요.");
+    // 탈퇴 신청된 계정(비밀번호가 맞은 사람에게만 알린다): 로그인은 막고, 화면이 복구 신청을 안내할 수 있게 상태를 함께 준다.
+    const [withdrawal] = await this.db.asSystem((query) => query<WithdrawalRow>(WITHDRAWAL_STATUS_SQL, [user.id]));
+    if (withdrawal) {
+      throw new HttpException({ message: "탈퇴 신청된 계정입니다. 탈퇴 신청 후 14일 안에는 복구를 신청할 수 있어요.", code: "account_withdrawn", withdrawal: withdrawalInfo(withdrawal) }, 403);
+    }
     return this.db.asSystem(async (query) => {
       await query("update auth.users set last_sign_in_at = now() where id = $1", [user.id]);
       return this.startSession(res, { id: user.id, email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
@@ -428,6 +436,8 @@ export class AuthController {
       const user = row ? await selectOneJson(query, "select id, email, raw_user_meta_data from auth.users where id = $1", [row.user_id]) : null;
       // 쿠키는 지우지 않는다: 다른 탭이 방금 받은 새 쿠키를 지울 수 있다.
       if (!user) throw new UnauthorizedException("로그인이 만료되었습니다. 다시 로그인해 주세요.");
+      const [withdrawn] = await query("select 1 from public.account_withdrawals where user_id = $1", [user.id]);
+      if (withdrawn) throw new UnauthorizedException("탈퇴 신청된 계정입니다.");
       return this.startSession(res, { id: user.id, email: user.email, user_metadata: user.raw_user_meta_data ?? {} }, await this.issue(query, user.id));
     });
   }

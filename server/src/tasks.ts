@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query as QueryParam, UseGuards } from "@nestjs/common";
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf,
 } from "class-validator";
@@ -240,6 +240,27 @@ export class TasksController {
           and coalesce(e.end_date, e.date) >= ${TODAY_SQL}
         order by e.date, e.id
         limit 300`)).map((row) => ({
+        ...mapVisibleEvent(row),
+        projectId: row.project_id,
+        projectName: row.project_name,
+      })));
+  }
+
+  // 메인 화면 "전체 일정" 달력용: 내가 참여한 모든 프로젝트의 일정 중 from~to(양끝 포함)와 겹치는 것. 지난 일정도 포함한다.
+  // 볼 수 있는 일정·제목 가리기는 위의 오늘 이후 목록과 같다. 한 번에 최대 100일까지만 조회한다.
+  @Get("me/schedule-events")
+  allMyEvents(@UserId() userId: string, @QueryParam("from") from?: string, @QueryParam("to") to?: string) {
+    if (!from || !to || !DATE.test(from) || !DATE.test(to) || from > to) throw new BadRequestException("조회할 기간(from, to: YYYY-MM-DD)을 올바르게 입력해주세요.");
+    if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 100) throw new BadRequestException("한 번에 100일까지만 조회할 수 있습니다.");
+    return this.db.asUser(userId, async (query) =>
+      (await selectJson(query, `
+        select e.*, p.name as project_name, ${MASKED_TITLE_SQL}
+        from public.schedule_events e
+        join public.projects p on p.id = e.project_id
+        where e.project_id in (select project_id from public.members where user_id = auth.uid())
+          and e.date <= $2::date and coalesce(e.end_date, e.date) >= $1::date
+        order by e.date, e.id
+        limit 1000`, [from, to])).map((row) => ({
         ...mapVisibleEvent(row),
         projectId: row.project_id,
         projectName: row.project_name,

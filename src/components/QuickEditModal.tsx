@@ -3,6 +3,9 @@ import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
 import { useLeaveGuard } from "../lib/useLeaveGuard";
 import CodeHighlight from "./CodeHighlight";
+import CodeRunPanel, { useCodeRun } from "./CodeRunPanel";
+import { runnableLanguage } from "../lib/codeRunner";
+import { enterEdit, indentUnitFor, tabEdit } from "../lib/codeIndent";
 import { codeLanguageOf } from "../lib/codeHighlight";
 import { openCollabDoc, textHash, transformIndex, type CollabDoc, type CollabEditor, type CollabMode, type CollabPresence, type Delta, type RemoteCursor } from "../lib/collab";
 
@@ -43,6 +46,8 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const [scrollTop, setScrollTop] = useState(0);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const language = codeLanguageOf(file.name); // 코드 파일이면 글자는 투명하게 두고 위에 색칠한 글을 겹쳐 그린다
+  const runnable = runnableLanguage(file.name); // JavaScript·Python은 ▶ 실행으로 결과만 바로 본다(저장하지 않은 내용 그대로)
+  const runner = useCodeRun(runnable, () => valueRef.current);
 
   const refreshDirty = () => {
     const doc = docRef.current;
@@ -218,6 +223,9 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
             <div className="text-sm font-700 truncate mt-0.5">{file.name}</div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            {runnable && (
+              <button type="button" onClick={runner.run} disabled={runner.busy} title="Ctrl/⌘+Enter" className="h-8 px-3 rounded-full text-xs font-700 disabled:opacity-50" style={{ background: "#16a34a", color: "#fff" }}>{runner.busy ? "실행 중…" : "▶ 실행"}</button>
+            )}
             <span className="text-xs" style={{ color: status === "error" ? "#ef4444" : "var(--muted-foreground)" }} role="status">{statusText}</span>
             <button type="button" onClick={() => void runSave()} disabled={!dirty || status === "saving"} title="Ctrl/⌘+S" className="h-8 px-3 rounded-full text-xs font-700 disabled:opacity-40" style={{ background: "var(--primary)", color: "#fff" }}>{status === "saving" ? "저장 중…" : "저장"}</button>
             <button type="button" onClick={requestClose} className="h-8 px-3 rounded-full text-xs font-700" style={{ background: "var(--muted)", color: "var(--foreground)" }}>닫기</button>
@@ -243,9 +251,21 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); }
-            // 코드 파일에서는 Tab이 다음 칸으로 넘어가지 않고 탭 문자를 넣는다(입력 이벤트로 들어가 되돌리기·동시 편집에 그대로 반영).
-            else if (language && e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && composing.current === null) { e.preventDefault(); document.execCommand("insertText", false, "\t"); }
+            if (runnable && (e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); runner.run(); }
+            else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); }
+            // 코드 파일의 자동 들여쓰기(규칙은 lib/codeIndent.ts): Tab·Shift+Tab은 다음 칸으로 넘어가지 않고 들여쓰기/내어쓰기,
+            // Enter는 직전 줄의 들여쓰기를 이어받는다. insertText로 넣어 되돌리기·동시 편집에 보통 타이핑처럼 반영된다(IME 조합 중에는 건드리지 않는다).
+            else if (language && composing.current === null && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === "Tab" || e.key === "Enter")) {
+              e.preventDefault();
+              const ta = e.currentTarget;
+              const unit = indentUnitFor(language);
+              const edit = e.key === "Tab" ? tabEdit(ta.value, ta.selectionStart, ta.selectionEnd, e.shiftKey, unit) : enterEdit(ta.value, ta.selectionStart, ta.selectionEnd, unit);
+              if (edit) {
+                ta.setSelectionRange(edit.start, edit.end);
+                document.execCommand("insertText", false, edit.text);
+                ta.setSelectionRange(edit.selStart, edit.selEnd);
+              }
+            }
           }}
           onCompositionStart={() => { composing.current = valueRef.current; remoteWhileComposing.current = []; }}
           onCompositionEnd={(e) => onCompositionEnd(e.currentTarget)}
@@ -263,6 +283,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
         )}
         {cursors.length > 0 && <RemoteCursors value={value} cursors={cursors} scrollTop={scrollTop} width={box.width} height={box.height} />}
         </div>
+        {runnable && runner.open && <CodeRunPanel language={runnable} runner={runner} />}
       </section>
     </div>
   );

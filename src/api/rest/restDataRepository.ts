@@ -123,6 +123,17 @@ export class RestDataRepository implements DataRepository {
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null) { return this.api.request<void>(`/tasks/${taskId}/schedule-link`, { method: "PUT", body: JSON.stringify({ field, eventId }) }); }
   listScheduleEvents(projectId: string) { return this.api.request<ScheduleEvent[]>(`/projects/${encodeURIComponent(projectId)}/schedule`); }
   listUpcomingEvents() { return this.api.request<import("../types").UpcomingEvent[]>("/me/upcoming-events"); }
+  listActiveAnnouncements() { return this.api.request<import("../types").Announcement[]>("/announcements/active"); }
+  listAnnouncements() { return this.api.request<import("../types").Announcement[]>("/announcements"); }
+  async createAnnouncement(input: import("../types").NewAnnouncementInput) { await this.api.request("/announcements", { method: "POST", body: JSON.stringify(input) }); }
+  deleteAnnouncement(id: number) { return this.api.request<void>(`/announcements/${id}`, { method: "DELETE" }); }
+  dismissAnnouncement(id: number) { return this.api.request<void>(`/announcements/${id}/dismiss`, { method: "POST" }); }
+  subscribeToAnnouncements(onChange: () => void) { return this.realtime.subscribe("announcements", (message) => { if (message.type === "change" || message.type === "joined") onChange(); }); }
+  listAccountWithdrawals() { return this.api.request<import("../types").AccountWithdrawalLists>("/admin/account-withdrawals"); }
+  approveAccountWithdrawal(userId: string) { return this.api.request<void>(`/admin/account-withdrawals/${encodeURIComponent(userId)}/approve`, { method: "POST" }); }
+  approveAccountRecovery(userId: string) { return this.api.request<void>(`/admin/account-recoveries/${encodeURIComponent(userId)}/approve`, { method: "POST" }); }
+  rejectAccountRecovery(userId: string) { return this.api.request<void>(`/admin/account-recoveries/${encodeURIComponent(userId)}/reject`, { method: "POST" }); }
+  listMyScheduleEvents(from: string, to: string) { return this.api.request<import("../types").UpcomingEvent[]>(`/me/schedule-events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`); }
   getOfficeEditorStatus() { return this.api.request<{ enabled: boolean }>("/onlyoffice/status"); }
   getOfficeEditorConfig(fileId: number) { return this.api.request<Record<string, unknown>>(`/workspace/files/${fileId}/onlyoffice`); }
   addScheduleEvent(projectId: string, _actorMemberId: string, input: NewScheduleEventInput) { return this.api.request<ScheduleEvent>(`/projects/${encodeURIComponent(projectId)}/schedule`, { method: "POST", body: JSON.stringify(input) }); }

@@ -6,6 +6,7 @@ import Avatar from "./Avatar";
 import AvatarFrame from "./AvatarFrame";
 import MedalIcon from "./MedalIcon";
 import Settings from "./Settings";
+import AccountInfoModal from "./AccountInfoModal";
 import { useConfirm } from "./ConfirmDialog";
 import { useMyProfileTheme } from "../lib/useMyProfileTheme";
 
@@ -25,6 +26,7 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
   const { myTier, avatarFrame, cardC1, cardC2 } = useMyProfileTheme();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false); // 계정 정보(비밀번호 변경·탈퇴): 팀원 정보 없이도 열린다
   const [ask, confirmDialog] = useConfirm();
   async function confirmSignOut() {
     if (await ask({ title: "로그아웃할까요?", message: "이 기기에서 로그아웃돼요. 다시 쓰려면 로그인해야 해요.", confirmLabel: "로그아웃" })) signOut();
@@ -77,8 +79,8 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
           ))}
           <div className="h-px my-1.5 mx-3" style={{ background: "var(--border)" }} />
           <div className="px-3 pb-1 text-[11px] font-700" style={{ color: "var(--muted-foreground)" }}>계정</div>
-          <button type="button" role="menuitem" onClick={() => openSection("password")} className={itemClass}>
-            <span aria-hidden="true">🔒</span>비밀번호 변경
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); setAccountOpen(true); }} className={itemClass}>
+            <span aria-hidden="true">🔒</span>계정 정보
           </button>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); setSettingsOpen(true); }} className={itemClass}>
             <span aria-hidden="true">⚙️</span>설정
@@ -90,6 +92,7 @@ export default function UserMenu({ subtitle }: { subtitle: string }) {
       </>}
       {/* 사이드바의 흐림 효과(backdrop-filter) 안에서는 fixed가 화면 기준이 아니게 되므로 body에 띄운다.
           높이는 고정해서 내용이 적은 분야를 골라도 창 크기가 바뀌지 않게 한다(넘치면 안에서 스크롤). */}
+      {accountOpen && createPortal(<AccountInfoModal onClose={() => setAccountOpen(false)} />, document.body)}
       {settingsOpen && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,18,53,0.42)", backdropFilter: "blur(4px)" }}
           onMouseDown={(e) => { if (e.target === e.currentTarget) setSettingsOpen(false); }}>

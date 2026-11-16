@@ -108,10 +108,11 @@ test('isDefaultMenuOrder identifies matching vs non-matching orders', () => {
   assert.equal(isDefaultMenuOrder(DEFAULT_MENU_ORDER.slice(0, 5)), false);
 });
 
-test('DEFAULT_HOME_MENU_ORDER includes all 4 standard tabs (settings opens from the user menu)', () => {
-  assert.equal(DEFAULT_HOME_MENU_ORDER.length, 4);
+test('DEFAULT_HOME_MENU_ORDER includes all 5 standard tabs (settings opens from the user menu)', () => {
+  assert.equal(DEFAULT_HOME_MENU_ORDER.length, 5);
   assert.deepEqual(DEFAULT_HOME_MENU_ORDER, [
     'projects',
+    'schedule',
     'campus',
     'board',
     'achievements',
@@ -132,6 +133,7 @@ test('sanitizeHomeMenuOrder preserves valid custom order, deduplicates, and appe
     'achievements',
     'board',
     'projects',
+    'schedule',
     'campus',
   ]);
 
@@ -141,6 +143,7 @@ test('sanitizeHomeMenuOrder preserves valid custom order, deduplicates, and appe
   assert.deepEqual(sanitizedMessy, [
     'achievements',
     'projects',
+    'schedule',
     'campus',
     'board',
   ]);

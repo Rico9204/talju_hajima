@@ -1,6 +1,7 @@
-import { lazy, Suspense, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useRef, type CSSProperties } from "react";
 import { createBrowserRouter, Navigate, Outlet, Route, RouterProvider, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { WorkspaceFocus } from "./components/Workspace";
+import AnnouncementPopup from "./components/AnnouncementPopup";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
@@ -40,7 +41,25 @@ function RequireAuth() {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
-  return <Outlet />;
+  return <><Outlet /><AnnouncementPopup /></>;
+}
+
+// 앱 셸의 overflow-hidden 래퍼들은 사용자가 스크롤할 수 없지만, 코드(scrollIntoView, 포커스 이동,
+// 텍스트 드래그 자동 스크롤, 브라우저 "찾기" 등)로는 스크롤된다. 한 번 밀리면 사이드바가 잘린 채
+// 돌아오지 않으므로, 이 요소들이 스크롤되는 즉시 원위치로 되돌린다.
+function usePinnedScroll(pinTop: boolean) {
+  const cleanup = useRef<(() => void) | null>(null);
+  return useCallback((el: HTMLElement | null) => {
+    cleanup.current?.();
+    cleanup.current = null;
+    if (!el) return;
+    const reset = () => {
+      if (el.scrollLeft) el.scrollLeft = 0;
+      if (pinTop && el.scrollTop) el.scrollTop = 0;
+    };
+    el.addEventListener("scroll", reset, { passive: true });
+    cleanup.current = () => el.removeEventListener("scroll", reset);
+  }, [pinTop]);
 }
 
 function Layout() {
@@ -50,6 +69,9 @@ function Layout() {
   const { project } = useProject();
   const currentPage = (location.pathname.split("/")[1] || "dashboard") as Page;
   const { backgroundStyle, glassStyle } = useAccountBackground();
+  const pinShell = usePinnedScroll(true);
+  const pinRow = usePinnedScroll(true);
+  const pinMain = usePinnedScroll(false); // main은 세로 스크롤이 정상 동작이라 가로만 고정
 
   // Non-approved projects (created by a non-admin, awaiting review) are
   // locked to the dashboard page for everyone except an admin.
@@ -58,7 +80,7 @@ function Layout() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden" style={glassStyle}>
+    <div ref={pinShell} className="relative h-full w-full overflow-hidden" style={glassStyle}>
       {/* Filter only this stationary background layer. Cards reuse it through
           transparency; scaling keeps the blurred edges outside the viewport. */}
       <div
@@ -79,10 +101,10 @@ function Layout() {
           WebkitBackfaceVisibility: "hidden",
         }}
       />
-      <div className="relative flex h-full w-full overflow-hidden">
+      <div ref={pinRow} className="relative flex h-full w-full overflow-hidden">
         <Sidebar currentPage={currentPage} onNavigate={(p) => navigate(`/${p}`)} onHome={() => navigate("/home")} />
         {/* pt-16 clears the fixed mobile hamburger button (Sidebar.tsx) — moot at md+, where that button is hidden. */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
+        <main ref={pinMain} className="flex-1 overflow-y-auto overflow-x-hidden pt-16 md:pt-0">
           <RouteErrorBoundary>
             <Outlet />
           </RouteErrorBoundary>
