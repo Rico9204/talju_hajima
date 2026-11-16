@@ -994,7 +994,7 @@ export function serializeBlocksToHwpxPackage(
     // 일반 문단
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
     if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
-      const rawXml = block.fontEdited && block.fontFamily
+      let rawXml = block.fontEdited && block.fontFamily
         ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")/g, (_m, a: string, id: string, b: string) => {
             const orig = existingCharStyleMap.get(id);
             const style = orig
@@ -1003,6 +1003,12 @@ export function serializeBlocksToHwpxPackage(
             return `${a}${getOrCreateCharPr({ ...style, fontFamily: block.fontFamily })}${b}`;
           })
         : block.rawXml;
+
+      // OWPML 표준 규격 준수: pageBreak, columnBreak, merged 속성을 "0"/"1"로 정규화
+      rawXml = rawXml.replace(/\bpageBreak="(?:false|0)"/g, 'pageBreak="0"').replace(/\bpageBreak="(?:true|1)"/g, 'pageBreak="1"');
+      rawXml = rawXml.replace(/\bcolumnBreak="(?:false|0)"/g, 'columnBreak="0"').replace(/\bcolumnBreak="(?:true|1)"/g, 'columnBreak="1"');
+      rawXml = rawXml.replace(/\bmerged="(?:false|0)"/g, 'merged="0"').replace(/\bmerged="(?:true|1)"/g, 'merged="1"');
+
       if (idx === 0) {
         if (rawXml.includes("<hp:secPr")) {
           return rawXml;
@@ -1095,9 +1101,13 @@ export function serializeBlocksToHwpxPackage(
       const newAttrs = /\bfontCnt="\d+"/.test(attrs) ? attrs.replace(/\bfontCnt="\d+"/, `fontCnt="${cnt}"`) : `${attrs} fontCnt="${cnt}"`;
       return `<hh:fontface${newAttrs}>${inner}${fontsXml}</hh:fontface>`;
     });
-    // 표 및 서식 참조(borderFillIDRef="1", "2")에 필요한 borderFills가 없으면 refList 내에 보정 추가
+    // 표 및 서식 참조(borderFillIDRef="1", "2")에 필요한 borderFills가 없으면 refList 내에 보정 추가 (DTD 순서 준수: charProperties 앞)
     if (!headerXml.includes("<hh:borderFills")) {
-      headerXml = headerXml.replace(/<\/hh:refList>/, `${defaultBorderFillsXml}\n  </hh:refList>`);
+      if (headerXml.includes("<hh:charProperties")) {
+        headerXml = headerXml.replace(/<hh:charProperties\b/, `${defaultBorderFillsXml}\n    <hh:charProperties`);
+      } else {
+        headerXml = headerXml.replace(/<\/hh:refList>/, `${defaultBorderFillsXml}\n  </hh:refList>`);
+      }
     }
   } else {
     // 원본 헤더가 없는 경우에만 완전한 표준 OWPML 기본 헤더 생성
