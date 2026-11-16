@@ -30,6 +30,7 @@ import {
   HwpxImageBlock,
   HwpxParagraphBlock,
   HwpxShapeBlock,
+  HwpxTableBlock,
   hwpxCollabKey,
   hwpxCollabText,
   initHwpxYDoc,
@@ -954,18 +955,6 @@ function HwpxEditorModalInner({
 
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
 
-  // 단축키 (Ctrl+S / Cmd+S)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void runSave();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runSave]);
-
   // 문단 텍스트 변경 (Yjs 실시간 반영)
   const updateParagraph = (index: number, newText: string) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
@@ -1049,6 +1038,127 @@ function HwpxEditorModalInner({
   const [showParaShapeModal, setShowParaShapeModal] = useState(false);
   const [showHighlightPalette, setShowHighlightPalette] = useState(false);
   const [showColorPalette, setShowColorPalette] = useState(false);
+
+  // ── 개체(표, 그림, 도형) 우클릭 컨텍스트 메뉴 상태 ──
+  interface ObjectContextMenuState {
+    x: number;
+    y: number;
+    blockIdx: number;
+    blockType: "table" | "image" | "shape";
+  }
+  const [contextMenu, setContextMenu] = useState<ObjectContextMenuState | null>(null);
+
+  // ── 개체 속성(표/셀 속성, 그림 속성, 도형 속성) 모달 (P) 상태 ──
+  const [showPropertyModal, setShowPropertyModal] = useState(false);
+  const [propertyTargetIdx, setPropertyTargetIdx] = useState<number | null>(null);
+  const [propActiveTab, setPropActiveTab] = useState<"basic" | "margin" | "border" | "background" | "table">("basic");
+
+  // 모달 내부 편집 폼 상태
+  const [propTreatAsChar, setPropTreatAsChar] = useState(true);
+  const [propTextWrap, setPropTextWrap] = useState<"TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT">("TOP_AND_BOTTOM");
+  const [propWidthPercent, setPropWidthPercent] = useState(75);
+  const [propHeightPt, setPropHeightPt] = useState(60);
+  const [propOffsetX, setPropOffsetX] = useState(0);
+  const [propOffsetY, setPropOffsetY] = useState(0);
+  const [propCaption, setPropCaption] = useState("");
+  const [propFillColor, setPropFillColor] = useState("#FFFFFF");
+  const [propStrokeColor, setPropStrokeColor] = useState("#1F2937");
+  const [propStrokeWidth, setPropStrokeWidth] = useState(1.5);
+
+  const openPropertyModal = (idx: number) => {
+    const block = blocks[idx];
+    if (!block || (block.type !== "table" && block.type !== "image" && block.type !== "shape")) return;
+
+    setPropertyTargetIdx(idx);
+    setPropActiveTab("basic");
+
+    const isFloating = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
+    setPropTreatAsChar(!isFloating);
+    setPropTextWrap(isFloating ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM");
+    setPropWidthPercent("widthPercent" in block && block.widthPercent ? block.widthPercent : (block.type === "table" ? 100 : 75));
+    setPropHeightPt(block.type === "shape" ? (block.heightPt || 60) : 60);
+    setPropOffsetX(block.offsetX || 0);
+    setPropOffsetY(block.offsetY || 0);
+
+    if (block.type === "image") {
+      setPropCaption(block.caption || "");
+    } else if (block.type === "shape") {
+      setPropFillColor(block.fillColor || "#EFF6FF");
+      setPropStrokeColor(block.strokeColor || "#2563EB");
+      setPropStrokeWidth(block.strokeWidth || 1.5);
+    }
+
+    setShowPropertyModal(true);
+  };
+
+  const saveProperties = () => {
+    if (propertyTargetIdx === null) return;
+    const block = blocks[propertyTargetIdx];
+    if (!block) return;
+
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(propertyTargetIdx);
+    if (!yBlock) return;
+
+    doc.transact(() => {
+      const finalOffX = propTreatAsChar ? 0 : propOffsetX;
+      const finalOffY = propTreatAsChar ? 0 : propOffsetY;
+      yBlock.set("offsetX", finalOffX);
+      yBlock.set("offsetY", finalOffY);
+
+      if (block.type === "table") {
+        yBlock.set("widthPercent", propWidthPercent);
+      } else if (block.type === "image") {
+        yBlock.set("widthPercent", propWidthPercent);
+        yBlock.set("caption", propCaption);
+      } else if (block.type === "shape") {
+        yBlock.set("widthPercent", propWidthPercent);
+        yBlock.set("heightPt", propHeightPt);
+        yBlock.set("fillColor", propFillColor);
+        yBlock.set("strokeColor", propStrokeColor);
+        yBlock.set("strokeWidth", propStrokeWidth);
+        yBlock.delete("rawXml");
+      }
+    });
+
+    setShowPropertyModal(false);
+    setPropertyTargetIdx(null);
+  };
+
+  // 단축키 (Ctrl+S / Cmd+S: 클라우드 저장, P: 선택된 개체 속성 다이얼로그)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void runSave();
+        return;
+      }
+      if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const activeEl = document.activeElement;
+        const isEditing = activeEl instanceof HTMLElement && (
+          activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable
+        );
+        if (!isEditing && selectedIdx !== null && selectedIdx >= 0) {
+          const blk = blocks[selectedIdx];
+          if (blk && (blk.type === "table" || blk.type === "image" || blk.type === "shape")) {
+            e.preventDefault();
+            openPropertyModal(selectedIdx);
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [runSave, blocks, selectedIdx]);
+
+  // 컨텍스트 메뉴 닫기 핸들러
+  useEffect(() => {
+    const handleCloseCtxMenu = () => setContextMenu(null);
+    window.addEventListener("click", handleCloseCtxMenu);
+    return () => window.removeEventListener("click", handleCloseCtxMenu);
+  }, []);
 
   // 모양 복사 버퍼
   const [copiedStyle, setCopiedStyle] = useState<{
@@ -3501,6 +3611,517 @@ function HwpxEditorModalInner({
           </div>
         )}
 
+        {/* ── 한컴오피스 / 한컴독스 표준 개체 우클릭 컨텍스트 메뉴 ── */}
+        {contextMenu && (
+          <div
+            style={{
+              top: `${Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 260)}px`,
+              left: `${Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 210)}px`,
+            }}
+            className="fixed z-70 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 w-52 text-xs text-neutral-800 select-none animate-in fade-in duration-100 font-sans"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 오려 두기 */}
+            <button
+              type="button"
+              onClick={() => {
+                deleteBlock(contextMenu.blockIdx);
+                setContextMenu(null);
+              }}
+              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm">✂</span>
+                <span>오려 두기</span>
+              </span>
+              <span className="text-[10px] text-neutral-400 font-mono">Ctrl+X</span>
+            </button>
+
+            {/* 복사하기 */}
+            <button
+              type="button"
+              onClick={() => {
+                setContextMenu(null);
+              }}
+              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm">📄</span>
+                <span>복사하기</span>
+              </span>
+              <span className="text-[10px] text-neutral-400 font-mono">Ctrl+C</span>
+            </button>
+
+            {/* 지우기 */}
+            <button
+              type="button"
+              onClick={() => {
+                deleteBlock(contextMenu.blockIdx);
+                setContextMenu(null);
+              }}
+              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-red-50 text-red-600 cursor-pointer text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm">🗑</span>
+                <span>지우기</span>
+              </span>
+              <span className="text-[10px] text-neutral-400 font-mono">Delete</span>
+            </button>
+
+            <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+
+            {/* 순서 (맨 앞으로 / 맨 뒤로) */}
+            <div className="relative group/order">
+              <div className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer">
+                <span className="flex items-center gap-2">
+                  <span className="text-xs">🔀</span>
+                  <span>순서</span>
+                </span>
+                <span className="text-[10px] text-neutral-400">▶</span>
+              </div>
+              <div className="hidden group-hover/order:block absolute left-full top-0 ml-0.5 bg-white border border-neutral-300 shadow-xl rounded-md py-1 w-28">
+                <button
+                  type="button"
+                  onClick={() => {
+                    commitObjectOffset(contextMenu.blockIdx, 0, 0);
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-blue-50 hover:text-[#0066cc] text-xs cursor-pointer"
+                >
+                  원래 위치
+                </button>
+              </div>
+            </div>
+
+            {/* 캡션 넣기 / 수정 (그림, 표) */}
+            {(contextMenu.blockType === "image" || contextMenu.blockType === "table") && (
+              <button
+                type="button"
+                onClick={() => {
+                  openPropertyModal(contextMenu.blockIdx);
+                  setPropActiveTab("margin");
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+              >
+                <span className="text-xs font-mono border border-neutral-300 px-0.5 rounded text-[9px]">A1</span>
+                <span>캡션 넣기 / 수정</span>
+              </button>
+            )}
+
+            {/* 도형 안에 글자 넣기 (도형) */}
+            {contextMenu.blockType === "shape" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const currText = blocks[contextMenu.blockIdx]?.type === "shape" ? (blocks[contextMenu.blockIdx] as HwpxShapeBlock).text || "" : "";
+                  const nextText = window.prompt("도형 안 글자 텍스트 입력:", currText);
+                  if (nextText !== null) {
+                    updateShapeBlock(contextMenu.blockIdx, { text: nextText });
+                  }
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-blue-50 hover:text-[#0066cc] cursor-pointer text-left"
+              >
+                <span className="text-xs">💬</span>
+                <span>도형 안에 글자 넣기</span>
+              </button>
+            )}
+
+            <div className="h-[1px] bg-neutral-200 my-1 mx-2" />
+
+            {/* 개체 속성... (P) */}
+            <button
+              type="button"
+              onClick={() => {
+                openPropertyModal(contextMenu.blockIdx);
+                setContextMenu(null);
+              }}
+              className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-blue-50 text-[#0066cc] font-semibold cursor-pointer text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm">⚙</span>
+                <span>개체 속성...</span>
+              </span>
+              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-mono font-bold">P</span>
+            </button>
+          </div>
+        )}
+
+        {/* ── 한컴오피스 / 한컴독스 표준 [표/셀 속성 / 그림 속성 / 도형 속성] 모달 ── */}
+        {showPropertyModal && propertyTargetIdx !== null && blocks[propertyTargetIdx] && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs select-none">
+            <div className="bg-white border border-neutral-300 shadow-2xl rounded-xl flex flex-col w-[600px] max-w-[96vw] max-h-[90vh] text-neutral-800 overflow-hidden font-sans">
+              {/* 상단 윈도우 타이틀바 */}
+              <div className="flex items-center justify-between px-4 py-2.5 bg-[#f0f4f9] border-b border-neutral-200">
+                <h4 className="text-xs font-bold text-neutral-900 flex items-center gap-2">
+                  <span className="text-[#0066cc] text-sm">⚙</span>
+                  <span>
+                    {blocks[propertyTargetIdx]?.type === "table"
+                      ? "표/셀 속성"
+                      : blocks[propertyTargetIdx]?.type === "image"
+                      ? "그림 개체 속성"
+                      : "도형 개체 속성"}
+                  </span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowPropertyModal(false)}
+                  className="text-neutral-400 hover:text-neutral-700 text-sm cursor-pointer p-0.5"
+                  title="닫기"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* 본문: 좌측 탭 및 내용 영역 + 우측 [확인], [취소] 버튼 영역 (한컴 고유 스타일) */}
+              <div className="flex flex-1 min-h-[380px] overflow-hidden">
+                <div className="flex-1 flex flex-col border-r border-neutral-200 overflow-hidden">
+                  {/* 상단 탭 바 */}
+                  <div className="flex items-center gap-1 px-3 pt-2 bg-neutral-50/80 border-b border-neutral-200 text-xs shrink-0">
+                    {[
+                      { id: "basic" as const, label: "기본" },
+                      { id: "margin" as const, label: "여백/캡션" },
+                      { id: "border" as const, label: "테두리" },
+                      { id: "background" as const, label: "배경" },
+                      ...(blocks[propertyTargetIdx]?.type === "table" ? [{ id: "table" as const, label: "표" }] : []),
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setPropActiveTab(tab.id)}
+                        className={`px-3 py-1.5 font-medium transition cursor-pointer border-b-2 text-xs ${
+                          propActiveTab === tab.id
+                            ? "border-[#0066cc] text-[#0066cc] font-bold bg-white -mb-px rounded-t border-t border-x border-neutral-200"
+                            : "border-transparent text-neutral-600 hover:text-neutral-900"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 탭 내용 영역 */}
+                  <div className="flex-1 p-5 overflow-y-auto text-xs flex flex-col gap-4">
+                    {/* [기본 탭] */}
+                    {propActiveTab === "basic" && (
+                      <div className="flex flex-col gap-4">
+                        {/* 1. 크기 */}
+                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50">
+                          <span className="font-bold text-[#0066cc] block mb-2">크기</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-neutral-600">너비:</span>
+                            <div className="flex items-center gap-1">
+                              {[25, 50, 75, 100].map((w) => (
+                                <button
+                                  key={w}
+                                  type="button"
+                                  onClick={() => setPropWidthPercent(w)}
+                                  className={`px-2 py-1 rounded text-xs border ${
+                                    propWidthPercent === w
+                                      ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
+                                      : "bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-100"
+                                  }`}
+                                >
+                                  {w}%
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {blocks[propertyTargetIdx]?.type === "shape" && (
+                            <div className="flex items-center gap-3 mt-3">
+                              <span className="text-neutral-600">높이:</span>
+                              <input
+                                type="number"
+                                min={10}
+                                max={400}
+                                value={propHeightPt}
+                                onChange={(e) => setPropHeightPt(Number(e.target.value))}
+                                className="bg-white border border-neutral-300 rounded px-2 py-0.5 w-20 text-center text-xs"
+                              />
+                              <span className="text-neutral-500 font-mono">pt</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 2. 위치 및 본문과의 배치 */}
+                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2.5">
+                          <span className="font-bold text-[#0066cc] block">위치</span>
+
+                          {/* 글자처럼 취급 */}
+                          <label className="flex items-center gap-2 cursor-pointer font-medium text-neutral-900">
+                            <input
+                              type="checkbox"
+                              checked={propTreatAsChar}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setPropTreatAsChar(checked);
+                                if (checked) {
+                                  setPropTextWrap("TOP_AND_BOTTOM");
+                                } else {
+                                  setPropTextWrap("IN_FRONT_OF_TEXT");
+                                }
+                              }}
+                              className="accent-[#0066cc] w-4 h-4 cursor-pointer"
+                            />
+                            <span>글자처럼 취급</span>
+                          </label>
+
+                          {/* 본문과의 배치 (글자처럼 취급 해제 시 활성화) */}
+                          <div className={`flex flex-col gap-1.5 mt-1 ${propTreatAsChar ? "opacity-40 pointer-events-none" : ""}`}>
+                            <span className="text-neutral-600 text-[11px]">본문과의 배치:</span>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                              {[
+                                { id: "TOP_AND_BOTTOM" as const, label: "자리 차지" },
+                                { id: "SQUARE" as const, label: "어울림" },
+                                { id: "IN_FRONT_OF_TEXT" as const, label: "글 앞으로" },
+                                { id: "BEHIND_TEXT" as const, label: "글 뒤로" },
+                              ].map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => setPropTextWrap(item.id)}
+                                  className={`p-2 rounded border flex flex-col items-center gap-1 text-xs cursor-pointer transition ${
+                                    propTextWrap === item.id
+                                      ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold shadow-xs"
+                                      : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+                                  }`}
+                                >
+                                  <span>🦋</span>
+                                  <span className="text-[11px]">{item.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 가로/세로 오프셋 */}
+                          <div className={`grid grid-cols-2 gap-3 mt-1 ${propTreatAsChar ? "opacity-40 pointer-events-none" : ""}`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-neutral-600">가로 오프셋:</span>
+                              <input
+                                type="number"
+                                value={propOffsetX}
+                                onChange={(e) => setPropOffsetX(Number(e.target.value))}
+                                className="bg-white border border-neutral-300 rounded px-2 py-0.5 w-20 text-center text-xs"
+                              />
+                              <span className="text-neutral-400 font-mono">px</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-neutral-600">세로 오프셋:</span>
+                              <input
+                                type="number"
+                                value={propOffsetY}
+                                onChange={(e) => setPropOffsetY(Number(e.target.value))}
+                                className="bg-white border border-neutral-300 rounded px-2 py-0.5 w-20 text-center text-xs"
+                              />
+                              <span className="text-neutral-400 font-mono">px</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* [여백/캡션 탭] */}
+                    {propActiveTab === "margin" && (
+                      <div className="flex flex-col gap-4">
+                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2">
+                          <span className="font-bold text-[#0066cc] block">바깥 여백</span>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
+                              <span className="text-neutral-600">왼쪽:</span>
+                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            </div>
+                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
+                              <span className="text-neutral-600">오른쪽:</span>
+                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            </div>
+                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
+                              <span className="text-neutral-600">위쪽:</span>
+                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            </div>
+                            <div className="flex items-center justify-between bg-white p-2 rounded border border-neutral-200">
+                              <span className="text-neutral-600">아래쪽:</span>
+                              <span className="font-mono text-neutral-800">0.00 mm</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {blocks[propertyTargetIdx]?.type === "image" && (
+                          <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2">
+                            <span className="font-bold text-[#0066cc] block">캡션</span>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-neutral-600">설명문(캡션) 내용:</label>
+                              <input
+                                type="text"
+                                value={propCaption}
+                                onChange={(e) => setPropCaption(e.target.value)}
+                                placeholder="[그림 설명 입력...]"
+                                className="bg-white border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* [테두리 탭] */}
+                    {propActiveTab === "border" && (
+                      <div className="flex flex-col gap-4">
+                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-3">
+                          <span className="font-bold text-[#0066cc] block">선 / 테두리 속성</span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-neutral-600">선 굵기:</span>
+                            <div className="flex items-center gap-1">
+                              {[0.5, 1, 1.5, 2, 3].map((w) => (
+                                <button
+                                  key={w}
+                                  type="button"
+                                  onClick={() => setPropStrokeWidth(w)}
+                                  className={`px-2 py-0.5 rounded text-xs border ${
+                                    propStrokeWidth === w
+                                      ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
+                                      : "bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-100"
+                                  }`}
+                                >
+                                  {w}px
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-neutral-600">선 색상:</span>
+                            <div className="flex items-center gap-1.5">
+                              {["#1F2937", "#2563EB", "#DC2626", "#059669", "#D97706", "#7C3AED"].map((c) => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => setPropStrokeColor(c)}
+                                  style={{ backgroundColor: c }}
+                                  className={`w-5 h-5 rounded-full border border-neutral-300 cursor-pointer ${
+                                    propStrokeColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""
+                                  }`}
+                                />
+                              ))}
+                              <input
+                                type="color"
+                                value={propStrokeColor.startsWith("#") ? propStrokeColor : "#000000"}
+                                onChange={(e) => setPropStrokeColor(e.target.value)}
+                                className="w-6 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* [배경 탭] */}
+                    {propActiveTab === "background" && (
+                      <div className="flex flex-col gap-4">
+                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-3">
+                          <span className="font-bold text-[#0066cc] block">채우기</span>
+                          <div className="flex flex-col gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="fillType"
+                                checked={propFillColor === "transparent"}
+                                onChange={() => setPropFillColor("transparent")}
+                                className="accent-[#0066cc] cursor-pointer"
+                              />
+                              <span>색 채우기 없음 (투명)</span>
+                            </label>
+
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="fillType"
+                                checked={propFillColor !== "transparent"}
+                                onChange={() => {
+                                  if (propFillColor === "transparent") setPropFillColor("#EFF6FF");
+                                }}
+                                className="accent-[#0066cc] cursor-pointer"
+                              />
+                              <span>단색 채우기</span>
+                            </label>
+
+                            {propFillColor !== "transparent" && (
+                              <div className="ml-6 flex items-center gap-2 mt-1">
+                                <span className="text-neutral-600 text-[11px]">면 색:</span>
+                                <div className="flex items-center gap-1.5">
+                                  {["#FFFFFF", "#F1F5F9", "#EFF6FF", "#FEF3C7", "#DCFCE7", "#FCE7F3"].map((c) => (
+                                    <button
+                                      key={c}
+                                      type="button"
+                                      onClick={() => setPropFillColor(c)}
+                                      style={{ backgroundColor: c }}
+                                      className={`w-6 h-6 rounded border border-neutral-300 cursor-pointer ${
+                                        propFillColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""
+                                      }`}
+                                    />
+                                  ))}
+                                  <input
+                                    type="color"
+                                    value={propFillColor.startsWith("#") ? propFillColor : "#FFFFFF"}
+                                    onChange={(e) => setPropFillColor(e.target.value)}
+                                    className="w-6 h-6 p-0 border border-neutral-300 rounded cursor-pointer"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* [표 탭] (표인 경우) */}
+                    {propActiveTab === "table" && blocks[propertyTargetIdx]?.type === "table" && (
+                      <div className="flex flex-col gap-4">
+                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/50 flex flex-col gap-2.5">
+                          <span className="font-bold text-[#0066cc] block">표 구성 및 여백</span>
+                          <div className="flex justify-between py-1 border-b border-neutral-200 text-xs">
+                            <span className="text-neutral-600">행 / 열 개수:</span>
+                            <span className="font-bold text-neutral-900">
+                              {(blocks[propertyTargetIdx] as HwpxTableBlock).rows.length} 행 × {(blocks[propertyTargetIdx] as HwpxTableBlock).rows[0]?.length || 0} 열
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-1 mt-1">
+                            <span className="text-neutral-600 text-[11px]">모든 셀의 기본 안 여백:</span>
+                            <div className="grid grid-cols-2 gap-2 text-[11px] bg-white p-2 rounded border border-neutral-200">
+                              <span>왼쪽: 1.80 mm</span>
+                              <span>위쪽: 0.50 mm</span>
+                              <span>오른쪽: 1.80 mm</span>
+                              <span>아래쪽: 0.50 mm</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 우측 상단 한컴오피스 고유 버튼 영역 ([확인], [취소]) */}
+                <div className="w-28 p-3 bg-neutral-50/50 flex flex-col gap-2 shrink-0 border-l border-neutral-200">
+                  <button
+                    type="button"
+                    onClick={saveProperties}
+                    className="w-full py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] transition cursor-pointer shadow-xs"
+                  >
+                    확인
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPropertyModal(false)}
+                    className="w-full py-1.5 rounded text-xs bg-white text-neutral-700 border border-neutral-300 font-medium hover:bg-neutral-100 transition cursor-pointer"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 에러 바 */}
         {error && (
           <div className="px-5 py-2 text-xs bg-red-500/15 text-red-400 border-b border-red-500/20">
@@ -3613,6 +4234,17 @@ function HwpxEditorModalInner({
                       data-block-type="table"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedIdx(idx);
+                        setContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          blockIdx: idx,
+                          blockType: "table",
+                        });
+                      }}
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 20 : 1,
@@ -3651,6 +4283,15 @@ function HwpxEditorModalInner({
                               원위치
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => openPropertyModal(idx)}
+                            className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-200 bg-white border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
+                            title="표/셀 개체 속성 (단축키 P)"
+                          >
+                            <span>⚙</span>
+                            <span>속성 (P)</span>
+                          </button>
                         </div>
                         <div className="flex items-center gap-1">
                           <button
@@ -3736,6 +4377,17 @@ function HwpxEditorModalInner({
                       data-block-type="image"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedIdx(idx);
+                        setContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          blockIdx: idx,
+                          blockType: "image",
+                        });
+                      }}
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
@@ -3787,6 +4439,17 @@ function HwpxEditorModalInner({
                                 원위치
                               </button>
                             )}
+
+                            {/* 개체 속성 다이얼로그 (P) */}
+                            <button
+                              type="button"
+                              onClick={() => openPropertyModal(idx)}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
+                              title="그림 개체 속성 (단축키 P)"
+                            >
+                              <span>⚙</span>
+                              <span>속성 (P)</span>
+                            </button>
 
                             <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
@@ -3880,6 +4543,17 @@ function HwpxEditorModalInner({
                       data-block-type="shape"
                       contentEditable={false}
                       onClick={() => setSelectedIdx(idx)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedIdx(idx);
+                        setContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          blockIdx: idx,
+                          blockType: "shape",
+                        });
+                      }}
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
@@ -3939,6 +4613,17 @@ function HwpxEditorModalInner({
                                 원위치
                               </button>
                             )}
+
+                            {/* 개체 속성 다이얼로그 (P) */}
+                            <button
+                              type="button"
+                              onClick={() => openPropertyModal(idx)}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
+                              title="도형 개체 속성 (단축키 P)"
+                            >
+                              <span>⚙</span>
+                              <span>속성 (P)</span>
+                            </button>
 
                             <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
 
