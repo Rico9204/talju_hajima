@@ -17,8 +17,9 @@ import {
   parseHwpxXmlToBlocks,
   serializeBlocksToHwpxPackage,
   serializeBlocksToHwpxXml,
+  prepareHwpxPackageEntries,
 } from "../lib/hwpxCollab";
-import { readZipEntries, writeZipEntries } from "../lib/hwpx";
+import { readZipEntries, writeZipEntries, HWPX_MIME } from "../lib/hwpx";
 import {
   parseHwpEquation,
   HWPX_EQUATION_TEMPLATES,
@@ -677,13 +678,7 @@ function HwpxEditorModalInner({
         originalHeaderXml
       );
 
-      const newEntries = new Map(zipEntries);
-      const secKey = Array.from(newEntries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
-      newEntries.set(secKey, new TextEncoder().encode(newSectionXml));
-
-      const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
-      newEntries.set(headerKey, new TextEncoder().encode(newHeaderXml));
-
+      const newEntries = prepareHwpxPackageEntries(zipEntries, newSectionXml, newHeaderXml);
       const updatedHwpxBytes = await writeZipEntries(newEntries);
       return save(updatedHwpxBytes, text, baseVersionId, auto);
     },
@@ -699,16 +694,10 @@ function HwpxEditorModalInner({
         originalHeaderXml
       );
 
-      const newEntries = new Map(zipEntries);
-      const secKey = Array.from(newEntries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
-      newEntries.set(secKey, new TextEncoder().encode(newSectionXml));
-
-      const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
-      newEntries.set(headerKey, new TextEncoder().encode(newHeaderXml));
-
+      const newEntries = prepareHwpxPackageEntries(zipEntries, newSectionXml, newHeaderXml);
       const updatedHwpxBytes = await writeZipEntries(newEntries);
 
-      const blob = new Blob([new Uint8Array(updatedHwpxBytes)], { type: "application/hnc+zip" });
+      const blob = new Blob([new Uint8Array(updatedHwpxBytes)], { type: HWPX_MIME });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;

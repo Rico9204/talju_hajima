@@ -285,7 +285,7 @@ test('hwpxCollab: guarantees standard OWPML A4 secPr and OCF mimetype offset 0 f
   const entries = new Map();
   entries.set('Contents/section0.xml', new TextEncoder().encode(pkg.sectionXml));
   entries.set('Contents/header.xml', new TextEncoder().encode(pkg.headerXml));
-  entries.set('mimetype', new TextEncoder().encode('application/hnc+zip'));
+  entries.set('mimetype', new TextEncoder().encode('application/hwp+zip'));
 
   const zipBytes = await writeZipEntries(entries);
   // In ZIP format: Local file header starts at offset 0: 50 4B 03 04

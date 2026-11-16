@@ -4,7 +4,7 @@
 // HWPX 본문 텍스트 추출, 복합 서식 보호, 수정 후 ZIP 재패키징, 빈 HWPX 템플릿 생성을 지원한다.
 
 export const HWPX_EXT = "hwpx";
-export const HWPX_MIME = "application/hnc+zip";
+export const HWPX_MIME = "application/hwp+zip";
 
 export function isHwpxName(name: string): boolean {
   return name.toLowerCase().endsWith(`.${HWPX_EXT}`);
@@ -102,12 +102,12 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
   // OCF(Open Container Format) 및 KS X 6101 HWPX 표준:
   // 1. mimetype 파일은 반드시 ZIP의 맨 첫 번째 엔트리(Offset 0)여야 함
   // 2. 압축 방법은 무조건 0 (Stored, 무압축)
-  // 3. 내용은 정확히 19바이트 "application/hnc+zip" (개행 없음)
+  // 3. 내용은 정확히 19바이트 "application/hwp+zip" (개행 없음)
   // 4. extra field 길이는 0
   const orderedEntries: Array<[string, Uint8Array]> = [];
 
-  // mimetype 강제 고정 1번 엔트리
-  const mimetypeContent = new TextEncoder().encode("application/hnc+zip");
+  // mimetype 강제 고정 1번 엔트리 (한컴 표준 규격: application/hwp+zip)
+  const mimetypeContent = new TextEncoder().encode("application/hwp+zip");
   orderedEntries.push(["mimetype", mimetypeContent]);
 
   // 나머지 엔트리 등록 (대소문자 무관하게 기존 mimetype 관련 키 제외)
@@ -462,7 +462,7 @@ export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, ne
 // ── 새 빈 HWPX 템플릿 생성 (표준 OWPML 및 A4 용지 규격 준수) ──
 export async function newHwpxBytes(initialText = ""): Promise<Uint8Array> {
   const entries = new Map<string, Uint8Array>();
-  entries.set("mimetype", new TextEncoder().encode("application/hnc+zip"));
+  entries.set("mimetype", new TextEncoder().encode("application/hwp+zip"));
   entries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.31" application="Hancom Office Hangul"/>`));
   entries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n  <rootfiles>\n    <rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/>\n  </rootfiles>\n</container>`));
   entries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:title>문서</dc:title>\n    <dc:language>ko</dc:language>\n  </metadata>\n  <manifest>\n    <item id="header" href="header.xml" media-type="application/xml"/>\n    <item id="section0" href="section0.xml" media-type="application/xml"/>\n  </manifest>\n  <spine>\n    <itemref idref="section0"/>\n  </spine>\n</package>`));

@@ -1394,3 +1394,39 @@ export function hwpxCollabKey(doc: Y.Doc): string {
   const blocks = extractBlocksFromYDoc(doc);
   return textHash(JSON.stringify(blocks));
 }
+
+// ── 한컴 공식 OCF 표준 규격 준수: HWPX ZIP 패키지 엔트리 맵 생성 ──
+export function prepareHwpxPackageEntries(
+  baseEntries: Map<string, Uint8Array>,
+  sectionXml: string,
+  headerXml: string
+): Map<string, Uint8Array> {
+  const newEntries = new Map(baseEntries);
+
+  const secKey = Array.from(newEntries.keys()).find((k) => /^Contents\/section0\.xml$/i.test(k)) ?? "Contents/section0.xml";
+  newEntries.set(secKey, new TextEncoder().encode(sectionXml));
+
+  const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
+  newEntries.set(headerKey, new TextEncoder().encode(headerXml));
+
+  // 표준 OCF 및 HWPX 필수 컨테이너 엔트리 보장 (한컴독스/한글오피스 완벽 호환)
+  const hasValidVersion = newEntries.has("version.xml") &&
+    new TextDecoder().decode(newEntries.get("version.xml")!).includes("http://www.hancom.co.kr/hwpml/2011/version");
+  if (!hasValidVersion) {
+    newEntries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.31" application="Hancom Office Hangul"/>`));
+  }
+
+  const hasValidContainer = newEntries.has("META-INF/container.xml") &&
+    !new TextDecoder().decode(newEntries.get("META-INF/container.xml")!).includes("ocf:");
+  if (!hasValidContainer) {
+    newEntries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n  <rootfiles>\n    <rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/>\n  </rootfiles>\n</container>`));
+  }
+
+  const hasValidHpf = newEntries.has("Contents/content.hpf") &&
+    !new TextDecoder().decode(newEntries.get("Contents/content.hpf")!).includes("opf:package");
+  if (!hasValidHpf) {
+    newEntries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:title>문서</dc:title>\n    <dc:language>ko</dc:language>\n  </metadata>\n  <manifest>\n    <item id="header" href="header.xml" media-type="application/xml"/>\n    <item id="section0" href="section0.xml" media-type="application/xml"/>\n  </manifest>\n  <spine>\n    <itemref idref="section0"/>\n  </spine>\n</package>`));
+  }
+
+  return newEntries;
+}
