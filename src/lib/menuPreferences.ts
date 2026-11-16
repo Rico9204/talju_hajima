@@ -164,10 +164,11 @@ export function useMenuOrder() {
 // -------------------------------------------------------------
 
 // 설정은 메뉴가 아니라 왼쪽 아래 내 카드 메뉴의 창으로 연다. 예전에 저장된 순서의 "settings"는 sanitize가 버린다.
-export type HomeNavTab = "projects" | "campus" | "board" | "achievements";
+export type HomeNavTab = "projects" | "schedule" | "campus" | "board" | "achievements";
 
 export const DEFAULT_HOME_MENU_ORDER: readonly HomeNavTab[] = [
   "projects",
+  "schedule",
   "campus",
   "board",
   "achievements",
@@ -186,6 +187,12 @@ export const HOME_MENU_ITEMS_META: Record<HomeNavTab, HomeMenuItemMeta> = {
     label: "내 프로젝트",
     icon: "📁",
     description: "참여 중이거나 완료된 내 팀 프로젝트 목록",
+  },
+  schedule: {
+    id: "schedule",
+    label: "전체 일정",
+    icon: "▤",
+    description: "내가 속한 모든 프로젝트의 일정을 한 달력에 합쳐서 보기",
   },
   campus: {
     id: "campus",

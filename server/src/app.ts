@@ -3,6 +3,9 @@ import { Module, ValidationPipe, type DynamicModule, type INestApplication } fro
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AdminController } from "./admin.js";
+import { AccountController } from "./account.js";
+import { AnnouncementsController } from "./announcements.js";
+import { WithdrawnAccounts } from "./withdrawn.js";
 import { AuthController, AuthGuard, AuthLimits, ClientAddress, MailSettings, SessionCookie, TokenService } from "./auth.js";
 import { Mailer } from "./mail.js";
 import { validationException } from "./validation.js";
@@ -49,12 +52,13 @@ class AppModule {
     return {
       module: AppModule,
       controllers: [
-        HealthController, AuthController, ProjectsController, AdminController, ChatController, WorkspaceController, TasksController, BoardController, MajorsController, CampusController, PushController, OnlyofficeController,
+        HealthController, AuthController, AccountController, ProjectsController, AdminController, ChatController, WorkspaceController, AnnouncementsController, TasksController, BoardController, MajorsController, CampusController, PushController, OnlyofficeController,
         StorageController,
       ],
       providers: [
         { provide: Db, useValue: deps.db },
         { provide: TokenService, useValue: tokens },
+        { provide: WithdrawnAccounts, useValue: new WithdrawnAccounts(deps.db) },
         { provide: RealtimeHub, useValue: hub }, // app.close() 때 onModuleDestroy로 연결·알림 수신을 정리
         { provide: PushSender, useValue: push },
         { provide: OnlyofficeService, useValue: office },

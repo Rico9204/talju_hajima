@@ -145,6 +145,21 @@ export interface DataRepository {
   listScheduleEvents(projectId: string): Promise<ScheduleEvent[]>;
   // 메인 화면: 내 모든 프로젝트의 오늘 이후 일정
   listUpcomingEvents(): Promise<import("./types").UpcomingEvent[]>;
+  // 메인 화면 "전체 일정": 내 모든 프로젝트의 일정 중 from~to(YYYY-MM-DD, 양끝 포함)와 겹치는 것(지난 일정 포함, 최대 100일)
+  listMyScheduleEvents(from: string, to: string): Promise<import("./types").UpcomingEvent[]>;
+  // 관리자 공지: 지금 내가 볼 공지(기간 안·내 대상·"다시 보지 않기" 제외), 관리 목록(관리자), 만들기·지우기(관리자), 다시 보지 않기
+  listActiveAnnouncements(): Promise<import("./types").Announcement[]>;
+  listAnnouncements(): Promise<import("./types").Announcement[]>;
+  createAnnouncement(input: import("./types").NewAnnouncementInput): Promise<void>;
+  deleteAnnouncement(id: number): Promise<void>;
+  dismissAnnouncement(id: number): Promise<void>;
+  subscribeToAnnouncements(onChange: () => void): () => void;
+  // 운영자: 탈퇴 신청·복구 신청 목록과 처리(탈퇴 승인 = 14일이 지난 계정의 정보 삭제)
+  listAccountWithdrawals(): Promise<import("./types").AccountWithdrawalLists>;
+  approveAccountWithdrawal(userId: string): Promise<void>;
+  approveAccountRecovery(userId: string): Promise<void>;
+  rejectAccountRecovery(userId: string): Promise<void>;
+  // 참여한 프로젝트가 있으면 탈퇴할 수 없으므로 계정 정보 화면이 미리 확인한다 // 공지가 만들어지거나 지워질 때(받으면 listActiveAnnouncements를 다시 읽는다)
   // 오피스 편집(OnlyOffice): 서버에 켜져 있는지, 그 파일의 편집기 설정(서버가 서명)
   getOfficeEditorStatus(): Promise<{ enabled: boolean }>;
   getOfficeEditorConfig(fileId: number): Promise<Record<string, unknown>>;

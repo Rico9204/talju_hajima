@@ -32,6 +32,7 @@ const REVALIDATE_MS = 5 * 60_000;
 const BROADCASTS_PER_SECOND = 60;
 const PRESENCE_TOPIC = /^(presence|collab_presence):([^:]+)$/;
 const BROADCAST_TOPIC = /^collab_doc:/;
+export const ANNOUNCEMENTS_TOPIC = "announcements"; // 관리자 공지: 로그인한 누구나 구독(내용은 담지 않고 "바뀌었다"만 알린다)
 
 interface Conn {
   ws: WebSocket;
@@ -85,6 +86,11 @@ export class RealtimeHub implements OnModuleDestroy {
     await this.unlisten?.();
     for (const conn of this.conns) conn.ws.terminate();
     this.wss.close();
+  }
+
+  // 공지가 만들어지거나 지워졌음을 접속 중인 모두에게 알린다. 누가 어떤 공지를 볼지는 받은 화면이 API로 다시 읽어 서버가 정한다.
+  notifyAnnouncementsChanged(): void {
+    for (const conn of this.subscribers.get(ANNOUNCEMENTS_TOPIC) ?? []) this.send(conn, { type: "change", topic: ANNOUNCEMENTS_TOPIC, event: "CHANGED", data: {} });
   }
 
   private send(conn: Conn, message: Record<string, unknown>): void {
@@ -144,6 +150,7 @@ export class RealtimeHub implements OnModuleDestroy {
   }
 
   private canAccess(userId: string, topic: string): Promise<boolean> {
+    if (topic === ANNOUNCEMENTS_TOPIC) return Promise.resolve(true); // 연결 인증(auth)을 이미 통과한 사용자
     return this.db.asUser(userId, (query) => scalarJson<boolean>(query, "public.can_access_project_realtime_topic($1)", [topic]))
       .then((ok) => ok === true, () => false);
   }

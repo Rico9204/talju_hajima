@@ -30,6 +30,8 @@ import AdminPanel from "../components/AdminPanel";
 import AdminOperatorPanel from "../components/AdminOperatorPanel";
 import AdminReports from "../components/AdminReports";
 import NoProjectHome from "../components/NoProjectHome";
+import AccountInfoModal from "../components/AccountInfoModal";
+import AdminAccountWithdrawals from "../components/AdminAccountWithdrawals";
 import UnreadNotifier from "../components/UnreadNotifier";
 import { isMentionForMember } from "../lib/chatMentions";
 import { retainSnapshot, shareInFlight } from "../lib/refreshOptimization";
@@ -250,6 +252,7 @@ function EmptyProjectsScreen({
   joinProject: (projectId: string, code: string, input: { school: string; major: string; student: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const { isOperator } = useProjectManagement();
 
   if (isAdmin) {
@@ -268,6 +271,13 @@ function EmptyProjectsScreen({
               내 프로젝트 만들기
             </button>
             <button
+              onClick={() => setAccountOpen(true)}
+              className="text-xs font-600 px-3.5 py-2"
+              style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+            >
+              계정 정보
+            </button>
+            <button
               onClick={signOut}
               className="text-xs font-600 px-3.5 py-2"
               style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
@@ -280,6 +290,7 @@ function EmptyProjectsScreen({
         {isOperator && (
           <div className="p-6 pb-0 max-w-5xl mx-auto space-y-6">
             <AdminOperatorPanel />
+            <AdminAccountWithdrawals />
             {/* 신고 관리도 운영자 기능이라 프로젝트가 없어도 볼 수 있어야 한다(예전엔 프로젝트가 있는 홈 화면에만 있었다). */}
             <section className="space-y-4">
               <h2 className="text-xl font-700">신고 관리</h2>
@@ -289,6 +300,7 @@ function EmptyProjectsScreen({
         )}
         <AdminPanel />
         {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input, recruit) => addProject(input, recruit)} />}
+        {accountOpen && <AccountInfoModal onClose={() => setAccountOpen(false)} />}
       </div>
     );
   }

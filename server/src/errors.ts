@@ -34,7 +34,13 @@ export class ApiErrorFilter implements ExceptionFilter {
       const raw = typeof body === "string" ? body : (body as { message?: string | string[] }).message;
       const status = error.getStatus();
       const message = (Array.isArray(raw) ? raw.join(", ") : raw) ?? error.message;
-      response.status(status).json({ message: hasHangul(message) ? message : KOREAN_BY_STATUS[status] ?? "요청을 처리할 수 없습니다." });
+      const extra = typeof body === "object" && body !== null ? body as { code?: unknown; withdrawal?: unknown } : {};
+      // 화면이 상황별 안내(예: 탈퇴 신청된 계정의 복구 신청)를 보여 줄 수 있게, 서버가 정해 둔 code와 탈퇴 상태만 함께 보낸다.
+      response.status(status).json({
+        message: hasHangul(message) ? message : KOREAN_BY_STATUS[status] ?? "요청을 처리할 수 없습니다.",
+        ...(typeof extra.code === "string" ? { code: extra.code } : {}),
+        ...(extra.code === "account_withdrawn" && extra.withdrawal ? { withdrawal: extra.withdrawal } : {}),
+      });
       return;
     }
     // 요청 본문 해석 단계(body-parser)의 오류: 너무 큰 요청(413) 등. HttpException이 아니라 status·expose만 달려 온다.

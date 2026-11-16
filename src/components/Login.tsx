@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { requestPasswordReset, resendConfirmation } from "../api/rest/authApi";
+import { requestAccountRecovery, requestPasswordReset, resendConfirmation } from "../api/rest/authApi";
+import type { AccountWithdrawalState } from "../api/types";
+import { WITHDRAWN_NOTICE_KEY } from "./AccountInfoModal";
 import { useAuth } from "../context/AuthContext";
 import { adminApplicationSeenKey } from "../lib/adminApplication";
 
@@ -29,6 +31,25 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [signedUp, setSignedUp] = useState(false);
+  // 탈퇴 신청된 계정으로 로그인하면 로그인은 막고, 14일 안이면 복구를 신청할 수 있게 안내한다.
+  const [withdrawal, setWithdrawal] = useState<AccountWithdrawalState | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  // 방금 탈퇴를 신청하고 이 화면으로 왔으면 접수 안내를 보여 준다(다음 로그인 시도 때 지운다).
+  const [justWithdrew, setJustWithdrew] = useState(() => { try { return sessionStorage.getItem(WITHDRAWN_NOTICE_KEY) === "1"; } catch { return false; } });
+  function clearWithdrawNotice() { setJustWithdrew(false); try { sessionStorage.removeItem(WITHDRAWN_NOTICE_KEY); } catch { /* 저장소를 못 써도 화면 상태만 지우면 된다 */ } }
+
+  async function submitRecovery() {
+    if (recoveryBusy) return;
+    setRecoveryBusy(true);
+    setError(null);
+    try {
+      setWithdrawal((await requestAccountRecovery(email.trim(), password)).withdrawal);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "복구를 신청하지 못했습니다.");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
   // 로그인 화면 안의 "계정 찾기": 비밀번호 재설정 링크·가입 인증 메일 다시 받기.
   const [recovering, setRecovering] = useState(false);
   const [recoverNotice, setRecoverNotice] = useState<string | null>(null);
@@ -57,10 +78,13 @@ export default function Login() {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
+    setWithdrawal(null);
+    clearWithdrawNotice();
     if (mode === "signin") {
       const result = await signIn(email.trim(), password);
       setSubmitting(false);
-      if (result.error) setError(result.error);
+      if (result.withdrawal) setWithdrawal(result.withdrawal);
+      else if (result.error) setError(result.error);
       return;
     }
     // 가입은 항상 메일 인증을 거친다. 관리자 신청서(소속·직위·증명서 PDF)는 인증 후 처음 로그인할 때 열리는
@@ -230,6 +254,29 @@ export default function Login() {
               </div>
             )}
 
+            {justWithdrew && mode === "signin" && (
+              <div role="status" className="text-xs mb-3 px-3 py-2" style={{ background: "#22c55e18", color: "#15803d", borderRadius: "10px" }}>
+                탈퇴 신청이 접수되었어요. 신청 후 14일 동안은 계정 정보가 보관되며, 그 안에는 이 화면에서 로그인을 시도해 복구를 신청할 수 있어요.
+              </div>
+            )}
+            {withdrawal && (
+              <div role="alert" className="text-xs mb-3 px-3 py-3 flex flex-col gap-2" style={{ background: "#f59e0b18", color: "#b45309", borderRadius: "10px" }}>
+                <p className="font-700">탈퇴 신청된 계정이에요.</p>
+                <p>{new Date(withdrawal.requestedAt).toLocaleDateString("ko-KR")}에 탈퇴를 신청했어요. 계정 정보는 14일 동안 보관돼요.</p>
+                {withdrawal.recoveryRequested ? (
+                  <p className="font-600">복구 신청이 접수되었어요. 운영자가 확인하면 다시 로그인할 수 있어요.</p>
+                ) : withdrawal.recoveryRejected ? (
+                  <p className="font-600">복구 신청이 거절되었어요. 자세한 내용은 운영자에게 문의해 주세요.</p>
+                ) : withdrawal.canRecover ? (
+                  <>
+                    <p>{new Date(withdrawal.recoveryDeadline).toLocaleDateString("ko-KR")}까지 복구를 신청할 수 있어요.</p>
+                    <button type="button" onClick={() => void submitRecovery()} disabled={recoveryBusy} className="self-start px-4 py-2 text-xs font-700" style={{ background: "#d97706", color: "#fff", borderRadius: "40px", opacity: recoveryBusy ? 0.6 : 1 }}>{recoveryBusy ? "신청 중…" : "복구 신청"}</button>
+                  </>
+                ) : (
+                  <p className="font-600">복구 신청 기간(14일)이 지났어요. 운영자 승인 후 계정 정보가 삭제돼요.</p>
+                )}
+              </div>
+            )}
             <button
               onClick={submit}
               disabled={!canSubmit || submitting}

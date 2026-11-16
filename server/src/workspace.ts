@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Put, UseGuards } from "@nestjs/common";
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, ValidateIf } from "class-validator";
 import { TODAY_SQL, myMember } from "./actor.js";
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
@@ -41,6 +41,13 @@ class VersionTextDto {
   @IsString() @MaxLength(2_000_000) text!: string;
   @IsString() @MaxLength(30) status!: string;
 }
+
+// 로컬 폴더 동기화 "지금 누가 이 폴더를 동기화 중인지" 표시용. 저장할 값이 아니라 메모리에만 두고 오래되면 버린다.
+class SyncPresenceDto {
+  @IsInt() @Min(0) root!: number; // 동기화 대상 워크스페이스 폴더 id, 0 = 워크스페이스 루트
+}
+const SYNC_PRESENCE_TTL_MS = 10_000;
+const syncPresence = new Map<string, Map<string, { root: number; at: number }>>(); // 프로젝트 → 사용자 → 마지막 동기화
 
 class FileCommentDto {
   @IsString() @MaxLength(2000) text!: string;
@@ -184,6 +191,31 @@ export class WorkspaceController {
         await query("delete from public.file_comment_reactions where comment_id = $1 and member_id = $2 and emoji = $3", [commentId, me.id, body.emoji]);
       }
     });
+  }
+
+  // 폴더 동기화를 켠 사람이 몇 초마다 알린다. 참여자만 알리고 볼 수 있다(myMember가 검사).
+  @Post("projects/:projectId/sync-presence")
+  @HttpCode(204)
+  async pingSyncPresence(@UserId() userId: string, @Param("projectId") projectId: string, @Body() body: SyncPresenceDto) {
+    await this.db.asUser(userId, (query) => myMember(query, projectId));
+    const users = syncPresence.get(projectId) ?? new Map<string, { root: number; at: number }>();
+    users.set(userId, { root: body.root, at: Date.now() });
+    syncPresence.set(projectId, users);
+  }
+
+  // 나를 뺀, 최근 10초 안에 동기화한 사람들의 대상 폴더.
+  @Get("projects/:projectId/sync-presence")
+  async listSyncPresence(@UserId() userId: string, @Param("projectId") projectId: string) {
+    await this.db.asUser(userId, (query) => myMember(query, projectId));
+    const users = syncPresence.get(projectId);
+    const now = Date.now();
+    const active: { userId: string; root: number }[] = [];
+    for (const [id, seen] of users ?? []) {
+      if (now - seen.at > SYNC_PRESENCE_TTL_MS) { users?.delete(id); continue; }
+      if (id !== userId) active.push({ userId: id, root: seen.root });
+    }
+    if (users && users.size === 0) syncPresence.delete(projectId);
+    return { active };
   }
 
   // 원본 정리 대기열(파일 저장소 단계에서 실제 삭제에 쓴다).

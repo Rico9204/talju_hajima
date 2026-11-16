@@ -3,6 +3,7 @@ import { useProjectManagement } from "../context/ProjectContext";
 import type { Project } from "../api/types";
 import { useAuth } from "../context/AuthContext";
 import AdminProjectMembers from "./AdminProjectMembers";
+import AdminAnnouncements from "./AdminAnnouncements";
 import { forgetEvaluationScoreCca } from "../lib/useEvaluationScoreCca";
 
 const STATUS_LABEL: Record<Project["approvalStatus"], { text: string; bg: string; color: string }> = {
@@ -142,6 +143,7 @@ export default function AdminPanel() {
         <button disabled={busyId !== null} onClick={retryCleanup} className="rounded-full px-3 py-2" style={{ background: "var(--muted)", color: "var(--primary-text)" }}>원본 파일 정리 재시도</button>
         {cleanupNotice && <span role="status">{cleanupNotice}</span>}
       </div>
+      <AdminAnnouncements projects={projects} />
       {loading && (
         <div className="text-sm text-center py-8" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>
       )}

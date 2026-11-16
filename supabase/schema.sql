@@ -5096,3 +5096,194 @@ begin
 end $$;
 revoke all on function public.set_board_post_pinned(bigint, boolean) from public, anon;
 grant execute on function public.set_board_post_pinned(bigint, boolean) to authenticated;
+
+-- ===== 관리자 공지: 기간과 대상(전체 또는 고른 프로젝트)을 정해 작은 팝업으로 알린다 =====
+-- 쓰기는 관리자 전용 RPC로만 한다(표 직접 쓰기 권한 없음). 읽기는 대상(전체이거나 내가 참여한 프로젝트)만 보인다.
+-- "다시 보지 않기"는 사용자별로 서버에 기록해, 다른 기기·브라우저에서도 다시 뜨지 않는다.
+create table if not exists public.announcements (
+  id bigint generated always as identity primary key,
+  title text not null check (char_length(btrim(title)) between 1 and 100),
+  body text not null check (char_length(btrim(body)) between 1 and 2000),
+  start_date date not null,
+  end_date date not null,
+  target_all boolean not null default true,
+  project_ids text[] not null default '{}',
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  check (end_date >= start_date),
+  check (target_all or cardinality(project_ids) > 0)
+);
+create index if not exists announcements_period_idx on public.announcements (end_date, start_date);
+
+create table if not exists public.announcement_dismissals (
+  announcement_id bigint not null references public.announcements(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (announcement_id, user_id)
+);
+
+alter table public.announcements enable row level security;
+alter table public.announcement_dismissals enable row level security;
+revoke all on table public.announcements from anon, authenticated;
+revoke all on table public.announcement_dismissals from anon, authenticated;
+grant select on table public.announcements to authenticated;
+grant select on table public.announcement_dismissals to authenticated;
+
+-- 관리자는 모든 공지를 관리하고, 그 밖의 사람은 전체 공지이거나 내가 참여한 프로젝트를 대상으로 한 공지만 본다.
+drop policy if exists announcements_select on public.announcements;
+create policy announcements_select on public.announcements for select to authenticated using (
+  public.is_admin()
+  or target_all
+  or exists (select 1 from public.members m where m.user_id = auth.uid() and m.project_id = any (announcements.project_ids))
+);
+drop policy if exists announcement_dismissals_select on public.announcement_dismissals;
+create policy announcement_dismissals_select on public.announcement_dismissals for select to authenticated using (user_id = auth.uid());
+
+create or replace function public.create_announcement(
+  p_title text, p_body text, p_start date, p_end date, p_target_all boolean, p_project_ids text[]
+) returns bigint language plpgsql security definer set search_path = public as $$
+declare
+  ids text[] := coalesce(p_project_ids, '{}');
+  new_id bigint;
+begin
+  if auth.uid() is null or not public.is_admin() then raise exception '관리자만 공지를 보낼 수 있습니다.'; end if;
+  if char_length(btrim(coalesce(p_title, ''))) = 0 then raise exception '공지 제목을 입력해 주세요.'; end if;
+  if char_length(btrim(coalesce(p_body, ''))) = 0 then raise exception '공지 내용을 입력해 주세요.'; end if;
+  if p_start is null or p_end is null or p_end < p_start then raise exception '공지 기간을 올바르게 입력해 주세요.'; end if;
+  if p_end - p_start > 366 then raise exception '공지 기간은 최대 1년까지 정할 수 있습니다.'; end if;
+  if p_target_all then
+    ids := '{}';
+  else
+    if cardinality(ids) = 0 then raise exception '공지 대상 프로젝트를 한 개 이상 고르거나 전체를 선택해 주세요.'; end if;
+    if (select count(*) from public.projects where id = any (ids)) <> (select count(distinct x) from unnest(ids) x) then
+      raise exception '존재하지 않는 프로젝트가 대상에 들어 있습니다.';
+    end if;
+  end if;
+  insert into public.announcements(title, body, start_date, end_date, target_all, project_ids, created_by)
+  values (btrim(p_title), btrim(p_body), p_start, p_end, p_target_all, ids, auth.uid())
+  returning id into new_id;
+  return new_id;
+end $$;
+revoke all on function public.create_announcement(text, text, date, date, boolean, text[]) from public, anon;
+grant execute on function public.create_announcement(text, text, date, date, boolean, text[]) to authenticated;
+
+create or replace function public.delete_announcement(p_id bigint)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_admin() then raise exception '관리자만 공지를 지울 수 있습니다.'; end if;
+  delete from public.announcements where id = p_id;
+  if not found then raise exception '공지를 찾을 수 없습니다.'; end if;
+end $$;
+revoke all on function public.delete_announcement(bigint) from public, anon;
+grant execute on function public.delete_announcement(bigint) to authenticated;
+
+-- "다시 보지 않기": 내가 볼 수 있는 공지에만 기록한다(남의 공지 번호를 넣어 존재 여부를 알아내지 못하게).
+create or replace function public.dismiss_announcement(p_id bigint)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception '로그인이 필요합니다.'; end if;
+  if not exists (
+    select 1 from public.announcements a
+    where a.id = p_id
+      and (a.target_all or exists (select 1 from public.members m where m.user_id = auth.uid() and m.project_id = any (a.project_ids)))
+  ) then raise exception '공지를 찾을 수 없습니다.'; end if;
+  insert into public.announcement_dismissals(announcement_id, user_id) values (p_id, auth.uid()) on conflict do nothing;
+end $$;
+revoke all on function public.dismiss_announcement(bigint) from public, anon;
+grant execute on function public.dismiss_announcement(bigint) to authenticated;
+
+-- ===== 계정 탈퇴·복구: 탈퇴를 신청해도 14일 동안은 계정 정보를 그대로 보관하고, 그 안에 복구를 신청할 수 있다 =====
+-- 탈퇴 신청된 계정은 로그인할 수 없다(서버가 막는다). 14일이 지난 계정은 운영자가 "탈퇴 승인"을 눌러야 정보가 지워진다.
+-- 참여한 프로젝트가 있으면 탈퇴를 신청할 수 없고, 운영자 계정은 탈퇴할 수 없다(운영자가 없어지는 일을 막는다).
+-- 행이 있으면 "탈퇴 신청 상태"다. recovery_requested_at이 있으면 복구 신청 목록, 없으면 탈퇴 신청 목록에 보인다.
+create table if not exists public.account_withdrawals (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  display_name text not null default '',
+  reason text not null default '' check (char_length(reason) <= 500),
+  requested_at timestamptz not null default now(),
+  recovery_requested_at timestamptz,
+  recovery_rejected_at timestamptz
+);
+
+alter table public.account_withdrawals enable row level security;
+revoke all on table public.account_withdrawals from anon, authenticated;
+grant select on table public.account_withdrawals to authenticated;
+drop policy if exists account_withdrawals_select on public.account_withdrawals;
+create policy account_withdrawals_select on public.account_withdrawals for select to authenticated using (public.is_operator());
+
+-- 본인이 탈퇴 신청(아이디·비밀번호 재입력은 서버가 확인한 뒤 부른다).
+create or replace function public.withdraw_my_account(p_reason text default '')
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  mail text;
+  shown text;
+begin
+  if uid is null then raise exception '로그인이 필요합니다.'; end if;
+  if exists (select 1 from public.account_withdrawals where user_id = uid) then raise exception '이미 탈퇴 신청된 계정입니다.'; end if;
+  if public.is_operator() then raise exception '운영자 계정은 탈퇴할 수 없습니다.'; end if;
+  if exists (select 1 from public.members where user_id = uid) then raise exception '참여 중인 프로젝트가 있어 탈퇴할 수 없습니다.'; end if;
+  if char_length(coalesce(p_reason, '')) > 500 then raise exception '탈퇴 사유는 500자까지 입력할 수 있습니다.'; end if;
+  select email into mail from auth.users where id = uid;
+  select display_name into shown from public.profiles where id = uid;
+  insert into public.account_withdrawals(user_id, email, display_name, reason)
+  values (uid, coalesce(mail, ''), coalesce(shown, ''), btrim(coalesce(p_reason, '')));
+end $$;
+revoke all on function public.withdraw_my_account(text) from public, anon;
+grant execute on function public.withdraw_my_account(text) to authenticated;
+
+-- 탈퇴한 본인의 복구 신청. 로그인할 수 없는 상태라 서버가 비밀번호를 확인한 뒤 서버 권한으로만 부른다(사용자 권한에는 열지 않는다).
+create or replace function public.request_account_recovery(p_user_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare w public.account_withdrawals;
+begin
+  select * into w from public.account_withdrawals where user_id = p_user_id for update;
+  if not found then raise exception '탈퇴 신청된 계정이 아닙니다.'; end if;
+  if w.recovery_requested_at is not null then raise exception '이미 복구를 신청했어요. 운영자 확인을 기다려 주세요.'; end if;
+  if w.recovery_rejected_at is not null then raise exception '복구 신청이 거절된 계정입니다.'; end if;
+  if w.requested_at + interval '14 days' <= now() then raise exception '복구 신청 기간(탈퇴 신청 후 14일)이 지났습니다.'; end if;
+  update public.account_withdrawals set recovery_requested_at = now() where user_id = p_user_id;
+end $$;
+revoke all on function public.request_account_recovery(uuid) from public, anon, authenticated;
+
+-- 운영자: 탈퇴 승인 = 계정 정보 삭제. 14일이 지나야 하고, 복구 신청이 접수된 계정은 먼저 그 신청을 처리해야 한다.
+create or replace function public.approve_account_withdrawal(p_user_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare w public.account_withdrawals;
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 탈퇴를 승인할 수 있습니다.'; end if;
+  select * into w from public.account_withdrawals where user_id = p_user_id for update;
+  if not found then raise exception '탈퇴 신청을 찾을 수 없습니다.'; end if;
+  if w.recovery_requested_at is not null then raise exception '복구 신청이 접수된 계정입니다. 복구 신청을 먼저 처리해 주세요.'; end if;
+  if w.requested_at + interval '14 days' > now() then raise exception '탈퇴 신청 후 14일이 지나야 승인할 수 있습니다.'; end if;
+  if exists (select 1 from public.members where user_id = p_user_id) then raise exception '참여 중인 프로젝트가 있는 계정은 삭제할 수 없습니다.'; end if;
+  delete from auth.users where id = p_user_id; -- 프로필·알림·로그인 정보 등 계정에 딸린 정보가 함께 지워진다
+end $$;
+revoke all on function public.approve_account_withdrawal(uuid) from public, anon;
+grant execute on function public.approve_account_withdrawal(uuid) to authenticated;
+
+-- 운영자: 복구 승인 = 탈퇴 신청을 없던 일로(다시 로그인할 수 있다).
+create or replace function public.approve_account_recovery(p_user_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 복구를 승인할 수 있습니다.'; end if;
+  if not exists (select 1 from public.account_withdrawals where user_id = p_user_id and recovery_requested_at is not null) then
+    raise exception '복구 신청을 찾을 수 없습니다.';
+  end if;
+  delete from public.account_withdrawals where user_id = p_user_id;
+end $$;
+revoke all on function public.approve_account_recovery(uuid) from public, anon;
+grant execute on function public.approve_account_recovery(uuid) to authenticated;
+
+-- 운영자: 복구 거절 = 탈퇴 신청 목록으로 되돌린다(같은 계정은 다시 복구를 신청할 수 없다).
+create or replace function public.reject_account_recovery(p_user_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.is_operator() then raise exception '운영자만 복구 신청을 거절할 수 있습니다.'; end if;
+  update public.account_withdrawals set recovery_requested_at = null, recovery_rejected_at = now()
+  where user_id = p_user_id and recovery_requested_at is not null;
+  if not found then raise exception '복구 신청을 찾을 수 없습니다.'; end if;
+end $$;
+revoke all on function public.reject_account_recovery(uuid) from public, anon;
+grant execute on function public.reject_account_recovery(uuid) to authenticated;

@@ -7,6 +7,7 @@ import CampusNoticesView from "./CampusNoticesView";
 import CreateProjectModal from "./CreateProjectModal";
 import JoinProjectModal from "./JoinProjectModal";
 import Settings from "./Settings";
+import AccountInfoModal from "./AccountInfoModal";
 import { useConfirm } from "./ConfirmDialog";
 
 // 아직 참여한 프로젝트가 없는 계정의 첫 화면. 예전에는 "만들기/참여하기" 카드만 있어서
@@ -33,6 +34,7 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
   }
   const [createOpen, setCreateOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [boardInitialState, setBoardInitialState] = useState<BoardInitialState | null>(null);
 
   return (
@@ -55,6 +57,9 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
               </button>
             ))}
           </nav>
+          <button type="button" onClick={() => setAccountOpen(true)} className="shrink-0 text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
+            계정 정보
+          </button>
           <button type="button" onClick={() => void confirmSignOut()} className="shrink-0 text-xs font-600 px-3.5 py-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>
             로그아웃
           </button>
@@ -96,6 +101,7 @@ export default function NoProjectHome({ signOut, addProject, lookupProject, join
         </div>
       </main>
 
+      {accountOpen && <AccountInfoModal onClose={() => setAccountOpen(false)} />}
       {createOpen && <CreateProjectModal onCancel={() => setCreateOpen(false)} onCreate={(input, recruit) => addProject(input, recruit)} />}
       {joinOpen && (
         <JoinProjectModal

@@ -488,3 +488,51 @@ export interface AdminAccount {
   isOperator: boolean;
   pendingProjects: number;
 }
+
+// 관리자 공지: 기간(startDate~endDate, 한국 시간 날짜)과 대상(전체 또는 고른 프로젝트)을 정해 작은 팝업으로 알린다.
+export interface Announcement {
+  id: number;
+  title: string;
+  body: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD, 이 날까지 보인다
+  targetAll: boolean;
+  projectIds: string[]; // targetAll이 false일 때의 대상 프로젝트
+  createdAt: string;
+}
+
+export interface NewAnnouncementInput {
+  title: string;
+  body: string;
+  startDate: string;
+  endDate: string;
+  targetAll: boolean;
+  projectIds: string[];
+}
+
+// 계정 탈퇴: 탈퇴를 신청해도 14일 동안은 계정 정보를 보관하고, 그 안에 복구를 신청할 수 있다.
+export interface AccountWithdrawalState {
+  requestedAt: string;
+  recoveryDeadline: string; // 이 시각까지 복구를 신청할 수 있다
+  canRecover: boolean;
+  recoveryRequested: boolean; // 복구 신청이 접수돼 운영자 확인을 기다리는 중
+  recoveryRejected: boolean; // 복구 신청이 거절됨(다시 신청할 수 없다)
+}
+
+// 운영자 화면의 탈퇴 신청·복구 신청 목록 한 줄
+export interface AccountWithdrawalRecord {
+  userId: string;
+  email: string;
+  displayName: string;
+  reason: string;
+  requestedAt: string;
+  recoveryRequestedAt: string | null;
+  recoveryRejected: boolean;
+  purgeAt: string; // 탈퇴 신청 14일 뒤: 이때부터 탈퇴 승인(정보 삭제)할 수 있다
+  purgeable: boolean;
+}
+
+export interface AccountWithdrawalLists {
+  withdrawals: AccountWithdrawalRecord[]; // 복구를 신청하지 않은 계정
+  recoveries: AccountWithdrawalRecord[]; // 복구를 신청한 계정(탈퇴 신청 목록에서는 빠진다)
+}

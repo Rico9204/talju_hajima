@@ -39,6 +39,7 @@ import {
   type ChatToolActionPayload,
 } from "../lib/chatTools"
 import { extBadgeLabel } from "../lib/workspaceFiles"
+import { scrollIntoScroller } from "../lib/scrollWithinScroller"
 
 interface FileRef {
   id: number
@@ -606,7 +607,7 @@ export default function TeamChat({
 
     const el = document.getElementById(`chat-message-${pendingScrollMessageId}`)
 
-    el?.scrollIntoView({ block: "center", behavior: "smooth" })
+    if (el) scrollIntoScroller(el, { block: "center" })
 
     setPendingScrollMessageId(null)
   }, [pendingScrollMessageId, messageSearch])
@@ -622,7 +623,7 @@ export default function TeamChat({
     const timer = setTimeout(() => {
       const el = document.getElementById(`chat-message-${focusMessageId}`)
       if (!el) return
-      el.scrollIntoView({ block: "center", behavior: "smooth" })
+      scrollIntoScroller(el, { block: "center" })
       setHighlightedMessageId(focusMessageId)
       onFocusHandled?.()
     }, 150)
@@ -1894,7 +1895,7 @@ export default function TeamChat({
                       return (
                         <button
                           key={c.id}
-                          ref={isSelected ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                          ref={isSelected ? (el) => { if (el) scrollIntoScroller(el, { block: "nearest", behavior: "auto" }) } : undefined}
                           type="button"
                           onClick={() => applyMention(c)}
                           onMouseEnter={() => setMentionSelectedIdx(idx)}

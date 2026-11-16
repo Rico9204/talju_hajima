@@ -7,7 +7,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useState, useRef } from "re
 import WorkspaceDeleteActions, { WorkspaceCleanupNotice } from "./WorkspaceDeleteActions";
 import FileTagEditor from "./FileTagEditor";
 import FileVersionPanel from "./FileVersionPanel";
-import WorkspaceLocalSync, { type LocalSyncHandle } from "./WorkspaceLocalSync";
+import FolderSync from "./FolderSync";
 import { useConfirm } from "./ConfirmDialog";
 import QuickEditModal from "./QuickEditModal";
 import { isRichDocName, newRichDocBytes, RICH_DOC_EXT, RICH_DOC_MIME } from "../lib/richDoc";
@@ -295,7 +295,6 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const bandRef = useRef<{ x0: number; y0: number; base: Set<number>; moved: boolean } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const syncRef = useRef<LocalSyncHandle>(null);
   const anchorRef = useRef<number | null>(null); // Shift+클릭 범위 선택의 시작 파일
   const [moveError, setMoveError] = useState("");
   const [editError, setEditError] = useState("");
@@ -1388,12 +1387,12 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               )}
               <button
                 type="button"
-                onClick={() => syncRef.current?.addDownload(visibleSelected.map((f) => f.id))}
+                onClick={() => setSyncOpen(true)}
                 className="flex items-center gap-1 text-xs font-600 px-2.5 py-1.5 rounded-lg border transition-all hover:bg-[var(--secondary)] cursor-pointer"
                 style={{ borderColor: "var(--border)" }}
               >
                 <span>💻</span>
-                <span>로컬 동기화</span>
+                <span>선택 동기화</span>
               </button>
               <button
                 type="button"
@@ -2243,22 +2242,17 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
               <div className="flex justify-end mb-3">
                 <button type="button" onClick={() => setSyncOpen(false)} className="text-xs font-600 px-2.5 py-1" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}>닫기</button>
               </div>
-              <WorkspaceLocalSync
-                ref={syncRef}
+              <FolderSync
                 projectId={project.id}
-                userId={currentMember.userId ?? currentMember.id}
-                locked={locked}
                 ready={!loading}
+                locked={locked}
                 files={files}
                 folders={folders}
-                currentFolderId={currentFolderId}
-                folderLabel={(id) => { const f = id === null ? null : folderById.get(id) ?? null; return f ? pathOf(f).map((x) => x.name).join(" / ") : "워크스페이스 루트"; }}
+                selectedPaths={new Set(files.filter((f) => selectedIds.has(f.id)).map((f) => [...pathOf(f.folderId === null ? null : folderById.get(f.folderId) ?? null).map((x) => x.name), f.name].join("/")))}
                 upload={uploadWorkspaceFile}
                 createFolder={addFolder}
                 load={downloadFileVersion}
-                embedded
-                onRequestOpen={() => setSyncOpen(true)}
-                onLinksChange={setSyncCount}
+                onActiveChange={(on) => setSyncCount(on ? 1 : 0)}
               />
             </WindowPanel>
           </div>
