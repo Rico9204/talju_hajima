@@ -3789,7 +3789,11 @@ function HwpxEditorModalInner({
         {/* ── 한컴오피스 / 한컴독스 표준 개체 우클릭 컨텍스트 메뉴 (첨부 1번 이미지 100% 매칭) ── */}
         {contextMenu && (() => {
           const targetBlock = blocks[contextMenu.blockIdx];
-          const hasCaption = !!(targetBlock && "caption" in targetBlock && targetBlock.caption && targetBlock.captionPos !== "none");
+          const hasCaption = !!(
+            targetBlock &&
+            (("captionPos" in targetBlock && targetBlock.captionPos && targetBlock.captionPos !== "none") ||
+             ("caption" in targetBlock && targetBlock.caption && targetBlock.caption.trim() !== ""))
+          );
           const isShape = targetBlock?.type === "shape";
           const shapeHasText = isShape && !!((targetBlock as HwpxShapeBlock).text);
 
@@ -3923,7 +3927,9 @@ function HwpxEditorModalInner({
               {/* 5. 캡션 넣기 */}
               <button
                 type="button"
+                disabled={hasCaption}
                 onClick={() => {
+                  if (hasCaption) return;
                   const autoText = getAutoCaptionText(contextMenu.blockIdx, contextMenu.blockType);
                   const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
                   const yBlock = yBlocks.get(contextMenu.blockIdx);
@@ -3938,11 +3944,15 @@ function HwpxEditorModalInner({
                   }
                   setContextMenu(null);
                 }}
-                className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left ${
+                  hasCaption
+                    ? "text-neutral-300 cursor-not-allowed"
+                    : "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                }`}
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="4" width="18" height="13" rx="1.5" stroke="#4b5563" strokeWidth="1.5" />
-                  <text x="4" y="22" fill="#2563eb" fontSize="9" fontWeight="bold" fontFamily="sans-serif">A1</text>
+                  <rect x="3" y="4" width="18" height="13" rx="1.5" stroke={hasCaption ? "#d1d5db" : "#4b5563"} strokeWidth="1.5" />
+                  <text x="4" y="22" fill={hasCaption ? "#d1d5db" : "#2563eb"} fontSize="9" fontWeight="bold" fontFamily="sans-serif">A1</text>
                 </svg>
                 <span>캡션 넣기</span>
               </button>
@@ -3952,15 +3962,14 @@ function HwpxEditorModalInner({
                 type="button"
                 disabled={!hasCaption}
                 onClick={() => {
-                  if (hasCaption) {
-                    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-                    const yBlock = yBlocks.get(contextMenu.blockIdx);
-                    if (yBlock) {
-                      doc.transact(() => {
-                        yBlock.delete("caption");
-                        yBlock.set("captionPos", "none");
-                      });
-                    }
+                  if (!hasCaption) return;
+                  const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                  const yBlock = yBlocks.get(contextMenu.blockIdx);
+                  if (yBlock) {
+                    doc.transact(() => {
+                      yBlock.delete("caption");
+                      yBlock.set("captionPos", "none");
+                    });
                   }
                   setContextMenu(null);
                 }}
@@ -5054,7 +5063,7 @@ function HwpxEditorModalInner({
                   const padRight = block.cellPaddingRightMm !== undefined ? `${block.cellPaddingRightMm * 3.78}px` : "6.8px";
                   const hasCellSpacing = !!(block.cellSpacingEnabled && (block.cellSpacingMm || 0) > 0);
                   const cellSpacingPx = hasCellSpacing && block.cellSpacingMm ? `${block.cellSpacingMm * 3.78}px` : "0px";
-                  const hasTableCaption = block.caption !== undefined && block.caption !== null && block.caption !== "" && block.captionPos !== "none";
+                  const hasTableCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
                   const isCaptionTop = hasTableCaption && block.captionPos?.startsWith("top");
                   const isCaptionBottom = hasTableCaption && !isCaptionTop;
                   const captionAlignClass = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
@@ -5271,7 +5280,7 @@ function HwpxEditorModalInner({
                   const widthStyle = `${block.widthPercent || 75}%`;
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
-                  const hasImageCaption = block.caption !== undefined && block.caption !== null && block.caption !== "" && block.captionPos !== "none";
+                  const hasImageCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
                   const isImageCaptionTop = hasImageCaption && block.captionPos?.startsWith("top");
                   const isImageCaptionBottom = hasImageCaption && !isImageCaptionTop;
                   const imageCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
@@ -5462,7 +5471,7 @@ function HwpxEditorModalInner({
                   const strokeWidth = block.strokeWidth || 1.5;
                   const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
                   const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
-                  const hasShapeCaption = block.caption !== undefined && block.caption !== null && block.caption !== "" && block.captionPos !== "none";
+                  const hasShapeCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
                   const isShapeCaptionTop = hasShapeCaption && block.captionPos?.startsWith("top");
                   const isShapeCaptionBottom = hasShapeCaption && !isShapeCaptionTop;
                   const shapeCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";

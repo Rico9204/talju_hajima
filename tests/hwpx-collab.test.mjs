@@ -484,3 +484,52 @@ test('hwpxCollab: 표 셀의 borderFillIDRef 보정 및 자유 이동(Floating) 
   // 4. headerXml의 hh:paraProperties에 신규 정렬 서식이 등록되었는지 검증
   assert.ok(pkg.headerXml.includes('<hh:align horizontal="RIGHT"'));
 });
+
+test('hwpxCollab: 표 및 도형의 한컴 OWPML 표준 <hp:caption> 직렬화 및 역직렬화(Roundtrip) 검증', () => {
+  const blocks = [
+    {
+      type: 'table',
+      id: 'tbl_caption_test',
+      rows: [
+        [{ text: '헤더1' }, { text: '헤더2' }],
+        [{ text: '데이터1' }, { text: '데이터2' }],
+      ],
+      caption: '표 1. 실험 결과 분석',
+      captionPos: 'top_left',
+    },
+    {
+      type: 'shape',
+      id: 'shape_caption_test',
+      shapeType: 'rect',
+      text: '모듈 블록',
+      caption: '그림 1. 아키텍처 구조도',
+      captionPos: 'bottom_center',
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+
+  // 1. 표 캡션 OWPML 직렬화 검증 (<hp:caption side="TOP" ...>)
+  assert.ok(pkg.sectionXml.includes('<hp:caption side="TOP"'));
+  assert.ok(pkg.sectionXml.includes('표 1. 실험 결과 분석'));
+
+  // 2. 도형 캡션 OWPML 직렬화 검증 (<hp:caption side="BOTTOM" ...>)
+  assert.ok(pkg.sectionXml.includes('<hp:caption side="BOTTOM"'));
+  assert.ok(pkg.sectionXml.includes('그림 1. 아키텍처 구조도'));
+
+  // 3. XML 역직렬화 (parseHwpxXmlToBlocks) 검증
+  const parsed = parseHwpxXmlToBlocks(pkg.sectionXml, pkg.headerXml);
+  assert.equal(parsed.length, 2);
+
+  assert.equal(parsed[0].type, 'table');
+  if (parsed[0].type === 'table') {
+    assert.equal(parsed[0].caption, '표 1. 실험 결과 분석');
+    assert.equal(parsed[0].captionPos, 'top_center');
+  }
+
+  assert.equal(parsed[1].type, 'shape');
+  if (parsed[1].type === 'shape') {
+    assert.equal(parsed[1].caption, '그림 1. 아키텍처 구조도');
+    assert.equal(parsed[1].captionPos, 'bottom_center');
+  }
+});

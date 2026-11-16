@@ -406,10 +406,18 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
   let lastShapeStroke = "#2563EB";
   let lastShapeStrokeWidth = 1.5;
   let lastShapeText = "";
+  let inCaption = false;
+  let captionSide = "BOTTOM";
+  let currentCaptionText = "";
+  let lastPicCaption = "";
+  let lastPicCaptionPos = "bottom_center";
+  let lastShapeCaption = "";
+  let lastShapeCaptionPos = "bottom_center";
   let currentParaPrId = "0";
   let currentCharPrId = "0";
   let currentPageBreak = false;
   let inT = false;
+  let subListDepth = 0;
 
   let blockIndex = 0;
 
@@ -436,6 +444,15 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
       // 제어 요소 내부 내용이면 무시 (본문 오염 방지)
       if (ctrlDepth > 0) {
         continue;
+      }
+
+      // 서브리스트 (subList) 계층 추적: 표 셀(tc), 캡션(caption), 도형 글상자(drawText) 내부 문단 격리
+      if (localName === "sublist") {
+        if (!isClosing && !isSelfClosing) {
+          subListDepth++;
+        } else if (isClosing) {
+          subListDepth = Math.max(0, subListDepth - 1);
+        }
       }
 
       // 표 (tbl)
@@ -469,6 +486,37 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
             currentRow.push({ text: currentCell.join(""), rawAttrs: currentCellAttrs });
             currentCell = null;
             currentCellAttrs = "";
+          }
+        }
+      }
+      // 캡션 (caption)
+      else if (localName === "caption") {
+        if (!isClosing && !isSelfClosing) {
+          inCaption = true;
+          const sMatch = attrs.match(/side="([^"]+)"/i);
+          captionSide = sMatch ? sMatch[1].toUpperCase() : "BOTTOM";
+          currentCaptionText = "";
+        } else if (isClosing) {
+          inCaption = false;
+          const cText = currentCaptionText.trim();
+          const cPos = captionSide === "TOP"
+            ? "top_center"
+            : captionSide === "LEFT"
+            ? "left_center"
+            : captionSide === "RIGHT"
+            ? "right_center"
+            : "bottom_center";
+          if (inTable && currentTable) {
+            currentTable.caption = cText;
+            currentTable.captionPos = cPos;
+          }
+          if (pPicCount > 0) {
+            lastPicCaption = cText;
+            lastPicCaptionPos = cPos;
+          }
+          if (pShapeCount > 0) {
+            lastShapeCaption = cText;
+            lastShapeCaptionPos = cPos;
           }
         }
       }
@@ -537,11 +585,15 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
         if (wMatch) lastShapeStrokeWidth = Math.max(1, parseInt(wMatch[1], 10) / 100);
       }
       // 본문 문단 (p)
-      else if (localName === "p" && !inTable) {
+      else if (localName === "p" && !inTable && subListDepth === 0) {
         if (!isClosing && !isSelfClosing) {
           inP = true;
           hasObjectInP = false;
           currentPStartIndex = match.index;
+          lastPicCaption = "";
+          lastPicCaptionPos = "bottom_center";
+          lastShapeCaption = "";
+          lastShapeCaptionPos = "bottom_center";
           currentPText = [];
           currentPAttrs = attrs.trim();
           pEquationCount = 0;
@@ -582,7 +634,8 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 src: imgSrc,
                 widthPercent: 75,
                 align: "center",
-                caption: "그림",
+                caption: lastPicCaption || "그림",
+                captionPos: lastPicCaptionPos,
                 rawAttrs: lastPicAttrs,
                 rawXml,
               });
@@ -598,6 +651,8 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 strokeWidth: lastShapeStrokeWidth,
                 text: lastShapeText.trim(),
                 align: "center",
+                caption: lastShapeCaption || undefined,
+                captionPos: lastShapeCaption ? lastShapeCaptionPos : undefined,
                 rawAttrs: lastShapeAttrs,
                 rawXml,
               });
@@ -621,6 +676,10 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
               });
             }
           }
+          lastPicCaption = "";
+          lastPicCaptionPos = "bottom_center";
+          lastShapeCaption = "";
+          lastShapeCaptionPos = "bottom_center";
           currentPText = [];
           currentPAttrs = "";
           currentPageBreak = false;
@@ -667,7 +726,9 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
         currentEquationScript += decodeXmlEntities(textContent);
       } else if (inT) {
         const decoded = decodeXmlEntities(textContent);
-        if (inTable && currentCell) {
+        if (inCaption) {
+          currentCaptionText += decoded;
+        } else if (inTable && currentCell) {
           currentCell.push(decoded);
         } else if (inP) {
           if (pShapeCount > 0) {
@@ -977,6 +1038,32 @@ export function serializeBlocksToHwpxPackage(
 
   const rootOpen = '<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">';
 
+  const buildCaptionXml = (caption?: string, captionPos?: string, widthHw = 42520, capParaId = 9999): string => {
+    const capTrim = (caption || "").trim();
+    if (!capTrim || captionPos === "none") return "";
+    const pos = captionPos || "bottom_center";
+    const capSide = pos.startsWith("top")
+      ? "TOP"
+      : pos.startsWith("left")
+      ? "LEFT"
+      : pos.startsWith("right")
+      ? "RIGHT"
+      : "BOTTOM";
+    const capAlign = pos.includes("left")
+      ? "left"
+      : pos.includes("right")
+      ? "right"
+      : "center";
+    const capParaPr = getParaPrForAlign(capAlign);
+    return `        <hp:caption side="${capSide}" fullSize="0" width="${widthHw}" gap="850">\n` +
+      `          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="${widthHw}" textHeight="2834" hasTextRef="0" hasNumRef="0">\n` +
+      `            <hp:p id="${capParaId}" paraPrIDRef="${capParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n` +
+      `              <hp:run charPrIDRef="0"><hp:t>${escapeXml(capTrim)}</hp:t></hp:run>\n` +
+      `            </hp:p>\n` +
+      `          </hp:subList>\n` +
+      `        </hp:caption>`;
+  };
+
   const paragraphsXml = blocks.map((block, idx) => {
     const lead = (idx === 0 && preambleRuns) ? preambleRuns : "";
     const align = block.type === "paragraph" ? (block.align || "left") : "left";
@@ -1024,7 +1111,9 @@ export function serializeBlocksToHwpxPackage(
       const tblAllowOverlap = isFloatingTbl ? "1" : "0";
       const tblHorzRelTo = isFloatingTbl ? "PARA" : "COLUMN";
 
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n        <hp:sz width="${totalWidthHw}" widthRelTo="ABSOLUTE" height="${totalHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${tblTreatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${tblAllowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${tblHorzRelTo}" vertAlign="TOP" horzAlign="LEFT" vertOffset="${isFloatingTbl ? tblOffY : 0}" horzOffset="${isFloatingTbl ? tblOffX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:inMargin left="510" right="510" top="141" bottom="141"/>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      const tblCaptionXml = buildCaptionXml(block.caption, block.captionPos, totalWidthHw, (idx + 1) * 10000 + 9999);
+
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n        <hp:sz width="${totalWidthHw}" widthRelTo="ABSOLUTE" height="${totalHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${tblTreatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${tblAllowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${tblHorzRelTo}" vertAlign="TOP" horzAlign="LEFT" vertOffset="${isFloatingTbl ? tblOffY : 0}" horzOffset="${isFloatingTbl ? tblOffX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${tblCaptionXml ? `${tblCaptionXml}\n` : ""}        <hp:inMargin left="510" right="510" top="141" bottom="141"/>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
@@ -1036,17 +1125,32 @@ export function serializeBlocksToHwpxPackage(
     }
 
     if (block.type === "image") {
+      const hasCaption = !!(block.caption && block.caption.trim() && block.captionPos !== "none");
+      const imgCaptionXml = buildCaptionXml(block.caption, block.captionPos, 42520, (idx + 1) * 10000 + 5000);
       if (block.rawXml) {
-        return block.rawXml;
+        let raw = block.rawXml;
+        if (hasCaption) {
+          if (raw.includes("<hp:caption")) {
+            raw = raw.replace(/<hp:caption\b[\s\S]*?<\/hp:caption>/i, imgCaptionXml.trim());
+          } else if (raw.includes("<hp:outMargin")) {
+            raw = raw.replace(/(<hp:outMargin\b[^>]*\/>)/i, `$1\n${imgCaptionXml}`);
+          } else if (raw.includes("<hp:shapeComment")) {
+            raw = raw.replace(/<hp:shapeComment/i, `${imgCaptionXml}\n        <hp:shapeComment`);
+          } else if (raw.includes("</hp:pic>")) {
+            raw = raw.replace(/<\/hp:pic>/i, `${imgCaptionXml}\n      </hp:pic>`);
+          }
+          return raw;
+        } else {
+          raw = raw.replace(/<hp:caption\b[\s\S]*?<\/hp:caption>\s*/gi, "");
+          return raw;
+        }
       }
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "shape") {
       const isFloating = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
-      if (block.rawXml && !isFloating) {
-        return block.rawXml;
-      }
+      const hasCaption = !!(block.caption && block.caption.trim() && block.captionPos !== "none");
       const shapeType = block.shapeType || "rect";
       const align = block.align || "center";
       const widthPct = block.widthPercent || 75;
@@ -1068,8 +1172,27 @@ export function serializeBlocksToHwpxPackage(
       const centerX = Math.round(widthHw / 2);
       const centerY = Math.round(heightHw / 2);
 
+      const shapeCaptionXml = buildCaptionXml(block.caption, block.captionPos, widthHw, (idx + 1) * 10000 + 5000);
+
+      if (block.rawXml && !isFloating) {
+        let raw = block.rawXml;
+        if (hasCaption) {
+          if (raw.includes("<hp:caption")) {
+            raw = raw.replace(/<hp:caption\b[\s\S]*?<\/hp:caption>/i, shapeCaptionXml.trim());
+          } else if (raw.includes("<hp:outMargin")) {
+            raw = raw.replace(/(<hp:outMargin\b[^>]*\/>)/i, `$1\n${shapeCaptionXml}`);
+          } else if (raw.includes("<hp:shapeComment")) {
+            raw = raw.replace(/<hp:shapeComment/i, `${shapeCaptionXml}\n        <hp:shapeComment`);
+          }
+          return raw;
+        } else {
+          raw = raw.replace(/<hp:caption\b[\s\S]*?<\/hp:caption>\s*/gi, "");
+          return raw;
+        }
+      }
+
       if (shapeType === "line") {
-        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="0"/>\n        <hp:curSz width="${widthHw}" height="0"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="0" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="0"/>\n        <hc:endPt x="${widthHw}" y="0"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
+        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="0"/>\n        <hp:curSz width="${widthHw}" height="0"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="0" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="0"/>\n        <hc:endPt x="${widthHw}" y="0"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
       }
 
       const tagName = shapeType === "ellipse" ? "hp:ellipse" : "hp:rect";
@@ -1085,7 +1208,7 @@ export function serializeBlocksToHwpxPackage(
         ? `<hc:center x="${centerX}" y="${centerY}"/><hc:ax1 x="${widthHw}" y="${centerY}"/><hc:ax2 x="${centerX}" y="${heightHw}"/>`
         : `<hc:pt0 x="0" y="0"/><hc:pt1 x="${widthHw}" y="0"/><hc:pt2 x="${widthHw}" y="${heightHw}"/><hc:pt3 x="0" y="${heightHw}"/>`;
 
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단
