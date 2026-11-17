@@ -1,4 +1,4 @@
-import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import * as Y from "yjs";
 
 // React 19와 브라우저 ContentEditable 간의 DOM 불일치로 인한 removeChild / insertBefore NotFoundError 방어 가드
@@ -1316,6 +1316,7 @@ function HwpxEditorModalInner({
   const [showPageOutline, setShowPageOutline] = useState(true);
   const [showTransparentLines, setShowTransparentLines] = useState(true);
   const [pageViewColumns, setPageViewColumns] = useState<1 | 2 | 3>(1);
+  const [pageBreakIndices, setPageBreakIndices] = useState<number[]>([0]);
   const [zoomFitMode, setZoomFitMode] = useState<"custom" | "page" | "width">("custom");
   const [showFormatToolbar, setShowFormatToolbar] = useState(true);
   const [showAllMemos, setShowAllMemos] = useState(true);
@@ -1531,9 +1532,30 @@ function HwpxEditorModalInner({
     const availH = Math.max(240, container.clientHeight - 48);
     const ratioW = availW / pagePxW;
     const ratio = mode === "width" ? ratioW : Math.min(ratioW, availH / pagePxH);
-    const pct = Math.max(50, Math.min(300, Math.round(ratio * 100)));
+    const pct = Math.max(30, Math.min(300, Math.round(ratio * 100)));
     setZoomFitMode(mode);
     setZoomPercent(pct);
+  };
+  const applyPageViewColumns = (cols: 1 | 2 | 3) => {
+    setPageViewColumns(cols);
+    const container = canvasScrollRef.current;
+    const pagePxW = Math.max(200, Math.round(pageWidthMm * 3.78));
+    if (cols === 1) {
+      if (zoomPercent < 75) {
+        setZoomFitMode("custom");
+        setZoomPercent(100);
+      }
+      return;
+    }
+    if (container) {
+      const availW = Math.max(240, container.clientWidth - 80);
+      const neededW = cols * pagePxW + (cols - 1) * 24;
+      if (neededW > availW) {
+        const fitPct = Math.max(30, Math.min(100, Math.floor((availW / neededW) * 100)));
+        setZoomFitMode("custom");
+        setZoomPercent(fitPct);
+      }
+    }
   };
   type PendingCaret =
     | { mode: "offset"; blockId: string; offset: number }
@@ -1593,7 +1615,7 @@ function HwpxEditorModalInner({
         setCaretOffset(pEl, target.offset);
       }
     }
-  }, [blocks]);
+  }, [blocks, pageBreakIndices]);
 
   // 위 문단으로 자연스러운 이동 (중간에 그림, 표, 도형, 수식 등의 개체가 있어도 건너뛰어 이전 문단으로 이동)
   const navigateToPrevParagraph = (currentIdx: number, clientX: number) => {
@@ -2046,6 +2068,106 @@ function HwpxEditorModalInner({
   const [pageApplyScope, setPageApplyScope] = useState<string>("문서 전체");
   const [showPageSetupToast, setShowPageSetupToast] = useState(false);
   const [pagePulse, setPagePulse] = useState(false);
+
+  // 자동 페이지 나누기: 블록 실측 높이와 수동 쪽 나누기(pageBreak)를 기준으로 페이지별 블록 인덱스 계산
+  const recomputePagination = useCallback(() => {
+    if (blocks.length === 0) {
+      setPageBreakIndices((prev) => (prev.length === 1 && prev[0] === 0 ? prev : [0]));
+      return;
+    }
+    const root = canvasRef.current;
+    if (!root) return;
+
+    const pagePxH = Math.round(pageHeightMm * 3.78);
+    const padTop = Math.max(16, Math.round(pageMarginTopMm * 3.78));
+    const padBottom = Math.max(16, Math.round(pageMarginBottomMm * 3.78));
+    const usableH = Math.max(160, pagePxH - padTop - padBottom);
+
+    const breaks: number[] = [0];
+    let accH = 0;
+
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const el = root.querySelector<HTMLElement>(`[data-block-idx="${i}"]`);
+      const style = el ? window.getComputedStyle(el) : null;
+      const mb = style ? parseFloat(style.marginBottom || "0") || 0 : 0;
+      const mt = style ? parseFloat(style.marginTop || "0") || 0 : 0;
+      const h = el ? Math.max(16, el.offsetHeight + mt + mb) : 28;
+
+      if (i === 0) {
+        accH = h;
+        continue;
+      }
+
+      const forced = b.type === "paragraph" && Boolean(b.pageBreak);
+      if (forced || (accH + h > usableH && i > breaks[breaks.length - 1])) {
+        breaks.push(i);
+        accH = h;
+      } else {
+        accH += h;
+      }
+    }
+
+    setPageBreakIndices((prev) => {
+      if (prev.length === breaks.length && prev.every((v, idx) => v === breaks[idx])) {
+        return prev;
+      }
+      // 블록이 다음/이전 페이지로 이동할 때 포커스 및 커서 오프셋 보존
+      const activeEl = document.activeElement as HTMLElement | null;
+      const activeBlockEl = activeEl?.closest("[data-block-id]") as HTMLElement | null;
+      if (activeBlockEl && !pendingCaretRef.current) {
+        const activeBlockId = activeBlockEl.getAttribute("data-block-id");
+        const pEl = activeBlockEl.querySelector("p");
+        if (activeBlockId && pEl && (activeEl === pEl || pEl.contains(activeEl))) {
+          pendingCaretRef.current = {
+            mode: "offset",
+            blockId: activeBlockId,
+            offset: getCaretOffset(pEl),
+          };
+        }
+      }
+      return breaks;
+    });
+  }, [blocks, pageHeightMm, pageMarginTopMm, pageMarginBottomMm]);
+
+  useLayoutEffect(() => {
+    recomputePagination();
+  }, [recomputePagination]);
+
+  useEffect(() => {
+    const root = canvasRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    let rafId = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => recomputePagination());
+    });
+    ro.observe(root);
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
+  }, [recomputePagination]);
+
+  const pages = useMemo(() => {
+    if (blocks.length === 0) return [[]];
+    const validBreaks = pageBreakIndices.filter((idx) => idx >= 0 && idx < blocks.length);
+    if (validBreaks.length === 0 || validBreaks[0] !== 0) {
+      validBreaks.unshift(0);
+    }
+    return validBreaks.map((start, pIdx) => {
+      const end = validBreaks[pIdx + 1] ?? blocks.length;
+      const indices: number[] = [];
+      for (let i = start; i < end; i++) indices.push(i);
+      return indices;
+    });
+  }, [blocks.length, pageBreakIndices]);
+
+  const totalPages = Math.max(1, pages.length);
+  const currentPageNum = useMemo(() => {
+    const found = pages.findIndex((indices) => indices.includes(selectedIdx));
+    return found >= 0 ? found + 1 : 1;
+  }, [pages, selectedIdx]);
 
   // 편집 용지 대화상자 임시(Draft) 편집 상태
   const [draftPageSizeType, setDraftPageSizeType] = useState<string>("A4");
@@ -4665,7 +4787,7 @@ function HwpxEditorModalInner({
                                 key={opt.count}
                                 type="button"
                                 onClick={() => {
-                                  setPageViewColumns(opt.count);
+                                  applyPageViewColumns(opt.count);
                                   setOpenDropdown(null);
                                   setHoverSubmenu(null);
                                 }}
@@ -8697,80 +8819,96 @@ function HwpxEditorModalInner({
         >
           <div
             ref={canvasRef}
-            onClick={(e) => {
-              if (e.target === canvasRef.current && blocks.length > 0) {
-                const lastIdx = blocks.length - 1;
-                setSelectedIdx(lastIdx);
-                const lastBlock = blocks[lastIdx];
-                if (lastBlock.type === "paragraph") {
-                  pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
-                }
-              }
-            }}
-            className={`mx-auto h-auto my-6 bg-white text-neutral-900 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
-              showPageOutline ? "shadow-xl rounded-xs border border-neutral-300" : "border border-transparent"
-            } ${
-              showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
-            } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
             style={{
-              fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-              boxShadow: showPageOutline ? "0 4px 24px rgba(0,0,0,0.14)" : "none",
               transform: `scale(${zoomPercent / 100})`,
               transformOrigin: "top center",
-              width: `${Math.round(pageWidthMm * 3.78)}px`,
-              minHeight: `${Math.round(pageHeightMm * 3.78)}px`,
-              paddingTop: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-              paddingBottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-              paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-              paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
             }}
+            className={`mx-auto my-6 min-w-max transition-all duration-300 ${
+              pageViewColumns === 3
+                ? "grid grid-cols-[repeat(3,max-content)] gap-6 justify-items-center"
+                : pageViewColumns === 2
+                  ? "grid grid-cols-[repeat(2,max-content)] gap-6 justify-items-center"
+                  : "flex flex-col items-center gap-6"
+            }`}
           >
-            {/* 상하좌우 여백 모서리 꺾쇠 표시선 (한컴독스 자름표 / 여백 경계선) */}
-            {showPageOutline && (
-              <>
-                <div
-                  className="absolute pointer-events-none border-t border-l border-neutral-400/80"
-                  style={{
-                    top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                    left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                    width: "12px",
-                    height: "12px",
-                  }}
-                />
-                <div
-                  className="absolute pointer-events-none border-t border-r border-neutral-400/80"
-                  style={{
-                    top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                    right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                    width: "12px",
-                    height: "12px",
-                  }}
-                />
-                <div
-                  className="absolute pointer-events-none border-b border-l border-neutral-400/80"
-                  style={{
-                    bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                    left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                    width: "12px",
-                    height: "12px",
-                  }}
-                />
-                <div
-                  className="absolute pointer-events-none border-b border-r border-neutral-400/80"
-                  style={{
-                    bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                    right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                    width: "12px",
-                    height: "12px",
-                  }}
-                />
-              </>
-            )}
-            {(() => {
-              let pageCounter = 1;
-              return blocks.map((block, idx) => {
-                const isSelected = selectedIdx === idx;
-                const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
+            {pages.map((pageIndices, pageIdx) => (
+              <div
+                key={`page-${pageIdx}`}
+                data-page-idx={pageIdx}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget && pageIndices.length > 0) {
+                    const lastIdx = pageIndices[pageIndices.length - 1];
+                    setSelectedIdx(lastIdx);
+                    const lastBlock = blocks[lastIdx];
+                    if (lastBlock?.type === "paragraph") {
+                      pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
+                    }
+                  }
+                }}
+                className={`h-auto bg-white text-neutral-900 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
+                  showPageOutline ? "shadow-xl rounded-xs border border-neutral-300" : "border border-transparent"
+                } ${
+                  showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
+                } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
+                style={{
+                  fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
+                  boxShadow: showPageOutline ? "0 4px 24px rgba(0,0,0,0.14)" : "none",
+                  width: `${Math.round(pageWidthMm * 3.78)}px`,
+                  minHeight: `${Math.round(pageHeightMm * 3.78)}px`,
+                  paddingTop: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                  paddingBottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                  paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                  paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                }}
+              >
+                {/* 상하좌우 여백 모서리 꺾쇠 표시선 (한컴독스 자름표 / 여백 경계선) */}
+                {showPageOutline && (
+                  <>
+                    <div
+                      className="absolute pointer-events-none border-t border-l border-neutral-400/80"
+                      style={{
+                        top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                        left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                        width: "12px",
+                        height: "12px",
+                      }}
+                    />
+                    <div
+                      className="absolute pointer-events-none border-t border-r border-neutral-400/80"
+                      style={{
+                        top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                        right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                        width: "12px",
+                        height: "12px",
+                      }}
+                    />
+                    <div
+                      className="absolute pointer-events-none border-b border-l border-neutral-400/80"
+                      style={{
+                        bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                        left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                        width: "12px",
+                        height: "12px",
+                      }}
+                    />
+                    <div
+                      className="absolute pointer-events-none border-b border-r border-neutral-400/80"
+                      style={{
+                        bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                        right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                        width: "12px",
+                        height: "12px",
+                      }}
+                    />
+                  </>
+                )}
+                {(() => {
+                  let pageCounter = pageIdx;
+                  return pageIndices.map((idx) => {
+                    const block = blocks[idx];
+                    if (!block) return null;
+                    const isSelected = selectedIdx === idx;
+                    const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
                 const handleBlockDragOver = (e: React.DragEvent) => {
                   const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
@@ -9802,7 +9940,8 @@ function HwpxEditorModalInner({
                 return null;
               });
             })()}
-
+              </div>
+            ))}
           </div>
         </main>
 
@@ -9811,7 +9950,7 @@ function HwpxEditorModalInner({
           {/* 좌측 정보: 쪽, 구역, 줄/칸 */}
           <div className="flex items-center gap-3">
             <span className="hover:text-blue-600 cursor-pointer" title="클릭하여 원하는 쪽으로 이동" onClick={() => setShowGotoModal(true)}>
-              1/1 쪽
+              {currentPageNum}/{totalPages} 쪽
             </span>
             <span className="text-neutral-300">|</span>
             <span>1 구역</span>
@@ -9839,7 +9978,7 @@ function HwpxEditorModalInner({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => { setZoomFitMode("custom"); setZoomPercent((prev) => Math.max(50, prev - 10)); }}
+                onClick={() => { setZoomFitMode("custom"); setZoomPercent((prev) => Math.max(30, prev - 10)); }}
                 className="w-4 h-4 flex items-center justify-center rounded-xs hover:bg-neutral-200 text-neutral-700 cursor-pointer"
                 title="축소"
               >
@@ -9847,7 +9986,7 @@ function HwpxEditorModalInner({
               </button>
               <input
                 type="range"
-                min="50"
+                min="30"
                 max="300"
                 step="5"
                 value={zoomPercent}
