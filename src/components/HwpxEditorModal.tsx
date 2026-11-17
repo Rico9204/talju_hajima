@@ -1313,6 +1313,13 @@ function HwpxEditorModalInner({
   const [docTitle, setDocTitle] = useState(file.name);
   const [showControlMarks, setShowControlMarks] = useState(false);
   const [showRuler, setShowRuler] = useState(true);
+  const [showPageOutline, setShowPageOutline] = useState(true);
+  const [showTransparentLines, setShowTransparentLines] = useState(true);
+  const [pageViewColumns, setPageViewColumns] = useState<1 | 2 | 3>(1);
+  const [zoomFitMode, setZoomFitMode] = useState<"custom" | "page" | "width">("custom");
+  const [showFormatToolbar, setShowFormatToolbar] = useState(true);
+  const [showAllMemos, setShowAllMemos] = useState(true);
+  const [showMemoGuides, setShowMemoGuides] = useState(true);
   const [showGotoModal, setShowGotoModal] = useState(false);
   const [showClearMarksModal, setShowClearMarksModal] = useState(false);
   const [selectedControlMarks, setSelectedControlMarks] = useState<string[]>([]);
@@ -1510,6 +1517,24 @@ function HwpxEditorModalInner({
   };
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasScrollRef = useRef<HTMLElement>(null);
+  const applyZoomFit = (mode: "page" | "width") => {
+    const container = canvasScrollRef.current;
+    const pagePxW = Math.max(200, Math.round(pageWidthMm * 3.78));
+    const pagePxH = Math.max(200, Math.round(pageHeightMm * 3.78));
+    if (!container) {
+      setZoomFitMode(mode);
+      setZoomPercent(mode === "page" ? 75 : 100);
+      return;
+    }
+    const availW = Math.max(240, container.clientWidth - 64);
+    const availH = Math.max(240, container.clientHeight - 48);
+    const ratioW = availW / pagePxW;
+    const ratio = mode === "width" ? ratioW : Math.min(ratioW, availH / pagePxH);
+    const pct = Math.max(50, Math.min(300, Math.round(ratio * 100)));
+    setZoomFitMode(mode);
+    setZoomPercent(pct);
+  };
   type PendingCaret =
     | { mode: "offset"; blockId: string; offset: number }
     | { mode: "point"; blockId: string; x: number; toEnd: boolean };
@@ -4540,83 +4565,349 @@ function HwpxEditorModalInner({
                   {isDropdownOpen && menu.id === "view" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
-                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[230px] text-[12px] text-neutral-800 animate-in fade-in duration-100"
                     >
+                      {/* 1. 확대/축소 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("view-zoom")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu(hoverSubmenu === "view-zoom" ? null : "view-zoom")}
+                          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <SearchIcon className="w-3.5 h-3.5 text-neutral-600" />
+                            <span>확대/축소</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </button>
+                        {hoverSubmenu === "view-zoom" && (
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[150px] text-[12px] text-neutral-800">
+                            {[50, 75, 100, 125, 150, 200, 300].map((pct) => (
+                              <button
+                                key={pct}
+                                type="button"
+                                onClick={() => {
+                                  setZoomFitMode("custom");
+                                  setZoomPercent(pct);
+                                  setOpenDropdown(null);
+                                  setHoverSubmenu(null);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                              >
+                                <span className="w-4 text-[#d97706] font-bold">
+                                  {zoomFitMode === "custom" && zoomPercent === pct ? "✓" : ""}
+                                </span>
+                                <span>{pct}%</span>
+                              </button>
+                            ))}
+                            <div className="my-1 border-t border-neutral-200" />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                applyZoomFit("page");
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">
+                                {zoomFitMode === "page" ? "✓" : ""}
+                              </span>
+                              <span>쪽 맞춤</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                applyZoomFit("width");
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">
+                                {zoomFitMode === "width" ? "✓" : ""}
+                              </span>
+                              <span>폭 맞춤</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. 쪽 모양 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("view-page-shape")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu(hoverSubmenu === "view-page-shape" ? null : "view-page-shape")}
+                          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-3.5 inline-block" />
+                            <span>쪽 모양</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </button>
+                        {hoverSubmenu === "view-page-shape" && (
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800">
+                            {([
+                              { count: 1 as const, label: "한 쪽" },
+                              { count: 2 as const, label: "두 쪽" },
+                              { count: 3 as const, label: "세 쪽" },
+                            ]).map((opt) => (
+                              <button
+                                key={opt.count}
+                                type="button"
+                                onClick={() => {
+                                  setPageViewColumns(opt.count);
+                                  setOpenDropdown(null);
+                                  setHoverSubmenu(null);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                              >
+                                <span className="w-4 text-[#d97706] font-bold">
+                                  {pageViewColumns === opt.count ? "✓" : ""}
+                                </span>
+                                <span>{opt.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 3. 쪽 윤곽 */}
                       <button
                         type="button"
-                        onClick={() => { setShowParaMarks(!showParaMarks); setOpenDropdown(null); }}
+                        onClick={() => { setShowPageOutline(!showPageOutline); setOpenDropdown(null); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 text-blue-600 font-bold">{showParaMarks ? "✓" : ""}</span>
-                          <span>문단 부호 (↵)</span>
+                        <span className="flex items-center gap-2.5">
+                          <span className="w-3.5 text-[#d97706] font-bold text-center">{showPageOutline ? "✓" : ""}</span>
+                          <span>쪽 윤곽</span>
                         </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+G+L</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowControlMarks(!showControlMarks); setOpenDropdown(null); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      {/* 4. 표시/숨기기 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("view-show-hide")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 text-blue-600 font-bold">{showControlMarks ? "✓" : ""}</span>
-                          <span>조판 부호 ([##])</span>
-                        </span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu(hoverSubmenu === "view-show-hide" ? null : "view-show-hide")}
+                          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-3.5 inline-block" />
+                            <span>표시/숨기기</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </button>
+                        {hoverSubmenu === "view-show-hide" && (
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[200px] text-[12px] text-neutral-800">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowControlMarks(!showControlMarks);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="w-4 text-[#d97706] font-bold">{showControlMarks ? "✓" : ""}</span>
+                                <span>조판 부호</span>
+                              </span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+G+C</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowParaMarks(!showParaMarks);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="w-4 text-[#d97706] font-bold">{showParaMarks ? "✓" : ""}</span>
+                                <span>문단 부호</span>
+                              </span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Alt+G+T</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowTransparentLines(!showTransparentLines);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="w-4 text-[#d97706] font-bold">{showTransparentLines ? "✓" : ""}</span>
+                                <span>투명 선</span>
+                              </span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 5. 격자 보기 */}
                       <button
                         type="button"
                         onClick={() => { setShowGrid(!showGrid); setOpenDropdown(null); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 text-blue-600 font-bold">{showGrid ? "✓" : ""}</span>
-                          <span>모눈 격자 보기</span>
+                        <span className="flex items-center gap-2.5">
+                          <GridIcon className={`w-3.5 h-3.5 ${showGrid ? "text-[#0066cc]" : "text-neutral-600"}`} />
+                          <span>격자 보기</span>
                         </span>
+                        {showGrid && <span className="text-[#d97706] font-bold text-[11px]">✓</span>}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowLineNumbers(!showLineNumbers); setOpenDropdown(null); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 text-blue-600 font-bold">{showLineNumbers ? "✓" : ""}</span>
-                          <span>줄 번호 표시</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowRuler(!showRuler); setOpenDropdown(null); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="w-4 text-blue-600 font-bold">{showRuler ? "✓" : ""}</span>
-                          <span>가로 눈금자 보기</span>
-                        </span>
-                      </button>
+
                       <div className="my-1 border-t border-neutral-200" />
-                      <button
-                        type="button"
-                        onClick={() => { setZoomPercent((z) => Math.min(200, z + 10)); setOpenDropdown(null); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+
+                      {/* 6. 도구 상자 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("view-toolbars")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
                       >
-                        <span>화면 확대 (+10%)</span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl++</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setZoomPercent((z) => Math.max(50, z - 10)); setOpenDropdown(null); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu(hoverSubmenu === "view-toolbars" ? null : "view-toolbars")}
+                          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-3.5 inline-block" />
+                            <span>도구 상자</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </button>
+                        {hoverSubmenu === "view-toolbars" && (
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRibbonCollapsed(!ribbonCollapsed);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">{!ribbonCollapsed ? "✓" : ""}</span>
+                              <span>기본</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowFormatToolbar(!showFormatToolbar);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">{showFormatToolbar ? "✓" : ""}</span>
+                              <span>서식</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 7. 문서 창 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("view-doc-window")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
                       >
-                        <span>화면 축소 (-10%)</span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+-</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setZoomPercent(100); setOpenDropdown(null); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu(hoverSubmenu === "view-doc-window" ? null : "view-doc-window")}
+                          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-3.5 inline-block" />
+                            <span>문서 창</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </button>
+                        {hoverSubmenu === "view-doc-window" && (
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowRuler(!showRuler);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">{showRuler ? "✓" : ""}</span>
+                              <span>눈금자</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      {/* 8. 메모 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("view-memo")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
                       >
-                        <span>원래 크기 (100%)</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu(hoverSubmenu === "view-memo" ? null : "view-memo")}
+                          className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <CommentIcon className="w-3.5 h-3.5 text-amber-500" />
+                            <span>메모</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </button>
+                        {hoverSubmenu === "view-memo" && (
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[165px] text-[12px] text-neutral-800">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowAllMemos(!showAllMemos);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">{showAllMemos ? "✓" : ""}</span>
+                              <span>모든 메모 표시</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowMemoGuides(!showMemoGuides);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#d97706] font-bold">{showMemoGuides ? "✓" : ""}</span>
+                              <span>메모 안내선 표시</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -5386,7 +5677,8 @@ function HwpxEditorModalInner({
           )}
 
           {/* 4열: 한컴 표준 빠른 서식 툴바 (2단 툴바) */}
-          <div className="flex items-center gap-1 px-3 py-1 bg-white border-b border-neutral-300 text-xs overflow-x-auto whitespace-nowrap select-none">
+          {showFormatToolbar && (
+            <div className="flex items-center gap-1 px-3 py-1 bg-white border-b border-neutral-300 text-xs overflow-x-auto whitespace-nowrap select-none">
             {/* 실행 취소 / 다시 실행 */}
             <button
               type="button"
@@ -5759,7 +6051,8 @@ function HwpxEditorModalInner({
                 <TrashIcon className="w-3.5 h-3.5" />
               </button>
             </div>
-          </div>
+            </div>
+          )}
 
           {/* 5열: 한컴독스 표준 가로 눈금자 (Ruler, Image 4 매칭) */}
           {showRuler && (
@@ -8389,6 +8682,7 @@ function HwpxEditorModalInner({
 
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
         <main
+          ref={canvasScrollRef}
           className="flex-1 overflow-auto p-4 sm:p-8 bg-[#edf0f5]"
           onClick={(e) => {
             if (e.target === e.currentTarget && blocks.length > 0) {
@@ -8413,12 +8707,14 @@ function HwpxEditorModalInner({
                 }
               }
             }}
-            className={`mx-auto h-auto my-6 bg-white text-neutral-900 shadow-xl rounded-xs border border-neutral-300 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
+            className={`mx-auto h-auto my-6 bg-white text-neutral-900 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
+              showPageOutline ? "shadow-xl rounded-xs border border-neutral-300" : "border border-transparent"
+            } ${
               showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
             } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
             style={{
               fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-              boxShadow: "0 4px 24px rgba(0,0,0,0.14)",
+              boxShadow: showPageOutline ? "0 4px 24px rgba(0,0,0,0.14)" : "none",
               transform: `scale(${zoomPercent / 100})`,
               transformOrigin: "top center",
               width: `${Math.round(pageWidthMm * 3.78)}px`,
@@ -8430,42 +8726,46 @@ function HwpxEditorModalInner({
             }}
           >
             {/* 상하좌우 여백 모서리 꺾쇠 표시선 (한컴독스 자름표 / 여백 경계선) */}
-            <div
-              className="absolute pointer-events-none border-t border-l border-neutral-400/80"
-              style={{
-                top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                width: "12px",
-                height: "12px",
-              }}
-            />
-            <div
-              className="absolute pointer-events-none border-t border-r border-neutral-400/80"
-              style={{
-                top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                width: "12px",
-                height: "12px",
-              }}
-            />
-            <div
-              className="absolute pointer-events-none border-b border-l border-neutral-400/80"
-              style={{
-                bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                width: "12px",
-                height: "12px",
-              }}
-            />
-            <div
-              className="absolute pointer-events-none border-b border-r border-neutral-400/80"
-              style={{
-                bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                width: "12px",
-                height: "12px",
-              }}
-            />
+            {showPageOutline && (
+              <>
+                <div
+                  className="absolute pointer-events-none border-t border-l border-neutral-400/80"
+                  style={{
+                    top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                    left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                    width: "12px",
+                    height: "12px",
+                  }}
+                />
+                <div
+                  className="absolute pointer-events-none border-t border-r border-neutral-400/80"
+                  style={{
+                    top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                    right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                    width: "12px",
+                    height: "12px",
+                  }}
+                />
+                <div
+                  className="absolute pointer-events-none border-b border-l border-neutral-400/80"
+                  style={{
+                    bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                    left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                    width: "12px",
+                    height: "12px",
+                  }}
+                />
+                <div
+                  className="absolute pointer-events-none border-b border-r border-neutral-400/80"
+                  style={{
+                    bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                    right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                    width: "12px",
+                    height: "12px",
+                  }}
+                />
+              </>
+            )}
             {(() => {
               let pageCounter = 1;
               return blocks.map((block, idx) => {
@@ -9539,7 +9839,7 @@ function HwpxEditorModalInner({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setZoomPercent((prev) => Math.max(50, prev - 10))}
+                onClick={() => { setZoomFitMode("custom"); setZoomPercent((prev) => Math.max(50, prev - 10)); }}
                 className="w-4 h-4 flex items-center justify-center rounded-xs hover:bg-neutral-200 text-neutral-700 cursor-pointer"
                 title="축소"
               >
@@ -9548,15 +9848,15 @@ function HwpxEditorModalInner({
               <input
                 type="range"
                 min="50"
-                max="200"
+                max="300"
                 step="5"
                 value={zoomPercent}
-                onChange={(e) => setZoomPercent(Number(e.target.value))}
+                onChange={(e) => { setZoomFitMode("custom"); setZoomPercent(Number(e.target.value)); }}
                 className="w-16 h-1 bg-neutral-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
               />
               <button
                 type="button"
-                onClick={() => setZoomPercent((prev) => Math.min(200, prev + 10))}
+                onClick={() => { setZoomFitMode("custom"); setZoomPercent((prev) => Math.min(300, prev + 10)); }}
                 className="w-4 h-4 flex items-center justify-center rounded-xs hover:bg-neutral-200 text-neutral-700 cursor-pointer"
                 title="확대"
               >
