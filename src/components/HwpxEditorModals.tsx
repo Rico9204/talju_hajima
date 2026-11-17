@@ -13,7 +13,7 @@ import {
   SplitCellIcon,
 } from "./HwpxIcons";
 
-// 1. 모양 복사 모달 (Alt+C)
+// 1. 모양 복사 모달 (Alt+C) - 한컴독스 표준 레이아웃 100% 일치
 export function FormatCopyModal({
   isOpen,
   onClose,
@@ -23,72 +23,96 @@ export function FormatCopyModal({
   onClose: () => void;
   onCopy: (mode: "char" | "para" | "both") => void;
 }) {
-  const [copyMode, setCopyMode] = useState<"char" | "para" | "both">("both");
+  const [copyMode, setCopyMode] = useState<"char" | "para" | "both">("char");
+  const [cellAttr, setCellAttr] = useState(false);
+  const [cellBorder, setCellBorder] = useState(false);
+  const [cellBg, setCellBg] = useState(false);
+  const [tableTarget, setTableTarget] = useState<"both" | "cellOnly">("both");
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-      <div className="w-80 bg-white rounded-xl shadow-2xl border border-neutral-300 p-4 text-neutral-800 flex flex-col gap-3">
-        <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-          <span className="flex items-center gap-1.5">
-            <FormatPainterIcon className="w-4 h-4 text-[#0066cc]" />
-            <span>모양 복사 (Alt+C)</span>
-          </span>
-          <button type="button" onClick={onClose} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-        </h4>
-        <p className="text-[11px] text-neutral-600">
-          커서 위치의 서식을 복사합니다. 원하는 복사 대상을 선택하세요.
-        </p>
-        <div className="flex flex-col gap-2 text-xs bg-neutral-50 p-2.5 rounded-lg border border-neutral-200">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="copyMode"
-              checked={copyMode === "char"}
-              onChange={() => setCopyMode("char")}
-              className="accent-[#0066cc]"
-            />
-            <span>글자 모양만 복사 (글꼴, 크기, 색상, 속성)</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="copyMode"
-              checked={copyMode === "para"}
-              onChange={() => setCopyMode("para")}
-              className="accent-[#0066cc]"
-            />
-            <span>문단 모양만 복사 (정렬, 줄간격, 여백)</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="copyMode"
-              checked={copyMode === "both"}
-              onChange={() => setCopyMode("both")}
-              className="accent-[#0066cc]"
-            />
-            <span className="font-bold text-[#0066cc]">글자 및 문단 모양 모두 복사 (추천)</span>
-          </label>
+    <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-[440px] bg-white rounded-xs shadow-2xl border border-[#4a89dc] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+      >
+        <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-bold text-neutral-900 tracking-tight">모양 복사</span>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer">✕</button>
         </div>
-        <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1 rounded text-xs border border-neutral-300 hover:bg-neutral-100 text-neutral-700 font-medium"
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onCopy(copyMode);
-              onClose();
-            }}
-            className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
-          >
-            복사
-          </button>
+
+        <div className="p-4 flex items-start gap-3 bg-[#f8fafc]">
+          <div className="flex-1 border border-[#c8d3e2] rounded-xs p-3.5 bg-white shadow-2xs flex flex-col gap-3 text-[12px]">
+            <div className="flex flex-col gap-1.5">
+              <span className="font-bold text-[#1e4fa8]">본문 모양 복사</span>
+              <div className="flex items-center gap-6 pl-1">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="copyMode" checked={copyMode === "char"} onChange={() => setCopyMode("char")} className="accent-[#0066cc]" />
+                  <span>글자 모양</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="copyMode" checked={copyMode === "para"} onChange={() => setCopyMode("para")} className="accent-[#0066cc]" />
+                  <span>문단 모양</span>
+                </label>
+              </div>
+              <label className="flex items-center gap-1.5 pl-1 cursor-pointer">
+                <input type="radio" name="copyMode" checked={copyMode === "both"} onChange={() => setCopyMode("both")} className="accent-[#0066cc]" />
+                <span>글자 모양과 문단 모양 둘 다 복사</span>
+              </label>
+            </div>
+
+            <div className="flex flex-col gap-1.5 pt-1 border-t border-neutral-100">
+              <span className="font-bold text-[#1e4fa8]">셀 모양 복사</span>
+              <div className="flex items-center gap-4 pl-1 text-neutral-600">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={cellAttr} onChange={(e) => setCellAttr(e.target.checked)} className="accent-[#0066cc]" />
+                  <span>셀 속성</span>
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={cellBorder} onChange={(e) => setCellBorder(e.target.checked)} className="accent-[#0066cc]" />
+                  <span>셀 테두리</span>
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={cellBg} onChange={(e) => setCellBg(e.target.checked)} className="accent-[#0066cc]" />
+                  <span>셀 배경</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 pt-1 border-t border-neutral-100">
+              <span className="font-bold text-[#1e4fa8]">표에서 적용 대상</span>
+              <div className="flex flex-col gap-1 pl-1 text-neutral-600">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="tableTarget" checked={tableTarget === "both"} onChange={() => setTableTarget("both")} className="accent-[#0066cc]" />
+                  <span>본문 모양과 셀 모양 둘 다</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="tableTarget" checked={tableTarget === "cellOnly"} onChange={() => setTableTarget("cellOnly")} className="accent-[#0066cc]" />
+                  <span>셀 모양만</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="w-20 shrink-0 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onCopy(copyMode);
+                onClose();
+              }}
+              className="w-full h-8 border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer shadow-2xs"
+            >
+              복사
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer shadow-2xs"
+            >
+              취소
+            </button>
+          </div>
         </div>
       </div>
     </div>

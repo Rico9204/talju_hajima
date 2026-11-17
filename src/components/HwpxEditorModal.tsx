@@ -1430,9 +1430,10 @@ function HwpxEditorModalInner({
   };
 
   // 특정 쪽/문단 찾아가기 (Alt+G)
-  const handleGoto = (pageNum: number) => {
+  const handleGoto = (num: number) => {
     setShowGotoModal(false);
-    const targetIdx = Math.min(blocks.length - 1, Math.max(0, (pageNum - 1) * 3));
+    const rawIdx = gotoType === "line" ? num - 1 : (num - 1) * 22;
+    const targetIdx = Math.min(blocks.length - 1, Math.max(0, rawIdx));
     setSelectedIdx(targetIdx);
     const targetEl = document.querySelector(`[data-block-idx="${targetIdx}"]`);
     if (targetEl) {
@@ -1926,6 +1927,8 @@ function HwpxEditorModalInner({
   // 모달 상태들
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [searchDirection, setSearchDirection] = useState<"down" | "up" | "all">("down");
+  const [gotoType, setGotoType] = useState<"page" | "section" | "line" | "style" | "control" | "bookmark">("page");
   const [showReplaceModal, setShowReplaceModal] = useState(false);
   const [replaceKeyword, setReplaceKeyword] = useState("");
   const [replaceMsg, setReplaceMsg] = useState("");
@@ -3551,14 +3554,60 @@ function HwpxEditorModalInner({
 
   // 단어 찾기
   const handleSearchNext = () => {
-    if (!searchKeyword.trim()) return;
-    const foundIdx = blocks.findIndex((b, i) => i > selectedIdx && (b.type === "paragraph" && b.text.includes(searchKeyword)));
+    const kw = searchKeyword.trim();
+    if (!kw) return;
+    let foundIdx = -1;
+    if (searchDirection === "up") {
+      for (let i = selectedIdx - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (b.type === "paragraph" && b.text.includes(kw)) { foundIdx = i; break; }
+      }
+      if (foundIdx === -1) {
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i];
+          if (b.type === "paragraph" && b.text.includes(kw)) { foundIdx = i; break; }
+        }
+      }
+    } else {
+      foundIdx = blocks.findIndex((b, i) => i > selectedIdx && b.type === "paragraph" && b.text.includes(kw));
+      if (foundIdx === -1) {
+        foundIdx = blocks.findIndex((b) => b.type === "paragraph" && b.text.includes(kw));
+      }
+    }
     if (foundIdx !== -1) {
       setSelectedIdx(foundIdx);
+      const el = document.querySelector(`[data-block-idx="${foundIdx}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
-      const firstFound = blocks.findIndex((b) => b.type === "paragraph" && b.text.includes(searchKeyword));
-      if (firstFound !== -1) setSelectedIdx(firstFound);
+      showToast(`'${kw}'을(를) 찾을 수 없습니다.`);
     }
+  };
+
+  const handleReplaceOne = () => {
+    const kw = searchKeyword.trim();
+    if (!kw) {
+      setReplaceMsg("찾을 내용을 입력해 주세요.");
+      return;
+    }
+    const cur = blocks[selectedIdx];
+    if (cur && cur.type === "paragraph" && cur.text.includes(kw)) {
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(selectedIdx);
+      const yText = yBlock?.get("text");
+      if (yText instanceof Y.Text) {
+        doc.transact(() => {
+          const idx = cur.text.indexOf(kw);
+          if (idx !== -1) {
+            yText.delete(idx, kw.length);
+            yText.insert(idx, replaceKeyword);
+          }
+        });
+        setReplaceMsg("1건을 바꾸었습니다.");
+        handleSearchNext();
+        return;
+      }
+    }
+    handleSearchNext();
   };
 
   // ── 텍스트 드래그(선택 영역) 기억 및 부분 서식 적용 ──
@@ -4240,12 +4289,11 @@ function HwpxEditorModalInner({
                     </div>
                   )}
 
-                  {/* [편집] 드롭다운 메뉴 (Images 2, 3) */}
+                  {/* [편집] 드롭다운 메뉴 (Hancom Docs 100% 일치) */}
                   {isDropdownOpen && menu.id === "edit" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[240px] text-xs text-neutral-800 animate-in fade-in duration-100"
-                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                      className="absolute left-0 top-full mt-0 z-60 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[260px] text-[12px] text-neutral-800 animate-in fade-in duration-100"
                     >
                       <button
                         type="button"
@@ -4277,7 +4325,7 @@ function HwpxEditorModalInner({
 
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); document.execCommand("cut"); }}
+                        onClick={() => { setOpenDropdown(null); handleCut(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
@@ -4289,7 +4337,7 @@ function HwpxEditorModalInner({
 
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); document.execCommand("copy"); }}
+                        onClick={() => { setOpenDropdown(null); handleCopy(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
@@ -4301,7 +4349,7 @@ function HwpxEditorModalInner({
 
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); document.execCommand("paste"); }}
+                        onClick={() => { setOpenDropdown(null); handlePasteFormat(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
@@ -6158,33 +6206,66 @@ function HwpxEditorModalInner({
           );
         })()}
 
-        {/* 단어 찾기 모달 */}
+        {/* 한컴독스 표준 찾기 모달 (Ctrl+F) */}
         {showSearchModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <SearchIcon className="w-4 h-4 text-[#0066cc]" />
-                <span>문서 내 단어 찾기</span>
-              </span>
-              <button type="button" onClick={() => setShowSearchModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-            </h4>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                autoFocus
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearchNext()}
-                placeholder="찾을 단어를 입력하세요..."
-                className="flex-1 bg-neutral-50 border border-neutral-300 rounded px-2 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
-              />
-              <button
-                type="button"
-                onClick={handleSearchNext}
-                className="px-3 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] shrink-0"
-              >
-                다음 찾기
-              </button>
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/25" onClick={() => setShowSearchModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-[440px] bg-white rounded-xs shadow-2xl border border-[#4a89dc] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+            >
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight">찾기</span>
+                <button type="button" onClick={() => setShowSearchModal(false)} className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer">✕</button>
+              </div>
+              <div className="p-4 flex items-start gap-3 bg-[#f8fafc] text-[12px]">
+                <div className="flex-1 border border-[#c8d3e2] rounded-xs p-3.5 bg-white shadow-2xs flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-neutral-800">찾을 내용</span>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={searchKeyword}
+                      onChange={(e) => setSearchKeyword(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSearchNext()}
+                      className="flex-1 bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] text-neutral-900 outline-none focus:border-[#1e4fa8]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="font-bold text-[#1e4fa8]">찾을 방향</span>
+                    <div className="flex items-center gap-4 pl-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="findDir" checked={searchDirection === "down"} onChange={() => setSearchDirection("down")} className="accent-[#0066cc]" />
+                        <span>아래로</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="findDir" checked={searchDirection === "up"} onChange={() => setSearchDirection("up")} className="accent-[#0066cc]" />
+                        <span>위로</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="findDir" checked={searchDirection === "all"} onChange={() => setSearchDirection("all")} className="accent-[#0066cc]" />
+                        <span>문서 전체</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <div className="w-22 shrink-0 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={!searchKeyword.trim()}
+                    onClick={handleSearchNext}
+                    className="w-full h-8 border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer disabled:opacity-40 shadow-2xs"
+                  >
+                    다음 찾기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSearchModal(false)}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer shadow-2xs"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -6523,59 +6604,95 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* 찾아 바꾸기 모달 */}
+        {/* 한컴독스 표준 찾아 바꾸기 모달 (Ctrl+H) */}
         {showReplaceModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-88 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <ReplaceIcon className="w-4 h-4 text-[#0066cc]" />
-                <span>찾아 바꾸기 (Ctrl+H)</span>
-              </span>
-              <button type="button" onClick={() => setShowReplaceModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-            </h4>
-            <div className="flex flex-col gap-2.5 text-xs">
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] text-neutral-600 font-medium">찾을 단어:</span>
-                <input
-                  type="text"
-                  autoFocus
-                  value={searchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  placeholder="바꿀 단어를 입력하세요"
-                  className="bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
-                />
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/25" onClick={() => setShowReplaceModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-[460px] bg-white rounded-xs shadow-2xl border border-[#4a89dc] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+            >
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight">찾아 바꾸기</span>
+                <button type="button" onClick={() => setShowReplaceModal(false)} className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer">✕</button>
               </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] text-neutral-600 font-medium">바꿀 단어:</span>
-                <input
-                  type="text"
-                  value={replaceKeyword}
-                  onChange={(e) => setReplaceKeyword(e.target.value)}
-                  placeholder="새로운 단어로 바꿉니다"
-                  className="bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
-                />
-              </div>
-              {replaceMsg && (
-                <div className="text-[11px] text-[#0066cc] font-medium bg-blue-50 px-2 py-1 rounded">
-                  {replaceMsg}
+              <div className="p-4 flex items-start gap-3 bg-[#f8fafc] text-[12px]">
+                <div className="flex-1 border border-[#c8d3e2] rounded-xs p-3.5 bg-white shadow-2xs flex flex-col gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-neutral-800">찾을 내용</span>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={searchKeyword}
+                      onChange={(e) => setSearchKeyword(e.target.value)}
+                      className="flex-1 bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] text-neutral-900 outline-none focus:border-[#1e4fa8]"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-neutral-800">바꿀 내용</span>
+                    <input
+                      type="text"
+                      value={replaceKeyword}
+                      onChange={(e) => setReplaceKeyword(e.target.value)}
+                      className="flex-1 bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] text-neutral-900 outline-none focus:border-[#1e4fa8]"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 pt-1">
+                    <span className="font-bold text-[#1e4fa8]">찾을 방향</span>
+                    <div className="flex items-center gap-4 pl-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="replaceDir" checked={searchDirection === "down"} onChange={() => setSearchDirection("down")} className="accent-[#0066cc]" />
+                        <span>아래로</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="replaceDir" checked={searchDirection === "up"} onChange={() => setSearchDirection("up")} className="accent-[#0066cc]" />
+                        <span>위로</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="replaceDir" checked={searchDirection === "all"} onChange={() => setSearchDirection("all")} className="accent-[#0066cc]" />
+                        <span>문서 전체</span>
+                      </label>
+                    </div>
+                  </div>
+                  {replaceMsg && (
+                    <div className="text-[11px] text-[#0066cc] font-medium bg-blue-50 px-2 py-1 rounded-xs">
+                      {replaceMsg}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
-              <button
-                type="button"
-                onClick={() => setShowReplaceModal(false)}
-                className="px-3 py-1 rounded text-xs text-neutral-600 hover:bg-neutral-100 cursor-pointer"
-              >
-                닫기
-              </button>
-              <button
-                type="button"
-                onClick={handleReplaceAll}
-                className="px-3 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
-              >
-                모두 바꾸기
-              </button>
+                <div className="w-22 shrink-0 flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!searchKeyword.trim()}
+                    onClick={handleReplaceOne}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer disabled:opacity-40 shadow-2xs"
+                  >
+                    바꾸기
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!searchKeyword.trim()}
+                    onClick={handleSearchNext}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer disabled:opacity-40 shadow-2xs"
+                  >
+                    다음 찾기
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!searchKeyword.trim()}
+                    onClick={handleReplaceAll}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer disabled:opacity-40 shadow-2xs"
+                  >
+                    모두 바꾸기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowReplaceModal(false)}
+                    className="w-full h-8 border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer shadow-2xs"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -9411,52 +9528,91 @@ function HwpxEditorModalInner({
           </div>
         </footer>
 
-        {/* 찾아가기 (Alt+G) 대화상자 */}
+        {/* 한컴독스 표준 찾아가기 (Alt+G) 대화상자 */}
         {showGotoModal && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
-            <div className="bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3.5 w-84 text-neutral-800 animate-in fade-in duration-150">
-              <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-                <span className="flex items-center gap-1.5">
-                  <GotoIcon className="w-4 h-4 text-[#0066cc]" />
-                  <span>찾아가기 (Alt+G)</span>
-                </span>
-                <button type="button" onClick={() => setShowGotoModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-              </h4>
-              <div className="flex flex-col gap-2 text-xs">
-                <label className="text-neutral-600 font-medium">이동할 쪽(페이지) 번호:</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    value={gotoPageInput}
-                    onChange={(e) => setGotoPageInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleGoto(Number(gotoPageInput));
-                      }
-                    }}
-                    autoFocus
-                    className="flex-1 bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
-                    placeholder="1"
-                  />
-                  <span className="text-neutral-500 font-medium">쪽</span>
-                </div>
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowGotoModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-[440px] bg-white rounded-xs shadow-2xl border border-[#4a89dc] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+            >
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight">찾아가기</span>
+                <button type="button" onClick={() => setShowGotoModal(false)} className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer">✕</button>
               </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
-                <button
-                  type="button"
-                  onClick={() => setShowGotoModal(false)}
-                  className="px-3 py-1.5 rounded text-xs border border-neutral-300 hover:bg-neutral-50 cursor-pointer"
-                >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGoto(Number(gotoPageInput))}
-                  className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
-                >
-                  가기
-                </button>
+              <div className="p-4 flex items-start gap-3 bg-[#f8fafc] text-[12px]">
+                <div className="flex-1 border border-[#c8d3e2] rounded-xs p-3.5 bg-white shadow-2xs flex gap-4">
+                  {/* 좌측 대상 선택 라디오 */}
+                  <div className="flex flex-col gap-2 w-24 shrink-0">
+                    {(
+                      [
+                        { id: "page", label: "쪽" },
+                        { id: "section", label: "구역" },
+                        { id: "line", label: "줄" },
+                        { id: "style", label: "스타일" },
+                        { id: "control", label: "조판 부호" },
+                        { id: "bookmark", label: "책갈피" },
+                      ] as const
+                    ).map((opt) => (
+                      <label key={opt.id} className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="gotoType"
+                          checked={gotoType === opt.id}
+                          onChange={() => setGotoType(opt.id)}
+                          className="accent-[#0066cc]"
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {/* 중앙 번호 입력 및 목록 */}
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={gotoPageInput}
+                      onChange={(e) => setGotoPageInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleGoto(Number(gotoPageInput) || 1);
+                      }}
+                      className="w-full bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] outline-none focus:border-[#1e4fa8]"
+                    />
+                    <div className="h-36 border border-[#c5ceda] rounded-xs bg-white overflow-y-auto">
+                      {Array.from(
+                        { length: gotoType === "line" ? Math.max(1, blocks.length) : Math.max(1, Math.ceil(blocks.length / 22)) },
+                        (_, i) => i + 1
+                      ).map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setGotoPageInput(String(num))}
+                          onDoubleClick={() => handleGoto(num)}
+                          className={`w-full text-left px-2 py-1 text-[12px] cursor-pointer ${
+                            Number(gotoPageInput) === num ? "bg-[#dcdcdc] text-neutral-900 font-medium" : "hover:bg-neutral-100"
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="w-20 shrink-0 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleGoto(Number(gotoPageInput) || 1)}
+                    className="w-full h-8 border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer shadow-2xs"
+                  >
+                    가기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowGotoModal(false)}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer shadow-2xs"
+                  >
+                    취소
+                  </button>
+                </div>
               </div>
             </div>
           </div>
