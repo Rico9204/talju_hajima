@@ -1924,27 +1924,33 @@ function HwpxEditorModalInner({
     setShowPageSetupModal(true);
   };
 
+  const HANCOM_PAPER_SIZES: Record<string, { label: string; w: number; h: number }> = {
+    Print132: { label: "프린트 132 [335.3 x 279.4 mm]", w: 335.3, h: 279.4 },
+    Letter: { label: "레터 [215.9 x 279.4 mm]", w: 215.9, h: 279.4 },
+    B5: { label: "B5(46배판) [182 x 257 mm]", w: 182.0, h: 257.0 },
+    B4: { label: "B4(타블로이드판) [257 x 364 mm]", w: 257.0, h: 364.0 },
+    A4: { label: "A4(국배판) [210 x 297 mm]", w: 210.0, h: 297.0 },
+    A3: { label: "A3(국배배판) [297 x 420 mm]", w: 297.0, h: 420.0 },
+    Legal: { label: "리갈 [215.9 x 355.6 mm]", w: 215.9, h: 355.6 },
+    A6: { label: "A6(문고판) [105 x 148 mm]", w: 105.0, h: 148.0 },
+    A5: { label: "A5(국판) [148 x 210 mm]", w: 148.0, h: 210.0 },
+    ShinGuk: { label: "신국판 [148 x 225 mm]", w: 148.0, h: 225.0 },
+    Crown: { label: "크라운판 [176 x 248 mm]", w: 176.0, h: 248.0 },
+    Executive: { label: "Executive [184.1 x 266.7 mm]", w: 184.1, h: 266.7 },
+    ExecutiveJIS: { label: "Executive(JIS) [216 x 329.9 mm]", w: 216.0, h: 329.9 },
+    EnvDL: { label: "Envelope DL [110 x 220 mm]", w: 110.0, h: 220.0 },
+    EnvC5: { label: "Envelope C5 [162 x 229 mm]", w: 162.0, h: 229.0 },
+    EnvB5: { label: "Envelope B5 [176 x 250 mm]", w: 176.0, h: 250.0 },
+    EnvMonarch: { label: "Envelope Monarch [98.4 x 190.5 mm]", w: 98.4, h: 190.5 },
+  };
+
   const handleDraftPageSizeTypeChange = (type: string) => {
     setDraftPageSizeType(type);
-    const isPortrait = draftPageOrientation === "portrait";
-    if (type === "A4") {
-      setDraftPageWidthMm(isPortrait ? 210.0 : 297.0);
-      setDraftPageHeightMm(isPortrait ? 297.0 : 210.0);
-    } else if (type === "B5") {
-      setDraftPageWidthMm(isPortrait ? 182.0 : 257.0);
-      setDraftPageHeightMm(isPortrait ? 257.0 : 182.0);
-    } else if (type === "B4") {
-      setDraftPageWidthMm(isPortrait ? 257.0 : 364.0);
-      setDraftPageHeightMm(isPortrait ? 364.0 : 257.0);
-    } else if (type === "A3") {
-      setDraftPageWidthMm(isPortrait ? 297.0 : 420.0);
-      setDraftPageHeightMm(isPortrait ? 420.0 : 297.0);
-    } else if (type === "Letter") {
-      setDraftPageWidthMm(isPortrait ? 215.9 : 279.4);
-      setDraftPageHeightMm(isPortrait ? 279.4 : 215.9);
-    } else if (type === "Legal") {
-      setDraftPageWidthMm(isPortrait ? 215.9 : 355.6);
-      setDraftPageHeightMm(isPortrait ? 355.6 : 215.9);
+    const preset = HANCOM_PAPER_SIZES[type];
+    if (preset) {
+      const isPortrait = draftPageOrientation === "portrait";
+      setDraftPageWidthMm(isPortrait ? preset.w : preset.h);
+      setDraftPageHeightMm(isPortrait ? preset.h : preset.w);
     }
   };
 
@@ -7164,50 +7170,89 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* 문서 정보 (통계) 모달 */}
+        {/* 한컴독스 표준 문서 정보 대화상자 (100% 매칭) */}
         {showDocStatsModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3.5 w-84 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <DocInfoIcon className="w-4 h-4 text-[#0066cc]" />
-                <span>문서 정보 및 통계</span>
-              </span>
-              <button type="button" onClick={() => setShowDocStatsModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-            </h4>
-            <div className="flex flex-col gap-2 text-xs divide-y divide-neutral-100">
-              <div className="flex justify-between py-1">
-                <span className="text-neutral-600">글자 수 (공백 포함):</span>
-                <span className="font-bold text-neutral-900">{docStats.charCountWithSpace.toLocaleString()} 자</span>
+          <div className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowDocStatsModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xs shadow-2xl border border-[#4a89dc] w-full max-w-[580px] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+            >
+              {/* 타이틀 바 */}
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight">문서 정보</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDocStatsModal(false)}
+                  className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer transition"
+                >
+                  ✕
+                </button>
               </div>
-              <div className="flex justify-between py-1">
-                <span className="text-neutral-600">글자 수 (공백 제외):</span>
-                <span className="font-bold text-neutral-900">{docStats.charCountNoSpace.toLocaleString()} 자</span>
+
+              {/* 본문 영역: 좌측 정보 카드 + 우측 확인 버튼 */}
+              <div className="p-4 flex items-start gap-3 bg-[#f8fafc]">
+                <div className="flex-1 border border-[#c8d3e2] rounded-xs px-5 py-4 bg-white shadow-2xs flex flex-col gap-3 text-[12px]">
+                  {/* 1. 파일명 / 마지막 저장한 날짜 */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">파일명</span>
+                      <span className="text-neutral-900 truncate">{docTitle}</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">마지막 저장한 날짜</span>
+                      <span className="text-neutral-900">{new Date().toLocaleString("ko-KR")}</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-neutral-200" />
+
+                  {/* 2. 문서 버전 / 프로그램 버전 */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">문서 버전</span>
+                      <span className="text-neutral-900">5.1.1.0.6</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">프로그램 버전</span>
+                      <span className="text-neutral-900">12.90.0.1161</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-neutral-200" />
+
+                  {/* 3. 글자(공백 포함) / 쪽 수 / 원고지(200자 기준) */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">글자(공백 포함)</span>
+                      <span className="text-neutral-900">
+                        {docStats.charCountWithSpace.toLocaleString()} 자
+                        <span className="text-neutral-400 text-[11px] ml-2">
+                          (공백 제외 {docStats.charCountNoSpace.toLocaleString()} 자 · {docStats.wordCount.toLocaleString()} 어절)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">쪽 수</span>
+                      <span className="text-neutral-900">{Math.max(1, Math.ceil(blocks.length / 22))} 쪽</span>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="w-[155px] shrink-0 font-bold text-[#1e4fa8]">원고지(200자 기준)</span>
+                      <span className="text-neutral-900">{Math.max(1, Math.ceil(docStats.charCountWithSpace / 200))} 장</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 우측 확인 버튼 */}
+                <div className="w-22 shrink-0 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDocStatsModal(false)}
+                    className="w-full h-8 border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 active:bg-neutral-100 text-neutral-900 text-[12px] font-medium rounded-xs transition cursor-pointer text-center shadow-2xs"
+                  >
+                    확인
+                  </button>
+                </div>
               </div>
-              <div className="flex justify-between py-1">
-                <span className="text-neutral-600">단어 수 (어절):</span>
-                <span className="font-bold text-neutral-900">{docStats.wordCount.toLocaleString()} 개</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-neutral-600">문단 수:</span>
-                <span className="font-bold text-neutral-900">{docStats.paraCount.toLocaleString()} 줄</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-neutral-600">삽입된 표 / 수식:</span>
-                <span className="font-bold text-neutral-900">{docStats.tableCount} 개 / {docStats.equationCount} 개</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-neutral-600">삽입된 도형 / 그림:</span>
-                <span className="font-bold text-neutral-900">{docStats.shapeCount} 개 / {docStats.imageCount} 개</span>
-              </div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-neutral-200">
-              <button
-                type="button"
-                onClick={() => setShowDocStatsModal(false)}
-                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
-              >
-                확인
-              </button>
             </div>
           </div>
         )}
@@ -7291,12 +7336,11 @@ function HwpxEditorModalInner({
                         onChange={(e) => handleDraftPageSizeTypeChange(e.target.value)}
                         className="flex-1 bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] text-neutral-900 outline-none focus:border-[#1e4fa8] cursor-pointer"
                       >
-                        <option value="A4">A4(국배판) [210 x 297 mm]</option>
-                        <option value="B5">B5(4×6배판) [182 x 257 mm]</option>
-                        <option value="B4">B4 [257 x 364 mm]</option>
-                        <option value="A3">A3 [297 x 420 mm]</option>
-                        <option value="Letter">Letter [215.9 x 279.4 mm]</option>
-                        <option value="Legal">Legal [215.9 x 355.6 mm]</option>
+                        {Object.entries(HANCOM_PAPER_SIZES).map(([key, info]) => (
+                          <option key={key} value={key}>
+                            {info.label}
+                          </option>
+                        ))}
                         <option value="Custom">사용자 정의</option>
                       </select>
                     </div>
