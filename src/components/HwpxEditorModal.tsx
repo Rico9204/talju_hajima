@@ -1942,6 +1942,8 @@ function HwpxEditorModalInner({
     EnvC5: { label: "Envelope C5 [162 x 229 mm]", w: 162.0, h: 229.0 },
     EnvB5: { label: "Envelope B5 [176 x 250 mm]", w: 176.0, h: 250.0 },
     EnvMonarch: { label: "Envelope Monarch [98.4 x 190.5 mm]", w: 98.4, h: 190.5 },
+    Braille: { label: "점자출력용지 [230 x 279.4 mm]", w: 230.0, h: 279.4 },
+    Sextodecimo: { label: "16절지(국판) [159 x 234 mm]", w: 159.0, h: 234.0 },
   };
 
   const handleDraftPageSizeTypeChange = (type: string) => {
