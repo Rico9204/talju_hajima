@@ -474,19 +474,69 @@ function PageSetupNumberInput({
   min?: number;
   max?: number;
 }) {
+  const [text, setText] = useState(() => (Number.isFinite(value) ? value.toFixed(1) : "0.0"));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setText(Number.isFinite(value) ? value.toFixed(1) : "0.0");
+    }
+  }, [value, focused]);
+
+  const commit = (raw: string) => {
+    const parsed = parseFloat(raw);
+    if (isNaN(parsed)) {
+      const fallback = Number.isFinite(value) ? value : 0;
+      setText(fallback.toFixed(1));
+      return;
+    }
+    const clamped = Math.max(min, Math.min(max, Number(parsed.toFixed(1))));
+    onChange(clamped);
+    setText(clamped.toFixed(1));
+  };
+
   return (
     <div className="h-[26px] w-[120px] border border-[#c5ceda] bg-white rounded-xs flex items-center px-1.5 justify-between focus-within:border-[#1e4fa8] focus-within:ring-1 focus-within:ring-[#1e4fa8]/30 shadow-2xs">
       <input
-        type="number"
-        step={step}
-        min={min}
-        max={max}
-        value={Number.isFinite(value) ? value.toFixed(1) : "0.0"}
-        onChange={(e) => {
-          const v = parseFloat(e.target.value);
-          if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
+        type="text"
+        inputMode="decimal"
+        value={text}
+        onFocus={(e) => {
+          setFocused(true);
+          e.currentTarget.select();
         }}
-        className="w-12 text-left text-[12px] text-neutral-900 outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        onChange={(e) => {
+          const raw = e.target.value;
+          // 숫자, 소수점, 빈 문자열만 허용
+          if (/^\d*\.?\d*$/.test(raw)) {
+            setText(raw);
+            const v = parseFloat(raw);
+            if (!isNaN(v) && v >= min && v <= max) {
+              onChange(v);
+            }
+          }
+        }}
+        onBlur={() => {
+          setFocused(false);
+          commit(text);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            commit(text);
+            e.currentTarget.blur();
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            const next = Math.min(max, Number((value + step).toFixed(1)));
+            onChange(next);
+            setText(next.toFixed(1));
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            const next = Math.max(min, Number((value - step).toFixed(1)));
+            onChange(next);
+            setText(next.toFixed(1));
+          }
+        }}
+        className="w-12 text-left text-[12px] text-neutral-900 outline-none bg-transparent"
       />
       <div className="flex items-center gap-1.5 shrink-0 select-none">
         <span className="text-[11px] text-neutral-700">mm</span>
@@ -494,7 +544,11 @@ function PageSetupNumberInput({
           <button
             type="button"
             tabIndex={-1}
-            onClick={() => onChange(Math.min(max, Number((value + step).toFixed(1))))}
+            onClick={() => {
+              const next = Math.min(max, Number((value + step).toFixed(1)));
+              onChange(next);
+              setText(next.toFixed(1));
+            }}
             className="w-3.5 h-2.5 flex items-center justify-center text-[7px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-2xs cursor-pointer"
           >
             ▲
@@ -502,7 +556,11 @@ function PageSetupNumberInput({
           <button
             type="button"
             tabIndex={-1}
-            onClick={() => onChange(Math.max(min, Number((value - step).toFixed(1))))}
+            onClick={() => {
+              const next = Math.max(min, Number((value - step).toFixed(1)));
+              onChange(next);
+              setText(next.toFixed(1));
+            }}
             className="w-3.5 h-2.5 flex items-center justify-center text-[7px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-2xs cursor-pointer"
           >
             ▼
