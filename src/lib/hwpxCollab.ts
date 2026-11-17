@@ -154,7 +154,32 @@ export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<strin
   return map;
 }
 
-export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock | HwpxShapeBlock;
+export interface HwpxChartBlock {
+  type: "chart";
+  id: string;
+  chartType: "column" | "bar" | "line" | "pie";
+  title: string;
+  categories: string[];
+  series: { name: string; values: number[]; color?: string }[];
+  widthPercent?: number;
+  heightPt?: number;
+  align?: "left" | "center" | "right";
+  caption?: string;
+  captionPos?: string;
+  rawAttrs?: string;
+  rawXml?: string;
+  offsetX?: number;
+  offsetY?: number;
+  treatAsChar?: boolean;
+  textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  hyperlink?: string;
+}
+
+export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock | HwpxShapeBlock | HwpxChartBlock;
 
 // ── OWPML XML을 구조화된 협업 블록 목록으로 파싱 ──
 export function stripHtmlTags(str: string): string {
@@ -1228,6 +1253,16 @@ export function serializeBlocksToHwpxPackage(
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
     }
 
+    if (block.type === "chart") {
+      const chartTitle = block.title || "차트";
+      const chartType = block.chartType || "column";
+      const typeLabel = chartType === "column" ? "세로 막대형" : chartType === "bar" ? "가로 막대형" : chartType === "line" ? "꺾은선형" : "원형";
+      const catList = (block.categories || []).join(", ");
+      const seriesList = (block.series || []).map(s => `${s.name}: [${s.values.join(",")}]`).join(" | ");
+      const chartCaptionXml = block.caption ? `      <hp:caption side="${(block.captionPos || 'bottom_center').startsWith('top') ? 'TOP' : 'BOTTOM'}" fullSz="0" width="42520">\n        <hp:p id="${idx}_cap" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(block.caption)}</hp:t></hp:run></hp:p>\n      </hp:caption>` : "";
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n${chartCaptionXml ? `${chartCaptionXml}\n` : ""}      ${lead}<hp:run charPrIDRef="0"><hp:t>[차트: ${chartType}] ${escapeXml(chartTitle)} (${typeLabel}) - 항목: ${escapeXml(catList)} / 데이터: ${escapeXml(seriesList)}</hp:t></hp:run>\n    </hp:p>`;
+    }
+
     // 일반 문단
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
     if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
@@ -1554,6 +1589,16 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.borderThickness) yBlock.set("borderThickness", block.borderThickness);
         if (block.borderType) yBlock.set("borderType", block.borderType);
         if (block.hyperlink) yBlock.set("hyperlink", block.hyperlink);
+      } else if (block.type === "chart") {
+        yBlock.set("chartType", block.chartType || "column");
+        yBlock.set("title", block.title || "차트");
+        yBlock.set("categories", block.categories || ["1분기", "2분기", "3분기", "4분기"]);
+        yBlock.set("series", block.series || [{ name: "실적", values: [150, 230, 224, 318] }]);
+        if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
+        if (block.heightPt) yBlock.set("heightPt", block.heightPt);
+        if (block.align) yBlock.set("align", block.align);
+        if (block.caption) yBlock.set("caption", block.caption);
+        if (block.captionPos) yBlock.set("captionPos", block.captionPos);
       } else if (block.type === "shape") {
         yBlock.set("shapeType", block.shapeType);
         if (block.widthPercent) yBlock.set("widthPercent", block.widthPercent);
@@ -1811,6 +1856,41 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         marginBottomMm,
         hyperlink,
       });
+    } else if (type === "chart") {
+      const chartType = (yBlock.get("chartType") as "column" | "bar" | "line" | "pie") || "column";
+      const title = (yBlock.get("title") as string) || "차트 1";
+      const categories = (yBlock.get("categories") as string[]) || ["1분기", "2분기", "3분기", "4분기"];
+      const series = (yBlock.get("series") as { name: string; values: number[]; color?: string }[]) || [
+        { name: "매출", values: [150, 230, 224, 318] },
+        { name: "영업익", values: [45, 75, 82, 110] },
+      ];
+      const widthPercent = (yBlock.get("widthPercent") as number) || 85;
+      const heightPt = (yBlock.get("heightPt") as number) || 180;
+      const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const caption = yBlock.get("caption") as string | undefined;
+      const captionPos = yBlock.get("captionPos") as string | undefined;
+      const offsetX = yBlock.get("offsetX") as number | undefined;
+      const offsetY = yBlock.get("offsetY") as number | undefined;
+      const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      blocks.push({
+        type: "chart",
+        id,
+        chartType,
+        title,
+        categories,
+        series,
+        widthPercent,
+        heightPt,
+        align,
+        caption,
+        captionPos,
+        rawAttrs,
+        offsetX,
+        offsetY,
+        treatAsChar,
+        textWrap,
+      });
     }
   }
 
@@ -1838,6 +1918,8 @@ export function hwpxCollabText(doc: Y.Doc): string {
     } else if (block.type === "shape") {
       if (block.text) lines.push(`[도형] ${block.text}`);
       else lines.push(`[도형: ${block.shapeType}]`);
+    } else if (block.type === "chart") {
+      lines.push(`[차트: ${block.title || "차트"}] ${(block.categories || []).join(", ")}`);
     }
   }
 

@@ -533,3 +533,45 @@ test('hwpxCollab: 표 및 도형의 한컴 OWPML 표준 <hp:caption> 직렬화 �
     assert.equal(parsed[1].captionPos, 'bottom_center');
   }
 });
+
+test('hwpxCollab: 차트(chart) 블록이 한컴 OWPML 호환 직렬화 및 Yjs 동기화를 완벽 지원한다', () => {
+  const chartBlocks = [
+    {
+      type: 'chart',
+      id: 'chart_sample_1',
+      chartType: 'column',
+      title: '[차트 1] 분기별 경영 실적',
+      categories: ['1분기', '2분기', '3분기', '4분기'],
+      series: [
+        { name: '매출액', values: [180, 240, 290, 360], color: '#2563eb' },
+        { name: '영업이익', values: [55, 80, 105, 140], color: '#10b981' },
+      ],
+      widthPercent: 85,
+      heightPt: 220,
+      caption: '차트 1. 분기별 경영 실적',
+      captionPos: 'bottom_center',
+    },
+  ];
+
+  // 1. OWPML 직렬화 검증 (차트 캡션 및 대체 텍스트 표기 확인)
+  const pkg = serializeBlocksToHwpxPackage(chartBlocks, '', '');
+  assert.ok(pkg.sectionXml.includes('<hp:caption side="BOTTOM"'));
+  assert.ok(pkg.sectionXml.includes('차트 1. 분기별 경영 실적'));
+  assert.ok(pkg.sectionXml.includes('[차트: column] [차트 1] 분기별 경영 실적'));
+
+  // 2. Yjs CRDT 라운드트립 검증
+  const ydoc = new Y.Doc();
+  initHwpxYDoc(ydoc, chartBlocks);
+  const extracted = extractBlocksFromYDoc(ydoc);
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0].type, 'chart');
+  if (extracted[0].type === 'chart') {
+    assert.equal(extracted[0].chartType, 'column');
+    assert.equal(extracted[0].title, '[차트 1] 분기별 경영 실적');
+    assert.equal(extracted[0].categories.length, 4);
+    assert.equal(extracted[0].series.length, 2);
+    assert.equal(extracted[0].series[0].name, '매출액');
+    assert.deepEqual(extracted[0].series[0].values, [180, 240, 290, 360]);
+    assert.equal(extracted[0].caption, '차트 1. 분기별 경영 실적');
+  }
+});

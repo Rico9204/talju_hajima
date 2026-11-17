@@ -23,6 +23,7 @@ const TeamChat = lazy(() => import("./components/TeamChat"));
 const Schedule = lazy(() => import("./components/Schedule"));
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const AdminApplication = lazy(() => import("./components/AdminApplication"));
+const HwpxTestPage = lazy(() => import("./components/HwpxTestPage"));
 
 function PageLoading() {
   return <div className="flex h-full min-h-48 items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>화면을 불러오는 중…</div>;
@@ -148,6 +149,9 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="login" element={<Login />} />
+      <Route path="hwpx-test" element={<HwpxTestPage />} />
+      <Route path="hwpx" element={<HwpxTestPage />} />
+      <Route path="test" element={<HwpxTestPage />} />
       <Route path="reset-password" element={<ResetPassword />} />
       <Route path="confirm-email" element={<ConfirmEmail />} />
       <Route element={<RequireAuth />}>

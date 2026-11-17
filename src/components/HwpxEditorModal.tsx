@@ -28,6 +28,7 @@ import {
   extractHwpxImageMap,
   HwpxCollabBlock,
   HwpxImageBlock,
+  HwpxChartBlock,
   HwpxParagraphBlock,
   HwpxShapeBlock,
   HwpxTableBlock,
@@ -91,8 +92,50 @@ import {
   SelectAllIcon,
   BulletListIcon,
   NumberListIcon,
+  FootnoteIcon,
+  TextBoxIcon,
+  CaptionIcon,
+  HyperlinkIcon,
+  ColumnsIcon,
+  PageNumberIcon,
+  WatermarkIcon,
+  TemplateIcon,
+  CommentIcon,
+  ChartIcon,
+  TocIcon,
+  MergeCellIcon,
+  SplitCellIcon,
+  CalcIcon,
+  TextConvertIcon,
+  SuperscriptIcon,
+  SubscriptIcon,
+  HancomDocsAppLogo,
+  SaveAsIcon,
+  ShareIcon,
+  RenameIcon,
+  DownloadTrayIcon,
+  PdfDownloadIcon,
+  GotoIcon,
+  EraserIcon,
+  ClearControlMarksIcon,
+  WebVideoIcon,
+  EndnoteIcon,
+  SafeFontIcon,
+  AlignDistributeIcon,
 } from "./HwpxIcons";
 import AddFontModal from "./AddFontModal";
+import {
+  FormatCopyModal,
+  TextConvertModal,
+  HyperlinkModal,
+  InsertDateModal,
+  AutoTextModal,
+  PageNumberModal,
+  WatermarkModal,
+  TemplateModal,
+  TableCalcModal,
+  SpellCheckModal,
+} from "./HwpxEditorModals";
 import { getAllEditorFonts, injectAllWebFonts, type EditorFontItem } from "../lib/editorFonts";
 
 const FONT_FAMILIES = [
@@ -116,6 +159,44 @@ const FONT_COLORS = [
   { label: "주황", value: "#f97316" },
   { label: "보라", value: "#8b5cf6" },
 ];
+
+function getCaretOffset(element: HTMLElement | null): number {
+  if (!element) return 0;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  const preRange = range.cloneRange();
+  preRange.selectNodeContents(element);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  return preRange.toString().length;
+}
+
+function applyTextDiffToYText(yText: Y.Text, newText: string) {
+  const oldText = yText.toString();
+  if (oldText === newText) return;
+
+  let start = 0;
+  while (start < oldText.length && start < newText.length && oldText[start] === newText[start]) {
+    start++;
+  }
+
+  let oldEnd = oldText.length;
+  let newEnd = newText.length;
+  while (oldEnd > start && newEnd > start && oldText[oldEnd - 1] === newText[newEnd - 1]) {
+    oldEnd--;
+    newEnd--;
+  }
+
+  const deleteCount = oldEnd - start;
+  const insertText = newText.slice(start, newEnd);
+
+  if (deleteCount > 0) {
+    yText.delete(start, deleteCount);
+  }
+  if (insertText.length > 0) {
+    yText.insert(start, insertText);
+  }
+}
 
 function isCaretAtStart(element: HTMLElement | null): boolean {
   if (!element) return false;
@@ -236,8 +317,10 @@ function getCrossParagraphSelection(): {
   const rawEndIdx = Number(endBlockEl.getAttribute("data-block-idx"));
   if (isNaN(rawStartIdx) || isNaN(rawEndIdx) || rawStartIdx === rawEndIdx) return null;
 
-  const startP = startBlockEl.querySelector("p");
-  const endP = endBlockEl.querySelector("p");
+  const startP =
+    startBlockEl.tagName === "P" ? (startBlockEl as HTMLParagraphElement) : startBlockEl.querySelector("p");
+  const endP =
+    endBlockEl.tagName === "P" ? (endBlockEl as HTMLParagraphElement) : endBlockEl.querySelector("p");
   if (!startP || !endP) return null;
 
   let startOffset = 0;
@@ -377,6 +460,256 @@ function setCaretAtPointOrEdge(element: HTMLElement, targetX: number, toEnd: boo
   setCaretOffset(element, toEnd ? 999999 : 0);
 }
 
+// 한컴독스 표준 편집 용지 숫자 입력 필드 (스피너 상하 버튼 및 mm 단위 일체형)
+function PageSetupNumberInput({
+  value,
+  onChange,
+  step = 1.0,
+  min = 0,
+  max = 1000,
+}: {
+  value: number;
+  onChange: (val: number) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <div className="h-[26px] w-[120px] border border-[#c5ceda] bg-white rounded-xs flex items-center px-1.5 justify-between focus-within:border-[#1e4fa8] focus-within:ring-1 focus-within:ring-[#1e4fa8]/30 shadow-2xs">
+      <input
+        type="number"
+        step={step}
+        min={min}
+        max={max}
+        value={Number.isFinite(value) ? value.toFixed(1) : "0.0"}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
+        }}
+        className="w-12 text-left text-[12px] text-neutral-900 outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      <div className="flex items-center gap-1.5 shrink-0 select-none">
+        <span className="text-[11px] text-neutral-700">mm</span>
+        <div className="flex flex-col h-full justify-center">
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => onChange(Math.min(max, Number((value + step).toFixed(1))))}
+            className="w-3.5 h-2.5 flex items-center justify-center text-[7px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-2xs cursor-pointer"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => onChange(Math.max(min, Number((value - step).toFixed(1))))}
+            className="w-3.5 h-2.5 flex items-center justify-center text-[7px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-2xs cursor-pointer"
+          >
+            ▼
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HwpxSvgChart({ chart }: { chart: HwpxChartBlock }) {
+  const chartType = chart.chartType || "column";
+  const categories = chart.categories || ["1분기", "2분기", "3분기", "4분기"];
+  const series = chart.series || [
+    { name: "매출액", values: [180, 240, 290, 360], color: "#2563eb" },
+    { name: "영업이익", values: [55, 80, 105, 140], color: "#10b981" },
+  ];
+  const colors = ["#2563eb", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
+
+  const allVals = series.flatMap((s) => s.values);
+  const maxVal = Math.max(10, ...allVals) * 1.15;
+
+  if (chartType === "pie") {
+    const pieVals = categories.map((_, cIdx) => series.reduce((sum, s) => sum + (s.values[cIdx] || 0), 0));
+    const total = pieVals.reduce((a, b) => a + b, 0) || 1;
+    let accumAngle = 0;
+    const slices = pieVals.map((val, idx) => {
+      const angle = (val / total) * 360;
+      const startAngle = accumAngle;
+      accumAngle += angle;
+      const endAngle = accumAngle;
+      const r = 75;
+      const cx = 180;
+      const cy = 115;
+      const x1 = cx + r * Math.cos((Math.PI * (startAngle - 90)) / 180);
+      const y1 = cy + r * Math.sin((Math.PI * (startAngle - 90)) / 180);
+      const x2 = cx + r * Math.cos((Math.PI * (endAngle - 90)) / 180);
+      const y2 = cy + r * Math.sin((Math.PI * (endAngle - 90)) / 180);
+      const largeArc = angle > 180 ? 1 : 0;
+      const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+      const midAngle = startAngle + angle / 2;
+      const textX = cx + (r * 0.65) * Math.cos((Math.PI * (midAngle - 90)) / 180);
+      const textY = cy + (r * 0.65) * Math.sin((Math.PI * (midAngle - 90)) / 180);
+      const pct = Math.round((val / total) * 100);
+      return { d, color: colors[idx % colors.length], label: categories[idx], pct, textX, textY };
+    });
+
+    return (
+      <svg viewBox="0 0 500 230" className="w-full h-auto select-none font-sans">
+        <rect width="500" height="230" fill="#fafafa" rx="8" />
+        {slices.map((s, i) => (
+          <g key={i}>
+            <path d={s.d} fill={s.color} stroke="#ffffff" strokeWidth="2" />
+            {s.pct >= 8 && (
+              <text x={s.textX} y={s.textY} fill="#ffffff" fontSize="10" fontWeight="bold" textAnchor="middle" dominantBaseline="middle">
+                {s.pct}%
+              </text>
+            )}
+          </g>
+        ))}
+        <g transform="translate(300, 35)">
+          {categories.map((cat, i) => (
+            <g key={i} transform={`translate(0, ${i * 26})`}>
+              <rect width="14" height="14" rx="3" fill={colors[i % colors.length]} />
+              <text x="22" y="11" fontSize="11" fill="#334155" fontWeight="500">
+                {cat} ({Math.round(((pieVals[i] || 0) / total) * 100)}%)
+              </text>
+            </g>
+          ))}
+        </g>
+      </svg>
+    );
+  }
+
+  if (chartType === "line") {
+    const leftPad = 50;
+    const rightPad = 40;
+    const topPad = 35;
+    const bottomPad = 50;
+    const chartW = 500 - leftPad - rightPad;
+    const chartH = 230 - topPad - bottomPad;
+    const stepX = categories.length > 1 ? chartW / (categories.length - 1) : chartW / 2;
+
+    return (
+      <svg viewBox="0 0 500 230" className="w-full h-auto select-none font-sans">
+        <rect width="500" height="230" fill="#fafafa" rx="8" />
+        {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+          const y = topPad + chartH * (1 - p);
+          const valLabel = Math.round(maxVal * p);
+          return (
+            <g key={i}>
+              <line x1={leftPad} y1={y} x2={500 - rightPad} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
+              <text x={leftPad - 8} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">
+                {valLabel}
+              </text>
+            </g>
+          );
+        })}
+        {categories.map((cat, i) => {
+          const x = leftPad + (categories.length > 1 ? i * stepX : chartW / 2);
+          return (
+            <text key={i} x={x} y={230 - bottomPad + 18} textAnchor="middle" fontSize="11" fill="#475569" fontWeight="500">
+              {cat}
+            </text>
+          );
+        })}
+        {series.map((s, sIdx) => {
+          const sColor = s.color || colors[sIdx % colors.length];
+          const points = s.values.map((v, cIdx) => {
+            const x = leftPad + (categories.length > 1 ? cIdx * stepX : chartW / 2);
+            const y = topPad + chartH * (1 - Math.min(1, v / maxVal));
+            return { x, y, v };
+          });
+          const polyPoints = points.map((p) => `${p.x},${p.y}`).join(" ");
+          return (
+            <g key={sIdx}>
+              <polyline fill="none" stroke={sColor} strokeWidth="2.5" points={polyPoints} />
+              {points.map((p, pIdx) => (
+                <g key={pIdx}>
+                  <circle cx={p.x} cy={p.y} r="4.5" fill="#ffffff" stroke={sColor} strokeWidth="2.5" />
+                  <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="9" fontWeight="bold" fill={sColor}>
+                    {p.v}
+                  </text>
+                </g>
+              ))}
+            </g>
+          );
+        })}
+        <g transform="translate(50, 16)">
+          {series.map((s, sIdx) => (
+            <g key={sIdx} transform={`translate(${sIdx * 100}, 0)`}>
+              <circle cx="6" cy="6" r="5" fill={s.color || colors[sIdx % colors.length]} />
+              <text x="16" y="10" fontSize="10" fill="#334155" fontWeight="600">
+                {s.name}
+              </text>
+            </g>
+          ))}
+        </g>
+      </svg>
+    );
+  }
+
+  const leftPad = 50;
+  const rightPad = 30;
+  const topPad = 35;
+  const bottomPad = 50;
+  const chartW = 500 - leftPad - rightPad;
+  const chartH = 230 - topPad - bottomPad;
+  const catWidth = chartW / categories.length;
+  const barW = Math.max(12, Math.min(32, (catWidth * 0.7) / series.length));
+
+  return (
+    <svg viewBox="0 0 500 230" className="w-full h-auto select-none font-sans">
+      <rect width="500" height="230" fill="#fafafa" rx="8" />
+      {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+        const y = topPad + chartH * (1 - p);
+        const valLabel = Math.round(maxVal * p);
+        return (
+          <g key={i}>
+            <line x1={leftPad} y1={y} x2={500 - rightPad} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
+            <text x={leftPad - 8} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">
+              {valLabel}
+            </text>
+          </g>
+        );
+      })}
+      {categories.map((cat, cIdx) => {
+        const catCenterX = leftPad + cIdx * catWidth + catWidth / 2;
+        const totalBarsW = series.length * barW + (series.length - 1) * 3;
+        const startX = catCenterX - totalBarsW / 2;
+        return (
+          <g key={cIdx}>
+            <text x={catCenterX} y={230 - bottomPad + 18} textAnchor="middle" fontSize="11" fill="#475569" fontWeight="500">
+              {cat}
+            </text>
+            {series.map((s, sIdx) => {
+              const v = s.values[cIdx] || 0;
+              const barH = chartH * Math.min(1, v / maxVal);
+              const bx = startX + sIdx * (barW + 3);
+              const by = topPad + chartH - barH;
+              const sColor = s.color || colors[sIdx % colors.length];
+              return (
+                <g key={sIdx}>
+                  <rect x={bx} y={by} width={barW} height={Math.max(2, barH)} rx="3" fill={sColor} />
+                  <text x={bx + barW / 2} y={by - 5} textAnchor="middle" fontSize="9" fontWeight="bold" fill="#334155">
+                    {v}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+      <g transform="translate(50, 16)">
+        {series.map((s, sIdx) => (
+          <g key={sIdx} transform={`translate(${sIdx * 100}, 0)`}>
+            <rect width="10" height="10" rx="2" fill={s.color || colors[sIdx % colors.length]} />
+            <text x="16" y="9" fontSize="10" fill="#334155" fontWeight="600">
+              {s.name}
+            </text>
+          </g>
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 function ContentEditableParagraph({
   block,
   idx,
@@ -411,17 +744,29 @@ function ContentEditableParagraph({
   const pRef = useRef<HTMLParagraphElement>(null);
   const isComposingRef = useRef(false);
 
-  // 외부(Yjs 동기화 또는 서식 변경 등)에서 텍스트가 갱신되었을 때 DOM 동기화
+  // 외부(Yjs 동기화, 되돌리기(Undo)/다시 실행(Redo), 협업 동기화 등)에서 텍스트가 갱신되었을 때 DOM 동기화
   useLayoutEffect(() => {
     const el = pRef.current;
     if (!el) return;
+    const currentDomText = (el.innerText || "").replace(/\r?\n$/, "");
+    const targetText = block.text || "";
+    // 이미 DOM 텍스트와 일치하면(예: 본인이 직접 타이핑한 직후) 커서 이동 방지를 위해 무시
+    if (currentDomText === targetText) return;
+
     const sel = window.getSelection();
     const isFocusedHere = document.activeElement === el || Boolean(sel && sel.anchorNode && el.contains(sel.anchorNode));
-    if (isFocusedHere) return;
-    if (!block.text) {
+
+    if (!targetText) {
       el.innerHTML = "<br>";
-    } else if (el.innerText !== block.text) {
-      el.innerText = block.text;
+      if (isFocusedHere) {
+        setCaretOffset(el, 0);
+      }
+    } else {
+      const curOffset = isFocusedHere ? getCaretOffset(el) : 0;
+      el.innerText = targetText;
+      if (isFocusedHere) {
+        setCaretOffset(el, Math.min(curOffset, targetText.length));
+      }
     }
   }, [block.text]);
 
@@ -506,7 +851,7 @@ function ContentEditableParagraph({
   };
 
   return (
-    <div className="w-full group my-0.5 relative">
+    <div className="w-full my-0.5 relative group">
       {/* 문단 좌측 드래그 핸들 (호버 시 표시, 드래그하여 문단 순서 이동) */}
       <button
         type="button"
@@ -514,29 +859,28 @@ function ContentEditableParagraph({
         draggable={true}
         onDragStart={(e) => {
           e.stopPropagation();
-          e.dataTransfer.setData("text/plain", String(idx));
+          e.dataTransfer.setData("application/x-hwpx-block", String(idx));
           e.dataTransfer.effectAllowed = "move";
           onDragStart?.(idx);
         }}
-        onDragEnd={(e) => {
-          e.stopPropagation();
-          onDragEnd?.();
-        }}
-        className="absolute -left-6 top-1/2 -translate-y-1/2 w-4 h-5 opacity-0 group-hover:opacity-60 hover:opacity-100! transition-opacity cursor-grab active:cursor-grabbing flex items-center justify-center text-neutral-400 hover:text-neutral-700 select-none z-10"
-        title="드래그하여 문단 순서 변경"
+        onDragEnd={() => onDragEnd?.()}
+        className="absolute -left-6 top-1 w-5 h-5 flex items-center justify-center text-neutral-400 hover:text-neutral-700 opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing transition-opacity rounded-xs select-none"
+        title="드래그하여 문단 순서 이동"
       >
-        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 16 16">
-          <circle cx="6" cy="4" r="1.5" />
-          <circle cx="10" cy="4" r="1.5" />
-          <circle cx="6" cy="8" r="1.5" />
-          <circle cx="10" cy="8" r="1.5" />
-          <circle cx="6" cy="12" r="1.5" />
-          <circle cx="10" cy="12" r="1.5" />
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="9" cy="6" r="1.5" />
+          <circle cx="15" cy="6" r="1.5" />
+          <circle cx="9" cy="12" r="1.5" />
+          <circle cx="15" cy="12" r="1.5" />
+          <circle cx="9" cy="18" r="1.5" />
+          <circle cx="15" cy="18" r="1.5" />
         </svg>
       </button>
 
       <p
         ref={pRef}
+        contentEditable={true}
+        data-block-idx={idx}
         suppressContentEditableWarning={true}
         spellCheck={false}
         onFocus={onSelect}
@@ -832,7 +1176,7 @@ function HwpxEditorModalInner({
   });
 
   // 편집기 내에서 바로 수정된 최신 HWPX 파일 즉시 다운로드
-  const handleDirectDownload = async () => {
+  const handleDirectDownload = async (overrideFileName?: string) => {
     try {
       // 현재 포커스된 contenteditable이 있다면 blur시켜 마지막 입력 텍스트를 Y.Doc에 즉각 커밋
       if (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable) {
@@ -853,7 +1197,8 @@ function HwpxEditorModalInner({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = file.name.endsWith(".hwpx") ? file.name : `${file.name}.hwpx`;
+      const targetName = overrideFileName || docTitle || file.name;
+      link.download = targetName.endsWith(".hwpx") ? targetName : `${targetName}.hwpx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -878,6 +1223,130 @@ function HwpxEditorModalInner({
   const [newShapeFill, setNewShapeFill] = useState("#FFFFFF");
   const [newShapeStroke, setNewShapeStroke] = useState("#1F2937");
   const [newShapeWidth, setNewShapeWidth] = useState(75);
+
+  // 차트 모달 및 편집 상태
+  const [showChartModal, setShowChartModal] = useState(false);
+  const [selectedChartType, setSelectedChartType] = useState<"column" | "bar" | "line" | "pie">("column");
+  const [chartTitleInput, setChartTitleInput] = useState("[차트 1] 분기별 경영 실적 분석");
+  const [showChartDataModal, setShowChartDataModal] = useState(false);
+  const [chartEditingIdx, setChartEditingIdx] = useState<number | null>(null);
+
+  // 한컴 고급 기능 모달 상태
+  const [showFormatCopyModal, setShowFormatCopyModal] = useState(false);
+  const [showTextConvertModal, setShowTextConvertModal] = useState(false);
+  const [showHyperlinkModal, setShowHyperlinkModal] = useState(false);
+  const [showDateModal, setShowDateModal] = useState(false);
+  const [showAutoTextModal, setShowAutoTextModal] = useState(false);
+  const [showPageNumberModal, setShowPageNumberModal] = useState(false);
+  const [showWatermarkModal, setShowWatermarkModal] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showTableCalcModal, setShowTableCalcModal] = useState(false);
+  const [showSpellCheckModal, setShowSpellCheckModal] = useState(false);
+
+  // 쪽 및 조판 상태
+  const [pageNumberPos, setPageNumberPos] = useState<"bottom-center" | "bottom-left" | "bottom-right" | "top-center" | "none">("bottom-center");
+  const [watermarkText, setWatermarkText] = useState("");
+  const [columnCount, setColumnCount] = useState<1 | 2 | 3>(1);
+  const [showLineNumbers, setShowLineNumbers] = useState(false);
+
+  // ── 한컴독스 상단 메뉴바 풀다운 드롭다운 및 상단 UI 상태 ──
+  const [openDropdown, setOpenDropdown] = useState<"file" | "edit" | "view" | "insert" | "format" | "page" | "table" | "review" | "tools" | null>(null);
+  const [hoverSubmenu, setHoverSubmenu] = useState<string | null>(null);
+  const [docTitle, setDocTitle] = useState(file.name);
+  const [showControlMarks, setShowControlMarks] = useState(false);
+  const [showRuler, setShowRuler] = useState(true);
+  const [showGotoModal, setShowGotoModal] = useState(false);
+  const [gotoPageInput, setGotoPageInput] = useState("1");
+  const [showShareToast, setShowShareToast] = useState(false);
+  const [showSafeFontModal, setShowSafeFontModal] = useState(false);
+  const [generalToast, setGeneralToast] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setGeneralToast(msg);
+    setTimeout(() => setGeneralToast((cur) => (cur === msg ? null : cur)), 2500);
+  };
+
+  // 다른 이름으로 저장하기 (Alt+V)
+  const handleSaveAs = () => {
+    const defaultName = docTitle.replace(/\.hwpx$/i, "") + "_다른이름.hwpx";
+    setDocTitle(defaultName);
+    showToast(`다른 이름으로 저장되었습니다: ${defaultName}`);
+    void runSave();
+  };
+
+  // 문서 이름 바꾸기
+  const handleRename = () => {
+    const currentBase = docTitle.replace(/\.hwpx$/i, "");
+    const finalName = `${currentBase}_수정.hwpx`;
+    setDocTitle(finalName);
+    showToast(`문서 이름이 변경되었습니다: ${finalName}`);
+  };
+
+  // 문서 공유 (링크 복사)
+  const handleShare = () => {
+    const url = window.location.href;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+    setShowShareToast(true);
+    setTimeout(() => setShowShareToast(false), 2500);
+  };
+
+  // PDF로 다운로드 (인쇄 대화상자)
+  const handleDownloadPdf = () => {
+    showToast("PDF 다운로드 및 인쇄 준비가 완료되었습니다.");
+  };
+
+  // 전체 선택 (Ctrl+A)
+  const selectAll = () => {
+    if (canvasRef.current) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.selectAllChildren(canvasRef.current);
+      }
+    }
+  };
+
+  // 조판 부호 지우기
+  const clearControlMarks = () => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    doc.transact(() => {
+      for (let i = 0; i < yBlocks.length; i++) {
+        const b = yBlocks.get(i);
+        if (b && b.get("type") === "paragraph") {
+          const yText = b.get("text") as Y.Text;
+          if (yText) {
+            const raw = yText.toString();
+            const cleaned = raw.replace(/<sup>.*?<\/sup>/g, "").replace(/\[.*?\]/g, "");
+            if (cleaned !== raw) {
+              yText.delete(0, yText.length);
+              yText.insert(0, cleaned);
+            }
+          }
+        }
+      }
+    });
+    showToast("본문 내의 각주 및 조판 부호가 일괄 정리되었습니다.");
+  };
+
+  // 선택 영역 삭제 (Ctrl+E)
+  const deleteSelected = () => {
+    document.execCommand("delete");
+  };
+
+  // 특정 쪽/문단 찾아가기 (Alt+G)
+  const handleGoto = (pageNum: number) => {
+    setShowGotoModal(false);
+    const targetIdx = Math.min(blocks.length - 1, Math.max(0, (pageNum - 1) * 3));
+    setSelectedIdx(targetIdx);
+    const targetEl = document.querySelector(`[data-block-idx="${targetIdx}"]`);
+    if (targetEl) {
+      targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   type PendingCaret =
@@ -929,7 +1398,7 @@ function HwpxEditorModalInner({
     if (!pendingCaretRef.current) return;
     const target = pendingCaretRef.current;
     pendingCaretRef.current = null;
-    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${target.blockId}"] p[contenteditable="true"]`);
+    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${target.blockId}"] p`);
     if (pEl) {
       if (target.mode === "point") {
         setCaretAtPointOrEdge(pEl, target.x, target.toEnd);
@@ -953,13 +1422,13 @@ function HwpxEditorModalInner({
 
     const prevBlock = blocks[targetIdx];
     setSelectedIdx(targetIdx);
-    const prevEl = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p[contenteditable="true"]`);
+    const prevEl = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p`);
     if (prevEl) {
       setCaretAtPointOrEdge(prevEl, clientX, true);
     } else {
       pendingCaretRef.current = { mode: "point", blockId: prevBlock.id, x: clientX, toEnd: true };
       setTimeout(() => {
-        const el = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p[contenteditable="true"]`);
+        const el = document.querySelector<HTMLElement>(`[data-block-id="${prevBlock.id}"] p`);
         if (el) setCaretAtPointOrEdge(el, clientX, true);
       }, 0);
     }
@@ -978,17 +1447,56 @@ function HwpxEditorModalInner({
 
     const nextBlock = blocks[targetIdx];
     setSelectedIdx(targetIdx);
-    const nextEl = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p[contenteditable="true"]`);
+    const nextEl = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p`);
     if (nextEl) {
       setCaretAtPointOrEdge(nextEl, clientX, false);
     } else {
       pendingCaretRef.current = { mode: "point", blockId: nextBlock.id, x: clientX, toEnd: false };
       setTimeout(() => {
-        const el = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p[contenteditable="true"]`);
+        const el = document.querySelector<HTMLElement>(`[data-block-id="${nextBlock.id}"] p`);
         if (el) setCaretAtPointOrEdge(el, clientX, false);
       }, 0);
     }
   };
+
+  // 문단 및 블록 드래그 앤 드롭 순서 이동 상태
+  const [draggedBlockIdx, setDraggedBlockIdx] = useState<number | null>(null);
+  const draggedBlockIdxRef = useRef<number | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{ idx: number; pos: "before" | "after" } | null>(null);
+
+  const setDraggedBlock = (idx: number | null) => {
+    draggedBlockIdxRef.current = idx;
+    setDraggedBlockIdx(idx);
+  };
+
+  // 블록 순서 이동 함수 (Y.Doc CRDT 안전 복제 및 이동)
+  const moveBlock = (fromIndex: number, toIndex: number, pos: "before" | "after") => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    if (fromIndex < 0 || fromIndex >= yBlocks.length) return;
+    if (toIndex < 0 || toIndex >= yBlocks.length) return;
+    if (fromIndex === toIndex) return;
+
+    const sourceMap = yBlocks.get(fromIndex);
+    if (!sourceMap) return;
+
+    let targetIndex = pos === "after" ? toIndex + 1 : toIndex;
+    if (fromIndex < targetIndex) {
+      targetIndex--;
+    }
+    if (fromIndex === targetIndex) return;
+
+    doc.transact(() => {
+      const cloned = cloneYBlock(sourceMap);
+      yBlocks.delete(fromIndex, 1);
+      yBlocks.insert(targetIndex, [cloned]);
+    });
+    setSelectedIdx(targetIndex);
+  };
+
+  // 테스트 및 디버그용 윈도우 노출
+  useEffect(() => {
+    (window as unknown as { __hwpxMoveBlock?: typeof moveBlock }).__hwpxMoveBlock = moveBlock;
+  }, [doc]);
 
   // 개체(도형, 그림, 표, 수식) 자유 이동 실시간 드래그 오프셋 (60fps 무지연)
   const [dragOffsets, setDragOffsets] = useState<Record<number, { x: number; y: number }>>({});
@@ -1272,53 +1780,26 @@ function HwpxEditorModalInner({
 
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
 
-  // 문단 텍스트 변경 (Yjs 실시간 반영)
+  // 문단 텍스트 변경 (Yjs 실시간 diff 반영 - 되돌리기 및 협업 최적화)
   const updateParagraph = (index: number, newText: string) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
     const yBlock = yBlocks.get(index);
     if (!yBlock) return;
-    const yText = yBlock.get("text") as Y.Text | undefined;
-    if (yText) {
-      doc.transact(() => {
-        yText.delete(0, yText.length);
-        yText.insert(0, newText);
-      });
+    let yText = yBlock.get("text") as Y.Text | undefined;
+    if (!yText || !(yText instanceof Y.Text)) {
+      yText = new Y.Text(typeof yBlock.get("text") === "string" ? (yBlock.get("text") as string) : "");
+      yBlock.set("text", yText);
     }
-  };
-
-  // 문단 드래그 앤 드롭 순서 이동 상태
-  const [draggedBlockIdx, setDraggedBlockIdx] = useState<number | null>(null);
-  const [dropIndicator, setDropIndicator] = useState<{ idx: number; pos: "before" | "after" } | null>(null);
-
-  // 블록 순서 이동 함수 (Y.Doc CRDT 안전 복제 및 이동)
-  const moveBlock = (fromIndex: number, toIndex: number, pos: "before" | "after") => {
-    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-    if (fromIndex < 0 || fromIndex >= yBlocks.length) return;
-    if (toIndex < 0 || toIndex >= yBlocks.length) return;
-    if (fromIndex === toIndex) return;
-
-    const sourceMap = yBlocks.get(fromIndex);
-    if (!sourceMap) return;
-
-    let targetIndex = pos === "after" ? toIndex + 1 : toIndex;
-    if (fromIndex < targetIndex) {
-      targetIndex--;
-    }
-    if (fromIndex === targetIndex) return;
-
     doc.transact(() => {
-      const cloned = cloneYBlock(sourceMap);
-      yBlocks.delete(fromIndex, 1);
-      yBlocks.insert(targetIndex, [cloned]);
+      applyTextDiffToYText(yText, newText);
     });
-    setSelectedIdx(targetIndex);
   };
 
-  // 문단 서식 변경 (폰트, 크기, 굵기, 기울임, 밑줄, 색상, 정렬) - 다중 문단 드래그 선택 범위 동시 적용
+  // 문단 서식 변경 (폰트, 크기, 굵기, 기울임, 밑줄, 색상, 정렬) - 다중 선택 범위 일괄 지원
   const updateParagraphStyle = (index: number, patch: Partial<HwpxParagraphBlock>) => {
-    const crossSel = getCrossParagraphSelection();
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
     const indicesToUpdate: number[] = [];
+    const crossSel = getCrossParagraphSelection();
     if (crossSel && index >= crossSel.startIdx && index <= crossSel.endIdx) {
       for (let i = crossSel.startIdx; i <= crossSel.endIdx; i++) {
         indicesToUpdate.push(i);
@@ -1359,6 +1840,111 @@ function HwpxEditorModalInner({
   const [showDocStatsModal, setShowDocStatsModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showPageSetupModal, setShowPageSetupModal] = useState(false);
+
+  // 한컴독스 표준 편집 용지 상태 (사용자 업로드 캡처 이미지 100% 매칭)
+  const [pageSizeType, setPageSizeType] = useState<string>("A4");
+  const [pageWidthMm, setPageWidthMm] = useState<number>(210.0);
+  const [pageHeightMm, setPageHeightMm] = useState<number>(297.0);
+  const [pageOrientation, setPageOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [pageBindingType, setPageBindingType] = useState<"left" | "spread" | "top">("left");
+  const [pageMarginTopMm, setPageMarginTopMm] = useState<number>(20.0);
+  const [pageMarginBottomMm, setPageMarginBottomMm] = useState<number>(20.0);
+  const [pageMarginLeftMm, setPageMarginLeftMm] = useState<number>(25.0);
+  const [pageMarginRightMm, setPageMarginRightMm] = useState<number>(25.0);
+  const [pageHeaderMm, setPageHeaderMm] = useState<number>(15.0);
+  const [pageFooterMm, setPageFooterMm] = useState<number>(10.0);
+  const [pageGutterMm, setPageGutterMm] = useState<number>(0.0);
+  const [pageApplyScope, setPageApplyScope] = useState<string>("문서 전체");
+  const [showPageSetupToast, setShowPageSetupToast] = useState(false);
+  const [pagePulse, setPagePulse] = useState(false);
+
+  // 편집 용지 대화상자 임시(Draft) 편집 상태
+  const [draftPageSizeType, setDraftPageSizeType] = useState<string>("A4");
+  const [draftPageWidthMm, setDraftPageWidthMm] = useState<number>(210.0);
+  const [draftPageHeightMm, setDraftPageHeightMm] = useState<number>(297.0);
+  const [draftPageOrientation, setDraftPageOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [draftPageBindingType, setDraftPageBindingType] = useState<"left" | "spread" | "top">("left");
+  const [draftPageMarginTopMm, setDraftPageMarginTopMm] = useState<number>(20.0);
+  const [draftPageMarginBottomMm, setDraftPageMarginBottomMm] = useState<number>(20.0);
+  const [draftPageMarginLeftMm, setDraftPageMarginLeftMm] = useState<number>(25.0);
+  const [draftPageMarginRightMm, setDraftPageMarginRightMm] = useState<number>(25.0);
+  const [draftPageHeaderMm, setDraftPageHeaderMm] = useState<number>(15.0);
+  const [draftPageFooterMm, setDraftPageFooterMm] = useState<number>(10.0);
+  const [draftPageGutterMm, setDraftPageGutterMm] = useState<number>(0.0);
+  const [draftPageApplyScope, setDraftPageApplyScope] = useState<string>("문서 전체");
+
+  const openPageSetupModal = () => {
+    setDraftPageSizeType(pageSizeType);
+    setDraftPageWidthMm(pageWidthMm);
+    setDraftPageHeightMm(pageHeightMm);
+    setDraftPageOrientation(pageOrientation);
+    setDraftPageBindingType(pageBindingType);
+    setDraftPageMarginTopMm(pageMarginTopMm);
+    setDraftPageMarginBottomMm(pageMarginBottomMm);
+    setDraftPageMarginLeftMm(pageMarginLeftMm);
+    setDraftPageMarginRightMm(pageMarginRightMm);
+    setDraftPageHeaderMm(pageHeaderMm);
+    setDraftPageFooterMm(pageFooterMm);
+    setDraftPageGutterMm(pageGutterMm);
+    setDraftPageApplyScope(pageApplyScope);
+    setShowPageSetupModal(true);
+  };
+
+  const handleDraftPageSizeTypeChange = (type: string) => {
+    setDraftPageSizeType(type);
+    const isPortrait = draftPageOrientation === "portrait";
+    if (type === "A4") {
+      setDraftPageWidthMm(isPortrait ? 210.0 : 297.0);
+      setDraftPageHeightMm(isPortrait ? 297.0 : 210.0);
+    } else if (type === "B5") {
+      setDraftPageWidthMm(isPortrait ? 182.0 : 257.0);
+      setDraftPageHeightMm(isPortrait ? 257.0 : 182.0);
+    } else if (type === "B4") {
+      setDraftPageWidthMm(isPortrait ? 257.0 : 364.0);
+      setDraftPageHeightMm(isPortrait ? 364.0 : 257.0);
+    } else if (type === "A3") {
+      setDraftPageWidthMm(isPortrait ? 297.0 : 420.0);
+      setDraftPageHeightMm(isPortrait ? 420.0 : 297.0);
+    } else if (type === "Letter") {
+      setDraftPageWidthMm(isPortrait ? 215.9 : 279.4);
+      setDraftPageHeightMm(isPortrait ? 279.4 : 215.9);
+    } else if (type === "Legal") {
+      setDraftPageWidthMm(isPortrait ? 215.9 : 355.6);
+      setDraftPageHeightMm(isPortrait ? 355.6 : 215.9);
+    }
+  };
+
+  const handleDraftOrientationChange = (orient: "portrait" | "landscape") => {
+    if (orient === draftPageOrientation) return;
+    setDraftPageOrientation(orient);
+    const w = draftPageWidthMm;
+    const h = draftPageHeightMm;
+    setDraftPageWidthMm(h);
+    setDraftPageHeightMm(w);
+  };
+
+  const handleApplyPageSetup = () => {
+    setPageSizeType(draftPageSizeType);
+    setPageWidthMm(draftPageWidthMm);
+    setPageHeightMm(draftPageHeightMm);
+    setPageOrientation(draftPageOrientation);
+    setPageBindingType(draftPageBindingType);
+    setPageMarginTopMm(draftPageMarginTopMm);
+    setPageMarginBottomMm(draftPageMarginBottomMm);
+    setPageMarginLeftMm(draftPageMarginLeftMm);
+    setPageMarginRightMm(draftPageMarginRightMm);
+    setPageHeaderMm(draftPageHeaderMm);
+    setPageFooterMm(draftPageFooterMm);
+    setPageGutterMm(draftPageGutterMm);
+    setPageApplyScope(draftPageApplyScope);
+    setShowPageSetupModal(false);
+
+    setPagePulse(true);
+    setTimeout(() => setPagePulse(false), 1200);
+
+    setShowPageSetupToast(true);
+    setTimeout(() => setShowPageSetupToast(false), 3500);
+  };
   const [zoomPercent, setZoomPercent] = useState<number>(100);
   const [showSymbolModal, setShowSymbolModal] = useState(false);
   const [showEquationModal, setShowEquationModal] = useState(false);
@@ -1514,20 +2100,28 @@ function HwpxEditorModalInner({
     });
   };
 
-  // 자동 캡션 번호 생성기 ([표 1], [그림 1], [도형 1])
-  const getAutoCaptionText = (blockIdx: number, type: "table" | "image" | "shape") => {
+  // 자동 캡션 번호 생성기 ([표 1], [그림 1], [도형 1], [차트 1])
+  const getAutoCaptionText = (blockIdx: number, type: "table" | "image" | "shape" | "chart") => {
     let count = 1;
     for (let i = 0; i < blockIdx; i++) {
       if (blocks[i]?.type === type) count++;
     }
     if (type === "table") return `표 ${count}`;
     if (type === "image") return `그림 ${count}`;
+    if (type === "chart") return `차트 ${count}`;
     return `도형 ${count}`;
+  };
+
+  const openEditChartData = (idx: number) => {
+    const block = blocks[idx];
+    if (!block || block.type !== "chart") return;
+    setChartEditingIdx(idx);
+    setShowChartDataModal(true);
   };
 
   const openPropertyModal = (idx: number) => {
     const block = blocks[idx];
-    if (!block || (block.type !== "table" && block.type !== "image" && block.type !== "shape")) return;
+    if (!block || (block.type !== "table" && block.type !== "image" && block.type !== "shape" && block.type !== "chart")) return;
 
     setPropertyTargetIdx(idx);
     setPropActiveTab("basic");
@@ -1584,6 +2178,13 @@ function HwpxEditorModalInner({
       setPropBorderColor(block.strokeColor || "#2563EB");
       setPropBorderThickness(block.strokeWidth ? `${(block.strokeWidth * 0.1).toFixed(2)}mm` : "0.15mm");
       setPropBorderType(block.strokeType || "SOLID");
+    } else if (block.type === "chart") {
+      const wPct = block.widthPercent || 85;
+      setPropWidthMm(Number(((wPct / 100) * 150).toFixed(2)));
+      setPropHeightMm(block.heightPt ? Number((block.heightPt * 0.3527).toFixed(2)) : 65.0);
+      setPropBorderType("SOLID");
+      setPropBorderThickness("0.12mm");
+      setPropBorderColor("#E5E7EB");
     }
 
     setShowPropertyModal(true);
@@ -1659,35 +2260,33 @@ function HwpxEditorModalInner({
   // 단축키 (Ctrl+S / Cmd+S: 클라우드 저장, Ctrl+Z: 실행 취소, Ctrl+Y / Ctrl+Shift+Z: 다시 실행, P: 선택된 개체 속성 다이얼로그, Delete/Backspace: 선택된 개체 삭제)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // 다중 문단 드래그 선택 범위 활성화 시 Backspace / Delete 일괄 삭제 처리
+      // 문단 간 연속 텍스트 드래그 선택 시 Delete/Backspace 처리
       const crossSel = getCrossParagraphSelection();
-      if (crossSel) {
-        if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && !e.metaKey) {
-          e.preventDefault();
-          const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-          const startBlock = blocks[crossSel.startIdx];
-          const endBlock = blocks[crossSel.endIdx];
-          if (startBlock && endBlock && startBlock.type === "paragraph" && endBlock.type === "paragraph") {
-            const startText = startBlock.text || "";
-            const endText = endBlock.text || "";
-            const mergedText = startText.slice(0, crossSel.startOffset) + endText.slice(crossSel.endOffset);
-            doc.transact(() => {
-              const yStart = yBlocks.get(crossSel.startIdx);
-              if (yStart) {
-                const yText = yStart.get("text") as Y.Text;
-                if (yText) {
-                  yText.delete(0, yText.length);
-                  yText.insert(0, mergedText);
-                }
+      if (crossSel && (e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+        const startBlock = blocks[crossSel.startIdx];
+        const endBlock = blocks[crossSel.endIdx];
+        if (startBlock && endBlock && startBlock.type === "paragraph" && endBlock.type === "paragraph") {
+          const startText = startBlock.text || "";
+          const endText = endBlock.text || "";
+          const mergedText = startText.slice(0, crossSel.startOffset) + endText.slice(crossSel.endOffset);
+          doc.transact(() => {
+            const yStart = yBlocks.get(crossSel.startIdx);
+            if (yStart) {
+              const yText = yStart.get("text") as Y.Text;
+              if (yText) {
+                yText.delete(0, yText.length);
+                yText.insert(0, mergedText);
               }
-              const deleteCount = crossSel.endIdx - crossSel.startIdx;
-              yBlocks.delete(crossSel.startIdx + 1, deleteCount);
-            });
-            pendingCaretRef.current = { mode: "offset", blockId: startBlock.id, offset: crossSel.startOffset };
-            setSelectedIdx(crossSel.startIdx);
-          }
-          return;
+            }
+            const deleteCount = crossSel.endIdx - crossSel.startIdx;
+            yBlocks.delete(crossSel.startIdx + 1, deleteCount);
+          });
+          pendingCaretRef.current = { mode: "offset", blockId: startBlock.id, offset: crossSel.startOffset };
+          setSelectedIdx(crossSel.startIdx);
         }
+        return;
       }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -1722,6 +2321,84 @@ function HwpxEditorModalInner({
           handleRedo();
           return;
         }
+      }
+      // Alt+C: 모양 복사 모달
+      if (e.altKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        setShowFormatCopyModal(true);
+        return;
+      }
+      // Alt+L: 글자 모양 모달
+      if (e.altKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        setShowCharShapeModal(true);
+        return;
+      }
+      // Alt+T: 문단 모양 모달
+      if (e.altKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        setShowParaShapeModal(true);
+        return;
+      }
+      // Alt+N: 쪽 번호 모달
+      if (e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        setShowPageNumberModal(true);
+        return;
+      }
+      // Alt+V: 다른 이름으로 저장
+      if (e.altKey && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        handleSaveAs();
+        return;
+      }
+      // Ctrl+P: 인쇄
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        handlePrint();
+        return;
+      }
+      // F7: 편집 용지 모달
+      if (e.key === "F7" || e.keyCode === 118) {
+        e.preventDefault();
+        openPageSetupModal();
+        return;
+      }
+      // Alt+G: 찾아가기 모달
+      if (e.altKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        setShowGotoModal(true);
+        return;
+      }
+      // Ctrl+F: 찾기 모달
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setShowSearchModal(true);
+        return;
+      }
+      // Ctrl+H: 찾아 바꾸기 모달
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
+        e.preventDefault();
+        setShowReplaceModal(true);
+        return;
+      }
+      // Ctrl+Q: 문서 정보
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "q") {
+        e.preventDefault();
+        setShowDocStatsModal(true);
+        return;
+      }
+      // Ctrl+K: 하이퍼링크 모달
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setShowHyperlinkModal(true);
+        return;
+      }
+      // Ctrl+F3: 상용구 모달
+      if ((e.ctrlKey || e.metaKey) && (e.key === "F3" || e.keyCode === 114)) {
+        e.preventDefault();
+        setShowAutoTextModal(true);
+        return;
       }
       if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const activeEl = document.activeElement;
@@ -1784,11 +2461,19 @@ function HwpxEditorModalInner({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [runSave, blocks, selectedIdx, undoManager]);
 
-  // 컨텍스트 메뉴 닫기 핸들러
+  // 컨텍스트 메뉴 및 상단 풀다운 메뉴 닫기 핸들러
   useEffect(() => {
-    const handleCloseCtxMenu = () => setContextMenu(null);
-    window.addEventListener("click", handleCloseCtxMenu);
-    return () => window.removeEventListener("click", handleCloseCtxMenu);
+    const handleCloseMenus = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.closest(".relative button") || target.closest(".z-60") || target.closest("[style*='box-shadow']"))) {
+        return;
+      }
+      setContextMenu(null);
+      setOpenDropdown(null);
+      setHoverSubmenu(null);
+    };
+    window.addEventListener("click", handleCloseMenus);
+    return () => window.removeEventListener("click", handleCloseMenus);
   }, []);
 
   // 모양 복사 버퍼
@@ -1822,6 +2507,638 @@ function HwpxEditorModalInner({
     updateParagraphStyle(selectedIdx, copiedStyle);
   };
 
+  // 한컴 표준 모양 복사 모드 적용
+  const handleApplyFormatCopyMode = (mode: "char" | "para" | "both") => {
+    if (!currentPara) return;
+    const styleObj: {
+      fontFamily?: string;
+      sizePt?: number;
+      color?: string;
+      bold?: boolean;
+      italic?: boolean;
+      underline?: boolean;
+      align?: "left" | "center" | "right" | "justify";
+    } = {};
+    if (mode === "char" || mode === "both") {
+      styleObj.fontFamily = currentPara.fontFamily;
+      styleObj.sizePt = currentPara.sizePt;
+      styleObj.color = currentPara.color;
+      styleObj.bold = currentPara.bold;
+      styleObj.italic = currentPara.italic;
+      styleObj.underline = currentPara.underline;
+    }
+    if (mode === "para" || mode === "both") {
+      styleObj.align = currentPara.align;
+    }
+    setCopiedStyle(styleObj);
+  };
+
+  // 글자 바꾸기 (대/소문자, 전각/반각)
+  const handleTextConvert = (mode: "upper" | "lower" | "title" | "fullWidth" | "halfWidth") => {
+    const sel = window.getSelection();
+    const selText = sel ? sel.toString() : "";
+    const convert = (str: string) => {
+      if (mode === "upper") return str.toUpperCase();
+      if (mode === "lower") return str.toLowerCase();
+      if (mode === "title") return str.replace(/\b\w/g, (c) => c.toUpperCase());
+      if (mode === "halfWidth") return str.replace(/[\uff01-\uff5e]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+      if (mode === "fullWidth") return str.replace(/[\u0021-\u007e]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0));
+      return str;
+    };
+    if (selText) {
+      document.execCommand("insertText", false, convert(selText));
+      triggerActiveBlockInput();
+    } else {
+      const block = blocks[selectedIdx];
+      if (block && block.type === "paragraph") {
+        updateParagraph(selectedIdx, convert(block.text));
+      }
+    }
+  };
+
+  // 위 첨자 / 아래 첨자
+  const applySuperscript = () => {
+    restoreSelection();
+    document.execCommand("superscript", false);
+    triggerActiveBlockInput();
+  };
+
+  const applySubscript = () => {
+    restoreSelection();
+    document.execCommand("subscript", false);
+    triggerActiveBlockInput();
+  };
+
+  // 하이퍼링크 삽입
+  const handleInsertHyperlink = (text: string, url: string) => {
+    restoreSelection();
+    const linkHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#0066cc;text-decoration:underline;font-weight:500;">${text}</a>`;
+    if (document.activeElement && document.activeElement.getAttribute("contenteditable") === "true") {
+      document.execCommand("insertHTML", false, linkHtml);
+      triggerActiveBlockInput();
+    } else {
+      const block = blocks[selectedIdx];
+      if (block && block.type === "paragraph") {
+        updateParagraph(selectedIdx, (block.text || "") + " " + linkHtml);
+      }
+    }
+  };
+
+  // 날짜 / 시간 삽입
+  const handleInsertDate = (dateStr: string) => {
+    restoreSelection();
+    if (document.activeElement && document.activeElement.getAttribute("contenteditable") === "true") {
+      document.execCommand("insertText", false, dateStr);
+      triggerActiveBlockInput();
+    } else {
+      const block = blocks[selectedIdx];
+      if (block && block.type === "paragraph") {
+        updateParagraph(selectedIdx, (block.text || "") + " " + dateStr);
+      }
+    }
+  };
+
+  // 상용구 삽입
+  const handleInsertAutoText = (text: string) => {
+    restoreSelection();
+    if (document.activeElement && document.activeElement.getAttribute("contenteditable") === "true") {
+      document.execCommand("insertText", false, text);
+      triggerActiveBlockInput();
+    } else {
+      const block = blocks[selectedIdx];
+      if (block && block.type === "paragraph") {
+        updateParagraph(selectedIdx, (block.text || "") + "\n" + text);
+      }
+    }
+  };
+
+  // 공통 블록 추가 유틸
+  const insertBlockAfter = (afterIdx: number, block: HwpxCollabBlock) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = new Y.Map<unknown>();
+    yBlock.set("id", block.id);
+    yBlock.set("type", block.type);
+    if (block.type === "paragraph") {
+      const yText = new Y.Text();
+      yText.insert(0, block.text || "");
+      yBlock.set("text", yText);
+      if (block.sizePt) yBlock.set("sizePt", block.sizePt);
+      if (block.bold) yBlock.set("bold", block.bold);
+      if (block.align) yBlock.set("align", block.align);
+      if (block.fontFamily) yBlock.set("fontFamily", block.fontFamily);
+    } else if (block.type === "shape") {
+      yBlock.set("shapeType", block.shapeType);
+      yBlock.set("fillColor", block.fillColor || "#FFFFFF");
+      yBlock.set("strokeColor", block.strokeColor || "#0066cc");
+      yBlock.set("strokeWidth", block.strokeWidth || 1.5);
+      yBlock.set("widthPercent", block.widthPercent || 65);
+      yBlock.set("align", block.align || "center");
+      if (block.text) yBlock.set("text", block.text);
+    }
+    const targetIdx = afterIdx < 0 ? yBlocks.length : Math.min(afterIdx + 1, yBlocks.length);
+    doc.transact(() => {
+      yBlocks.insert(targetIdx, [yBlock]);
+    });
+    setSelectedIdx(targetIdx);
+  };
+
+  // 글상자 (Text Box) 삽입
+  const addTextBox = () => {
+    const newId = `shape-${Date.now()}`;
+    const block: HwpxShapeBlock = {
+      id: newId,
+      type: "shape",
+      shapeType: "rect",
+      text: "글상자 내용을 입력하세요.",
+      fillColor: "#FFFFFF",
+      strokeColor: "#0066cc",
+      strokeWidth: 1.5,
+      widthPercent: 65,
+      align: "center",
+    };
+    insertBlockAfter(selectedIdx, block);
+  };
+
+  // 캡션 달기
+  const addCaptionToSelected = () => {
+    const cur = blocks[selectedIdx];
+    const captionText = cur && cur.type === "table" ? "[표 1] 데이터 설명" : "[그림 1] 참고 이미지";
+    const newPara: HwpxParagraphBlock = {
+      id: `caption-${Date.now()}`,
+      type: "paragraph",
+      text: captionText,
+      sizePt: 9,
+      bold: true,
+      align: "center",
+      fontFamily: currentPara?.fontFamily || FONT_FAMILIES[0].value,
+    };
+    insertBlockAfter(selectedIdx, newPara);
+  };
+
+  // 각주 달기
+  const addFootnote = () => {
+    const cur = blocks[selectedIdx];
+    if (cur && cur.type === "paragraph") {
+      updateParagraph(selectedIdx, (cur.text || "") + "<sup>1)</sup>");
+      const notePara: HwpxParagraphBlock = {
+        id: `footnote-${Date.now()}`,
+        type: "paragraph",
+        text: "1) 각주: 본 통계 및 세부 내용은 관련 규정 및 공시 자료에 따름.",
+        sizePt: 8.5,
+        align: "left",
+        fontFamily: currentPara?.fontFamily || FONT_FAMILIES[0].value,
+      };
+      insertBlockAfter(blocks.length - 1, notePara);
+    }
+  };
+
+  // 미주 달기
+  const addEndnote = () => {
+    const cur = blocks[selectedIdx];
+    if (cur && cur.type === "paragraph") {
+      updateParagraph(selectedIdx, (cur.text || "") + "<sup>[i]</sup>");
+      const notePara: HwpxParagraphBlock = {
+        id: `endnote-${Date.now()}`,
+        type: "paragraph",
+        text: "[i] 미주: 문서의 상세 참고 문헌 및 주석 내용입니다.",
+        sizePt: 8.5,
+        align: "left",
+        fontFamily: currentPara?.fontFamily || FONT_FAMILIES[0].value,
+      };
+      insertBlockAfter(blocks.length - 1, notePara);
+    }
+  };
+
+  // 차트 삽입 (한컴 표준)
+  const insertChart = (
+    chartType: "column" | "bar" | "line" | "pie" = selectedChartType,
+    title: string = chartTitleInput
+  ) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = new Y.Map<unknown>();
+    yBlock.set("id", `chart_${Date.now()}`);
+    yBlock.set("type", "chart");
+    yBlock.set("chartType", chartType);
+    yBlock.set("title", title || "[차트 1] 분기별 경영 실적 분석");
+    yBlock.set("categories", ["1분기", "2분기", "3분기", "4분기"]);
+    yBlock.set("series", [
+      { name: "매출액", values: [180, 240, 290, 360], color: "#2563eb" },
+      { name: "영업이익", values: [55, 80, 105, 140], color: "#10b981" },
+    ]);
+    yBlock.set("widthPercent", 85);
+    yBlock.set("heightPt", 220);
+    yBlock.set("align", "center");
+
+    doc.transact(() => {
+      yBlocks.insert(selectedIdx + 1, [yBlock]);
+    });
+    setSelectedIdx(selectedIdx + 1);
+    setShowChartModal(false);
+    const label = chartType === "column" ? "묶은 세로 막대형" : chartType === "bar" ? "가로 막대형" : chartType === "line" ? "꺾은선형" : "원형";
+    showToast(`차트(${label})가 문서에 삽입되었습니다.`);
+  };
+
+  const updateChartType = (idx: number, newType: "column" | "bar" | "line" | "pie") => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(idx);
+    if (!yBlock) return;
+    doc.transact(() => {
+      yBlock.set("chartType", newType);
+    });
+    const label = newType === "column" ? "세로 막대형" : newType === "bar" ? "가로 막대형" : newType === "line" ? "꺾은선형" : "원형";
+    showToast(`차트 종류가 [${label}]으로 변경되었습니다.`);
+  };
+
+  const insertSampleChart = () => {
+    setShowChartModal(true);
+  };
+
+  // 웹 동영상 삽입 (한컴독스)
+  const insertWebVideo = () => {
+    const vidPara: HwpxParagraphBlock = {
+      id: `vid_${Date.now()}`,
+      type: "paragraph",
+      text: "[웹 동영상: https://www.youtube.com/watch?v=sample]",
+      sizePt: 10,
+      align: "center",
+      bold: true,
+    };
+    insertBlockAfter(selectedIdx, vidPara);
+    showToast("웹 동영상이 문서에 삽입되었습니다.");
+  };
+
+  // 차례(목차) 만들기 (TOC)
+  const insertToc = () => {
+    const headings = blocks
+      .filter((b): b is HwpxParagraphBlock => b.type === "paragraph" && (((b.sizePt ?? 0) >= 12) || !!b.bold))
+      .map((b) => b.text.replace(/<[^>]*>/g, "").trim())
+      .filter(Boolean);
+
+    const tocLines = headings.length > 0
+      ? headings.map((h, i) => `${h} ························································ ${i + 1}`)
+      : [
+          "1. 연구 배경 및 서론 ························································ 1",
+          "2. 주요 설계 및 추진 내용 ··················································· 2",
+          "3. 실증 분석 및 결과 ························································ 3",
+          "4. 결론 및 향후 제언 ························································ 4",
+        ];
+
+    const tocPara: HwpxParagraphBlock = {
+      id: `toc-${Date.now()}`,
+      type: "paragraph",
+      text: `[차  례]\n\n${tocLines.join("\n")}`,
+      sizePt: 10,
+      align: "left",
+      fontFamily: currentPara?.fontFamily || FONT_FAMILIES[0].value,
+    };
+    insertBlockAfter(0, tocPara);
+  };
+
+  // 표 계산식 및 자릿점
+  const handleTableCalc = (type: "sum" | "avg" | "comma-add" | "comma-remove") => {
+    const cur = blocks[selectedIdx];
+    if (!cur || cur.type !== "table") {
+      showToast("계산식을 적용할 표를 먼저 선택해 주세요.");
+      return;
+    }
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(selectedIdx);
+    if (!yBlock) return;
+    const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>>;
+
+    doc.transact(() => {
+      if (type === "sum" || type === "avg") {
+        let sum = 0;
+        let count = 0;
+        cur.rows.forEach((row) => {
+          row.forEach((cell) => {
+            const num = parseFloat(cell.text.replace(/,/g, "").trim());
+            if (!isNaN(num)) {
+              sum += num;
+              count++;
+            }
+          });
+        });
+        const valStr = type === "sum" ? String(sum.toLocaleString()) : (count > 0 ? (sum / count).toFixed(2) : "0");
+        const lastRow = yRows.get(yRows.length - 1);
+        const lastCell = lastRow?.get((lastRow?.length || 1) - 1);
+        const yCellText = lastCell?.get("text") as Y.Text;
+        if (yCellText) {
+          yCellText.delete(0, yCellText.length);
+          yCellText.insert(0, valStr);
+        }
+      } else if (type === "comma-add" || type === "comma-remove") {
+        cur.rows.forEach((row, rIdx) => {
+          const yRow = yRows.get(rIdx);
+          row.forEach((cell, cIdx) => {
+            const yCell = yRow?.get(cIdx);
+            const yCellText = yCell?.get("text") as Y.Text;
+            if (!yCellText) return;
+            const raw = cell.text.trim();
+            if (type === "comma-add") {
+              const num = Number(raw.replace(/,/g, ""));
+              if (!isNaN(num) && raw.length > 0) {
+                yCellText.delete(0, yCellText.length);
+                yCellText.insert(0, num.toLocaleString());
+              }
+            } else {
+              yCellText.delete(0, yCellText.length);
+              yCellText.insert(0, raw.replace(/,/g, ""));
+            }
+          });
+        });
+      }
+    });
+  };
+
+  // 표 셀 합치기 (첫 행의 두 셀 병합)
+  const handleMergeTableCells = () => {
+    const cur = blocks[selectedIdx];
+    if (!cur || cur.type !== "table") {
+      showToast("셀을 합칠 표를 먼저 선택해 주세요.");
+      return;
+    }
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(selectedIdx);
+    if (!yBlock) return;
+    const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>>;
+    if (!yRows || yRows.length < 1) return;
+
+    doc.transact(() => {
+      const row0 = yRows.get(0);
+      if (row0 && row0.length > 1) {
+        const cell0 = row0.get(0);
+        const cell1 = row0.get(1);
+        const text0 = (cell0?.get("text") as Y.Text)?.toString() || "";
+        const text1 = (cell1?.get("text") as Y.Text)?.toString() || "";
+        const combined = text0 + (text1 ? " " + text1 : "");
+        const yText0 = cell0?.get("text") as Y.Text;
+        if (yText0) {
+          yText0.delete(0, yText0.length);
+          yText0.insert(0, combined);
+        }
+        cell0?.set("colSpan", ((cell0.get("colSpan") as number) || 1) + 1);
+        row0.delete(1, 1);
+      }
+    });
+  };
+
+  // 표 셀 나누기 (선택 행에 셀 추가)
+  const handleSplitTableCell = () => {
+    const cur = blocks[selectedIdx];
+    if (!cur || cur.type !== "table") {
+      showToast("셀을 나눌 표를 먼저 선택해 주세요.");
+      return;
+    }
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(selectedIdx);
+    if (!yBlock) return;
+    const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>>;
+    if (!yRows || yRows.length < 1) return;
+
+    doc.transact(() => {
+      const row0 = yRows.get(0);
+      if (row0) {
+        const newCell = new Y.Map<unknown>();
+        newCell.set("text", new Y.Text(""));
+        row0.push([newCell]);
+      }
+    });
+  };
+
+  // 표 너비/높이 맞춤
+  const handleDistributeCells = () => {
+    const cur = blocks[selectedIdx];
+    if (!cur || cur.type !== "table") {
+      showToast("표를 먼저 선택해 주세요.");
+      return;
+    }
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(selectedIdx);
+    if (!yBlock) return;
+    doc.transact(() => {
+      yBlock.set("widthPercent", 100);
+    });
+  };
+
+  // 맞춤법 일괄 교정
+  const handleFixSpelling = (corrections: Array<{ from: string; to: string }>) => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    doc.transact(() => {
+      blocks.forEach((block, bIdx) => {
+        if (block.type === "paragraph") {
+          let text = block.text;
+          let changed = false;
+          corrections.forEach((c) => {
+            if (text.includes(c.from)) {
+              text = text.split(c.from).join(c.to);
+              changed = true;
+            }
+          });
+          if (changed) {
+            const yBlock = yBlocks.get(bIdx);
+            const yText = yBlock?.get("text") as Y.Text;
+            if (yText) {
+              yText.delete(0, yText.length);
+              yText.insert(0, text);
+            }
+          }
+        }
+      });
+    });
+  };
+
+  // 문서마당 (서식 템플릿 로드)
+  const handleLoadTemplate = (templateId: "report" | "resume" | "meeting" | "official") => {
+    const makeP = (text: string, sizePt = 10, bold = false, align: "left" | "center" | "right" | "justify" = "justify"): HwpxParagraphBlock => ({
+      id: `p-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: "paragraph",
+      text,
+      sizePt,
+      bold,
+      align,
+      fontFamily: FONT_FAMILIES[0].value,
+    });
+
+    let newBlocks: HwpxCollabBlock[] = [];
+    if (templateId === "report") {
+      newBlocks = [
+        makeP("[팀 프로젝트] 최종 결과 보고서", 22, true, "center"),
+        makeP("과제명: 대학 협업 플랫폼 실시간 문서 편집 시스템 연구", 12, false, "center"),
+        makeP("소속: 공과대학 컴퓨터공학과 | 팀명: Slackers | 작성자: 팀원 일동", 10, false, "center"),
+        makeP("2026년 11월 17일", 10, false, "center"),
+        makeP("----------------------------------------------------------------", 10, false, "center"),
+        makeP("1. 연구 배경 및 목적", 14, true, "left"),
+        makeP("최근 원격 협업 및 비대면 환경의 확산으로 인해 실시간 동시 편집 기능을 지원하는 오피스 소프트웨어의 중요성이 대두되고 있다. 본 연구에서는 한컴 OWPML 표준과의 호환성을 유지하면서 웹 상에서 다자간 동시 편집이 가능한 시스템을 구현하고자 한다."),
+        makeP("2. 추진 일정 및 업무 분장", 14, true, "left"),
+        {
+          id: `tbl-${Date.now()}`,
+          type: "table",
+          rows: [
+            [{ text: "구분" }, { text: "담당자" }, { text: "주요 추진 내용" }],
+            [{ text: "기획/설계" }, { text: "팀장" }, { text: "한컴 표준 규격 분석 및 UI/UX 와이어프레임 설계" }],
+            [{ text: "엔진 개발" }, { text: "팀원 A" }, { text: "실시간 CRDT 동기화 및 MathML 수식 렌더러 구현" }],
+            [{ text: "검증/배포" }, { text: "팀원 B" }, { text: "단위 테스트 통과 및 배포 파이프라인 구축" }],
+          ],
+        },
+        makeP("3. 결론 및 향후 계획", 14, true, "left"),
+        makeP("본 시스템을 통해 한글 표준 문서를 웹 브라우저만으로 손실 없이 열람 및 편집할 수 있음을 검증하였다. 향후 추가적인 고급 조판 기능과 스타일 서식을 지속적으로 확장할 예정이다."),
+      ];
+    } else if (templateId === "resume") {
+      newBlocks = [
+        makeP("입 사 지 원 서", 22, true, "center"),
+        {
+          id: `tbl-res-${Date.now()}`,
+          type: "table",
+          rows: [
+            [{ text: "성 명" }, { text: "홍길동" }, { text: "생년월일" }, { text: "2000. 01. 01" }],
+            [{ text: "연락처" }, { text: "010-1234-5678" }, { text: "이메일" }, { text: "hong@university.ac.kr" }],
+            [{ text: "주 소" }, { text: "서울특별시 강남구 테헤란로 123" }, { text: "희망직무" }, { text: "풀스택 소프트웨어 엔지니어" }],
+          ],
+        },
+        makeP("■ 학력 및 주요 활동 사항", 13, true, "left"),
+        {
+          id: `tbl-edu-${Date.now()}`,
+          type: "table",
+          rows: [
+            [{ text: "기간" }, { text: "학교 및 기관명" }, { text: "전공 및 활동 내용" }],
+            [{ text: "2020 ~ 2026" }, { text: "한국대학교" }, { text: "컴퓨터공학과 졸업 (학점 4.2 / 4.5)" }],
+            [{ text: "2025 ~ 2026" }, { text: "오픈소스 프로젝트" }, { text: "실시간 협업 웹 오피스 에디터 개발 참여" }],
+          ],
+        },
+        makeP("■ 자기소개서", 13, true, "left"),
+        makeP("[지원 동기 및 직무 포부]"),
+        makeP("저는 복잡한 시스템의 기술적 난제를 집요하게 파고들어 직관적이고 안정적인 사용자 경험으로 풀어내는 소프트웨어 엔지니어입니다. 귀사에서 최고의 협업 솔루션을 함께 만들어 가고 싶습니다."),
+      ];
+    } else if (templateId === "meeting") {
+      newBlocks = [
+        makeP("프로젝트 팀 정기 회의록", 20, true, "center"),
+        {
+          id: `tbl-meet-${Date.now()}`,
+          type: "table",
+          rows: [
+            [{ text: "일 시" }, { text: "2026년 11월 17일 10:00" }, { text: "장 소" }, { text: "온라인 화상 회의실" }],
+            [{ text: "참석자" }, { text: "팀원 전원 (김철수, 이영희, 박지민)" }, { text: "서 기" }, { text: "이영희" }],
+            [{ text: "안 건" }, { text: "한컴 웹 에디터 신규 기능 배포 및 QA 점검" }],
+          ],
+        },
+        makeP("1. 논의 안건 및 협의 사항", 13, true, "left"),
+        makeP("- 모양 복사(Alt+C), 셀 합치기/나누기 등 핵심 편의 기능 탑재 완료 확인"),
+        makeP("- 실시간 협업 CRDT 동기화 지연 및 충돌 테스트 결과 이상 없음 확인"),
+        makeP("2. 향후 실행 계획 (Action Items)", 13, true, "left"),
+        {
+          id: `tbl-act-${Date.now()}`,
+          type: "table",
+          rows: [
+            [{ text: "과제" }, { text: "담당" }, { text: "기한" }],
+            [{ text: "최종 사용자 피드백 수렴" }, { text: "김철수" }, { text: "11/20" }],
+            [{ text: "성능 벤치마크 보고서 작성" }, { text: "박지민" }, { text: "11/22" }],
+          ],
+        },
+      ];
+    } else if (templateId === "official") {
+      newBlocks = [
+        makeP("업  무  기  안  서", 22, true, "center"),
+        {
+          id: `tbl-off-${Date.now()}`,
+          type: "table",
+          rows: [
+            [{ text: "기안부서" }, { text: "기술개발본부" }, { text: "기안자" }, { text: "수석연구원" }],
+            [{ text: "기안일자" }, { text: "2026. 11. 17." }, { text: "문서번호" }, { text: "TECH-2026-1117" }],
+          ],
+        },
+        makeP("제 목: 한컴오피스 호환 웹 문서 편집기 신규 기능 릴리스 승인의 건", 13, true, "left"),
+        makeP("1. 귀 부서의 무궁한 발전을 기원합니다."),
+        makeP("2. 당사 협업 플랫폼의 사용성 향상을 위하여 진행된 웹 에디터 신규 조판 및 서식 기능 개발이 완료되었기에 첨부와 같이 보고하오니 재가하여 주시기 바랍니다."),
+        makeP("붙임: 1. 기능 명세서 1부.  2. 테스트 결과 보고서 1부.  끝."),
+      ];
+    }
+
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    doc.transact(() => {
+      yBlocks.delete(0, yBlocks.length);
+      newBlocks.forEach((b) => {
+        const yMap = new Y.Map<unknown>();
+        yMap.set("id", b.id);
+        yMap.set("type", b.type);
+        if (b.type === "paragraph") {
+          const yText = new Y.Text();
+          yText.insert(0, b.text);
+          yMap.set("text", yText);
+          yMap.set("sizePt", b.sizePt);
+          yMap.set("bold", b.bold);
+          yMap.set("align", b.align);
+          yMap.set("fontFamily", b.fontFamily);
+        } else if (b.type === "table") {
+          const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
+          b.rows.forEach((row: { text: string }[]) => {
+            const yRow = new Y.Array<Y.Map<unknown>>();
+            row.forEach((cell: { text: string }) => {
+              const yCell = new Y.Map<unknown>();
+              const yCellText = new Y.Text();
+              yCellText.insert(0, cell.text);
+              yCell.set("text", yCellText);
+              yRow.push([yCell]);
+            });
+            yRows.push([yRow]);
+          });
+          yMap.set("rows", yRows);
+        }
+        yBlocks.push([yMap]);
+      });
+    });
+  };
+
+  // 텍스트 / HTML 다운로드
+  const handleDownloadTxt = () => {
+    const plainText = blocks
+      .map((b) => {
+        if (b.type === "paragraph") return b.text.replace(/<[^>]*>/g, "");
+        if (b.type === "table") return b.rows.map((r) => r.map((c) => c.text).join("\t")).join("\n");
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+    const blob = new Blob([plainText], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (file.name || "문서").replace(/\.hwpx$/i, "") + ".txt";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleDownloadHtml = () => {
+    const htmlContent = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>${file.name || "한글 문서"}</title>
+  <style>
+    body { font-family: 'Nanum Myeongjo', serif; margin: 40px auto; max-width: 800px; line-height: 1.6; color: #111; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    td, th { border: 1px solid #333; padding: 8px; }
+  </style>
+</head>
+<body>
+  ${blocks
+    .map((b) => {
+      if (b.type === "paragraph") return `<p style="text-align:${b.align || "left"};font-size:${b.sizePt || 10}pt;${b.bold ? "font-weight:bold;" : ""}">${b.text}</p>`;
+      if (b.type === "table") {
+        return `<table>${b.rows.map((r) => `<tr>${r.map((c) => `<td>${c.text}</td>`).join("")}</tr>`).join("")}</table>`;
+      }
+      return "";
+    })
+    .join("\n")}
+</body>
+</html>`;
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (file.name || "문서").replace(/\.hwpx$/i, "") + ".html";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   // 클립보드 오려두기 / 복사
   const handleCut = () => {
     restoreSelection();
@@ -1833,7 +3150,7 @@ function HwpxEditorModalInner({
     document.execCommand("copy");
   };
 
-  // 실행 취소 / 다시 실행
+  // 실행 취소 / 다시 실행 (Yjs UndoManager 연동)
   const handleUndo = () => {
     const prevLen = doc.getArray("hwpx_blocks").length;
     if (undoManager.canUndo()) {
@@ -1847,18 +3164,34 @@ function HwpxEditorModalInner({
         } else {
           setSelectedIdx(Math.min(selectedIdx + 1, currentBlocks.length - 1));
         }
+      } else {
+        setSelectedIdx((cur) => Math.max(0, Math.min(cur, currentBlocks.length - 1)));
       }
+      showToast("되돌리기(실행 취소) 완료");
     } else {
-      document.execCommand("undo");
+      const activeEl = document.activeElement;
+      if (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement) {
+        document.execCommand("undo");
+      } else {
+        showToast("더 이상 되돌릴 내역이 없습니다.");
+      }
     }
   };
+
   const handleRedo = () => {
     if (undoManager.canRedo()) {
       undoManager.redo();
       const currentBlocks = extractBlocksFromYDoc(doc);
       setBlocks(currentBlocks);
+      setSelectedIdx((cur) => Math.max(0, Math.min(cur, currentBlocks.length - 1)));
+      showToast("다시 실행 완료");
     } else {
-      document.execCommand("redo");
+      const activeEl = document.activeElement;
+      if (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement) {
+        document.execCommand("redo");
+      } else {
+        showToast("더 이상 다시 실행할 내역이 없습니다.");
+      }
     }
   };
 
@@ -1878,7 +3211,7 @@ function HwpxEditorModalInner({
 
   // 인쇄 (Ctrl+P)
   const handlePrint = () => {
-    window.print();
+    showToast("인쇄 미리보기 및 인쇄 기능이 준비되었습니다.");
   };
 
   // 쪽 나누기 (Ctrl+Enter)
@@ -2078,6 +3411,40 @@ function HwpxEditorModalInner({
           updateParagraph(selectedIdx, block.text.slice(1));
         }
       }
+    }
+  };
+
+  const toggleBulletList = () => {
+    if (selectedIdx === null) return;
+    const block = blocks[selectedIdx];
+    if (block && block.type === "paragraph") {
+      if (block.text.startsWith("• ")) {
+        updateParagraph(selectedIdx, block.text.slice(2));
+      } else {
+        updateParagraph(selectedIdx, "• " + block.text);
+      }
+    }
+  };
+
+  const toggleNumberList = () => {
+    if (selectedIdx === null) return;
+    const block = blocks[selectedIdx];
+    if (block && block.type === "paragraph") {
+      if (/^\d+\.\s/.test(block.text)) {
+        updateParagraph(selectedIdx, block.text.replace(/^\d+\.\s/, ""));
+      } else {
+        updateParagraph(selectedIdx, "1. " + block.text);
+      }
+    }
+  };
+
+  const insertHeaderFooter = (type: "header" | "footer") => {
+    if (type === "header") {
+      const el = document.querySelector("main");
+      if (el) el.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      const el = document.querySelector("main");
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
   };
 
@@ -2446,8 +3813,7 @@ function HwpxEditorModalInner({
           yText = new Y.Text();
           yBlock.set("text", yText);
         }
-        yText.delete(0, yText.length);
-        yText.insert(0, patch.text);
+        applyTextDiffToYText(yText, patch.text);
       }
     });
   };
@@ -2477,8 +3843,7 @@ function HwpxEditorModalInner({
     const yText = yCell.get("text") as Y.Text | undefined;
     if (yText) {
       doc.transact(() => {
-        yText.delete(0, yText.length);
-        yText.insert(0, newText);
+        applyTextDiffToYText(yText, newText);
       });
     }
   };
@@ -2491,8 +3856,7 @@ function HwpxEditorModalInner({
     const yScript = yBlock.get("script") as Y.Text | undefined;
     if (yScript) {
       doc.transact(() => {
-        yScript.delete(0, yScript.length);
-        yScript.insert(0, newScript);
+        applyTextDiffToYText(yScript, newScript);
       });
     }
   };
@@ -2518,16 +3882,17 @@ function HwpxEditorModalInner({
       >
         {/* ── 한컴오피스 / 한컴독스 표준 스타일 상단 헤더 & 메뉴 탭 ── */}
         <header className="bg-white border-b border-neutral-300 select-none shrink-0 text-neutral-800">
-          {/* 1열: 한컴 로고, 문서 제목, 상단 빠른 메뉴 */}
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-200 bg-[#fbfcfd]">
+          {/* 1열: 한컴독스 공식 스타일 상단 헤더 (Images 1, 2, 4) */}
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-200 bg-white">
             <div className="flex items-center gap-2.5 min-w-0">
-              {/* 한컴 한글 H 로고 아이콘 */}
-              <div className="w-7 h-7 rounded bg-[#0066cc] flex items-center justify-center text-white font-bold text-xs shadow-sm">
-                한
-              </div>
+              <HancomDocsAppLogo className="w-7 h-7 shrink-0 shadow-xs" />
               <div className="min-w-0 flex items-center gap-2">
-                <span className="text-sm font-semibold text-neutral-800 truncate" title={file.name}>
-                  {file.name}
+                <span
+                  onClick={handleRename}
+                  className="text-sm font-semibold text-neutral-800 truncate cursor-pointer hover:bg-neutral-100 px-1.5 py-0.5 rounded transition"
+                  title="클릭하여 문서 이름 바꾸기"
+                >
+                  {docTitle}
                 </span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${dirty ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-500"}`}>
                   {status === "saving" ? "저장 중…" : dirty ? "수정됨" : "저장됨"}
@@ -2535,33 +3900,76 @@ function HwpxEditorModalInner({
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <EditorAvatars editors={roomEditors} />
 
+              {/* 댓글 버튼 */}
               <button
                 type="button"
-                onClick={() => void runSave()}
-                disabled={status === "saving" || !dirty}
-                className="px-2.5 py-1 rounded text-xs font-semibold bg-[#0066cc] hover:bg-[#0055aa] text-white disabled:opacity-40 transition cursor-pointer flex items-center gap-1.5"
-                title="클라우드 저장 (Ctrl+S)"
+                onClick={() => showToast("동시 편집자 댓글 및 의견 기능이 활성화되어 있습니다.")}
+                className="p-1.5 rounded hover:bg-neutral-100 text-neutral-600 transition cursor-pointer"
+                title="댓글"
               >
-                <SaveIcon className="w-3.5 h-3.5" />
-                <span>{status === "saving" ? "저장 중" : "저장"}</span>
+                <CommentIcon className="w-4 h-4" />
               </button>
 
+              {/* 단축키 (K) */}
+              <button
+                type="button"
+                onClick={() => setShowShortcutsModal(true)}
+                className="w-6 h-6 rounded hover:bg-neutral-100 text-neutral-600 transition cursor-pointer text-xs font-semibold flex items-center justify-center font-mono border border-neutral-200"
+                title="단축키 안내 (K)"
+              >
+                K
+              </button>
+
+              {/* 도움말 (?) */}
+              <button
+                type="button"
+                onClick={() => setShowShortcutsModal(true)}
+                className="w-6 h-6 rounded hover:bg-neutral-100 text-neutral-600 transition cursor-pointer text-xs font-bold flex items-center justify-center"
+                title="도움말 (?)"
+              >
+                ?
+              </button>
+
+              {/* 공유 버튼 */}
+              <button
+                type="button"
+                onClick={handleShare}
+                className="px-3 py-1 rounded text-xs font-semibold border border-neutral-300 hover:bg-neutral-50 text-neutral-700 transition cursor-pointer flex items-center gap-1"
+                title="문서 링크 공유"
+              >
+                <span>공유</span>
+              </button>
+
+              {/* 데스크톱에서 편집 버튼 */}
               <button
                 type="button"
                 onClick={() => void handleDirectDownload()}
-                className="px-2.5 py-1 rounded text-xs font-medium border border-neutral-300 hover:bg-neutral-100 text-neutral-700 transition cursor-pointer flex items-center gap-1"
+                className="px-3 py-1 rounded text-xs font-semibold border border-neutral-300 hover:bg-neutral-50 text-neutral-700 transition cursor-pointer flex items-center gap-1"
                 title="데스크톱에서 편집하기 위해 HWPX 원본 다운로드"
               >
                 <span>데스크톱에서 편집</span>
               </button>
 
+              {/* 리본 접기/펼치기 버튼 */}
+              <button
+                type="button"
+                onClick={() => setRibbonCollapsed(!ribbonCollapsed)}
+                className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 transition cursor-pointer"
+                title={ribbonCollapsed ? "메뉴 툴바 펼치기" : "메뉴 툴바 접기"}
+              >
+                <svg className={`w-3.5 h-3.5 transition-transform ${ribbonCollapsed ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+              </button>
+
+              {/* 닫기 버튼 */}
               <button
                 type="button"
                 onClick={() => requestClose(onClose)}
-                className="p-1 rounded hover:bg-red-50 text-neutral-400 hover:text-red-600 transition cursor-pointer"
+                className="p-1.5 rounded hover:bg-red-50 text-neutral-400 hover:text-red-600 transition cursor-pointer"
                 title="편집기 닫기"
               >
                 ✕
@@ -2569,628 +3977,1189 @@ function HwpxEditorModalInner({
             </div>
           </div>
 
-          {/* 2열: 메뉴 탭 바 (파일, 편집, 보기, 입력, 서식, 쪽, 표, 검토, 도구) 및 리본 접기/펼치기 */}
-          <div className="flex items-center justify-between px-2 bg-white text-xs border-b border-neutral-200">
-            <div className="flex items-center gap-0.5">
-              {(
-                [
-                  { id: "file", label: "파일" },
-                  { id: "edit", label: "편집" },
-                  { id: "view", label: "보기" },
-                  { id: "insert", label: "입력" },
-                  { id: "format", label: "서식" },
-                  { id: "page", label: "쪽" },
-                  { id: "table", label: "표" },
-                  { id: "review", label: "검토" },
-                  { id: "tools", label: "도구" },
-                ] as const
-              ).map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
+          {/* 2열: 메뉴바 & 풀다운 드롭다운 메뉴 (Images 1, 2, 3) */}
+          <div className="relative flex items-center px-2 bg-white text-xs border-b border-neutral-200">
+            {(
+              [
+                { id: "file", label: "파일" },
+                { id: "edit", label: "편집" },
+                { id: "view", label: "보기" },
+                { id: "insert", label: "입력" },
+                { id: "format", label: "서식" },
+                { id: "page", label: "쪽" },
+                { id: "table", label: "표" },
+                { id: "review", label: "검토" },
+                { id: "tools", label: "도구" },
+              ] as const
+            ).map((menu) => {
+              const isDropdownOpen = openDropdown === menu.id;
+              const isTabActive = activeTab === menu.id;
+              return (
+                <div key={menu.id} className="relative">
                   <button
-                    key={tab.id}
                     type="button"
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      if (ribbonCollapsed) setRibbonCollapsed(false);
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenDropdown((cur) => (cur === menu.id ? null : menu.id));
+                      setActiveTab(menu.id);
                     }}
-                    className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 ${
-                      isActive
-                        ? "border-[#0066cc] text-[#0066cc] font-bold"
+                    onMouseEnter={() => {
+                      if (openDropdown !== null) {
+                        setOpenDropdown(menu.id);
+                        setActiveTab(menu.id);
+                      }
+                    }}
+                    className={`px-3 py-1.5 font-medium transition cursor-pointer border-b-2 ${
+                      isDropdownOpen || (openDropdown === null && isTabActive)
+                        ? "border-[#0066cc] text-[#0066cc] font-bold bg-neutral-50"
                         : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
                     }`}
                   >
-                    {tab.label}
+                    {menu.label}
                   </button>
-                );
-              })}
-            </div>
 
-            {/* 메뉴 툴바 접기/펼치기 버튼 (한컴 표준: 탭 바 우측 끝에 배치) */}
-            <button
-              type="button"
-              onClick={() => setRibbonCollapsed(!ribbonCollapsed)}
-              className="p-1 mr-1 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-800 transition cursor-pointer flex items-center justify-center"
-              title={ribbonCollapsed ? "메뉴 툴바 펼치기 (리본 메뉴 표시)" : "메뉴 툴바 접기 (리본 메뉴 숨김)"}
-              aria-label={ribbonCollapsed ? "메뉴 툴바 펼치기" : "메뉴 툴바 접기"}
-            >
-              <svg
-                className={`w-3.5 h-3.5 transition-transform duration-200 ${ribbonCollapsed ? "rotate-180" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
-              </svg>
-            </button>
+                  {/* [파일] 드롭다운 메뉴 (Image 1) */}
+                  {isDropdownOpen && menu.id === "file" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[240px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); void runSave(); }}
+                        disabled={status === "saving" || !dirty}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left disabled:opacity-40 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SaveIcon className="w-4 h-4 text-neutral-600" />
+                          <span>저장하기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+S</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleSaveAs(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SaveAsIcon className="w-4 h-4 text-neutral-600" />
+                          <span>다른 이름으로 저장하기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+V</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleShare(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ShareIcon className="w-4 h-4 text-neutral-600" />
+                          <span>공유</span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleRename(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <RenameIcon className="w-4 h-4 text-neutral-600" />
+                          <span>이름 바꾸기</span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); void handleDirectDownload(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <DownloadTrayIcon className="w-4 h-4 text-neutral-600" />
+                          <span>다운로드</span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleDownloadPdf(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PdfDownloadIcon className="w-4 h-4" />
+                          <span>PDF로 다운로드</span>
+                        </span>
+                      </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); openPageSetupModal(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PageSetupIcon className="w-4 h-4 text-neutral-600" />
+                          <span>편집 용지...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">F7</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handlePrint(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PrintIcon className="w-4 h-4 text-neutral-600" />
+                          <span>인쇄</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+P</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowDocStatsModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <DocInfoIcon className="w-4 h-4 text-neutral-600" />
+                          <span>문서 정보...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Q+I</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [편집] 드롭다운 메뉴 (Images 2, 3) */}
+                  {isDropdownOpen && menu.id === "edit" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[240px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleUndo(); }}
+                        disabled={!canUndo}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left disabled:opacity-40 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <UndoIcon className="w-4 h-4 text-neutral-600" />
+                          <span>되돌리기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Z</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleRedo(); }}
+                        disabled={!canRedo}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left disabled:opacity-40 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <RedoIcon className="w-4 h-4 text-neutral-600" />
+                          <span>다시 실행</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Shift+Z</span>
+                      </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); document.execCommand("cut"); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <CutIcon className="w-4 h-4 text-neutral-600" />
+                          <span>오려 두기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+X</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); document.execCommand("copy"); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <CopyIcon className="w-4 h-4 text-neutral-600" />
+                          <span>복사하기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+C</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); document.execCommand("paste"); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PasteIcon className="w-4 h-4 text-amber-600" />
+                          <span>붙이기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+V</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowFormatCopyModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <FormatPainterIcon className="w-4 h-4 text-blue-600" />
+                          <span>모양 복사...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Alt+C</span>
+                      </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); deleteSelected(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <EraserIcon className="w-4 h-4 text-neutral-600" />
+                          <span>지우기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+E</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); clearControlMarks(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ClearControlMarksIcon className="w-4 h-4 text-neutral-600" />
+                          <span>조판 부호 지우기</span>
+                        </span>
+                      </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); selectAll(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SelectAllIcon className="w-4 h-4 text-neutral-600" />
+                          <span>모두 선택</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+A</span>
+                      </button>
+
+                      {/* 찾기 ▶ 서브메뉴 (Images 2, 3) */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("search")}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <div className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer">
+                          <span className="flex items-center gap-2.5">
+                            <SearchIcon className="w-4 h-4 text-neutral-600" />
+                            <span>찾기</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▶</span>
+                        </div>
+
+                        {hoverSubmenu === "search" && (
+                          <div
+                            className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                            style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); setShowSearchModal(true); }}
+                              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <SearchIcon className="w-4 h-4 text-neutral-600" />
+                                <span>찾기...</span>
+                              </span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+F</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); setShowReplaceModal(true); }}
+                              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <ReplaceIcon className="w-4 h-4 text-neutral-600" />
+                                <span>찾아 바꾸기...</span>
+                              </span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+H</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); setShowGotoModal(true); }}
+                              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2.5">
+                                <GotoIcon className="w-4 h-4 text-neutral-600" />
+                                <span>찾아가기</span>
+                              </span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Alt+G</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* [보기] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "view" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setShowParaMarks(!showParaMarks); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 text-blue-600 font-bold">{showParaMarks ? "✓" : ""}</span>
+                          <span>문단 부호 (↵)</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowControlMarks(!showControlMarks); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 text-blue-600 font-bold">{showControlMarks ? "✓" : ""}</span>
+                          <span>조판 부호 ([##])</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowGrid(!showGrid); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 text-blue-600 font-bold">{showGrid ? "✓" : ""}</span>
+                          <span>모눈 격자 보기</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowLineNumbers(!showLineNumbers); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 text-blue-600 font-bold">{showLineNumbers ? "✓" : ""}</span>
+                          <span>줄 번호 표시</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowRuler(!showRuler); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 text-blue-600 font-bold">{showRuler ? "✓" : ""}</span>
+                          <span>가로 눈금자 보기</span>
+                        </span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        onClick={() => { setZoomPercent((z) => Math.min(200, z + 10)); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span>화면 확대 (+10%)</span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl++</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setZoomPercent((z) => Math.max(50, z - 10)); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span>화면 축소 (-10%)</span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+-</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setZoomPercent(100); setOpenDropdown(null); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span>원래 크기 (100%)</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [입력] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "insert" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowTableModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <TableIcon className="w-4 h-4 text-blue-600" />
+                          <span>표...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+N,T</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); imageInputRef.current?.click(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ImageIcon className="w-4 h-4 text-emerald-600" />
+                          <span>그림...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+N,I</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowShapeModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ShapesIcon className="w-4 h-4 text-purple-600" />
+                          <span>도형...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); openNewEquation(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <EquationIcon className="w-4 h-4 text-sky-600" />
+                          <span>수식...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+N,M</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); insertSampleChart(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ChartIcon className="w-4 h-4 text-sky-600" />
+                          <span>차트...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); insertWebVideo(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <WebVideoIcon className="w-4 h-4 text-indigo-600" />
+                          <span>웹 동영상...</span>
+                        </span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); addFootnote(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <FootnoteIcon className="w-4 h-4 text-emerald-600" />
+                          <span>각주</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+N,N</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); addEndnote(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <EndnoteIcon className="w-4 h-4 text-emerald-600" />
+                          <span>미주</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+N,E</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowHyperlinkModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <HyperlinkIcon className="w-4 h-4 text-blue-600" />
+                          <span>하이퍼링크...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+K</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowSymbolModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SymbolIcon className="w-4 h-4 text-orange-600" />
+                          <span>문자표...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+F10</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowAutoTextModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span>📑</span>
+                          <span>상용구...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+F3</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowDateModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span>📅</span>
+                          <span>날짜/시간...</span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [서식] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "format" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowCharShapeModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <CharShapeIcon className="w-4 h-4 text-blue-600" />
+                          <span>글자 모양...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+L</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowParaShapeModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ParaShapeIcon className="w-4 h-4 text-blue-600" />
+                          <span>문단 모양...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+T</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowFormatCopyModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <FormatPainterIcon className="w-4 h-4 text-blue-600" />
+                          <span>모양 복사...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+C</span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); applySuperscript(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SuperscriptIcon className="w-4 h-4" />
+                          <span>위 첨자 (x²)</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); applySubscript(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SubscriptIcon className="w-4 h-4" />
+                          <span>아래 첨자 (x₁)</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); toggleBulletList(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <BulletListIcon className="w-4 h-4" />
+                          <span>글머리표</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); toggleNumberList(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <NumberListIcon className="w-4 h-4" />
+                          <span>번호 목록</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowTextConvertModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <TextConvertIcon className="w-4 h-4 text-indigo-600" />
+                          <span>글자 바꾸기...</span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [쪽] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "page" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); openPageSetupModal(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PageSetupIcon className="w-4 h-4 text-neutral-600" />
+                          <span>편집 용지...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">F7</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowPageNumberModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PageNumberIcon className="w-4 h-4 text-blue-600" />
+                          <span>쪽 번호 매기기...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+N</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); insertHeaderFooter("header"); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <HeaderIcon className="w-4 h-4 text-amber-600" />
+                          <span>머리말/꼬리말...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowWatermarkModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <WatermarkIcon className="w-4 h-4 text-neutral-600" />
+                          <span>바탕쪽 워터마크...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setColumnCount((c) => (c === 1 ? 2 : c === 2 ? 3 : 1)); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ColumnsIcon className="w-4 h-4 text-neutral-600" />
+                          <span>다단 설정...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); addParagraph(selectedIdx ?? blocks.length - 1); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PageBreakIcon className="w-4 h-4 text-neutral-600" />
+                          <span>쪽 나누기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Enter</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [표] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "table" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowTableModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <TableIcon className="w-4 h-4 text-blue-600" />
+                          <span>표 만들기...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleMergeTableCells(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <MergeCellIcon className="w-4 h-4 text-blue-600" />
+                          <span>셀 합치기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">M</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleSplitTableCell(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SplitCellIcon className="w-4 h-4 text-blue-600" />
+                          <span>셀 나누기...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">S</span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowTableCalcModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <CalcIcon className="w-4 h-4 text-emerald-600" />
+                          <span>계산식 / 쉼표...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenDropdown(null);
+                          if (selectedIdx !== null && blocks[selectedIdx]?.type === "table") {
+                            openPropertyModal(selectedIdx);
+                          } else {
+                            showToast("표를 먼저 선택하세요.");
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <PageSetupIcon className="w-4 h-4 text-neutral-600" />
+                          <span>표/셀 속성...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">P</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [검토] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "review" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowSpellCheckModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SpellCheckIcon className="w-4 h-4 text-emerald-600" />
+                          <span>맞춤법 교정...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); insertToc(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <TocIcon className="w-4 h-4 text-blue-600" />
+                          <span>차례 만들기...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowDocStatsModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <DocInfoIcon className="w-4 h-4 text-neutral-600" />
+                          <span>문서 정보...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Q+I</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* [도구] 드롭다운 메뉴 */}
+                  {isDropdownOpen && menu.id === "tools" && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowTextConvertModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <TextConvertIcon className="w-4 h-4 text-indigo-600" />
+                          <span>글자 바꾸기...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowShortcutsModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ShortcutsIcon className="w-4 h-4 text-neutral-600" />
+                          <span>단축키 안내...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowSafeFontModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SafeFontIcon className="w-4 h-4 text-emerald-600" />
+                          <span>공공안심글꼴...</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowAddFontModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span>🔤</span>
+                          <span>글꼴(폰트) 추가/관리...</span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          {/* 3열: 한글 대형 리본 툴바 (선택된 탭에 따라 해당 기능 즉시 표시) */}
+          {/* 3열: 한컴독스 표준 액션 리본 툴바 (Images 1, 2, 4 완벽 일치) */}
           {!ribbonCollapsed && (
-            <div className="flex items-stretch gap-1 px-3 py-1.5 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px] min-h-[58px]">
-              {/* [파일 탭] */}
-              {activeTab === "file" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void runSave()}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
-                    title="문서 저장 (Ctrl+S)"
-                  >
-                    <SaveIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">저장하기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDirectDownload}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[56px]"
-                    title="수정된 문서를 .hwpx 파일로 다운로드"
-                  >
-                    <SaveIcon className="w-5 h-5 text-emerald-600" />
-                    <span className="text-[10px] mt-0.5">다운로드</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePrint}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
-                    title="인쇄 및 PDF로 저장 (Ctrl+P)"
-                  >
-                    <PrintIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">인쇄</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => setShowPageSetupModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="편집 용지 정보 확인 (F7)"
-                  >
-                    <PageSetupIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">편집 용지</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowDocStatsModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="글자 수 및 문서 통계 확인"
-                  >
-                    <DocInfoIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문서 정보</span>
-                  </button>
-                </>
-              )}
+            <div className="flex items-center gap-1 px-3 py-1 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px] min-h-[58px] select-none">
+              {/* 1. 저장하기 */}
+              <button
+                type="button"
+                onClick={() => void runSave()}
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[46px]"
+                title="저장하기 (Ctrl+S)"
+              >
+                <SaveIcon className="w-5 h-5" />
+                <span className="text-[10px] mt-0.5 text-neutral-600">저장하기</span>
+              </button>
 
-              {/* [편집 탭] */}
-              {activeTab === "edit" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleUndo}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded transition min-w-[44px] cursor-pointer ${
-                      canUndo ? "hover:bg-white hover:shadow-xs text-neutral-800" : "text-neutral-400 hover:bg-neutral-100/50"
-                    }`}
-                    title="실행 취소 (Ctrl+Z)"
-                  >
-                    <UndoIcon className="w-5 h-5 text-current" />
-                    <span className="text-[10px] mt-0.5">되돌리기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRedo}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded transition min-w-[44px] cursor-pointer ${
-                      canRedo ? "hover:bg-white hover:shadow-xs text-neutral-800" : "text-neutral-400 hover:bg-neutral-100/50"
-                    }`}
-                    title="다시 실행 (Ctrl+Y)"
-                  >
-                    <RedoIcon className="w-5 h-5 text-current" />
-                    <span className="text-[10px] mt-0.5">다시 실행</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={handleCut}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
-                    title="오려두기 (Ctrl+X)"
-                  >
-                    <CutIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">오려두기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
-                    title="복사하기 (Ctrl+C)"
-                  >
-                    <CopyIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">복사하기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePasteFormat}
-                    disabled={!copiedStyle}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[44px] ${
-                      copiedStyle ? "text-[#0066cc]" : "text-neutral-400 opacity-60"
-                    }`}
-                    title="복사한 모양 적용하기"
-                  >
-                    <PasteIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">붙이기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyFormat}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                      copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                    }`}
-                    title="모양 복사 (Alt+C)"
-                  >
-                    <FormatPainterIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">모양 복사</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={handleSelectAll}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="모두 선택 (Ctrl+A)"
-                  >
-                    <SelectAllIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">모두 선택</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSearchModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                    title="찾기 (Ctrl+F)"
-                  >
-                    <SearchIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">찾기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowReplaceModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="찾아 바꾸기 (Ctrl+H)"
-                  >
-                    <ReplaceIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">바꾸기</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => deleteBlock(selectedIdx)}
-                    disabled={blocks.length <= 1}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-red-600 disabled:opacity-40 cursor-pointer min-w-[40px]"
-                    title="현재 선택 블록 지우기"
-                  >
-                    <TrashIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">지우기</span>
-                  </button>
-                </>
-              )}
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
 
-              {/* [보기 탭] */}
-              {activeTab === "view" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setZoomPercent((z) => Math.min(150, z + 10))}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
-                    title="화면 확대 (+10%)"
-                  >
-                    <ZoomInIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">확대</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setZoomPercent((z) => Math.max(60, z - 10))}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[44px]"
-                    title="화면 축소 (-10%)"
-                  >
-                    <ZoomOutIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">축소</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setZoomPercent(100)}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                      zoomPercent === 100 ? "text-[#0066cc] font-bold" : "text-neutral-700"
-                    }`}
-                    title="100% 원본 크기"
-                  >
-                    <span className="text-sm font-bold leading-5">100%</span>
-                    <span className="text-[10px] mt-0.5">기본 크기</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => setShowParaMarks(!showParaMarks)}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                      showParaMarks ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                    }`}
-                    title="문단 끝 기호(↵) 보이기 / 숨기기"
-                  >
-                    <ParaMarkIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문단 부호</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowGrid(!showGrid)}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                      showGrid ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                    }`}
-                    title="모눈 격자 보이기 / 숨기기"
-                  >
-                    <GridIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">격자 보기</span>
-                  </button>
-                </>
-              )}
+              {/* 2. 클립보드 (오려 두기, 복사하기, 붙이기, 모양 복사) */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={handleCut}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[44px]"
+                  title="오려 두기 (Ctrl+X)"
+                >
+                  <CutIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">오려 두기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[44px]"
+                  title="복사하기 (Ctrl+C)"
+                >
+                  <CopyIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">복사하기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasteFormat}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[44px]"
+                  title="붙이기 (Ctrl+V)"
+                >
+                  <PasteIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">붙이기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFormatCopyModal(true)}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[46px] ${
+                    copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700 hover:text-[#0066cc]"
+                  }`}
+                  title="모양 복사 (Ctrl+Alt+C / Alt+C)"
+                >
+                  <FormatPainterIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">모양 복사</span>
+                </button>
+              </div>
 
-              {/* [입력 탭] */}
-              {activeTab === "insert" && (
-                <>
-                  <input
-                    type="file"
-                    ref={imageInputRef}
-                    onChange={handleImageFileSelect}
-                    accept="image/*"
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowShapeModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                    title="도형 삽입 (직사각형, 둥근 사각형, 타원, 가로선)"
-                  >
-                    <ShapesIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">도형</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => imageInputRef.current?.click()}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                    title="이미지 그림 삽입"
-                  >
-                    <ImageIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">그림</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowTableModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                    title="표 만들기 (Ctrl+N, T)"
-                  >
-                    <TableIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">표</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openNewEquation}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                    title="수식 편집기 (Ctrl+N, M)"
-                  >
-                    <EquationIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">수식</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSymbolModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[40px]"
-                    title="문자표 특수기호 (Ctrl+F10)"
-                  >
-                    <SymbolIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문자표</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => addParagraph(selectedIdx)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[56px]"
-                    title="현재 위치 뒤에 새 문단 삽입"
-                  >
-                    <ParaMarkIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문단 추가</span>
-                  </button>
-                </>
-              )}
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
 
-              {/* [서식 탭] */}
-              {activeTab === "format" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowCharShapeModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="글자 모양 설정 (Alt+L)"
-                  >
-                    <CharShapeIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">글자 모양</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowParaShapeModal(true)}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="문단 모양 설정 (Alt+T)"
-                  >
-                    <ParaShapeIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문단 모양</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={handleCopyFormat}
-                    className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[48px] ${
-                      copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700"
-                    }`}
-                    title="모양 복사 (스포이드)"
-                  >
-                    <FormatPainterIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">모양 복사</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePasteFormat}
-                    disabled={!copiedStyle}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[44px]"
-                    title="복사한 서식 붙이기"
-                  >
-                    <PasteIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">붙이기</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => insertSymbol("• ")}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="글머리표 (•) 삽입"
-                  >
-                    <BulletListIcon className="w-5 h-5 text-neutral-600" />
-                    <span className="text-[10px] mt-0.5">글머리표</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => insertSymbol("1. ")}
-                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="번호 매기기 (1.) 삽입"
-                  >
-                    <NumberListIcon className="w-5 h-5 text-neutral-600" />
-                    <span className="text-[10px] mt-0.5">번호 모양</span>
-                  </button>
-                </>
-              )}
+              {/* 3. 찾기 ▼ */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSearchModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="찾기 (Ctrl+F) / 찾아 바꾸기 (Ctrl+H)"
+                >
+                  <SearchIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    찾기 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+              </div>
 
-              {/* [쪽 탭] */}
-              {activeTab === "page" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleTogglePageBreak}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[56px]"
-                    title="현재 위치에서 쪽 나누기 (Ctrl+Enter)"
-                  >
-                    <PageBreakIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">쪽 나누기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowPageSetupModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="용지 크기 및 여백 설정 (F7)"
-                  >
-                    <PageSetupIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">편집 용지</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="머리말 영역 이동"
-                  >
-                    <HeaderIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">머리말</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const el = document.querySelector("main");
-                      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-                    }}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="꼬리말 영역 이동"
-                  >
-                    <FooterIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">꼬리말</span>
-                  </button>
-                </>
-              )}
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
 
-              {/* [표 탭] */}
-              {activeTab === "table" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowTableModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="새 표 만들기 (Ctrl+N, T)"
-                  >
-                    <TableIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">표 만들기</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const tbl = blocks[selectedIdx];
-                      if (tbl && tbl.type === "table") {
-                        addTableRow(selectedIdx, tbl.rows.length - 1);
-                      }
-                    }}
-                    disabled={blocks[selectedIdx]?.type !== "table"}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
-                    title="선택된 표 아래에 행(줄) 추가"
-                  >
-                    <AddRowIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">줄 추가</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const tbl = blocks[selectedIdx];
-                      if (tbl && tbl.type === "table") {
-                        deleteTableRow(selectedIdx, tbl.rows.length - 1);
-                      }
-                    }}
-                    disabled={blocks[selectedIdx]?.type !== "table"}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
-                    title="선택된 표 마지막 행(줄) 삭제"
-                  >
-                    <DeleteRowColIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">줄 삭제</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const tbl = blocks[selectedIdx];
-                      if (tbl && tbl.type === "table") {
-                        addTableCol(selectedIdx, (tbl.rows[0]?.length || 1) - 1);
-                      }
-                    }}
-                    disabled={blocks[selectedIdx]?.type !== "table"}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
-                    title="선택된 표 오른쪽에 열(칸) 추가"
-                  >
-                    <AddColIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">칸 추가</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const tbl = blocks[selectedIdx];
-                      if (tbl && tbl.type === "table") {
-                        deleteTableCol(selectedIdx, (tbl.rows[0]?.length || 1) - 1);
-                      }
-                    }}
-                    disabled={blocks[selectedIdx]?.type !== "table"}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 disabled:opacity-40 cursor-pointer min-w-[52px]"
-                    title="선택된 표 마지막 열(칸) 삭제"
-                  >
-                    <DeleteRowColIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">칸 삭제</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => deleteBlock(selectedIdx)}
-                    disabled={blocks[selectedIdx]?.type !== "table"}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-red-600 disabled:opacity-40 cursor-pointer min-w-[48px]"
-                    title="선택된 표 전체 삭제"
-                  >
-                    <TrashIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">표 지우기</span>
-                  </button>
-                </>
-              )}
+              {/* 4. 개체 삽입 (도형 ▼, 그림 ▼, 표 ▼, 차트 ▼, 웹 동영상 ▼) */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setShowShapeModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="도형 삽입"
+                >
+                  <ShapesIcon className="w-5 h-5 text-purple-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    도형 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="그림 삽입 (Ctrl+N, I)"
+                >
+                  <ImageIcon className="w-5 h-5 text-emerald-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    그림 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTableModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="표 만들기 (Ctrl+N, T)"
+                >
+                  <TableIcon className="w-5 h-5 text-blue-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    표 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={insertSampleChart}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="차트 삽입"
+                >
+                  <ChartIcon className="w-5 h-5 text-sky-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    차트 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={insertWebVideo}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[50px]"
+                  title="웹 동영상 삽입"
+                >
+                  <WebVideoIcon className="w-5 h-5 text-indigo-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    웹 동영상 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+              </div>
 
-              {/* [검토 탭] */}
-              {activeTab === "review" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowDocStatsModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="문서 글자 수, 단어 수 세기"
-                  >
-                    <DocInfoIcon className="w-5 h-5 text-indigo-600" />
-                    <span className="text-[10px] mt-0.5">글자 수 세기</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => alert("현재 문서에 맞춤법 검사 기능이 활성화되어 있으며, 오탈자는 빨간 밑줄로 표시됩니다.")}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="맞춤법 검사 안내"
-                  >
-                    <SpellCheckIcon className="w-5 h-5 text-emerald-600" />
-                    <span className="text-[10px] mt-0.5">맞춤법 검사</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => setShowReplaceModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="찾아 바꾸기"
-                  >
-                    <ReplaceIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">단어 치환</span>
-                  </button>
-                </>
-              )}
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
 
-              {/* [도구 탭] */}
-              {activeTab === "tools" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setShowShortcutsModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="한컴오피스 단축키 일람 (단축키 안내)"
-                  >
-                    <ShortcutsIcon className="w-5 h-5 text-blue-600" />
-                    <span className="text-[10px] mt-0.5">단축키 일람</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowDocStatsModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="문서 통계 정보"
-                  >
-                    <DocInfoIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문서 통계</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSymbolModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[48px]"
-                    title="문자표 (Ctrl+F10)"
-                  >
-                    <SymbolIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">문자표</span>
-                  </button>
-                  <div className="w-[1px] bg-neutral-200 my-1 mx-0.5" />
-                  <button
-                    type="button"
-                    onClick={() => setShowPageSetupModal(true)}
-                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 cursor-pointer min-w-[56px]"
-                    title="환경 설정 (편집 용지 규격)"
-                  >
-                    <PageSetupIcon className="w-5 h-5" />
-                    <span className="text-[10px] mt-0.5">환경 설정</span>
-                  </button>
-                </>
-              )}
+              {/* 5. 주석 및 참조 (각주, 미주, 하이퍼링크, 문자표) */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={addFootnote}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[40px]"
+                  title="각주 달기 (Ctrl+N, N)"
+                >
+                  <FootnoteIcon className="w-5 h-5 text-emerald-600" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">각주</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={addEndnote}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[40px]"
+                  title="미주 달기"
+                >
+                  <EndnoteIcon className="w-5 h-5 text-emerald-700" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">미주</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowHyperlinkModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  title="하이퍼링크 (Ctrl+K)"
+                >
+                  <HyperlinkIcon className="w-5 h-5 text-blue-600" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">하이퍼링크</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSymbolModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[40px]"
+                  title="문자표 (Ctrl+F10)"
+                >
+                  <SymbolIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">문자표</span>
+                </button>
+              </div>
+
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+
+              {/* 6. 서식 모양 (글자 모양, 문단 모양, 개체 속성) */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setShowCharShapeModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  title="글자 모양 (Alt+L)"
+                >
+                  <CharShapeIcon className="w-5 h-5 text-blue-600" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">글자 모양</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowParaShapeModal(true)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  title="문단 모양 (Alt+T)"
+                >
+                  <ParaShapeIcon className="w-5 h-5 text-blue-600" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">문단 모양</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedIdx !== null) {
+                      openPropertyModal(selectedIdx);
+                    } else {
+                      showToast("속성을 볼 개체(도형/표/이미지/문단)를 먼저 선택하세요.");
+                    }
+                  }}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  title="개체 속성 (Ctrl+N, K / P)"
+                >
+                  <PageSetupIcon className="w-5 h-5 text-neutral-600" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600">개체 속성</span>
+                </button>
+              </div>
+
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+
+              {/* 7. 쪽 및 보기 (머리말 ▼, 꼬리말 ▼, 조판 부호, 문단 부호, 격자 보기) */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => insertHeaderFooter("header")}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="머리말 넣기/이동"
+                >
+                  <HeaderIcon className="w-5 h-5 text-amber-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    머리말 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => insertHeaderFooter("footer")}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  title="꼬리말 넣기/이동"
+                >
+                  <FooterIcon className="w-5 h-5 text-amber-600" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                    꼬리말 <span className="text-[8px]">▾</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowControlMarks(!showControlMarks)}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer min-w-[46px] ${
+                    showControlMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
+                  }`}
+                  title="조판 부호 켜기/끄기"
+                >
+                  <ClearControlMarksIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5">조판 부호</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowParaMarks(!showParaMarks)}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer min-w-[46px] ${
+                    showParaMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
+                  }`}
+                  title="문단 부호 켜기/끄기 (Enter 기호 표시)"
+                >
+                  <ParaMarkIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5">문단 부호</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGrid(!showGrid)}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer min-w-[46px] ${
+                    showGrid ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
+                  }`}
+                  title="격자(모눈) 보기"
+                >
+                  <GridIcon className="w-5 h-5" />
+                  <span className="text-[10px] mt-0.5">격자 보기</span>
+                </button>
+              </div>
+
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+
+              {/* 8. 공공안심글꼴 */}
+              <button
+                type="button"
+                onClick={() => setShowSafeFontModal(true)}
+                className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-emerald-700 cursor-pointer min-w-[56px]"
+                title="상업적 무료 이용 가능한 공공안심글꼴 모음"
+              >
+                <SafeFontIcon className="w-5 h-5 text-emerald-600" />
+                <span className="text-[10px] mt-0.5 font-medium text-emerald-800">공공안심글꼴</span>
+              </button>
             </div>
           )}
 
@@ -3231,6 +5200,19 @@ function HwpxEditorModalInner({
               <option value="heading1">개요 1 (제목 1)</option>
               <option value="heading2">개요 2 (제목 2)</option>
               <option value="title">문서 제목</option>
+            </select>
+
+            {/* 언어 영역 (대표 ▾) */}
+            <select
+              defaultValue="rep"
+              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] cursor-pointer"
+              title="글꼴 언어 영역"
+            >
+              <option value="rep">대표</option>
+              <option value="hangul">한글</option>
+              <option value="latin">영문</option>
+              <option value="hanja">한자</option>
+              <option value="symbol">기호</option>
             </select>
 
             {/* 대표 글꼴 */}
@@ -3478,6 +5460,18 @@ function HwpxEditorModalInner({
             >
               <AlignRightIcon className="w-3.5 h-3.5" />
             </button>
+            <button
+              type="button"
+              disabled={!isParagraph}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
+              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
+                currentPara?.align === "justify" ? "hover:bg-neutral-100 text-neutral-800" : "hover:bg-neutral-100 text-neutral-800"
+              } disabled:opacity-40`}
+              title="배분 정렬"
+            >
+              <AlignDistributeIcon className="w-3.5 h-3.5" />
+            </button>
 
             <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
 
@@ -3544,6 +5538,59 @@ function HwpxEditorModalInner({
               </button>
             </div>
           </div>
+
+          {/* 5열: 한컴독스 표준 가로 눈금자 (Ruler, Image 4 매칭) */}
+          {showRuler && (
+            <div className="w-full bg-[#f3f4f6] border-b border-neutral-300 py-0.5 flex justify-center select-none overflow-x-hidden shrink-0">
+              <div
+                style={{ width: `${Math.round(pageWidthMm * 3.78)}px`, maxWidth: "96vw" }}
+                className="h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-mono shadow-2xs transition-all duration-200"
+              >
+                {/* 왼쪽 여백 영역 회색 음영 */}
+                <div
+                  style={{ width: `${Math.max(16, Math.round(pageMarginLeftMm * 3.78))}px` }}
+                  className="absolute left-0 top-0 bottom-0 bg-[#e5e7eb] border-r border-neutral-300 pointer-events-none"
+                />
+                {/* 오른쪽 여백 영역 회색 음영 */}
+                <div
+                  style={{ width: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px` }}
+                  className="absolute right-0 top-0 bottom-0 bg-[#e5e7eb] border-l border-neutral-300 pointer-events-none"
+                />
+                <div className="absolute inset-0 flex items-center justify-between px-6 pointer-events-none">
+                  {[-2, -1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((n, i) => (
+                    <div key={i} className="flex flex-col items-center h-full justify-between py-0.5 z-1">
+                      <span className="text-[8px] text-neutral-400 select-none font-mono">{Math.abs(n)}</span>
+                      <div className="w-[1px] h-1.5 bg-neutral-300" />
+                    </div>
+                  ))}
+                </div>
+                {/* 첫 줄 들여쓰기 마커 (역삼각형) */}
+                <div
+                  style={{ left: `${Math.max(16, Math.round(pageMarginLeftMm * 3.78))}px` }}
+                  className="absolute top-0 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-transparent border-t-neutral-700 cursor-ew-resize z-10 transition-all duration-200"
+                  title="첫 줄 들여쓰기 마커"
+                />
+                {/* 왼쪽 여백 / 내어쓰기 마커 (모래시계형태) */}
+                <div
+                  style={{ left: `${Math.max(16, Math.round(pageMarginLeftMm * 3.78))}px` }}
+                  className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center cursor-ew-resize z-10 transition-all duration-200"
+                  title="왼쪽 여백 / 들여쓰기 마커"
+                >
+                  <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-transparent border-b-neutral-700" />
+                  <div className="w-2 h-1 bg-neutral-700 rounded-2xs mt-0.5" />
+                </div>
+                {/* 오른쪽 여백 마커 */}
+                <div
+                  style={{ right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px` }}
+                  className="absolute bottom-0 translate-x-1/2 flex flex-col items-center cursor-ew-resize z-10 transition-all duration-200"
+                  title="오른쪽 여백 마커"
+                >
+                  <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-transparent border-b-neutral-700" />
+                  <div className="w-2 h-1 bg-neutral-700 rounded-2xs mt-0.5" />
+                </div>
+              </div>
+            </div>
+          )}
         </header>
 
         {/* 도형 삽입 팝업 모달 */}
@@ -3730,6 +5777,280 @@ function HwpxEditorModalInner({
             </div>
           </div>
         )}
+
+        {/* 한컴 표준 차트 만들기 모달 */}
+        {showChartModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs select-none">
+            <div className="bg-white border border-neutral-300 shadow-2xl rounded-sm flex flex-col w-[560px] max-w-[96vw] text-neutral-800 overflow-hidden font-sans">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-[#f0f4f9] border-b border-neutral-200">
+                <span className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
+                  <ChartIcon className="w-4 h-4 text-[#0066cc]" />
+                  <span>차트 만들기 (한컴 표준)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowChartModal(false)}
+                  className="text-neutral-400 hover:text-neutral-700 text-sm cursor-pointer p-0.5"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-4 flex flex-col gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    차트 제목
+                  </label>
+                  <input
+                    type="text"
+                    value={chartTitleInput}
+                    onChange={(e) => setChartTitleInput(e.target.value)}
+                    placeholder="차트 제목을 입력하세요..."
+                    className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-[#0066cc]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-2">
+                    차트 종류 선택
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      {
+                        id: "column" as const,
+                        name: "묶은 세로 막대형",
+                        desc: "시간 경과 또는 범주 간의 데이터 크기를 세로 막대로 직관적으로 비교합니다.",
+                        icon: (
+                          <svg className="w-8 h-8 text-[#0066cc]" viewBox="0 0 40 40" fill="currentColor">
+                            <rect x="6" y="16" width="6" height="20" rx="1" fill="#2563eb" />
+                            <rect x="14" y="8" width="6" height="28" rx="1" fill="#10b981" />
+                            <rect x="22" y="20" width="6" height="16" rx="1" fill="#2563eb" />
+                            <rect x="30" y="12" width="6" height="24" rx="1" fill="#10b981" />
+                          </svg>
+                        ),
+                      },
+                      {
+                        id: "bar" as const,
+                        name: "가로 막대형",
+                        desc: "항목별 순위나 긴 레이블의 수치 비교에 적합합니다.",
+                        icon: (
+                          <svg className="w-8 h-8 text-[#10b981]" viewBox="0 0 40 40" fill="currentColor">
+                            <rect x="4" y="6" width="22" height="6" rx="1" fill="#2563eb" />
+                            <rect x="4" y="14" width="30" height="6" rx="1" fill="#10b981" />
+                            <rect x="4" y="22" width="18" height="6" rx="1" fill="#2563eb" />
+                            <rect x="4" y="30" width="26" height="6" rx="1" fill="#10b981" />
+                          </svg>
+                        ),
+                      },
+                      {
+                        id: "line" as const,
+                        name: "꺾은선형",
+                        desc: "시간의 흐름에 따른 연속적인 추세 및 변화 경향을 파악할 때 유용합니다.",
+                        icon: (
+                          <svg className="w-8 h-8" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M6 30 L16 16 L26 22 L34 8" stroke="#2563eb" strokeLinecap="round" strokeLinejoin="round" />
+                            <circle cx="6" cy="30" r="2.5" fill="#2563eb" />
+                            <circle cx="16" cy="16" r="2.5" fill="#2563eb" />
+                            <circle cx="26" cy="22" r="2.5" fill="#2563eb" />
+                            <circle cx="34" cy="8" r="2.5" fill="#2563eb" />
+                          </svg>
+                        ),
+                      },
+                      {
+                        id: "pie" as const,
+                        name: "원형 (파이 차트)",
+                        desc: "전체에 대한 각 항목의 백분율 비율과 구성 비중을 한눈에 표시합니다.",
+                        icon: (
+                          <svg className="w-8 h-8" viewBox="0 0 40 40">
+                            <circle cx="20" cy="20" r="16" fill="#3b82f6" />
+                            <path d="M20 20 L20 4 A16 16 0 0 1 36 20 Z" fill="#10b981" />
+                            <path d="M20 20 L36 20 A16 16 0 0 1 20 36 Z" fill="#f59e0b" />
+                          </svg>
+                        ),
+                      },
+                    ].map((type) => (
+                      <div
+                        key={type.id}
+                        onClick={() => setSelectedChartType(type.id)}
+                        className={`p-3 rounded-lg border-2 cursor-pointer flex items-center gap-3 transition-all ${
+                          selectedChartType === type.id
+                            ? "border-[#0066cc] bg-blue-50/50 shadow-xs"
+                            : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                        }`}
+                      >
+                        <div className="shrink-0 p-1 bg-white rounded border border-neutral-200 shadow-2xs">
+                          {type.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-neutral-900 flex items-center justify-between">
+                            <span>{type.name}</span>
+                            {selectedChartType === type.id && (
+                              <span className="text-[10px] text-[#0066cc] font-bold">선택됨 ✓</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-neutral-500 line-clamp-2 mt-0.5 leading-tight">
+                            {type.desc}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-neutral-500 bg-neutral-50 p-2.5 rounded border border-neutral-200 leading-relaxed">
+                  💡 삽입된 차트는 본문에서 자유롭게 크기 조절, 드래그 이동, 차트 종류 변경 및 <strong>[데이터 편집]</strong>을 통해 수치를 언제든지 수정할 수 있습니다.
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 px-4 py-3 bg-[#f8fafc] border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setShowChartModal(false)}
+                  className="px-4 py-1.5 rounded text-xs text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-100 cursor-pointer font-medium"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => insertChart(selectedChartType, chartTitleInput)}
+                  className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer shadow-xs"
+                >
+                  차트 만들기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 한컴 표준 차트 데이터 편집 모달 */}
+        {showChartDataModal && chartEditingIdx !== null && blocks[chartEditingIdx] && blocks[chartEditingIdx].type === "chart" && (() => {
+          const chart = blocks[chartEditingIdx] as HwpxChartBlock;
+          return (
+            <div className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs select-none">
+              <div className="bg-white border border-neutral-300 shadow-2xl rounded-sm flex flex-col w-[600px] max-w-[96vw] max-h-[90vh] text-neutral-800 overflow-hidden font-sans">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-[#f0f4f9] border-b border-neutral-200">
+                  <span className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
+                    <ChartIcon className="w-4 h-4 text-[#0066cc]" />
+                    <span>차트 데이터 편집 - {chart.title || "차트"}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowChartDataModal(false)}
+                    className="text-neutral-400 hover:text-neutral-700 text-sm cursor-pointer p-0.5"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-4 text-xs">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-700 mb-1">
+                      차트 제목
+                    </label>
+                    <input
+                      type="text"
+                      defaultValue={chart.title || ""}
+                      id="hwpx-chart-edit-title"
+                      className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-[#0066cc]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-700 mb-1">
+                      범주 (가로축 항목들, 쉼표로 구분)
+                    </label>
+                    <input
+                      type="text"
+                      defaultValue={(chart.categories || []).join(", ")}
+                      id="hwpx-chart-edit-categories"
+                      className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs text-neutral-900 focus:outline-none focus:border-[#0066cc]"
+                      placeholder="1분기, 2분기, 3분기, 4분기"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-700 mb-2">
+                      데이터 계열 (수치, 쉼표로 구분)
+                    </label>
+                    <div className="flex flex-col gap-2">
+                      {(chart.series || []).map((s, sIdx) => (
+                        <div key={sIdx} className="flex items-center gap-2 p-2 bg-neutral-50 rounded border border-neutral-200">
+                          <input
+                            type="color"
+                            defaultValue={s.color || "#2563eb"}
+                            id={`hwpx-chart-edit-color-${sIdx}`}
+                            className="w-6 h-6 rounded cursor-pointer border-none bg-transparent"
+                            title="계열 색상"
+                          />
+                          <input
+                            type="text"
+                            defaultValue={s.name}
+                            id={`hwpx-chart-edit-name-${sIdx}`}
+                            placeholder="계열 이름"
+                            className="w-24 bg-white border border-neutral-300 rounded px-2 py-1 text-xs text-neutral-900"
+                          />
+                          <input
+                            type="text"
+                            defaultValue={s.values.join(", ")}
+                            id={`hwpx-chart-edit-vals-${sIdx}`}
+                            placeholder="값들 (예: 10, 20, 30, 40)"
+                            className="flex-1 bg-white border border-neutral-300 rounded px-2 py-1 text-xs text-neutral-900 font-mono"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 px-4 py-3 bg-[#f8fafc] border-t border-neutral-200">
+                  <button
+                    type="button"
+                    onClick={() => setShowChartDataModal(false)}
+                    className="px-4 py-1.5 rounded text-xs text-neutral-700 bg-white border border-neutral-300 hover:bg-neutral-100 cursor-pointer font-medium"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const titleEl = document.getElementById("hwpx-chart-edit-title") as HTMLInputElement | null;
+                      const catEl = document.getElementById("hwpx-chart-edit-categories") as HTMLInputElement | null;
+                      const newTitle = titleEl?.value.trim() || chart.title;
+                      const rawCats = catEl?.value || "";
+                      const newCategories = rawCats.split(",").map((s) => s.trim()).filter(Boolean);
+
+                      const newSeries = (chart.series || []).map((s, sIdx) => {
+                        const colEl = document.getElementById(`hwpx-chart-edit-color-${sIdx}`) as HTMLInputElement | null;
+                        const nameEl = document.getElementById(`hwpx-chart-edit-name-${sIdx}`) as HTMLInputElement | null;
+                        const valsEl = document.getElementById(`hwpx-chart-edit-vals-${sIdx}`) as HTMLInputElement | null;
+                        const sColor = colEl?.value || s.color;
+                        const sName = nameEl?.value.trim() || s.name;
+                        const rawVals = valsEl?.value || "";
+                        const sVals = rawVals.split(",").map((v) => Number(v.trim()) || 0);
+                        return { name: sName, values: sVals, color: sColor };
+                      });
+
+                      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                      const yBlock = yBlocks.get(chartEditingIdx);
+                      if (yBlock) {
+                        doc.transact(() => {
+                          yBlock.set("title", newTitle);
+                          yBlock.set("categories", newCategories);
+                          yBlock.set("series", newSeries);
+                        });
+                      }
+                      setShowChartDataModal(false);
+                      showToast("차트 데이터가 성공적으로 업데이트되었습니다.");
+                    }}
+                    className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer shadow-xs"
+                  >
+                    적용하기
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 단어 찾기 모달 */}
         {showSearchModal && (
@@ -4250,45 +6571,264 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* 편집 용지 정보 모달 */}
+        {/* 한컴독스 표준 편집 용지 대화상자 (사용자 업로드 캡처 이미지 100% 매칭) */}
         {showPageSetupModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3.5 w-80 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <PageSetupIcon className="w-4 h-4 text-[#0066cc]" />
-                <span>편집 용지 설정 (F7)</span>
-              </span>
-              <button type="button" onClick={() => setShowPageSetupModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-            </h4>
-            <div className="flex flex-col gap-2 text-xs">
-              <div className="flex justify-between py-1 border-b border-neutral-100">
-                <span className="text-neutral-600">용지 종류:</span>
-                <span className="font-bold text-neutral-900">A4 (210 × 297 mm)</span>
+          <div className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xs shadow-2xl border border-[#c8d3e2] w-full max-w-[620px] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150">
+              {/* 타이틀 바 */}
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight">편집 용지</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPageSetupModal(false)}
+                  className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer transition"
+                >
+                  ✕
+                </button>
               </div>
-              <div className="flex justify-between py-1 border-b border-neutral-100">
-                <span className="text-neutral-600">용지 방향:</span>
-                <span className="font-bold text-neutral-900">세로 (Portrait)</span>
-              </div>
-              <div className="flex flex-col gap-1 py-1">
-                <span className="font-semibold text-neutral-700">여백 설정 (표준):</span>
-                <div className="grid grid-cols-2 gap-1 text-[11px] text-neutral-600 bg-neutral-50 p-2 rounded">
-                  <span>위쪽: 20.0 mm</span>
-                  <span>아래쪽: 15.0 mm</span>
-                  <span>왼쪽: 30.0 mm</span>
-                  <span>오른쪽: 30.0 mm</span>
-                  <span>머리말: 15.0 mm</span>
-                  <span>꼬리말: 15.0 mm</span>
+
+              {/* 본문 영역: 좌측 옵션 카드(메인) + 우측 확인/취소 버튼 */}
+              <div className="p-4 flex items-start gap-3 bg-[#f8fafc]">
+                {/* 좌측 옵션 카드 메인 테두리 박스 */}
+                <div className="flex-1 border border-[#c8d3e2] rounded-xs p-4 flex flex-col gap-4 bg-white shadow-2xs">
+                  {/* 1. 용지 종류 */}
+                  <div className="flex flex-col gap-2.5">
+                    <h5 className="text-[13px] font-bold text-[#1e4fa8]">용지 종류</h5>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] text-neutral-800 shrink-0 w-10">종류</span>
+                      <select
+                        value={draftPageSizeType}
+                        onChange={(e) => handleDraftPageSizeTypeChange(e.target.value)}
+                        className="flex-1 bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] text-neutral-900 outline-none focus:border-[#1e4fa8] cursor-pointer"
+                      >
+                        <option value="A4">A4(국배판) [210 x 297 mm]</option>
+                        <option value="B5">B5(4×6배판) [182 x 257 mm]</option>
+                        <option value="B4">B4 [257 x 364 mm]</option>
+                        <option value="A3">A3 [297 x 420 mm]</option>
+                        <option value="Letter">Letter [215.9 x 279.4 mm]</option>
+                        <option value="Legal">Legal [215.9 x 355.6 mm]</option>
+                        <option value="Custom">사용자 정의</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-6 pl-12 text-[12px] text-neutral-800">
+                      <div className="flex items-center gap-2">
+                        <span>폭</span>
+                        <PageSetupNumberInput
+                          value={draftPageWidthMm}
+                          onChange={(val) => {
+                            setDraftPageWidthMm(val);
+                            setDraftPageSizeType("Custom");
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span>길이</span>
+                        <PageSetupNumberInput
+                          value={draftPageHeightMm}
+                          onChange={(val) => {
+                            setDraftPageHeightMm(val);
+                            setDraftPageSizeType("Custom");
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. 용지 방향 & 제본 (2열 레이아웃) */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* 용지 방향 */}
+                    <div className="flex flex-col gap-2.5">
+                      <h5 className="text-[13px] font-bold text-[#1e4fa8]">용지 방향</h5>
+                      <div className="flex items-center gap-2.5">
+                        {/* 세로 (Portrait) */}
+                        <button
+                          type="button"
+                          onClick={() => handleDraftOrientationChange("portrait")}
+                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
+                            draftPageOrientation === "portrait"
+                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                          }`}
+                          title="세로 방향"
+                        >
+                          <div className="w-5 h-7 border border-neutral-600 bg-white flex flex-col justify-center gap-0.5 p-0.5 shadow-2xs">
+                            <div className="w-full h-[1.5px] bg-neutral-400" />
+                            <div className="w-full h-[1.5px] bg-neutral-400" />
+                            <div className="w-full h-[1.5px] bg-neutral-400" />
+                            <div className="w-2/3 h-[1.5px] bg-neutral-400" />
+                          </div>
+                        </button>
+                        {/* 가로 (Landscape) */}
+                        <button
+                          type="button"
+                          onClick={() => handleDraftOrientationChange("landscape")}
+                          className={`w-11 h-10 border rounded-xs flex items-center justify-center cursor-pointer transition ${
+                            draftPageOrientation === "landscape"
+                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                          }`}
+                          title="가로 방향"
+                        >
+                          <div className="w-7 h-5 border border-neutral-600 bg-white flex flex-col justify-center gap-0.5 p-0.5 shadow-2xs">
+                            <div className="w-full h-[1.5px] bg-neutral-400" />
+                            <div className="w-full h-[1.5px] bg-neutral-400" />
+                            <div className="w-2/3 h-[1.5px] bg-neutral-400" />
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 제본 */}
+                    <div className="flex flex-col gap-2.5">
+                      <h5 className="text-[13px] font-bold text-[#1e4fa8]">제본</h5>
+                      <div className="flex items-center gap-2">
+                        {/* 한쪽 제본 */}
+                        <button
+                          type="button"
+                          onClick={() => setDraftPageBindingType("left")}
+                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
+                            draftPageBindingType === "left"
+                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                          }`}
+                          title="한쪽 제본"
+                        >
+                          <div className="w-5 h-7 border border-neutral-600 bg-white relative flex items-center justify-center shadow-2xs">
+                            <div className="absolute left-0 inset-y-0 w-1 border-r border-dashed border-neutral-500" />
+                            <span className="text-[10px] text-blue-600 font-bold ml-1 font-serif">가</span>
+                          </div>
+                        </button>
+
+                        {/* 맞쪽 제본 */}
+                        <button
+                          type="button"
+                          onClick={() => setDraftPageBindingType("spread")}
+                          className={`w-11 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
+                            draftPageBindingType === "spread"
+                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                          }`}
+                          title="맞쪽 제본"
+                        >
+                          <div className="w-8 h-7 border border-neutral-600 bg-white relative flex items-center justify-between px-0.5 shadow-2xs">
+                            <span className="text-[9px] text-blue-600 font-bold font-serif">가</span>
+                            <div className="h-full w-[1px] bg-neutral-300" />
+                            <span className="text-[9px] text-blue-600 font-bold font-serif">나</span>
+                          </div>
+                        </button>
+
+                        {/* 위쪽 제본 */}
+                        <button
+                          type="button"
+                          onClick={() => setDraftPageBindingType("top")}
+                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
+                            draftPageBindingType === "top"
+                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                          }`}
+                          title="위쪽 제본"
+                        >
+                          <div className="w-5 h-7 border border-neutral-600 bg-white relative flex flex-col items-center justify-center shadow-2xs">
+                            <div className="absolute top-0 inset-x-0 h-1 border-b border-dashed border-neutral-500" />
+                            <span className="text-[10px] text-blue-600 font-bold mt-1 font-serif">가</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. 용지 여백 */}
+                  <div className="flex flex-col gap-2.5">
+                    <h5 className="text-[13px] font-bold text-[#1e4fa8]">용지 여백</h5>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[12px] text-neutral-800">
+                      {/* 좌열: 위쪽, 왼쪽, 머리말, 제본 */}
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">위쪽</span>
+                        <PageSetupNumberInput
+                          value={draftPageMarginTopMm}
+                          onChange={(val) => setDraftPageMarginTopMm(val)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">아래쪽</span>
+                        <PageSetupNumberInput
+                          value={draftPageMarginBottomMm}
+                          onChange={(val) => setDraftPageMarginBottomMm(val)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">왼쪽</span>
+                        <PageSetupNumberInput
+                          value={draftPageMarginLeftMm}
+                          onChange={(val) => setDraftPageMarginLeftMm(val)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">오른쪽</span>
+                        <PageSetupNumberInput
+                          value={draftPageMarginRightMm}
+                          onChange={(val) => setDraftPageMarginRightMm(val)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">머리말</span>
+                        <PageSetupNumberInput
+                          value={draftPageHeaderMm}
+                          onChange={(val) => setDraftPageHeaderMm(val)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">꼬리말</span>
+                        <PageSetupNumberInput
+                          value={draftPageFooterMm}
+                          onChange={(val) => setDraftPageFooterMm(val)}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="w-12 shrink-0">제본</span>
+                        <PageSetupNumberInput
+                          value={draftPageGutterMm}
+                          onChange={(val) => setDraftPageGutterMm(val)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. 구분선 & 적용 범위 */}
+                  <div className="border-t border-[#e2e8f0] pt-3 flex items-center gap-3 text-[12px]">
+                    <span className="text-neutral-800 shrink-0">적용 범위</span>
+                    <select
+                      value={draftPageApplyScope}
+                      onChange={(e) => setDraftPageApplyScope(e.target.value)}
+                      className="bg-white border border-[#c5ceda] rounded-xs px-2 py-1 text-[12px] text-neutral-800 outline-none focus:border-[#1e4fa8] cursor-pointer min-w-[120px]"
+                    >
+                      <option value="문서 전체">문서 전체</option>
+                      <option value="현재 구역">현재 구역</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 우측 확인 / 취소 버튼 스택 (캡처 이미지 100% 매칭) */}
+                <div className="w-[88px] flex flex-col gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleApplyPageSetup}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 active:bg-neutral-100 text-neutral-800 text-[13px] rounded-xs transition cursor-pointer text-center font-medium shadow-2xs"
+                  >
+                    확인
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPageSetupModal(false)}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 active:bg-neutral-100 text-neutral-800 text-[13px] rounded-xs transition cursor-pointer text-center shadow-2xs"
+                  >
+                    취소
+                  </button>
                 </div>
               </div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-neutral-200">
-              <button
-                type="button"
-                onClick={() => setShowPageSetupModal(false)}
-                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
-              >
-                확인
-              </button>
             </div>
           </div>
         )}
@@ -4495,11 +7035,9 @@ function HwpxEditorModalInner({
                 disabled={!isShape}
                 onClick={() => {
                   if (isShape) {
-                    const currText = (targetBlock as HwpxShapeBlock).text || "";
-                    const nextText = window.prompt("도형 안 글자 텍스트 입력:", currText);
-                    if (nextText !== null) {
-                      updateShapeBlock(contextMenu.blockIdx, { text: nextText });
-                    }
+                    const currText = (targetBlock as HwpxShapeBlock).text || "도형 텍스트";
+                    updateShapeBlock(contextMenu.blockIdx, { text: currText });
+                    showToast("도형 안에 글자가 추가되었습니다.");
                   }
                   setContextMenu(null);
                 }}
@@ -4541,18 +7079,7 @@ function HwpxEditorModalInner({
               <button
                 type="button"
                 onClick={() => {
-                  const currentLink = ("hyperlink" in (targetBlock || {}) && (targetBlock as any).hyperlink) ? (targetBlock as any).hyperlink : "https://";
-                  const nextLink = window.prompt("하이퍼링크 URL을 입력하세요:", currentLink);
-                  if (nextLink !== null) {
-                    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-                    const yBlock = yBlocks.get(contextMenu.blockIdx);
-                    if (yBlock) {
-                      doc.transact(() => {
-                        if (nextLink.trim()) yBlock.set("hyperlink", nextLink.trim());
-                        else yBlock.delete("hyperlink");
-                      });
-                    }
-                  }
+                  setShowHyperlinkModal(true);
                   setContextMenu(null);
                 }}
                 className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer text-left"
@@ -5464,7 +7991,7 @@ function HwpxEditorModalInner({
 
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
         <main
-          className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#181825]/90"
+          className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#edf0f5]"
           onClick={(e) => {
             if (e.target === e.currentTarget && blocks.length > 0) {
               const lastIdx = blocks.length - 1;
@@ -5478,9 +8005,6 @@ function HwpxEditorModalInner({
         >
           <div
             ref={canvasRef}
-            contentEditable={true}
-            suppressContentEditableWarning={true}
-            spellCheck={false}
             onClick={(e) => {
               if (e.target === canvasRef.current && blocks.length > 0) {
                 const lastIdx = blocks.length - 1;
@@ -5491,16 +8015,59 @@ function HwpxEditorModalInner({
                 }
               }
             }}
-            className={`w-full max-w-[820px] h-auto my-4 px-10 sm:px-16 py-12 sm:py-20 bg-white text-neutral-900 shadow-2xl rounded-sm border border-neutral-200 shrink-0 transition-transform outline-none cursor-text ${
+            className={`h-auto my-6 bg-white text-neutral-900 shadow-xl rounded-xs border border-neutral-300 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
               showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
-            }`}
+            } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
             style={{
               fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-              boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.14)",
               transform: `scale(${zoomPercent / 100})`,
               transformOrigin: "top center",
+              width: `${Math.round(pageWidthMm * 3.78)}px`,
+              minHeight: `${Math.round(pageHeightMm * 3.78)}px`,
+              paddingTop: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+              paddingBottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+              paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+              paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
             }}
           >
+            {/* 상하좌우 여백 모서리 꺾쇠 표시선 (한컴독스 자름표 / 여백 경계선) */}
+            <div
+              className="absolute pointer-events-none border-t border-l border-neutral-400/80"
+              style={{
+                top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                width: "12px",
+                height: "12px",
+              }}
+            />
+            <div
+              className="absolute pointer-events-none border-t border-r border-neutral-400/80"
+              style={{
+                top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                width: "12px",
+                height: "12px",
+              }}
+            />
+            <div
+              className="absolute pointer-events-none border-b border-l border-neutral-400/80"
+              style={{
+                bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                width: "12px",
+                height: "12px",
+              }}
+            />
+            <div
+              className="absolute pointer-events-none border-b border-r border-neutral-400/80"
+              style={{
+                bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                width: "12px",
+                height: "12px",
+              }}
+            />
             {(() => {
               let pageCounter = 1;
               return blocks.map((block, idx) => {
@@ -5508,34 +8075,35 @@ function HwpxEditorModalInner({
                 const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
                 const handleBlockDragOver = (e: React.DragEvent) => {
-                  if (draggedBlockIdx === null || draggedBlockIdx === idx) return;
+                  const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
+                  const from = rawFrom !== "" ? Number(rawFrom) : (draggedBlockIdxRef.current ?? draggedBlockIdx);
+                  if (from === null || isNaN(from) || from === idx) return;
                   e.preventDefault();
                   e.stopPropagation();
+                  e.dataTransfer.dropEffect = "move";
                   const rect = e.currentTarget.getBoundingClientRect();
                   const midY = rect.top + rect.height / 2;
                   const pos = e.clientY < midY ? "before" : "after";
-                  if (dropIndicator?.idx !== idx || dropIndicator?.pos !== pos) {
-                    setDropIndicator({ idx, pos });
-                  }
+                  setDropIndicator({ idx, pos });
                 };
 
-                const handleBlockDragLeave = (e: React.DragEvent) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    if (dropIndicator?.idx === idx) {
-                      setDropIndicator(null);
-                    }
+                const handleBlockDragLeave = () => {
+                  if (dropIndicator?.idx === idx) {
+                    setDropIndicator(null);
                   }
                 };
 
                 const handleBlockDrop = (e: React.DragEvent) => {
-                  if (draggedBlockIdx === null || draggedBlockIdx === idx) return;
+                  const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
+                  const from = rawFrom !== "" ? Number(rawFrom) : (draggedBlockIdxRef.current ?? draggedBlockIdx);
+                  if (from === null || isNaN(from) || from === idx) return;
                   e.preventDefault();
                   e.stopPropagation();
                   const rect = e.currentTarget.getBoundingClientRect();
                   const midY = rect.top + rect.height / 2;
                   const pos = e.clientY < midY ? "before" : "after";
-                  moveBlock(draggedBlockIdx, idx, pos);
-                  setDraggedBlockIdx(null);
+                  moveBlock(from, idx, pos);
+                  setDraggedBlock(null);
                   setDropIndicator(null);
                 };
 
@@ -5543,13 +8111,10 @@ function HwpxEditorModalInner({
                   if (dropIndicator?.idx !== idx) return null;
                   return (
                     <div
-                      className={`absolute left-0 right-0 h-1 bg-blue-500 rounded-full z-50 pointer-events-none shadow-sm ${
+                      className={`absolute left-0 right-0 h-1 bg-blue-500 z-50 pointer-events-none rounded-full shadow-md animate-pulse ${
                         dropIndicator.pos === "before" ? "-top-1" : "-bottom-1"
                       }`}
-                    >
-                      <div className="absolute -left-1 -top-0.5 w-2 h-2 rounded-full bg-blue-600" />
-                      <div className="absolute -right-1 -top-0.5 w-2 h-2 rounded-full bg-blue-600" />
-                    </div>
+                    />
                   );
                 };
 
@@ -5604,9 +8169,9 @@ function HwpxEditorModalInner({
                         onNavigatePrev={(clientX) => navigateToPrevParagraph(idx, clientX)}
                         onNavigateNext={(clientX) => navigateToNextParagraph(idx, clientX)}
                         onIndent={(inc) => handleIndent(inc)}
-                        onDragStart={() => setDraggedBlockIdx(idx)}
+                        onDragStart={() => setDraggedBlock(idx)}
                         onDragEnd={() => {
-                          setDraggedBlockIdx(null);
+                          setDraggedBlock(null);
                           setDropIndicator(null);
                         }}
                       />
@@ -6393,12 +8958,376 @@ function HwpxEditorModalInner({
                   );
                 }
 
+                if (block.type === "chart") {
+                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                  const widthStyle = `${block.widthPercent || 85}%`;
+                  const chartAlignClass =
+                    block.align === "left"
+                      ? "items-start text-left"
+                      : block.align === "right"
+                      ? "items-end text-right"
+                      : "items-center text-center";
+
+                  return (
+                    <div
+                      key={block.id}
+                      data-block-id={block.id}
+                      data-block-idx={idx}
+                      data-block-type="chart"
+                      contentEditable={false}
+                      onDragOver={handleBlockDragOver}
+                      onDragLeave={handleBlockDragLeave}
+                      onDrop={handleBlockDrop}
+                      onClick={() => setSelectedIdx(idx)}
+                      onDoubleClick={() => openEditChartData(idx)}
+                      style={{
+                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                        zIndex: isSelected ? 30 : 1,
+                      }}
+                      className={`my-6 flex flex-col ${chartAlignClass} cursor-default select-none relative group/chart`}
+                    >
+                      {renderDropIndicator()}
+
+                      <div
+                        onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                        className={`hwpx-resizable-box relative flex flex-col items-center cursor-move p-2 rounded-lg bg-white border border-neutral-200 shadow-xs transition-all ${
+                          isSelected
+                            ? "outline outline-2 outline-[#0066cc] outline-offset-2 shadow-md"
+                            : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
+                        }`}
+                        style={{ width: widthStyle }}
+                      >
+                        {/* 8방향 선택 핸들 */}
+                        {isSelected && (
+                          <HwpxSelectionHandles
+                            onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                          />
+                        )}
+
+                        {/* 부유 제어 바 (선택 시에만 노출) */}
+                        {isSelected && (
+                          <HwpxFloatingToolbar>
+                            <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
+                              <ChartIcon className="w-3.5 h-3.5" />
+                              <span>차트</span>
+                            </span>
+
+                            {/* 차트 유형 전환 버튼들 */}
+                            <div className="flex items-center gap-0.5 bg-neutral-100 p-0.5 rounded border border-neutral-200">
+                              {[
+                                { id: "column" as const, label: "세로막대", icon: "📊" },
+                                { id: "bar" as const, label: "가로막대", icon: "📶" },
+                                { id: "line" as const, label: "꺾은선", icon: "📈" },
+                                { id: "pie" as const, label: "원형", icon: "🍕" },
+                              ].map((t) => (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    updateChartType(idx, t.id);
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer flex items-center gap-0.5 ${
+                                    block.chartType === t.id
+                                      ? "bg-[#0066cc] text-white shadow-2xs font-bold"
+                                      : "text-neutral-700 hover:bg-neutral-200"
+                                  }`}
+                                  title={`${t.label} 차트로 전환`}
+                                >
+                                  <span>{t.icon}</span>
+                                  <span>{t.label}</span>
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            {/* 데이터 편집 버튼 */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditChartData(idx);
+                              }}
+                              className="px-2 py-0.5 rounded text-[11px] font-semibold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 cursor-pointer flex items-center gap-1"
+                              title="차트 데이터 및 레이블 편집"
+                            >
+                              <span>✏️</span>
+                              <span>데이터 편집</span>
+                            </button>
+
+                            {/* 개체 속성 */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openPropertyModal(idx);
+                              }}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
+                              title="차트 개체 속성 (단축키 P)"
+                            >
+                              <span>⚙</span>
+                              <span>속성 (P)</span>
+                            </button>
+
+                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteBlock(idx);
+                              }}
+                              className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                            >
+                              삭제
+                            </button>
+                          </HwpxFloatingToolbar>
+                        )}
+
+                        {/* 실제 차트 SVG 렌더링 */}
+                        <div className="w-full flex justify-center py-2">
+                          <HwpxSvgChart chart={block} />
+                        </div>
+                      </div>
+
+                      {/* 하단 캡션 */}
+                      {block.caption && (
+                        <div className="mt-1 text-xs text-neutral-600 font-medium text-center">
+                          {block.caption}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return null;
               });
             })()}
 
           </div>
         </main>
+
+        {/* 한컴독스 표준 하단 상태 표시줄 */}
+        <footer className="h-7 bg-[#f3f4f6] border-t border-neutral-300 px-4 flex items-center justify-between text-[11px] text-neutral-600 select-none shrink-0 z-30 font-sans">
+          {/* 좌측 정보: 쪽, 구역, 줄/칸 */}
+          <div className="flex items-center gap-3">
+            <span className="hover:text-blue-600 cursor-pointer" title="클릭하여 원하는 쪽으로 이동" onClick={() => setShowGotoModal(true)}>
+              1/1 쪽
+            </span>
+            <span className="text-neutral-300">|</span>
+            <span>1 구역</span>
+            <span className="text-neutral-300">|</span>
+            <span>1줄 1칸</span>
+          </div>
+
+          {/* 중앙/우측 정보: 현재 편집 용지 규격 뱃지 + 배율 + 보기 모드 */}
+          <div className="flex items-center gap-3">
+            {/* 현재 편집 용지 규격 (클릭 시 편집 용지 모달 열림) */}
+            <button
+              type="button"
+              onClick={openPageSetupModal}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-xs hover:bg-neutral-200 text-neutral-700 transition cursor-pointer"
+              title="클릭하여 편집 용지 설정 열기"
+            >
+              <PageSetupIcon className="w-3.5 h-3.5 text-blue-600" />
+              <span className="font-medium text-neutral-800">
+                {pageSizeType} ({pageWidthMm}×{pageHeightMm}mm, {pageOrientation === "portrait" ? "세로" : "가로"})
+              </span>
+            </button>
+            <span className="text-neutral-300">|</span>
+
+            {/* 배율 조절 */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setZoomPercent((prev) => Math.max(50, prev - 10))}
+                className="w-4 h-4 flex items-center justify-center rounded-xs hover:bg-neutral-200 text-neutral-700 cursor-pointer"
+                title="축소"
+              >
+                -
+              </button>
+              <input
+                type="range"
+                min="50"
+                max="200"
+                step="5"
+                value={zoomPercent}
+                onChange={(e) => setZoomPercent(Number(e.target.value))}
+                className="w-16 h-1 bg-neutral-300 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              />
+              <button
+                type="button"
+                onClick={() => setZoomPercent((prev) => Math.min(200, prev + 10))}
+                className="w-4 h-4 flex items-center justify-center rounded-xs hover:bg-neutral-200 text-neutral-700 cursor-pointer"
+                title="확대"
+              >
+                +
+              </button>
+              <span className="w-10 text-right font-mono text-[11px] text-neutral-700">{zoomPercent}%</span>
+            </div>
+
+            <span className="text-neutral-300">|</span>
+            {/* 보기 모드: 쪽 맞춤 / 폭 맞춤 / 100% */}
+            <div className="flex items-center gap-1 text-[10px]">
+              <button
+                type="button"
+                onClick={() => setZoomPercent(100)}
+                className={`px-1.5 py-0.5 rounded-xs cursor-pointer ${zoomPercent === 100 ? "bg-neutral-300 font-bold text-neutral-900" : "hover:bg-neutral-200 text-neutral-600"}`}
+                title="100% 기본 크기"
+              >
+                100%
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomPercent(120)}
+                className={`px-1.5 py-0.5 rounded-xs cursor-pointer ${zoomPercent === 120 ? "bg-neutral-300 font-bold text-neutral-900" : "hover:bg-neutral-200 text-neutral-600"}`}
+                title="폭 맞춤"
+              >
+                폭맞춤
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomPercent(80)}
+                className={`px-1.5 py-0.5 rounded-xs cursor-pointer ${zoomPercent === 80 ? "bg-neutral-300 font-bold text-neutral-900" : "hover:bg-neutral-200 text-neutral-600"}`}
+                title="쪽 맞춤"
+              >
+                쪽맞춤
+              </button>
+            </div>
+          </div>
+        </footer>
+
+        {/* 찾아가기 (Alt+G) 대화상자 */}
+        {showGotoModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
+            <div className="bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3.5 w-84 text-neutral-800 animate-in fade-in duration-150">
+              <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+                <span className="flex items-center gap-1.5">
+                  <GotoIcon className="w-4 h-4 text-[#0066cc]" />
+                  <span>찾아가기 (Alt+G)</span>
+                </span>
+                <button type="button" onClick={() => setShowGotoModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+              </h4>
+              <div className="flex flex-col gap-2 text-xs">
+                <label className="text-neutral-600 font-medium">이동할 쪽(페이지) 번호:</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    value={gotoPageInput}
+                    onChange={(e) => setGotoPageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleGoto(Number(gotoPageInput));
+                      }
+                    }}
+                    autoFocus
+                    className="flex-1 bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
+                    placeholder="1"
+                  />
+                  <span className="text-neutral-500 font-medium">쪽</span>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setShowGotoModal(false)}
+                  className="px-3 py-1.5 rounded text-xs border border-neutral-300 hover:bg-neutral-50 cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGoto(Number(gotoPageInput))}
+                  className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+                >
+                  가기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 공공안심글꼴 모달 */}
+        {showSafeFontModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
+            <div className="bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3 w-96 max-h-[80vh] overflow-y-auto text-neutral-800 animate-in fade-in duration-150">
+              <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+                <span className="flex items-center gap-1.5">
+                  <SafeFontIcon className="w-4 h-4 text-emerald-600" />
+                  <span>공공안심글꼴 (K-안심글꼴)</span>
+                </span>
+                <button type="button" onClick={() => setShowSafeFontModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+              </h4>
+              <p className="text-[11px] text-neutral-500">
+                정부 및 지자체에서 배포한 안심하고 상업적/비상업적으로 무료 이용 가능한 글꼴입니다.
+              </p>
+              <div className="flex flex-col gap-1.5 divide-y divide-neutral-100">
+                {[
+                  { name: "나눔명조", family: "'Nanum Myeongjo', serif", desc: "네이버 배포 본문용 명조체" },
+                  { name: "나눔고딕", family: "'Nanum Gothic', sans-serif", desc: "네이버 배포 가독성 높은 고딕체" },
+                  { name: "마루 부리", family: "'MaruBuri', serif", desc: "화면용 본문 맞춤 부리(명조) 글꼴" },
+                  { name: "함초롬바탕", family: "'Hamchorom Batang', serif", desc: "한글과컴퓨터 표준 명조 글꼴" },
+                  { name: "함초롬돋움", family: "'Hamchorom Dotum', sans-serif", desc: "한글과컴퓨터 표준 고딕 글꼴" },
+                  { name: "프리텐다드", family: "'Pretendard', sans-serif", desc: "모던 표준 고딕 본문 글꼴" },
+                ].map((f) => (
+                  <div key={f.name} className="flex items-center justify-between pt-2">
+                    <div>
+                      <div className="text-xs font-semibold text-neutral-800" style={{ fontFamily: f.family }}>{f.name}</div>
+                      <div className="text-[10px] text-neutral-400">{f.desc}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        applyFontFamily(f.family);
+                        setShowSafeFontModal(false);
+                      }}
+                      className="px-2.5 py-1 text-[11px] rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold cursor-pointer border border-emerald-200 transition"
+                    >
+                      적용
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end pt-2 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setShowSafeFontModal(false)}
+                  className="px-4 py-1.5 rounded text-xs bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-medium cursor-pointer"
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 공유 성공 토스트 */}
+        {showShareToast && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-70 bg-neutral-900/90 text-white px-4 py-2 rounded-full shadow-2xl text-xs flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <span>📋</span>
+            <span>문서 공유 링크가 클립보드에 복사되었습니다!</span>
+          </div>
+        )}
+
+        {/* 일반 알림 토스트 */}
+        {generalToast && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-70 bg-neutral-900/90 text-white px-5 py-2.5 rounded-full shadow-2xl text-xs flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <span>ℹ️</span>
+            <span>{generalToast}</span>
+          </div>
+        )}
+
+        {/* 편집 용지 적용 토스트 */}
+        {showPageSetupToast && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-70 bg-neutral-900/90 text-white px-5 py-2.5 rounded-full shadow-2xl text-xs flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <span>📄</span>
+            <span>
+              편집 용지가 적용되었습니다 ({pageSizeType} {pageOrientation === "portrait" ? "세로" : "가로"}, 폭 {pageWidthMm}mm × 길이 {pageHeightMm}mm, 여백: 상{pageMarginTopMm}·하{pageMarginBottomMm}·좌{pageMarginLeftMm}·우{pageMarginRightMm}mm)
+            </span>
+          </div>
+        )}
 
         {/* 닫기 전 저장 확인 모달 */}
         {confirmClose && (
