@@ -6239,10 +6239,10 @@ function HwpxEditorModalInner({
 
           {/* 5열: 한컴독스 표준 가로 눈금자 (Ruler, Image 4 매칭) */}
           {showRuler && (
-            <div className="w-full bg-[#f3f4f6] border-b border-neutral-300 py-0.5 flex justify-center select-none overflow-x-hidden shrink-0">
+            <div className="w-full bg-[#f3f4f6] border-b border-neutral-300 py-0.5 px-4 sm:px-8 select-none overflow-x-auto shrink-0">
               <div
-                style={{ width: `${Math.round(pageWidthMm * 3.78)}px`, maxWidth: "96vw" }}
-                className="h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-mono shadow-2xs transition-all duration-200"
+                style={{ width: `${Math.round(pageWidthMm * 3.78)}px` }}
+                className="mx-auto h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-mono shadow-2xs transition-all duration-200"
               >
                 {/* 왼쪽 여백 영역 회색 음영 */}
                 <div
@@ -8727,7 +8727,7 @@ function HwpxEditorModalInner({
 
         {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
         <main
-          className="flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col items-center bg-[#edf0f5]"
+          className="flex-1 overflow-auto p-4 sm:p-8 bg-[#edf0f5]"
           onClick={(e) => {
             if (e.target === e.currentTarget && blocks.length > 0) {
               const lastIdx = blocks.length - 1;
@@ -8751,7 +8751,7 @@ function HwpxEditorModalInner({
                 }
               }
             }}
-            className={`h-auto my-6 bg-white text-neutral-900 shadow-xl rounded-xs border border-neutral-300 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
+            className={`mx-auto h-auto my-6 bg-white text-neutral-900 shadow-xl rounded-xs border border-neutral-300 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
               showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
             } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
             style={{
