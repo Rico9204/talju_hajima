@@ -1259,6 +1259,10 @@ function HwpxEditorModalInner({
   const [gotoPageInput, setGotoPageInput] = useState("1");
   const [showShareToast, setShowShareToast] = useState(false);
   const [showSafeFontModal, setShowSafeFontModal] = useState(false);
+  const [showSaveAsModal, setShowSaveAsModal] = useState(false);
+  const [saveAsInput, setSaveAsInput] = useState("");
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameInput, setRenameInput] = useState("");
   const [generalToast, setGeneralToast] = useState<string | null>(null);
   const showToast = (msg: string) => {
     setGeneralToast(msg);
@@ -1267,21 +1271,32 @@ function HwpxEditorModalInner({
 
   // 다른 이름으로 저장하기 (Alt+V)
   const handleSaveAs = () => {
-    const defaultName = docTitle.replace(/\.hwpx$/i, "") + "_사본.hwpx";
-    const input = window.prompt("다른 이름으로 저장할 파일 이름을 입력하세요.", defaultName);
-    if (!input || !input.trim()) return;
-    const finalName = input.trim().toLowerCase().endsWith(".hwpx") ? input.trim() : `${input.trim()}.hwpx`;
+    setSaveAsInput(docTitle.replace(/\.hwpx$/i, "") + "_사본.hwpx");
+    setShowSaveAsModal(true);
+  };
+
+  const confirmSaveAs = () => {
+    const trimmed = saveAsInput.trim();
+    if (!trimmed) return;
+    const finalName = trimmed.toLowerCase().endsWith(".hwpx") ? trimmed : `${trimmed}.hwpx`;
     setDocTitle(finalName);
+    setShowSaveAsModal(false);
     void handleDirectDownload(finalName);
     showToast(`다른 이름으로 저장되었습니다: ${finalName}`);
   };
 
   // 문서 이름 바꾸기
   const handleRename = () => {
-    const input = window.prompt("새 문서 이름을 입력하세요.", docTitle);
-    if (!input || !input.trim()) return;
-    const finalName = input.trim().toLowerCase().endsWith(".hwpx") ? input.trim() : `${input.trim()}.hwpx`;
+    setRenameInput(docTitle);
+    setShowRenameModal(true);
+  };
+
+  const confirmRename = () => {
+    const trimmed = renameInput.trim();
+    if (!trimmed) return;
+    const finalName = trimmed.toLowerCase().endsWith(".hwpx") ? trimmed : `${trimmed}.hwpx`;
     setDocTitle(finalName);
+    setShowRenameModal(false);
     showToast(`문서 이름이 변경되었습니다: ${finalName}`);
   };
 
@@ -1299,9 +1314,21 @@ function HwpxEditorModalInner({
     setTimeout(() => setShowShareToast(false), 2500);
   };
 
-  // PDF로 다운로드 (인쇄 대화상자)
-  const handleDownloadPdf = () => {
-    showToast("인쇄 대화상자에서 'PDF로 저장'을 선택해 PDF로 내보낼 수 있습니다.");
+  // PDF로 다운로드 (실제 PDF 파일 생성 및 저장)
+  const handleDownloadPdf = async () => {
+    const pdfName = `${docTitle.replace(/\.hwpx$/i, "")}.pdf`;
+    if (canvasRef.current) {
+      try {
+        showToast("PDF 파일을 생성하고 있습니다...");
+        const { exportElementAsPdf } = await import("../lib/exportRichDoc");
+        await exportElementAsPdf(canvasRef.current, pdfName);
+        showToast(`PDF로 저장되었습니다: ${pdfName}`);
+        return;
+      } catch {
+        // html2canvas 실패 시 브라우저 인쇄(PDF 저장)로 폴백
+      }
+    }
+    showToast("인쇄 대화상자에서 'PDF로 저장'을 선택해 내보낼 수 있습니다.");
     setTimeout(() => {
       window.print();
     }, 150);
@@ -4018,19 +4045,18 @@ function HwpxEditorModalInner({
                     }}
                     className={`px-3.5 py-1.5 font-medium transition cursor-pointer border-b-2 ${
                       isDropdownOpen || (openDropdown === null && isTabActive)
-                        ? "border-[#0066cc] text-[#0066cc] font-bold bg-neutral-50"
+                        ? "border-[#0099e5] text-neutral-900 font-semibold bg-[#eceef0]"
                         : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
                     }`}
                   >
                     {menu.label}
                   </button>
 
-                  {/* [파일] 드롭다운 메뉴 (Image 1) */}
+                  {/* [파일] 드롭다운 메뉴 (Hancom Docs 100% 일치) */}
                   {isDropdownOpen && menu.id === "file" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[240px] text-xs text-neutral-800 animate-in fade-in duration-100"
-                      style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
+                      className="absolute left-0 top-full mt-0 z-60 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[260px] text-[12px] text-neutral-800 animate-in fade-in duration-100"
                     >
                       <button
                         type="button"
@@ -4038,11 +4064,11 @@ function HwpxEditorModalInner({
                         disabled={status === "saving" || !dirty}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left disabled:opacity-40 cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <SaveIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <SaveIcon className="w-4 h-4 text-neutral-600 shrink-0" />
                           <span>저장하기</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+S</span>
+                        <span className="text-[11px] text-neutral-400">Ctrl+S</span>
                       </button>
 
                       <button
@@ -4050,31 +4076,35 @@ function HwpxEditorModalInner({
                         onClick={() => { setOpenDropdown(null); handleSaveAs(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <SaveAsIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <SaveAsIcon className="w-4 h-4 text-neutral-600 shrink-0" />
                           <span>다른 이름으로 저장하기</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Alt+V</span>
+                        <span className="text-[11px] text-neutral-400">Alt+V</span>
                       </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
 
                       <button
                         type="button"
                         onClick={() => { setOpenDropdown(null); handleShare(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <ShareIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <span className="w-4 h-4 shrink-0" />
                           <span>공유</span>
                         </span>
                       </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
 
                       <button
                         type="button"
                         onClick={() => { setOpenDropdown(null); handleRename(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <RenameIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <span className="w-4 h-4 shrink-0" />
                           <span>이름 바꾸기</span>
                         </span>
                       </button>
@@ -4084,19 +4114,19 @@ function HwpxEditorModalInner({
                         onClick={() => { setOpenDropdown(null); void handleDirectDownload(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <DownloadTrayIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <DownloadTrayIcon className="w-4 h-4 text-neutral-600 shrink-0" />
                           <span>다운로드</span>
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); handleDownloadPdf(); }}
+                        onClick={() => { setOpenDropdown(null); void handleDownloadPdf(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <PdfDownloadIcon className="w-4 h-4" />
+                        <span className="flex items-center gap-3">
+                          <PdfDownloadIcon className="w-4 h-4 shrink-0" />
                           <span>PDF로 다운로드</span>
                         </span>
                       </button>
@@ -4108,11 +4138,11 @@ function HwpxEditorModalInner({
                         onClick={() => { setOpenDropdown(null); openPageSetupModal(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <PageSetupIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <PageSetupIcon className="w-4 h-4 text-neutral-600 shrink-0" />
                           <span>편집 용지...</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">F7</span>
+                        <span className="text-[11px] text-neutral-400">F7</span>
                       </button>
 
                       <button
@@ -4120,23 +4150,25 @@ function HwpxEditorModalInner({
                         onClick={() => { setOpenDropdown(null); handlePrint(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <PrintIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <PrintIcon className="w-4 h-4 text-neutral-600 shrink-0" />
                           <span>인쇄</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+P</span>
+                        <span className="text-[11px] text-neutral-400">Ctrl+P</span>
                       </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
 
                       <button
                         type="button"
                         onClick={() => { setOpenDropdown(null); setShowDocStatsModal(true); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
-                        <span className="flex items-center gap-2.5">
-                          <DocInfoIcon className="w-4 h-4 text-neutral-600" />
+                        <span className="flex items-center gap-3">
+                          <DocInfoIcon className="w-4 h-4 text-neutral-600 shrink-0" />
                           <span>문서 정보...</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Q+I</span>
+                        <span className="text-[11px] text-neutral-400">Ctrl+Q+I</span>
                       </button>
                     </div>
                   )}
@@ -9901,6 +9933,102 @@ function HwpxEditorModalInner({
                   className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
                 >
                   가기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 다른 이름으로 저장하기 모달 */}
+        {showSaveAsModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40" onClick={() => setShowSaveAsModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3 w-88 text-neutral-800 animate-in fade-in duration-150"
+            >
+              <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+                <span className="flex items-center gap-1.5">
+                  <SaveAsIcon className="w-4 h-4 text-[#0066cc]" />
+                  <span>다른 이름으로 저장하기</span>
+                </span>
+                <button type="button" onClick={() => setShowSaveAsModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+              </h4>
+              <div className="flex flex-col gap-1.5 text-xs">
+                <label className="text-neutral-600 font-medium">저장할 파일 이름 (.hwpx)</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={saveAsInput}
+                  onChange={(e) => setSaveAsInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmSaveAs();
+                    if (e.key === "Escape") setShowSaveAsModal(false);
+                  }}
+                  className="border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveAsModal(false)}
+                  className="px-3.5 py-1.5 rounded text-xs bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-medium cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmSaveAs}
+                  className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+                >
+                  저장
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 이름 바꾸기 모달 */}
+        {showRenameModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40" onClick={() => setShowRenameModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white border border-neutral-300 shadow-2xl p-5 rounded-xl flex flex-col gap-3 w-88 text-neutral-800 animate-in fade-in duration-150"
+            >
+              <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
+                <span className="flex items-center gap-1.5">
+                  <RenameIcon className="w-4 h-4 text-[#0066cc]" />
+                  <span>문서 이름 바꾸기</span>
+                </span>
+                <button type="button" onClick={() => setShowRenameModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+              </h4>
+              <div className="flex flex-col gap-1.5 text-xs">
+                <label className="text-neutral-600 font-medium">새 문서 이름</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renameInput}
+                  onChange={(e) => setRenameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmRename();
+                    if (e.key === "Escape") setShowRenameModal(false);
+                  }}
+                  className="border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setShowRenameModal(false)}
+                  className="px-3.5 py-1.5 rounded text-xs bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-medium cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRename}
+                  className="px-4 py-1.5 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa] cursor-pointer"
+                >
+                  확인
                 </button>
               </div>
             </div>
