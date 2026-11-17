@@ -1317,6 +1317,7 @@ function HwpxEditorModalInner({
   const [showTransparentLines, setShowTransparentLines] = useState(true);
   const [pageViewColumns, setPageViewColumns] = useState<1 | 2 | 3>(1);
   const [pageBreakIndices, setPageBreakIndices] = useState<number[]>([0]);
+  const [canvasUnscaledSize, setCanvasUnscaledSize] = useState<{ w: number; h: number } | null>(null);
   const [zoomFitMode, setZoomFitMode] = useState<"custom" | "page" | "width">("custom");
   const [showFormatToolbar, setShowFormatToolbar] = useState(true);
   const [showAllMemos, setShowAllMemos] = useState(true);
@@ -2077,6 +2078,12 @@ function HwpxEditorModalInner({
     }
     const root = canvasRef.current;
     if (!root) return;
+
+    const nextW = root.offsetWidth;
+    const nextH = root.offsetHeight;
+    if (nextW > 0 && nextH > 0) {
+      setCanvasUnscaledSize((prev) => (prev && prev.w === nextW && prev.h === nextH ? prev : { w: nextW, h: nextH }));
+    }
 
     const pagePxH = Math.round(pageHeightMm * 3.78);
     const padTop = Math.max(16, Math.round(pageMarginTopMm * 3.78));
@@ -8818,19 +8825,30 @@ function HwpxEditorModalInner({
           }}
         >
           <div
-            ref={canvasRef}
-            style={{
-              transform: `scale(${zoomPercent / 100})`,
-              transformOrigin: "top center",
-            }}
-            className={`mx-auto my-6 min-w-max transition-all duration-300 ${
-              pageViewColumns === 3
-                ? "grid grid-cols-[repeat(3,max-content)] gap-6 justify-items-center"
-                : pageViewColumns === 2
-                  ? "grid grid-cols-[repeat(2,max-content)] gap-6 justify-items-center"
-                  : "flex flex-col items-center gap-6"
-            }`}
+            className="mx-auto my-6 shrink-0 relative overflow-hidden"
+            style={
+              canvasUnscaledSize
+                ? {
+                    width: `${Math.round(canvasUnscaledSize.w * (zoomPercent / 100))}px`,
+                    height: `${Math.round(canvasUnscaledSize.h * (zoomPercent / 100))}px`,
+                  }
+                : undefined
+            }
           >
+            <div
+              ref={canvasRef}
+              style={{
+                transform: `scale(${zoomPercent / 100})`,
+                transformOrigin: "top left",
+              }}
+              className={`min-w-max ${
+                pageViewColumns === 3
+                  ? "grid grid-cols-[repeat(3,max-content)] gap-6 justify-items-center"
+                  : pageViewColumns === 2
+                    ? "grid grid-cols-[repeat(2,max-content)] gap-6 justify-items-center"
+                    : "flex flex-col items-center gap-6"
+              }`}
+            >
             {pages.map((pageIndices, pageIdx) => (
               <div
                 key={`page-${pageIdx}`}
@@ -9942,6 +9960,7 @@ function HwpxEditorModalInner({
             })()}
               </div>
             ))}
+            </div>
           </div>
         </main>
 
