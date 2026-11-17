@@ -1314,6 +1314,8 @@ function HwpxEditorModalInner({
   const [showControlMarks, setShowControlMarks] = useState(false);
   const [showRuler, setShowRuler] = useState(true);
   const [showGotoModal, setShowGotoModal] = useState(false);
+  const [showClearMarksModal, setShowClearMarksModal] = useState(false);
+  const [selectedControlMarks, setSelectedControlMarks] = useState<string[]>([]);
   const [gotoPageInput, setGotoPageInput] = useState("1");
   const [showShareToast, setShowShareToast] = useState(false);
   const [showSafeFontModal, setShowSafeFontModal] = useState(false);
@@ -1402,26 +1404,71 @@ function HwpxEditorModalInner({
     }
   };
 
-  // 조판 부호 지우기
-  const clearControlMarks = () => {
+  // 조판 부호 지우기 목록 (한컴독스 표준)
+  const CONTROL_MARK_ITEMS = [
+    "OLE 개체", "각주", "각주 번호", "감추기", "강제 줄 나눔", "강제 쪽 나눔",
+    "개요 문단", "개인 정보", "개체 연결선", "계산식", "고정폭 빈 칸",
+    "그림", "글상자", "글자 겹침", "머리말", "꼬리말",
+    "도형", "미주", "수식", "쪽 번호", "차트", "표", "하이퍼링크",
+  ];
+
+  // 선택된 조판 부호 지우기 실행
+  const applyClearControlMarks = () => {
+    if (selectedControlMarks.length === 0) return;
+    const targets = new Set(selectedControlMarks);
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    let removedCount = 0;
+
     doc.transact(() => {
+      // 1. 개체 블록 역순 삭제 (표, 그림, 도형, 수식, 차트)
+      for (let i = yBlocks.length - 1; i >= 0; i--) {
+        const b = yBlocks.get(i);
+        const type = b?.get("type");
+        if (
+          (type === "table" && targets.has("표")) ||
+          (type === "image" && targets.has("그림")) ||
+          (type === "shape" && targets.has("도형")) ||
+          (type === "equation" && targets.has("수식")) ||
+          (type === "chart" && targets.has("차트"))
+        ) {
+          yBlocks.delete(i, 1);
+          removedCount++;
+        }
+      }
+
+      // 2. 문단 내 조판 부호 (각주/미주/하이퍼링크 등) 정리
       for (let i = 0; i < yBlocks.length; i++) {
         const b = yBlocks.get(i);
         if (b && b.get("type") === "paragraph") {
           const yText = b.get("text") as Y.Text;
           if (yText) {
             const raw = yText.toString();
-            const cleaned = raw.replace(/<sup>.*?<\/sup>/g, "").replace(/\[.*?\]/g, "");
+            let cleaned = raw;
+            if (targets.has("각주") || targets.has("각주 번호") || targets.has("미주")) {
+              cleaned = cleaned.replace(/<sup>.*?<\/sup>/g, "").replace(/\[각주.*?\]|\[미주.*?\]/g, "");
+            }
+            if (targets.has("하이퍼링크")) {
+              cleaned = cleaned.replace(/<a [^>]*>(.*?)<\/a>/gi, "$1");
+            }
+            if (targets.has("계산식")) {
+              cleaned = cleaned.replace(/\[계산식.*?\]/g, "");
+            }
             if (cleaned !== raw) {
               yText.delete(0, yText.length);
               yText.insert(0, cleaned);
+              removedCount++;
             }
           }
         }
       }
     });
-    showToast("본문 내의 각주 및 조판 부호가 일괄 정리되었습니다.");
+
+    if (targets.has("쪽 번호")) {
+      setPageNumberPos("none");
+    }
+    setShowClearMarksModal(false);
+    setSelectedControlMarks([]);
+    showToast(`선택한 조판 부호를 지웠습니다 (${removedCount}건 처리).`);
   };
 
   // 선택 영역 삭제 (Ctrl+E)
@@ -1429,16 +1476,37 @@ function HwpxEditorModalInner({
     document.execCommand("delete");
   };
 
-  // 특정 쪽/문단 찾아가기 (Alt+G)
+  // 특정 쪽/문단/개체 찾아가기 (Alt+G)
   const handleGoto = (num: number) => {
     setShowGotoModal(false);
-    const rawIdx = gotoType === "line" ? num - 1 : (num - 1) * 22;
-    const targetIdx = Math.min(blocks.length - 1, Math.max(0, rawIdx));
+    let targetIdx = 0;
+    if (gotoType === "line") {
+      targetIdx = Math.min(blocks.length - 1, Math.max(0, num - 1));
+    } else if (gotoType === "page") {
+      targetIdx = Math.min(blocks.length - 1, Math.max(0, (num - 1) * 22));
+    } else if (gotoType === "control") {
+      const found = blocks.findIndex((b, idx) => idx > selectedIdx && b.type !== "paragraph");
+      targetIdx = found !== -1 ? found : Math.max(0, blocks.findIndex((b) => b.type !== "paragraph"));
+    } else if (gotoType === "style") {
+      const found = blocks.findIndex((b, idx) => idx > selectedIdx && b.type === "paragraph" && (b.bold || (b.sizePt && b.sizePt > 11)));
+      targetIdx = found !== -1 ? found : 0;
+    } else {
+      targetIdx = Math.min(blocks.length - 1, Math.max(0, num - 1));
+    }
+
     setSelectedIdx(targetIdx);
-    const targetEl = document.querySelector(`[data-block-idx="${targetIdx}"]`);
+    const targetEl = document.querySelector(`[data-block-idx="${targetIdx}"]`) as HTMLElement | null;
     if (targetEl) {
       targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (blocks[targetIdx]?.type === "paragraph") {
+        const editable = (targetEl.matches('[contenteditable="true"]')
+          ? targetEl
+          : targetEl.querySelector('[contenteditable="true"]')) as HTMLElement | null;
+        editable?.focus();
+      }
     }
+    const labelMap = { page: "쪽", section: "구역", line: "줄", style: "스타일", control: "조판 부호", bookmark: "책갈피" };
+    showToast(`${num}번 ${labelMap[gotoType]} 위치로 이동했습니다.`);
   };
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -4387,7 +4455,7 @@ function HwpxEditorModalInner({
 
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); clearControlMarks(); }}
+                        onClick={() => { setOpenDropdown(null); setSelectedControlMarks([]); setShowClearMarksModal(true); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
@@ -9608,6 +9676,79 @@ function HwpxEditorModalInner({
                   <button
                     type="button"
                     onClick={() => setShowGotoModal(false)}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer shadow-2xs"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 한컴독스 표준 조판 부호 지우기 모달 */}
+        {showClearMarksModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowClearMarksModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-[440px] bg-white rounded-xs shadow-2xl border border-[#4a89dc] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+            >
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight">조판 부호 지우기</span>
+                <button type="button" onClick={() => setShowClearMarksModal(false)} className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer">✕</button>
+              </div>
+              <div className="p-4 flex items-start gap-3 bg-[#f8fafc] text-[12px]">
+                <div className="flex-1 border border-[#c8d3e2] rounded-xs p-3.5 bg-white shadow-2xs flex flex-col gap-3">
+                  <div className="h-64 border border-[#c5ceda] rounded-xs bg-white overflow-y-auto p-2.5 flex flex-col gap-2">
+                    {CONTROL_MARK_ITEMS.map((item) => {
+                      const checked = selectedControlMarks.includes(item);
+                      return (
+                        <label key={item} className="flex items-center gap-2 cursor-pointer text-neutral-800 hover:text-neutral-950">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedControlMarks((prev) => [...prev, item]);
+                              } else {
+                                setSelectedControlMarks((prev) => prev.filter((x) => x !== item));
+                              }
+                            }}
+                            className="accent-[#0066cc] w-3.5 h-3.5"
+                          />
+                          <span>{item}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedControlMarks.length === CONTROL_MARK_ITEMS.length) {
+                          setSelectedControlMarks([]);
+                        } else {
+                          setSelectedControlMarks([...CONTROL_MARK_ITEMS]);
+                        }
+                      }}
+                      className="px-3 py-1.5 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer shadow-2xs"
+                    >
+                      {selectedControlMarks.length === CONTROL_MARK_ITEMS.length ? "모두 해제" : "모두 선택"}
+                    </button>
+                  </div>
+                </div>
+                <div className="w-20 shrink-0 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={selectedControlMarks.length === 0}
+                    onClick={applyClearControlMarks}
+                    className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
+                  >
+                    지우기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowClearMarksModal(false)}
                     className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 text-[12px] rounded-xs cursor-pointer shadow-2xs"
                   >
                     취소
