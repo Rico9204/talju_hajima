@@ -1931,6 +1931,7 @@ function HwpxEditorModalInner({
   const [replaceMsg, setReplaceMsg] = useState("");
   const [showDocStatsModal, setShowDocStatsModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [showPageSetupModal, setShowPageSetupModal] = useState(false);
 
   // 한컴독스 표준 편집 용지 상태 (사용자 업로드 캡처 이미지 100% 매칭)
@@ -4026,7 +4027,7 @@ function HwpxEditorModalInner({
               {/* 도움말 (?) */}
               <button
                 type="button"
-                onClick={() => setShowShortcutsModal(true)}
+                onClick={() => setShowHelpModal(true)}
                 className="w-6 h-6 rounded hover:bg-neutral-100 text-neutral-600 transition cursor-pointer text-xs font-bold flex items-center justify-center"
                 title="도움말 (?)"
               >
@@ -6711,6 +6712,75 @@ function HwpxEditorModalInner({
               >
                 닫기
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* 도움말 (?) 모달 */}
+        {showHelpModal && (
+          <div className="fixed inset-0 z-60 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowHelpModal(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xs shadow-2xl border border-[#4a89dc] w-full max-w-[520px] overflow-hidden text-neutral-800 font-sans select-none animate-in fade-in duration-150"
+            >
+              <div className="bg-[#f0f4fa] border-b border-[#dbe2ea] px-4 py-2 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-neutral-900 tracking-tight flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-[#0066cc] text-white text-[10px] font-bold flex items-center justify-center">?</span>
+                  <span>한컴오피스 Web 한글 도움말</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowHelpModal(false)}
+                  className="text-neutral-500 hover:text-neutral-900 text-sm font-light leading-none p-1 cursor-pointer transition"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="p-4 bg-[#f8fafc] flex flex-col gap-3 text-xs">
+                <div className="bg-white border border-[#c8d3e2] rounded-xs p-3.5 flex flex-col gap-2.5">
+                  <div>
+                    <h5 className="font-bold text-[#1e4fa8] mb-1">1. 기본 편집 및 실시간 협업</h5>
+                    <p className="text-neutral-600 leading-relaxed">
+                      팀원들과 문서를 동시에 편집할 수 있으며 모든 변경 사항은 실시간으로 동기화됩니다. 저장(Ctrl+S)하거나 파일 메뉴에서 .hwpx / .pdf로 내보낼 수 있습니다.
+                    </p>
+                  </div>
+                  <div className="border-t border-neutral-100 pt-2">
+                    <h5 className="font-bold text-[#1e4fa8] mb-1">2. 용지 및 서식 설정</h5>
+                    <p className="text-neutral-600 leading-relaxed">
+                      편집 용지(F7)에서 A4·B5·신국판 등 19종 용지 규격과 여백·방향을 설정하고, 글자 모양(Alt+L)·문단 모양(Alt+T)으로 세밀한 조판 서식을 지정할 수 있습니다.
+                    </p>
+                  </div>
+                  <div className="border-t border-neutral-100 pt-2">
+                    <h5 className="font-bold text-[#1e4fa8] mb-1">3. 표 · 도형 · 수식 · 차트 개체 편집</h5>
+                    <p className="text-neutral-600 leading-relaxed">
+                      상단 리본에서 표, 도형, 그림, 수식, 차트를 삽입할 수 있으며, 개체 선택 시 나타나는 전용 도구 모음과 개체 속성(P)에서 크기·배치·테두리·캡션을 편집합니다.
+                    </p>
+                  </div>
+                  <div className="border-t border-neutral-100 pt-2 flex items-center justify-between text-[11px] text-neutral-500">
+                    <span>OWPML (.hwpx) 표준 포맷 호환</span>
+                    <span>버전 12.90.0.1161</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowHelpModal(false);
+                      setShowShortcutsModal(true);
+                    }}
+                    className="px-3 py-1.5 rounded-xs text-xs border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-800 font-medium cursor-pointer"
+                  >
+                    단축키 안내 보기 (K)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowHelpModal(false)}
+                    className="px-4 py-1.5 rounded-xs text-xs border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 text-neutral-900 font-medium cursor-pointer"
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
