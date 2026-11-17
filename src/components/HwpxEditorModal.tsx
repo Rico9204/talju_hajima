@@ -1267,16 +1267,20 @@ function HwpxEditorModalInner({
 
   // 다른 이름으로 저장하기 (Alt+V)
   const handleSaveAs = () => {
-    const defaultName = docTitle.replace(/\.hwpx$/i, "") + "_다른이름.hwpx";
-    setDocTitle(defaultName);
-    showToast(`다른 이름으로 저장되었습니다: ${defaultName}`);
-    void runSave();
+    const defaultName = docTitle.replace(/\.hwpx$/i, "") + "_사본.hwpx";
+    const input = window.prompt("다른 이름으로 저장할 파일 이름을 입력하세요.", defaultName);
+    if (!input || !input.trim()) return;
+    const finalName = input.trim().toLowerCase().endsWith(".hwpx") ? input.trim() : `${input.trim()}.hwpx`;
+    setDocTitle(finalName);
+    void handleDirectDownload(finalName);
+    showToast(`다른 이름으로 저장되었습니다: ${finalName}`);
   };
 
   // 문서 이름 바꾸기
   const handleRename = () => {
-    const currentBase = docTitle.replace(/\.hwpx$/i, "");
-    const finalName = `${currentBase}_수정.hwpx`;
+    const input = window.prompt("새 문서 이름을 입력하세요.", docTitle);
+    if (!input || !input.trim()) return;
+    const finalName = input.trim().toLowerCase().endsWith(".hwpx") ? input.trim() : `${input.trim()}.hwpx`;
     setDocTitle(finalName);
     showToast(`문서 이름이 변경되었습니다: ${finalName}`);
   };
@@ -1297,7 +1301,10 @@ function HwpxEditorModalInner({
 
   // PDF로 다운로드 (인쇄 대화상자)
   const handleDownloadPdf = () => {
-    showToast("PDF 다운로드 및 인쇄 준비가 완료되었습니다.");
+    showToast("인쇄 대화상자에서 'PDF로 저장'을 선택해 PDF로 내보낼 수 있습니다.");
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
   // 전체 선택 (Ctrl+A)
@@ -3211,7 +3218,7 @@ function HwpxEditorModalInner({
 
   // 인쇄 (Ctrl+P)
   const handlePrint = () => {
-    showToast("인쇄 미리보기 및 인쇄 기능이 준비되었습니다.");
+    window.print();
   };
 
   // 쪽 나누기 (Ctrl+Enter)
@@ -3978,7 +3985,7 @@ function HwpxEditorModalInner({
           </div>
 
           {/* 2열: 메뉴바 & 풀다운 드롭다운 메뉴 (Images 1, 2, 3) */}
-          <div className="relative flex items-center px-2 bg-white text-xs border-b border-neutral-200 overflow-x-auto whitespace-nowrap">
+          <div className="relative flex items-center px-2 bg-white text-xs border-b border-neutral-200 whitespace-nowrap">
             {(
               [
                 { id: "file", label: "파일" },
@@ -4001,11 +4008,7 @@ function HwpxEditorModalInner({
                     onClick={(e) => {
                       e.stopPropagation();
                       setActiveTab(menu.id);
-                      if (activeTab === menu.id) {
-                        setOpenDropdown((cur) => (cur === menu.id ? null : menu.id));
-                      } else {
-                        setOpenDropdown(null);
-                      }
+                      setOpenDropdown((cur) => (cur === menu.id ? null : menu.id));
                     }}
                     onMouseEnter={() => {
                       if (openDropdown !== null) {
@@ -4013,24 +4016,13 @@ function HwpxEditorModalInner({
                         setActiveTab(menu.id);
                       }
                     }}
-                    className={`px-3 py-1.5 font-medium transition cursor-pointer border-b-2 flex items-center gap-1 ${
+                    className={`px-3.5 py-1.5 font-medium transition cursor-pointer border-b-2 ${
                       isDropdownOpen || (openDropdown === null && isTabActive)
                         ? "border-[#0066cc] text-[#0066cc] font-bold bg-neutral-50"
                         : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
                     }`}
                   >
-                    <span>{menu.label}</span>
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveTab(menu.id);
-                        setOpenDropdown((cur) => (cur === menu.id ? null : menu.id));
-                      }}
-                      className="text-[9px] text-neutral-400 hover:text-[#0066cc] ml-0.5 px-0.5 cursor-pointer"
-                      title={`${menu.label} 메뉴 펼치기`}
-                    >
-                      ▾
-                    </span>
+                    {menu.label}
                   </button>
 
                   {/* [파일] 드롭다운 메뉴 (Image 1) */}
