@@ -9827,6 +9827,92 @@ function HwpxEditorModalInner({
             }}
           />
         )}
+
+        {/* 한컴 고급 기능 모달들 (모양 복사, 글자 바꾸기, 하이퍼링크, 날짜, 상용구, 쪽 번호, 워터마크, 템플릿, 표 계산식, 맞춤법) */}
+        <FormatCopyModal
+          isOpen={showFormatCopyModal}
+          onClose={() => setShowFormatCopyModal(false)}
+          onCopy={handleApplyFormatCopyMode}
+          isTableSelected={blocks[selectedIdx]?.type === "table"}
+        />
+        <TextConvertModal
+          isOpen={showTextConvertModal}
+          onClose={() => setShowTextConvertModal(false)}
+          onConvert={handleTextConvert}
+        />
+        <HyperlinkModal
+          isOpen={showHyperlinkModal}
+          onClose={() => setShowHyperlinkModal(false)}
+          onInsert={handleInsertHyperlink}
+        />
+        <InsertDateModal
+          isOpen={showDateModal}
+          onClose={() => setShowDateModal(false)}
+          onInsert={handleInsertDate}
+        />
+        <AutoTextModal
+          isOpen={showAutoTextModal}
+          onClose={() => setShowAutoTextModal(false)}
+          onInsert={handleInsertAutoText}
+        />
+        <PageNumberModal
+          isOpen={showPageNumberModal}
+          onClose={() => setShowPageNumberModal(false)}
+          currentPos={pageNumberPos}
+          onApply={(pos) => {
+            setPageNumberPos(pos);
+            showToast(pos === "none" ? "쪽 번호가 해제되었습니다." : "쪽 번호가 설정되었습니다.");
+          }}
+        />
+        <WatermarkModal
+          isOpen={showWatermarkModal}
+          onClose={() => setShowWatermarkModal(false)}
+          currentWatermark={watermarkText}
+          onApply={(text) => {
+            setWatermarkText(text);
+            showToast(text ? `바탕쪽 워터마크가 설정되었습니다: ${text}` : "워터마크가 해제되었습니다.");
+          }}
+        />
+        <TemplateModal
+          isOpen={showTemplateModal}
+          onClose={() => setShowTemplateModal(false)}
+          onLoadTemplate={handleLoadTemplate}
+        />
+        <TableCalcModal
+          isOpen={showTableCalcModal}
+          onClose={() => setShowTableCalcModal(false)}
+          onCalculate={handleTableCalc}
+        />
+        <SpellCheckModal
+          isOpen={showSpellCheckModal}
+          onClose={() => setShowSpellCheckModal(false)}
+          fullText={blocks.map((b) => (b.type === "paragraph" ? b.text : "")).join("\n")}
+          onFixAll={(rules) => {
+            const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+            let fixed = 0;
+            doc.transact(() => {
+              blocks.forEach((b, idx) => {
+                if (b.type === "paragraph") {
+                  let updated = b.text;
+                  for (const r of rules) {
+                    if (updated.includes(r.from)) {
+                      updated = updated.split(r.from).join(r.to);
+                      fixed++;
+                    }
+                  }
+                  if (updated !== b.text) {
+                    const yText = yBlocks.get(idx)?.get("text");
+                    if (yText instanceof Y.Text) {
+                      yText.delete(0, yText.length);
+                      yText.insert(0, updated);
+                    }
+                  }
+                }
+              });
+            });
+            showToast(fixed > 0 ? `맞춤법 교정 ${fixed}건 적용 완료` : "교정할 맞춤법 오류가 없습니다.");
+          }}
+        />
       </div>
     </div>
   );

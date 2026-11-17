@@ -18,10 +18,12 @@ export function FormatCopyModal({
   isOpen,
   onClose,
   onCopy,
+  isTableSelected = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onCopy: (mode: "char" | "para" | "both") => void;
+  isTableSelected?: boolean;
 }) {
   const [copyMode, setCopyMode] = useState<"char" | "para" | "both">("char");
   const [cellAttr, setCellAttr] = useState(false);
@@ -61,33 +63,33 @@ export function FormatCopyModal({
               </label>
             </div>
 
-            <div className="flex flex-col gap-1.5 pt-1 border-t border-neutral-100">
+            <div className="flex flex-col gap-1.5 pt-1">
               <span className="font-bold text-[#1e4fa8]">셀 모양 복사</span>
-              <div className="flex items-center gap-4 pl-1 text-neutral-600">
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={cellAttr} onChange={(e) => setCellAttr(e.target.checked)} className="accent-[#0066cc]" />
+              <div className={`flex items-center gap-4 pl-1 ${!isTableSelected ? "text-neutral-300" : "text-neutral-700"}`}>
+                <label className={`flex items-center gap-1 ${isTableSelected ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                  <input type="checkbox" disabled={!isTableSelected} checked={cellAttr} onChange={(e) => setCellAttr(e.target.checked)} className="accent-[#0066cc] disabled:opacity-30" />
                   <span>셀 속성</span>
                 </label>
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={cellBorder} onChange={(e) => setCellBorder(e.target.checked)} className="accent-[#0066cc]" />
+                <label className={`flex items-center gap-1 ${isTableSelected ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                  <input type="checkbox" disabled={!isTableSelected} checked={cellBorder} onChange={(e) => setCellBorder(e.target.checked)} className="accent-[#0066cc] disabled:opacity-30" />
                   <span>셀 테두리</span>
                 </label>
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={cellBg} onChange={(e) => setCellBg(e.target.checked)} className="accent-[#0066cc]" />
+                <label className={`flex items-center gap-1 ${isTableSelected ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                  <input type="checkbox" disabled={!isTableSelected} checked={cellBg} onChange={(e) => setCellBg(e.target.checked)} className="accent-[#0066cc] disabled:opacity-30" />
                   <span>셀 배경</span>
                 </label>
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5 pt-1 border-t border-neutral-100">
+            <div className="flex flex-col gap-1.5 pt-1">
               <span className="font-bold text-[#1e4fa8]">표에서 적용 대상</span>
-              <div className="flex flex-col gap-1 pl-1 text-neutral-600">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="radio" name="tableTarget" checked={tableTarget === "both"} onChange={() => setTableTarget("both")} className="accent-[#0066cc]" />
+              <div className={`flex flex-col gap-1 pl-1 ${!isTableSelected ? "text-neutral-300" : "text-neutral-700"}`}>
+                <label className={`flex items-center gap-1.5 ${isTableSelected ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                  <input type="radio" name="tableTarget" disabled={!isTableSelected} checked={tableTarget === "both"} onChange={() => setTableTarget("both")} className="accent-[#0066cc] disabled:opacity-30" />
                   <span>본문 모양과 셀 모양 둘 다</span>
                 </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="radio" name="tableTarget" checked={tableTarget === "cellOnly"} onChange={() => setTableTarget("cellOnly")} className="accent-[#0066cc]" />
+                <label className={`flex items-center gap-1.5 ${isTableSelected ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                  <input type="radio" name="tableTarget" disabled={!isTableSelected} checked={tableTarget === "cellOnly"} onChange={() => setTableTarget("cellOnly")} className="accent-[#0066cc] disabled:opacity-30" />
                   <span>셀 모양만</span>
                 </label>
               </div>
@@ -101,7 +103,7 @@ export function FormatCopyModal({
                 onCopy(copyMode);
                 onClose();
               }}
-              className="w-full h-8 border-2 border-[#4a89dc] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer shadow-2xs"
+              className="w-full h-8 border border-[#c0c6d0] bg-white hover:bg-neutral-50 text-neutral-900 text-[12px] font-medium rounded-xs cursor-pointer shadow-2xs"
             >
               복사
             </button>
