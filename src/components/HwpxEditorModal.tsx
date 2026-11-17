@@ -5656,7 +5656,10 @@ function HwpxEditorModalInner({
                     className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                     title="맨 아래에 줄 추가"
                   >
-                    <span className="w-5 h-5 flex items-center justify-center font-bold text-blue-600 text-sm">➕줄</span>
+                    <svg className="w-5 h-5 text-blue-600 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="2" y="3" width="16" height="6" rx="1" />
+                      <path d="M10 12v5M7.5 14.5h5" strokeLinecap="round" />
+                    </svg>
                     <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">줄 추가</span>
                   </button>
                   <button
@@ -5671,7 +5674,10 @@ function HwpxEditorModalInner({
                     className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                     title="마지막 줄 삭제"
                   >
-                    <span className="w-5 h-5 flex items-center justify-center font-bold text-red-600 text-sm">➖줄</span>
+                    <svg className="w-5 h-5 text-red-600 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="2" y="3" width="16" height="6" rx="1" />
+                      <path d="M7.5 14.5h5" strokeLinecap="round" />
+                    </svg>
                     <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">줄 삭제</span>
                   </button>
                   <button
@@ -5686,7 +5692,10 @@ function HwpxEditorModalInner({
                     className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                     title="맨 오른쪽에 칸 추가"
                   >
-                    <span className="w-5 h-5 flex items-center justify-center font-bold text-blue-600 text-sm">➕칸</span>
+                    <svg className="w-5 h-5 text-blue-600 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="2" width="6" height="16" rx="1" />
+                      <path d="M14.5 7.5v5M12 10h5" strokeLinecap="round" />
+                    </svg>
                     <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">칸 추가</span>
                   </button>
                   <button
@@ -5701,7 +5710,10 @@ function HwpxEditorModalInner({
                     className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                     title="마지막 칸 삭제"
                   >
-                    <span className="w-5 h-5 flex items-center justify-center font-bold text-red-600 text-sm">➖칸</span>
+                    <svg className="w-5 h-5 text-red-600 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="2" width="6" height="16" rx="1" />
+                      <path d="M12 10h5" strokeLinecap="round" />
+                    </svg>
                     <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">칸 삭제</span>
                   </button>
 
