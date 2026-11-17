@@ -3978,7 +3978,7 @@ function HwpxEditorModalInner({
           </div>
 
           {/* 2열: 메뉴바 & 풀다운 드롭다운 메뉴 (Images 1, 2, 3) */}
-          <div className="relative flex items-center px-2 bg-white text-xs border-b border-neutral-200">
+          <div className="relative flex items-center px-2 bg-white text-xs border-b border-neutral-200 overflow-x-auto whitespace-nowrap">
             {(
               [
                 { id: "file", label: "파일" },
@@ -4872,203 +4872,203 @@ function HwpxEditorModalInner({
 
           {/* 3열: 한컴독스 표준 액션 리본 툴바 (Images 1, 2, 4 완벽 일치) */}
           {!ribbonCollapsed && (
-            <div className="flex items-center gap-1 px-3 py-1 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px] min-h-[58px] select-none">
+            <div className="flex items-center gap-1 px-3 py-1 bg-[#f8f9fa] border-b border-neutral-200 overflow-x-auto text-[11px] min-h-[58px] select-none whitespace-nowrap">
               {/* 1. 저장하기 */}
               <button
                 type="button"
                 onClick={() => void runSave()}
-                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[46px]"
+                className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                 title="저장하기 (Ctrl+S)"
               >
-                <SaveIcon className="w-5 h-5" />
-                <span className="text-[10px] mt-0.5 text-neutral-600">저장하기</span>
+                <SaveIcon className="w-5 h-5 shrink-0" />
+                <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">저장하기</span>
               </button>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 2. 클립보드 (오려 두기, 복사하기, 붙이기, 모양 복사) */}
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={handleCut}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[44px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="오려 두기 (Ctrl+X)"
                 >
-                  <CutIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">오려 두기</span>
+                  <CutIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">오려 두기</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[44px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="복사하기 (Ctrl+C)"
                 >
-                  <CopyIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">복사하기</span>
+                  <CopyIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">복사하기</span>
                 </button>
                 <button
                   type="button"
                   onClick={handlePasteFormat}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[44px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="붙이기 (Ctrl+V)"
                 >
-                  <PasteIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">붙이기</span>
+                  <PasteIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">붙이기</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowFormatCopyModal(true)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer min-w-[46px] ${
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
                     copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700 hover:text-[#0066cc]"
                   }`}
                   title="모양 복사 (Ctrl+Alt+C / Alt+C)"
                 >
-                  <FormatPainterIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">모양 복사</span>
+                  <FormatPainterIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">모양 복사</span>
                 </button>
               </div>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 3. 찾기 ▼ */}
-              <div className="relative">
+              <div className="relative shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => setShowSearchModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="찾기 (Ctrl+F) / 찾아 바꾸기 (Ctrl+H)"
                 >
-                  <SearchIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <SearchIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     찾기 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
               </div>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 4. 개체 삽입 (도형 ▼, 그림 ▼, 표 ▼, 차트 ▼, 웹 동영상 ▼) */}
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => setShowShapeModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="도형 삽입"
                 >
-                  <ShapesIcon className="w-5 h-5 text-purple-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <ShapesIcon className="w-5 h-5 text-purple-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     도형 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => imageInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="그림 삽입 (Ctrl+N, I)"
                 >
-                  <ImageIcon className="w-5 h-5 text-emerald-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <ImageIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     그림 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowTableModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="표 만들기 (Ctrl+N, T)"
                 >
-                  <TableIcon className="w-5 h-5 text-blue-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <TableIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     표 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={insertSampleChart}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="차트 삽입"
                 >
-                  <ChartIcon className="w-5 h-5 text-sky-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <ChartIcon className="w-5 h-5 text-sky-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     차트 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={insertWebVideo}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[50px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="웹 동영상 삽입"
                 >
-                  <WebVideoIcon className="w-5 h-5 text-indigo-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <WebVideoIcon className="w-5 h-5 text-indigo-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     웹 동영상 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
               </div>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 5. 주석 및 참조 (각주, 미주, 하이퍼링크, 문자표) */}
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={addFootnote}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[40px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="각주 달기 (Ctrl+N, N)"
                 >
-                  <FootnoteIcon className="w-5 h-5 text-emerald-600" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">각주</span>
+                  <FootnoteIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">각주</span>
                 </button>
                 <button
                   type="button"
                   onClick={addEndnote}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[40px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="미주 달기"
                 >
-                  <EndnoteIcon className="w-5 h-5 text-emerald-700" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">미주</span>
+                  <EndnoteIcon className="w-5 h-5 text-emerald-700 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">미주</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowHyperlinkModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="하이퍼링크 (Ctrl+K)"
                 >
-                  <HyperlinkIcon className="w-5 h-5 text-blue-600" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">하이퍼링크</span>
+                  <HyperlinkIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">하이퍼링크</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSymbolModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[40px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="문자표 (Ctrl+F10)"
                 >
-                  <SymbolIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">문자표</span>
+                  <SymbolIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">문자표</span>
                 </button>
               </div>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 6. 서식 모양 (글자 모양, 문단 모양, 개체 속성) */}
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => setShowCharShapeModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="글자 모양 (Alt+L)"
                 >
-                  <CharShapeIcon className="w-5 h-5 text-blue-600" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">글자 모양</span>
+                  <CharShapeIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">글자 모양</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowParaShapeModal(true)}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="문단 모양 (Alt+T)"
                 >
-                  <ParaShapeIcon className="w-5 h-5 text-blue-600" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">문단 모양</span>
+                  <ParaShapeIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">문단 모양</span>
                 </button>
                 <button
                   type="button"
@@ -5079,92 +5079,92 @@ function HwpxEditorModalInner({
                       showToast("속성을 볼 개체(도형/표/이미지/문단)를 먼저 선택하세요.");
                     }
                   }}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[48px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="개체 속성 (Ctrl+N, K / P)"
                 >
-                  <PageSetupIcon className="w-5 h-5 text-neutral-600" />
-                  <span className="text-[10px] mt-0.5 text-neutral-600">개체 속성</span>
+                  <PageSetupIcon className="w-5 h-5 text-neutral-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">개체 속성</span>
                 </button>
               </div>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 7. 쪽 및 보기 (머리말 ▼, 꼬리말 ▼, 조판 부호, 문단 부호, 격자 보기) */}
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-0.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => insertHeaderFooter("header")}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="머리말 넣기/이동"
                 >
-                  <HeaderIcon className="w-5 h-5 text-amber-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <HeaderIcon className="w-5 h-5 text-amber-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     머리말 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => insertHeaderFooter("footer")}
-                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer min-w-[42px]"
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="꼬리말 넣기/이동"
                 >
-                  <FooterIcon className="w-5 h-5 text-amber-600" />
-                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600">
+                  <FooterIcon className="w-5 h-5 text-amber-600 shrink-0" />
+                  <span className="text-[10px] mt-0.5 flex items-center gap-0.5 text-neutral-600 whitespace-nowrap">
                     꼬리말 <span className="text-[8px]">▾</span>
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowControlMarks(!showControlMarks)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer min-w-[46px] ${
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
                     showControlMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
                   }`}
                   title="조판 부호 켜기/끄기"
                 >
-                  <ClearControlMarksIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5">조판 부호</span>
+                  <ClearControlMarksIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 whitespace-nowrap">조판 부호</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowParaMarks(!showParaMarks)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer min-w-[46px] ${
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
                     showParaMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
                   }`}
                   title="문단 부호 켜기/끄기 (Enter 기호 표시)"
                 >
-                  <ParaMarkIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5">문단 부호</span>
+                  <ParaMarkIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 whitespace-nowrap">문단 부호</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowGrid(!showGrid)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer min-w-[46px] ${
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
                     showGrid ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
                   }`}
                   title="격자(모눈) 보기"
                 >
-                  <GridIcon className="w-5 h-5" />
-                  <span className="text-[10px] mt-0.5">격자 보기</span>
+                  <GridIcon className="w-5 h-5 shrink-0" />
+                  <span className="text-[10px] mt-0.5 whitespace-nowrap">격자 보기</span>
                 </button>
               </div>
 
-              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5" />
+              <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
 
               {/* 8. 공공안심글꼴 */}
               <button
                 type="button"
                 onClick={() => setShowSafeFontModal(true)}
-                className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-emerald-700 cursor-pointer min-w-[56px]"
+                className="flex flex-col items-center justify-center px-2.5 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-emerald-700 cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                 title="상업적 무료 이용 가능한 공공안심글꼴 모음"
               >
-                <SafeFontIcon className="w-5 h-5 text-emerald-600" />
-                <span className="text-[10px] mt-0.5 font-medium text-emerald-800">공공안심글꼴</span>
+                <SafeFontIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span className="text-[10px] mt-0.5 font-medium text-emerald-800 whitespace-nowrap">공공안심글꼴</span>
               </button>
             </div>
           )}
 
           {/* 4열: 한컴 표준 빠른 서식 툴바 (2단 툴바) */}
-          <div className="flex flex-wrap items-center gap-1 px-3 py-1 bg-white border-b border-neutral-300 text-xs">
+          <div className="flex items-center gap-1 px-3 py-1 bg-white border-b border-neutral-300 text-xs overflow-x-auto whitespace-nowrap select-none">
             {/* 실행 취소 / 다시 실행 */}
             <button
               type="button"
