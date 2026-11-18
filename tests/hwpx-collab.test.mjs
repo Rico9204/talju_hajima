@@ -432,3 +432,20 @@ test('hwpxCollab: 새로 생성한 표(table)가 한컴 뷰어 및 OWPML 스펙(
   assert.ok(pkg.headerXml.includes('<hh:borderFill id="1"'));
   assert.ok(pkg.headerXml.includes('<hh:borderFill id="2"'));
 });
+
+test('hwpxCollab: 문서 글자 속 태그는 HTML이 아니라 글자로(XSS 방지), 저장·다시 읽기·검색 글자는 원래대로', async () => {
+  const payload = '<img src=x onerror="alert(1)"> & 1 < 2';
+  const entries = await readZipEntries(await newHwpxBytes(payload));
+  const xml = new TextDecoder().decode(entries.get('Contents/section0.xml'));
+  const [block] = parseHwpxXmlToBlocks(xml);
+  assert.equal(block.text, '&lt;img src=x onerror="alert(1)"&gt; &amp; 1 &lt; 2'); // 화면 HTML에 넣어도 태그가 생기지 않는다
+  assert.ok(!block.text.includes('<'));
+
+  const doc = new Y.Doc();
+  initHwpxYDoc(doc, [block]);
+  assert.equal(hwpxCollabText(doc), payload);
+  const blocks = extractBlocksFromYDoc(doc);
+  blocks[0].text += ' 끝'; // 고친 문단은 다시 만들어 저장된다
+  const reParsed = parseHwpxXmlToBlocks(serializeBlocksToHwpxPackage(blocks, xml).sectionXml);
+  assert.equal(reParsed[0].text, block.text + ' 끝');
+});

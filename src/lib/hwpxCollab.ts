@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import { textHash } from "./collabCore.ts";
 import { decodeXmlEntities, escapeXml } from "./hwpx.ts";
+import { escapeHtmlText } from "./boardHtml.ts";
 
 // HWPX 실시간 동시편집 데이터 모델 및 파서 / 직렬화 모듈.
 // 문단뿐 아니라 표(Table)와 수식(Equation)을 구조화된 블록 트리로 변환하여
@@ -195,7 +196,7 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
   if (!html) return [];
   if (!html.includes("<")) {
     return [{
-      text: html,
+      text: decodeXmlEntities(html), // 문단 text는 HTML이라 &lt; &amp; 같은 글자를 원래 글자로
       color: baseStyle.color,
       sizePt: baseStyle.sizePt,
       bold: baseStyle.bold,
@@ -268,7 +269,7 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
     }
   }
 
-  return runs.length > 0 ? runs : [{ text: stripHtmlTags(html), ...baseStyle }];
+  return runs.length > 0 ? runs : [{ text: decodeXmlEntities(stripHtmlTags(html)), ...baseStyle }];
 }
 
 export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: Map<string, string>): HwpxCollabBlock[] {
@@ -546,7 +547,8 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 rawXml,
               });
             } else {
-              const fullText = currentPText.join("");
+              // 문단 text는 화면에 HTML로 들어가므로, 문서의 글자(XML에서 풀린 < > &)는 글자 그대로 보이게 escape한다.
+              const fullText = escapeHtmlText(currentPText.join(""));
               const pStyle = paraStyles.get(currentParaPrId);
               const cStyle = charStyles.get(currentCharPrId);
               blocks.push({
@@ -1337,7 +1339,7 @@ export function hwpxCollabText(doc: Y.Doc): string {
 
   for (const block of blocks) {
     if (block.type === "paragraph") {
-      const clean = stripHtmlTags(block.text);
+      const clean = decodeXmlEntities(stripHtmlTags(block.text));
       if (clean) lines.push(clean);
     } else if (block.type === "table") {
       for (const row of block.rows) {

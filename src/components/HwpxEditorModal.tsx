@@ -19,6 +19,7 @@ import {
   serializeBlocksToHwpxXml,
 } from "../lib/hwpxCollab";
 import { readZipEntries, writeZipEntries } from "../lib/hwpx";
+import { sanitizeEditorHtml } from "../lib/boardHtml";
 import {
   SaveIcon,
   CutIcon,
@@ -2978,7 +2979,7 @@ function HwpxEditorModalInner({
                             textJustify: block.align === "justify" ? "auto" : undefined,
                             wordBreak: "break-all",
                           }}
-                          dangerouslySetInnerHTML={{ __html: block.text || "<br>" }}
+                          dangerouslySetInnerHTML={{ __html: sanitizeEditorHtml(block.text || "") || "<br>" }}
                         />
                         {showParaMarks && (
                           <span
