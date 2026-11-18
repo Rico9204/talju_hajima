@@ -3,16 +3,27 @@
 #
 # 오피스 편집(선택): docker compose -f server/docker-compose.yml --profile office up -d
 #   OnlyOffice 문서 서버를 127.0.0.1:8080에 띄운다(메모리 2~4GB). server/.env의 ONLYOFFICE_JWT_SECRET을 그대로 쓴다.
+#
+# 서버 전체를 Docker로(학교 PC 등, Node 설치 불필요): server/ 폴더에서
+#   docker compose --profile office --profile server up -d --build
+#   API + Cloudflare Tunnel 컨테이너(api)가 server/.env를 읽는다. 절차는 server/deploy/docker/README.md.
+#   운영 DB라면 server/.env에 POSTGRES_PASSWORD를 넣는다(새 DB 볼륨을 처음 만들 때만 적용).
 services:
   db:
     image: postgres:17
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: talju
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - talju-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d talju"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
   onlyoffice:
     image: onlyoffice/documentserver
     profiles: ["office"]
@@ -26,6 +37,24 @@ services:
     volumes:
       - talju-office-data:/var/www/onlyoffice/Data
       - talju-office-cache:/var/lib/onlyoffice
+    restart: unless-stopped
+  api:
+    profiles: ["server"]
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    env_file: .env
+    environment:
+      # .env의 값보다 우선한다. 컨테이너 안에서는 DB·오피스를 서비스 이름으로 찾는다.
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/talju
+      ONLYOFFICE_URL: http://onlyoffice
+      STORAGE_DIR: /app/server/storage-data
+      NODE_ENV: production
+    volumes:
+      - ./storage-data:/app/server/storage-data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 volumes:
   talju-db:
