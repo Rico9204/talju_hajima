@@ -746,3 +746,1224 @@ export function SpellCheckModal({
   );
 }
 
+export interface CharShapeApplyValues {
+  fontFamily: string;
+  sizePt: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  superscript: boolean;
+  subscript: boolean;
+  color: string;
+  shadingColor: string;
+  relativeSizePct: number;
+  charWidthPct: number;
+  charPosPct: number;
+  letterSpacingPct: number;
+}
+
+function CharShapeNumberInput({
+  value,
+  min,
+  max,
+  step = 1,
+  className = "w-full px-2 py-1 outline-none",
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  className?: string;
+  onChange: (val: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+  const [editing, setEditing] = useState(false);
+
+  const displayed = editing ? draft : String(value);
+
+  const commitValue = (raw: string) => {
+    const parsed = parseFloat(raw);
+    if (isNaN(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    const clamped = Math.max(min, Math.min(max, parsed));
+    onChange(clamped);
+    setDraft(String(clamped));
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayed}
+      onFocus={(e) => {
+        setEditing(true);
+        setDraft(String(value));
+        e.currentTarget.select();
+      }}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        if (next === "" || next === "-" || next === "." || next === "-.") return;
+        const parsed = parseFloat(next);
+        if (!isNaN(parsed)) {
+          onChange(Math.max(min, Math.min(max, parsed)));
+        }
+      }}
+      onBlur={() => {
+        setEditing(false);
+        commitValue(draft);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          const next = Math.min(max, Math.round((value + step) * 10) / 10);
+          onChange(next);
+          setDraft(String(next));
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          const next = Math.max(min, Math.round((value - step) * 10) / 10);
+          onChange(next);
+          setDraft(String(next));
+        }
+      }}
+      className={className}
+    />
+  );
+}
+
+export function CharShapeModal({
+  initial,
+  editorFonts,
+  onOpenAddFont,
+  onApply,
+  onClose,
+}: {
+  initial: {
+    fontFamily: string;
+    sizePt: number;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    strikethrough?: boolean;
+    color: string;
+    shadingColor?: string;
+    relativeSizePct?: number;
+    charWidthPct?: number;
+    charPosPct?: number;
+    letterSpacingPct?: number;
+  };
+  editorFonts: Array<{ id?: string; label: string; value: string }>;
+  onOpenAddFont: () => void;
+  onApply: (values: CharShapeApplyValues) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"basic" | "extended">("basic");
+  const [sizePt, setSizePt] = useState<number>(initial.sizePt || 10);
+  const [lang, setLang] = useState("대표");
+  const [fontFamily, setFontFamily] = useState<string>(initial.fontFamily || editorFonts[0]?.value || "");
+  const [relativeSizePct, setRelativeSizePct] = useState<number>(initial.relativeSizePct ?? 100);
+  const [charWidthPct, setCharWidthPct] = useState<number>(initial.charWidthPct ?? 100);
+  const [charPosPct, setCharPosPct] = useState<number>(initial.charPosPct ?? 0);
+  const [letterSpacingPct, setLetterSpacingPct] = useState<number>(initial.letterSpacingPct ?? 0);
+
+  const [bold, setBold] = useState<boolean>(initial.bold);
+  const [italic, setItalic] = useState<boolean>(initial.italic);
+  const [underline, setUnderline] = useState<boolean>(initial.underline);
+  const [strikethrough, setStrikethrough] = useState<boolean>(Boolean(initial.strikethrough));
+  const [outlineAttr, setOutlineAttr] = useState<boolean>(false);
+  const [shadowAttr, setShadowAttr] = useState<boolean>(false);
+  const [embossAttr, setEmbossAttr] = useState<boolean>(false);
+  const [engraveAttr, setEngraveAttr] = useState<boolean>(false);
+  const [superscript, setSuperscript] = useState<boolean>(false);
+  const [subscript, setSubscript] = useState<boolean>(false);
+
+  const [color, setColor] = useState<string>(initial.color || "#000000");
+  const [shadingColor, setShadingColor] = useState<string>(initial.shadingColor || "");
+
+  // 확장 탭 상태
+  const [underlinePos, setUnderlinePos] = useState<"none" | "bottom" | "top">(initial.underline ? "bottom" : "none");
+  const [underlineShape, setUnderlineShape] = useState("실선");
+  const [underlineColor, setUnderlineColor] = useState("#000000");
+  const [strikeShape, setStrikeShape] = useState("없음");
+  const [strikeColor, setStrikeColor] = useState("#000000");
+  const [borderKind, setBorderKind] = useState("없음");
+  const [borderWidth, setBorderWidth] = useState("0.1mm");
+  const [borderColor, setBorderColor] = useState("#000000");
+  const [bgFaceColor, setBgFaceColor] = useState("");
+  const [bgPatternColor, setBgPatternColor] = useState("#ffffff");
+  const [bgPatternShape, setBgPatternShape] = useState("없음");
+
+  const resetNormalStyle = () => {
+    setBold(false);
+    setItalic(false);
+    setUnderline(false);
+    setUnderlinePos("none");
+    setStrikethrough(false);
+    setStrikeShape("없음");
+    setOutlineAttr(false);
+    setShadowAttr(false);
+    setEmbossAttr(false);
+    setEngraveAttr(false);
+    setSuperscript(false);
+    setSubscript(false);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-80 flex items-center justify-center bg-black/25 select-none font-sans"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white border border-neutral-400 shadow-2xl rounded-[2px] w-[630px] max-w-[95vw] text-[12px] text-neutral-800 overflow-hidden"
+      >
+        {/* 상단 타이틀 바 */}
+        <div className="bg-[#eef3fc] px-3.5 py-2 border-b border-neutral-200 flex items-center justify-between">
+          <span className="font-medium text-neutral-800 text-[13px]">글자 모양</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 cursor-pointer text-sm leading-none px-1"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 본문 + 우측 확인/취소 버튼 */}
+        <div className="p-4 flex gap-4">
+          <div className="flex-1 min-w-0">
+            {/* 탭 바: 기본 | 확장 */}
+            <div className="flex items-center border-b border-neutral-200 mb-3">
+              <button
+                type="button"
+                onClick={() => setTab("basic")}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
+                  tab === "basic"
+                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                    : "text-neutral-600 hover:text-neutral-900"
+                }`}
+              >
+                기본
+              </button>
+              <div className="w-[1px] h-3 bg-neutral-300" />
+              <button
+                type="button"
+                onClick={() => setTab("extended")}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
+                  tab === "extended"
+                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                    : "text-neutral-600 hover:text-neutral-900"
+                }`}
+              >
+                확장
+              </button>
+            </div>
+
+            {tab === "basic" ? (
+              <div className="border border-neutral-200 rounded-[2px] p-4 flex flex-col gap-3.5">
+                {/* 기준 크기 */}
+                <div className="flex items-center gap-4">
+                  <span className="w-16 text-neutral-700">기준 크기</span>
+                  <div className="flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                    <CharShapeNumberInput
+                      value={sizePt}
+                      min={1}
+                      max={200}
+                      step={0.5}
+                      onChange={setSizePt}
+                      className="w-20 px-2 py-1 text-[12px] outline-none"
+                    />
+                    <span className="text-[11px] text-neutral-500 pr-1">pt</span>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) setSizePt(Number(e.target.value));
+                      }}
+                      className="w-5 py-1 border-l border-neutral-200 bg-neutral-50 text-[11px] outline-none cursor-pointer"
+                      title="기준 크기 선택"
+                    >
+                      <option value="" disabled />
+                      {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72].map((pt) => (
+                        <option key={pt} value={pt}>
+                          {pt}.0 pt
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 언어별 설정 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">언어별 설정</div>
+                  <div className="grid grid-cols-2 gap-x-5 gap-y-2 pl-2">
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">언어</span>
+                      <select
+                        value={lang}
+                        onChange={(e) => setLang(e.target.value)}
+                        className="w-32 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none focus:border-[#0066cc]"
+                      >
+                        {["대표", "한글", "영문", "한자", "일본어", "기타", "기호", "사용자"].map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">글꼴</span>
+                      <select
+                        value={fontFamily}
+                        onChange={(e) => {
+                          if (e.target.value === "__ADD_FONT__") {
+                            onOpenAddFont();
+                            return;
+                          }
+                          setFontFamily(e.target.value);
+                        }}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none focus:border-[#0066cc]"
+                      >
+                        {editorFonts.map((f) => (
+                          <option key={f.id || f.value} value={f.value}>{f.label}</option>
+                        ))}
+                        <option value="__ADD_FONT__">➕ 폰트 추가 / 관리...</option>
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">상대 크기</span>
+                      <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                        <CharShapeNumberInput
+                          value={relativeSizePct}
+                          min={10}
+                          max={500}
+                          onChange={setRelativeSizePct}
+                        />
+                        <span className="text-[11px] text-neutral-500 pr-2">%</span>
+                      </div>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">장평</span>
+                      <div className="w-36 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                        <CharShapeNumberInput
+                          value={charWidthPct}
+                          min={50}
+                          max={200}
+                          onChange={setCharWidthPct}
+                        />
+                        <span className="text-[11px] text-neutral-500 pr-2">%</span>
+                      </div>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">글자 위치</span>
+                      <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                        <CharShapeNumberInput
+                          value={charPosPct}
+                          min={-100}
+                          max={100}
+                          onChange={setCharPosPct}
+                        />
+                        <span className="text-[11px] text-neutral-500 pr-2">%</span>
+                      </div>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">자간</span>
+                      <div className="w-36 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                        <CharShapeNumberInput
+                          value={letterSpacingPct}
+                          min={-50}
+                          max={50}
+                          onChange={setLetterSpacingPct}
+                        />
+                        <span className="text-[11px] text-neutral-500 pr-2">%</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* 속성 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">속성</div>
+                  <div className="flex items-center gap-1.5 pl-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setBold(!bold)}
+                      title="진하게"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] font-bold cursor-pointer ${
+                        bold ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                      }`}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setItalic(!italic)}
+                      title="기울임"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] italic cursor-pointer ${
+                        italic ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                      }`}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !underline;
+                        setUnderline(next);
+                        setUnderlinePos(next ? "bottom" : "none");
+                      }}
+                      title="밑줄"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] underline cursor-pointer ${
+                        underline ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                      }`}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !strikethrough;
+                        setStrikethrough(next);
+                        setStrikeShape(next ? "실선" : "없음");
+                      }}
+                      title="취소선"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] line-through cursor-pointer ${
+                        strikethrough ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                      }`}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOutlineAttr(!outlineAttr)}
+                      title="외곽선"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
+                        outlineAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
+                      }`}
+                      style={{ WebkitTextStroke: "0.5px currentColor", color: outlineAttr ? "#0066cc" : "transparent" }}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShadowAttr(!shadowAttr)}
+                      title="그림자"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
+                        shadowAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                      }`}
+                      style={{ textShadow: "1.5px 1.5px 0px rgba(0,0,0,0.35)" }}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEmbossAttr(!embossAttr); if (!embossAttr) setEngraveAttr(false); }}
+                      title="양각"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
+                        embossAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
+                      }`}
+                    >
+                      가
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEngraveAttr(!engraveAttr); if (!engraveAttr) setEmbossAttr(false); }}
+                      title="음각"
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
+                        engraveAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-600"
+                      }`}
+                    >
+                      가
+                    </button>
+
+                    <div className="w-2" />
+
+                    <button
+                      type="button"
+                      onClick={() => { setSuperscript(!superscript); if (!superscript) setSubscript(false); }}
+                      title="위 첨자"
+                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${
+                        superscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
+                      }`}
+                    >
+                      X<sup className="text-[9px]">가</sup>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSubscript(!subscript); if (!subscript) setSuperscript(false); }}
+                      title="아래 첨자"
+                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${
+                        subscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
+                      }`}
+                    >
+                      X<sub className="text-[9px]">가</sub>
+                    </button>
+
+                    <div className="w-2" />
+
+                    <button
+                      type="button"
+                      onClick={resetNormalStyle}
+                      title="보통 모양 (속성 해제)"
+                      className="w-8 h-8 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-[13px] cursor-pointer"
+                    >
+                      가
+                    </button>
+                  </div>
+
+                  {/* 글자 색 / 음영 색 */}
+                  <div className="flex items-center gap-8 pl-2 mt-3">
+                    <label className="flex items-center gap-3">
+                      <span className="text-neutral-700">글자 색</span>
+                      <div className="flex items-center border border-neutral-300 rounded-[2px] px-1.5 py-0.5 bg-white">
+                        <input
+                          type="color"
+                          value={color}
+                          onChange={(e) => setColor(e.target.value)}
+                          className="w-16 h-5 border-0 bg-transparent cursor-pointer p-0"
+                        />
+                      </div>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <span className="text-neutral-700">음영 색</span>
+                      <div className="flex items-center gap-1 border border-neutral-300 rounded-[2px] px-1.5 py-0.5 bg-white">
+                        {shadingColor ? (
+                          <input
+                            type="color"
+                            value={shadingColor}
+                            onChange={(e) => setShadingColor(e.target.value)}
+                            className="w-14 h-5 border-0 bg-transparent cursor-pointer p-0"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShadingColor("#fef08a")}
+                            className="w-14 h-5 border border-neutral-400 bg-white relative cursor-pointer"
+                            title="음영 색 선택"
+                          >
+                            <svg className="w-full h-full" viewBox="0 0 40 16" preserveAspectRatio="none">
+                              <line x1="0" y1="16" x2="40" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                            </svg>
+                          </button>
+                        )}
+                        {shadingColor && (
+                          <button
+                            type="button"
+                            onClick={() => setShadingColor("")}
+                            className="text-[10px] text-neutral-500 hover:text-neutral-800 cursor-pointer px-1"
+                            title="음영 없음"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* 확장 탭 */
+              <div className="border border-neutral-200 rounded-[2px] p-4 grid grid-cols-2 gap-x-8 gap-y-5">
+                {/* 밑줄 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">밑줄</div>
+                  <div className="flex flex-col gap-2 pl-2">
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">위치</span>
+                      <select
+                        value={underlinePos}
+                        onChange={(e) => {
+                          const v = e.target.value as "none" | "bottom" | "top";
+                          setUnderlinePos(v);
+                          setUnderline(v !== "none");
+                        }}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        <option value="none">없음</option>
+                        <option value="bottom">글자 아래</option>
+                        <option value="top">글자 위</option>
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className={underlinePos === "none" ? "text-neutral-400" : "text-neutral-700"}>모양</span>
+                      <select
+                        disabled={underlinePos === "none"}
+                        value={underlineShape}
+                        onChange={(e) => setUnderlineShape(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white disabled:bg-neutral-50 disabled:text-neutral-400 outline-none"
+                      >
+                        {["실선", "이중선", "점선", "파선"].map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className={underlinePos === "none" ? "text-neutral-400" : "text-neutral-700"}>색</span>
+                      <input
+                        type="color"
+                        disabled={underlinePos === "none"}
+                        value={underlineColor}
+                        onChange={(e) => setUnderlineColor(e.target.value)}
+                        className="w-36 h-6 border border-neutral-300 rounded-[2px] bg-white disabled:opacity-40 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* 취소선 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">취소선</div>
+                  <div className="flex flex-col gap-2 pl-2">
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">모양</span>
+                      <select
+                        value={strikeShape}
+                        onChange={(e) => {
+                          setStrikeShape(e.target.value);
+                          setStrikethrough(e.target.value !== "없음");
+                        }}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["없음", "실선", "이중선", "점선"].map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className={strikeShape === "없음" ? "text-neutral-400" : "text-neutral-700"}>색</span>
+                      <input
+                        type="color"
+                        disabled={strikeShape === "없음"}
+                        value={strikeColor}
+                        onChange={(e) => setStrikeColor(e.target.value)}
+                        className="w-36 h-6 border border-neutral-300 rounded-[2px] bg-white disabled:opacity-40 cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* 테두리 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">테두리</div>
+                  <div className="flex flex-col gap-2 pl-2">
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">종류</span>
+                      <select
+                        value={borderKind}
+                        onChange={(e) => setBorderKind(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["없음", "실선", "점선", "파선"].map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">굵기</span>
+                      <select
+                        value={borderWidth}
+                        onChange={(e) => setBorderWidth(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["0.1mm", "0.12mm", "0.2mm", "0.4mm", "0.7mm", "1.0mm"].map((w) => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">색</span>
+                      <input
+                        type="color"
+                        value={borderColor}
+                        onChange={(e) => setBorderColor(e.target.value)}
+                        className="w-36 h-6 border border-neutral-300 rounded-[2px] bg-white cursor-pointer"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* 배경 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">배경</div>
+                  <div className="flex flex-col gap-2 pl-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">면 색</span>
+                      <div className="w-36 flex items-center gap-1">
+                        {bgFaceColor ? (
+                          <input
+                            type="color"
+                            value={bgFaceColor}
+                            onChange={(e) => setBgFaceColor(e.target.value)}
+                            className="flex-1 h-6 border border-neutral-300 rounded-[2px] bg-white cursor-pointer"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setBgFaceColor("#fef08a")}
+                            className="flex-1 h-6 border border-neutral-400 bg-white cursor-pointer"
+                            title="면 색 선택"
+                          >
+                            <svg className="w-full h-full" viewBox="0 0 80 18" preserveAspectRatio="none">
+                              <line x1="0" y1="18" x2="80" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                            </svg>
+                          </button>
+                        )}
+                        {bgFaceColor && (
+                          <button
+                            type="button"
+                            onClick={() => setBgFaceColor("")}
+                            className="text-[10px] text-neutral-500 hover:text-neutral-800 cursor-pointer px-1"
+                            title="면 색 없음"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">무늬 색</span>
+                      <input
+                        type="color"
+                        value={bgPatternColor}
+                        onChange={(e) => setBgPatternColor(e.target.value)}
+                        className="w-36 h-6 border border-neutral-300 rounded-[2px] bg-white cursor-pointer"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">무늬 모양</span>
+                      <select
+                        value={bgPatternShape}
+                        onChange={(e) => setBgPatternShape(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["없음", "가로 줄", "세로 줄", "격자"].map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 우측 확인 / 취소 버튼 */}
+          <div className="w-24 flex flex-col gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onApply({
+                  fontFamily,
+                  sizePt,
+                  bold,
+                  italic,
+                  underline: underline || underlinePos !== "none",
+                  strikethrough: strikethrough || strikeShape !== "없음",
+                  superscript,
+                  subscript,
+                  color,
+                  shadingColor: shadingColor || bgFaceColor,
+                  relativeSizePct,
+                  charWidthPct,
+                  charPosPct,
+                  letterSpacingPct,
+                });
+                onClose();
+              }}
+              className="w-full py-1.5 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-neutral-800 cursor-pointer"
+            >
+              확인
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-neutral-800 cursor-pointer"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export interface ParaShapeApplyValues {
+  align: "left" | "center" | "right" | "justify";
+  marginLeftPt: number;
+  marginRightPt: number;
+  firstLineType: "none" | "indent" | "outdent";
+  firstLinePt: number;
+  lineSpacingPct: number;
+  spaceBeforePt: number;
+  spaceAfterPt: number;
+  paraBorderType: string;
+  paraBorderWidth: string;
+  paraBorderColor: string;
+  paraBgColor: string;
+}
+
+export function ParaShapeModal({
+  initial,
+  onApply,
+  onClose,
+}: {
+  initial: {
+    align: "left" | "center" | "right" | "justify";
+    marginLeftPt?: number;
+    marginRightPt?: number;
+    firstLineType?: "none" | "indent" | "outdent";
+    firstLinePt?: number;
+    lineSpacingPct?: number;
+    spaceBeforePt?: number;
+    spaceAfterPt?: number;
+    paraBorderType?: string;
+    paraBorderWidth?: string;
+    paraBorderColor?: string;
+    paraBgColor?: string;
+  };
+  onApply: (values: ParaShapeApplyValues) => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"basic" | "border">("basic");
+  const [align, setAlign] = useState<"left" | "center" | "right" | "justify">(initial.align || "justify");
+  const [alignExtra, setAlignExtra] = useState<"none" | "distribute" | "divide">("none");
+  const [marginLeftPt, setMarginLeftPt] = useState<number>(initial.marginLeftPt ?? 0);
+  const [marginRightPt, setMarginRightPt] = useState<number>(initial.marginRightPt ?? 0);
+  const [firstLineType, setFirstLineType] = useState<"none" | "indent" | "outdent">(initial.firstLineType ?? "none");
+  const [firstLinePt, setFirstLinePt] = useState<number>(initial.firstLinePt ?? 0);
+  const [lineSpacingKind, setLineSpacingKind] = useState("글자에 따라");
+  const [lineSpacingPct, setLineSpacingPct] = useState<number>(initial.lineSpacingPct ?? 160);
+  const [spaceBeforePt, setSpaceBeforePt] = useState<number>(initial.spaceBeforePt ?? 0);
+  const [spaceAfterPt, setSpaceAfterPt] = useState<number>(initial.spaceAfterPt ?? 0);
+  const [usePageGrid, setUsePageGrid] = useState(true);
+  const [hangulBreak, setHangulBreak] = useState("어절");
+  const [latinBreak, setLatinBreak] = useState("단어");
+  const [minSpacePct, setMinSpacePct] = useState<number>(100);
+
+  // 테두리/배경 탭 상태
+  const [paraBorderType, setParaBorderType] = useState(initial.paraBorderType || "없음");
+  const [paraBorderWidth, setParaBorderWidth] = useState(initial.paraBorderWidth || "0.1mm");
+  const [paraBorderColor, setParaBorderColor] = useState(initial.paraBorderColor || "#000000");
+  const [connectParaBorder, setConnectParaBorder] = useState(false);
+  const [paraBgColor, setParaBgColor] = useState(initial.paraBgColor || "");
+  const [paraPatternColor, setParaPatternColor] = useState("#000000");
+  const [paraPatternShape, setParaPatternShape] = useState("없음");
+
+  const alignButtons: Array<{
+    key: string;
+    title: string;
+    targetAlign: "left" | "center" | "right" | "justify";
+    extra: "none" | "distribute" | "divide";
+    lines: string[];
+  }> = [
+    { key: "justify", title: "양쪽 정렬", targetAlign: "justify", extra: "none", lines: ["w-4", "w-4", "w-4", "w-4"] },
+    { key: "left", title: "왼쪽 정렬", targetAlign: "left", extra: "none", lines: ["w-4", "w-2.5", "w-4", "w-3"] },
+    { key: "center", title: "가운데 정렬", targetAlign: "center", extra: "none", lines: ["w-4 mx-auto", "w-2.5 mx-auto", "w-4 mx-auto", "w-3 mx-auto"] },
+    { key: "right", title: "오른쪽 정렬", targetAlign: "right", extra: "none", lines: ["w-4 ml-auto", "w-2.5 ml-auto", "w-4 ml-auto", "w-3 ml-auto"] },
+    { key: "distribute", title: "배분 정렬", targetAlign: "justify", extra: "distribute", lines: ["w-4", "w-4", "w-4", "w-4 border-dashed"] },
+    { key: "divide", title: "나눔 정렬", targetAlign: "justify", extra: "divide", lines: ["w-4", "w-3 mx-auto", "w-4", "w-2 mx-auto"] },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-80 flex items-center justify-center bg-black/25 select-none font-sans"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white border border-neutral-400 shadow-2xl rounded-[2px] w-[660px] max-w-[95vw] text-[12px] text-neutral-800 overflow-hidden"
+      >
+        {/* 상단 타이틀 바 */}
+        <div className="bg-[#eef3fc] px-3.5 py-2 border-b border-neutral-200 flex items-center justify-between">
+          <span className="font-medium text-neutral-800 text-[13px]">문단 모양</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 cursor-pointer text-sm leading-none px-1"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 본문 + 우측 확인/취소 버튼 */}
+        <div className="p-4 flex gap-4">
+          <div className="flex-1 min-w-0">
+            {/* 탭 바: 기본 | 테두리/배경 */}
+            <div className="flex items-center border-b border-neutral-200 mb-3">
+              <button
+                type="button"
+                onClick={() => setTab("basic")}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
+                  tab === "basic"
+                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                    : "text-neutral-600 hover:text-neutral-900"
+                }`}
+              >
+                기본
+              </button>
+              <div className="w-[1px] h-3 bg-neutral-300" />
+              <button
+                type="button"
+                onClick={() => setTab("border")}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
+                  tab === "border"
+                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                    : "text-neutral-600 hover:text-neutral-900"
+                }`}
+              >
+                테두리/배경
+              </button>
+            </div>
+
+            {tab === "basic" ? (
+              <div className="border border-neutral-200 rounded-[2px] p-4 flex flex-col gap-4">
+                {/* 정렬 방식 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">정렬 방식</div>
+                  <div className="flex items-center gap-1.5 pl-2">
+                    {alignButtons.map((btn) => {
+                      const active = align === btn.targetAlign && alignExtra === btn.extra;
+                      return (
+                        <button
+                          key={btn.key}
+                          type="button"
+                          title={btn.title}
+                          onClick={() => {
+                            setAlign(btn.targetAlign);
+                            setAlignExtra(btn.extra);
+                          }}
+                          className={`w-8 h-7 border rounded-[2px] flex flex-col justify-center gap-[2.5px] px-1.5 cursor-pointer ${
+                            active
+                              ? "bg-[#e5e7eb] border-neutral-500 shadow-inner"
+                              : "bg-white border-neutral-300 hover:bg-neutral-50"
+                          }`}
+                        >
+                          {btn.lines.map((cls, idx) => (
+                            <span key={idx} className={`h-[1.5px] bg-neutral-700 block ${cls}`} />
+                          ))}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 여백 | 첫 줄 */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">여백</div>
+                    <div className="flex flex-col gap-2 pl-2">
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">왼쪽</span>
+                        <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                          <CharShapeNumberInput value={marginLeftPt} min={0} max={300} step={1} onChange={setMarginLeftPt} />
+                          <span className="text-[11px] text-neutral-500 pr-2">pt</span>
+                        </div>
+                      </label>
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">오른쪽</span>
+                        <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                          <CharShapeNumberInput value={marginRightPt} min={0} max={300} step={1} onChange={setMarginRightPt} />
+                          <span className="text-[11px] text-neutral-500 pr-2">pt</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">첫 줄</div>
+                    <div className="flex items-center gap-3 pl-2">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="paraFirstLine"
+                            checked={firstLineType === "none"}
+                            onChange={() => setFirstLineType("none")}
+                            className="accent-[#0066cc]"
+                          />
+                          <span>보통</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="paraFirstLine"
+                            checked={firstLineType === "indent"}
+                            onChange={() => setFirstLineType("indent")}
+                            className="accent-[#0066cc]"
+                          />
+                          <span>들여쓰기</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="paraFirstLine"
+                            checked={firstLineType === "outdent"}
+                            onChange={() => setFirstLineType("outdent")}
+                            className="accent-[#0066cc]"
+                          />
+                          <span>내어쓰기</span>
+                        </label>
+                      </div>
+                      <div
+                        className={`w-28 flex items-center border rounded-[2px] ${
+                          firstLineType === "none" ? "border-neutral-200 bg-neutral-50 opacity-50 pointer-events-none" : "border-neutral-300 bg-white"
+                        }`}
+                      >
+                        <CharShapeNumberInput value={firstLinePt} min={0} max={200} step={1} onChange={setFirstLinePt} />
+                        <span className="text-[11px] text-neutral-500 pr-2">pt</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 간격 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">간격</div>
+                  <div className="grid grid-cols-2 gap-6 pl-2">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">줄 간격</span>
+                        <select
+                          value={lineSpacingKind}
+                          onChange={(e) => setLineSpacingKind(e.target.value)}
+                          className="w-32 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                        >
+                          {["글자에 따라", "고정값", "여백만 지정"].map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex justify-end">
+                        <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                          <CharShapeNumberInput value={lineSpacingPct} min={50} max={500} step={10} onChange={setLineSpacingPct} />
+                          <span className="text-[11px] text-neutral-500 pr-2">%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">문단 위</span>
+                        <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                          <CharShapeNumberInput value={spaceBeforePt} min={0} max={200} step={1} onChange={setSpaceBeforePt} />
+                          <span className="text-[11px] text-neutral-500 pr-2">pt</span>
+                        </div>
+                      </label>
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">문단 아래</span>
+                        <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                          <CharShapeNumberInput value={spaceAfterPt} min={0} max={200} step={1} onChange={setSpaceAfterPt} />
+                          <span className="text-[11px] text-neutral-500 pr-2">pt</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 pl-2 mt-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={usePageGrid}
+                      onChange={(e) => setUsePageGrid(e.target.checked)}
+                      className="accent-[#0066cc]"
+                    />
+                    <span className="text-neutral-700">편집 용지의 줄 격자 사용</span>
+                  </label>
+                </div>
+
+                {/* 줄 나눔 기준 */}
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">줄 나눔 기준</div>
+                  <div className="grid grid-cols-2 gap-6 pl-2">
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">한글 단위</span>
+                        <select
+                          value={hangulBreak}
+                          onChange={(e) => setHangulBreak(e.target.value)}
+                          className="w-32 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                        >
+                          <option value="어절">어절</option>
+                          <option value="글자">글자</option>
+                        </select>
+                      </label>
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">영문 단위</span>
+                        <select
+                          value={latinBreak}
+                          onChange={(e) => setLatinBreak(e.target.value)}
+                          className="w-32 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                        >
+                          <option value="단어">단어</option>
+                          <option value="하이픈">하이픈</option>
+                          <option value="글자">글자</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div>
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-neutral-700">최소 공백</span>
+                        <div className="w-32 flex items-center border border-neutral-300 rounded-[2px] bg-white">
+                          <CharShapeNumberInput value={minSpacePct} min={0} max={200} step={5} onChange={setMinSpacePct} />
+                          <span className="text-[11px] text-neutral-500 pr-2">%</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* 테두리/배경 탭 */
+              <div className="border border-neutral-200 rounded-[2px] p-4 min-h-[260px] grid grid-cols-2 gap-x-8 gap-y-4 content-start">
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">테두리</div>
+                  <div className="flex flex-col gap-2 pl-2">
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">종류</span>
+                      <select
+                        value={paraBorderType}
+                        onChange={(e) => setParaBorderType(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["없음", "실선", "점선", "파선"].map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">굵기</span>
+                      <select
+                        value={paraBorderWidth}
+                        onChange={(e) => setParaBorderWidth(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["0.1mm", "0.12mm", "0.2mm", "0.4mm", "0.7mm", "1.0mm"].map((w) => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">색</span>
+                      <input
+                        type="color"
+                        value={paraBorderColor}
+                        onChange={(e) => setParaBorderColor(e.target.value)}
+                        className="w-36 h-6 border border-neutral-300 rounded-[2px] bg-white cursor-pointer"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 mt-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={connectParaBorder}
+                        onChange={(e) => setConnectParaBorder(e.target.checked)}
+                        className="accent-[#0066cc]"
+                      />
+                      <span className="text-neutral-700">문단 테두리 연결</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[#1e3a8a] font-semibold text-[12px] mb-2">배경</div>
+                  <div className="flex flex-col gap-2 pl-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">면 색</span>
+                      <div className="w-36 flex items-center gap-1">
+                        {paraBgColor ? (
+                          <input
+                            type="color"
+                            value={paraBgColor}
+                            onChange={(e) => setParaBgColor(e.target.value)}
+                            className="flex-1 h-6 border border-neutral-300 rounded-[2px] bg-white cursor-pointer"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setParaBgColor("#fef08a")}
+                            className="flex-1 h-6 border border-neutral-400 bg-white cursor-pointer"
+                            title="면 색 선택"
+                          >
+                            <svg className="w-full h-full" viewBox="0 0 80 18" preserveAspectRatio="none">
+                              <line x1="0" y1="18" x2="80" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                            </svg>
+                          </button>
+                        )}
+                        {paraBgColor && (
+                          <button
+                            type="button"
+                            onClick={() => setParaBgColor("")}
+                            className="text-[10px] text-neutral-500 hover:text-neutral-800 cursor-pointer px-1"
+                            title="면 색 없음"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">무늬 색</span>
+                      <input
+                        type="color"
+                        value={paraPatternColor}
+                        onChange={(e) => setParaPatternColor(e.target.value)}
+                        className="w-36 h-6 border border-neutral-300 rounded-[2px] bg-white cursor-pointer"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-neutral-700">무늬 모양</span>
+                      <select
+                        value={paraPatternShape}
+                        onChange={(e) => setParaPatternShape(e.target.value)}
+                        className="w-36 border border-neutral-300 rounded-[2px] px-2 py-1 bg-white outline-none"
+                      >
+                        {["없음", "가로 줄", "세로 줄", "격자"].map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 우측 확인 / 취소 버튼 */}
+          <div className="w-24 flex flex-col gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                onApply({
+                  align,
+                  marginLeftPt,
+                  marginRightPt,
+                  firstLineType,
+                  firstLinePt,
+                  lineSpacingPct,
+                  spaceBeforePt,
+                  spaceAfterPt,
+                  paraBorderType,
+                  paraBorderWidth,
+                  paraBorderColor,
+                  paraBgColor,
+                });
+                onClose();
+              }}
+              className="w-full py-1.5 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-neutral-800 cursor-pointer"
+            >
+              확인
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-neutral-800 cursor-pointer"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

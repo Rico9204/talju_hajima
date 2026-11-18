@@ -15,8 +15,25 @@ export interface HwpxParagraphBlock {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
   color?: string;
+  shadingColor?: string;
   fontFamily?: string;
+  relativeSizePct?: number;
+  charWidthPct?: number;
+  charPosPct?: number;
+  letterSpacingPct?: number;
+  marginLeftPt?: number;
+  marginRightPt?: number;
+  firstLineType?: "none" | "indent" | "outdent";
+  firstLinePt?: number;
+  lineSpacingPct?: number;
+  spaceBeforePt?: number;
+  spaceAfterPt?: number;
+  paraBorderType?: string;
+  paraBorderWidth?: string;
+  paraBorderColor?: string;
+  paraBgColor?: string;
   pageBreak?: boolean;
   rawAttrs?: string;
   charPrId?: string;
@@ -544,10 +561,10 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
           const cPos = captionSide === "TOP"
             ? "top_center"
             : captionSide === "LEFT"
-            ? "left_center"
-            : captionSide === "RIGHT"
-            ? "right_center"
-            : "bottom_center";
+              ? "left_center"
+              : captionSide === "RIGHT"
+                ? "right_center"
+                : "bottom_center";
           if (inTable && currentTable) {
             currentTable.caption = cText;
             currentTable.captionPos = cPos;
@@ -1087,15 +1104,15 @@ export function serializeBlocksToHwpxPackage(
     const capSide = pos.startsWith("top")
       ? "TOP"
       : pos.startsWith("left")
-      ? "LEFT"
-      : pos.startsWith("right")
-      ? "RIGHT"
-      : "BOTTOM";
+        ? "LEFT"
+        : pos.startsWith("right")
+          ? "RIGHT"
+          : "BOTTOM";
     const capAlign = pos.includes("left")
       ? "left"
       : pos.includes("right")
-      ? "right"
-      : "center";
+        ? "right"
+        : "center";
     const capParaPr = getParaPrForAlign(capAlign);
     return `        <hp:caption side="${capSide}" fullSize="0" width="${widthHw}" gap="850">\n` +
       `          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="${widthHw}" textHeight="2834" hasTextRef="0" hasNumRef="0">\n` +
@@ -1268,16 +1285,16 @@ export function serializeBlocksToHwpxPackage(
     if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
       let rawXml = block.fontEdited && block.fontFamily
         ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")([\s\S]*?<\/hp:run>)/g, (whole, a: string, id: string, b: string, rest: string) => {
-            // secPr 또는 텍스트가 없는 순수 ctrl 런은 기본 서식 ID(charPrIDRef="0") 유지
-            if (rest.includes("<hp:secPr") || (!rest.includes("<hp:t") && rest.includes("<hp:ctrl"))) {
-              return whole;
-            }
-            const orig = existingCharStyleMap.get(id);
-            const style = orig
-              ? { color: orig.colorHex, sizePt: orig.sizePt, bold: orig.bold, italic: orig.italic, underline: orig.underline }
-              : { color: block.color, sizePt: block.sizePt, bold: block.bold, italic: block.italic, underline: block.underline };
-            return `${a}${getOrCreateCharPr({ ...style, fontFamily: block.fontFamily })}${b}${rest}`;
-          })
+          // secPr 또는 텍스트가 없는 순수 ctrl 런은 기본 서식 ID(charPrIDRef="0") 유지
+          if (rest.includes("<hp:secPr") || (!rest.includes("<hp:t") && rest.includes("<hp:ctrl"))) {
+            return whole;
+          }
+          const orig = existingCharStyleMap.get(id);
+          const style = orig
+            ? { color: orig.colorHex, sizePt: orig.sizePt, bold: orig.bold, italic: orig.italic, underline: orig.underline }
+            : { color: block.color, sizePt: block.sizePt, bold: block.bold, italic: block.italic, underline: block.underline };
+          return `${a}${getOrCreateCharPr({ ...style, fontFamily: block.fontFamily })}${b}${rest}`;
+        })
         : block.rawXml;
 
       // OWPML 표준 규격 준수: pageBreak, columnBreak, merged 속성을 "0"/"1"로 정규화
@@ -1520,8 +1537,25 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         if (block.bold !== undefined) yBlock.set("bold", block.bold);
         if (block.italic !== undefined) yBlock.set("italic", block.italic);
         if (block.underline !== undefined) yBlock.set("underline", block.underline);
+        if (block.strikethrough !== undefined) yBlock.set("strikethrough", block.strikethrough);
         if (block.color) yBlock.set("color", block.color);
+        if (block.shadingColor !== undefined) yBlock.set("shadingColor", block.shadingColor);
         if (block.fontFamily) yBlock.set("fontFamily", block.fontFamily);
+        if (block.relativeSizePct !== undefined) yBlock.set("relativeSizePct", block.relativeSizePct);
+        if (block.charWidthPct !== undefined) yBlock.set("charWidthPct", block.charWidthPct);
+        if (block.charPosPct !== undefined) yBlock.set("charPosPct", block.charPosPct);
+        if (block.letterSpacingPct !== undefined) yBlock.set("letterSpacingPct", block.letterSpacingPct);
+        if (block.marginLeftPt !== undefined) yBlock.set("marginLeftPt", block.marginLeftPt);
+        if (block.marginRightPt !== undefined) yBlock.set("marginRightPt", block.marginRightPt);
+        if (block.firstLineType !== undefined) yBlock.set("firstLineType", block.firstLineType);
+        if (block.firstLinePt !== undefined) yBlock.set("firstLinePt", block.firstLinePt);
+        if (block.lineSpacingPct !== undefined) yBlock.set("lineSpacingPct", block.lineSpacingPct);
+        if (block.spaceBeforePt !== undefined) yBlock.set("spaceBeforePt", block.spaceBeforePt);
+        if (block.spaceAfterPt !== undefined) yBlock.set("spaceAfterPt", block.spaceAfterPt);
+        if (block.paraBorderType !== undefined) yBlock.set("paraBorderType", block.paraBorderType);
+        if (block.paraBorderWidth !== undefined) yBlock.set("paraBorderWidth", block.paraBorderWidth);
+        if (block.paraBorderColor !== undefined) yBlock.set("paraBorderColor", block.paraBorderColor);
+        if (block.paraBgColor !== undefined) yBlock.set("paraBgColor", block.paraBgColor);
         if (block.pageBreak !== undefined) yBlock.set("pageBreak", block.pageBreak);
         if (block.charPrId) yBlock.set("charPrId", block.charPrId);
         if (block.rawXml) yBlock.set("rawXml", block.rawXml);
@@ -1648,8 +1682,25 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const bold = yBlock.get("bold") as boolean | undefined;
       const italic = yBlock.get("italic") as boolean | undefined;
       const underline = yBlock.get("underline") as boolean | undefined;
+      const strikethrough = yBlock.get("strikethrough") as boolean | undefined;
       const color = yBlock.get("color") as string | undefined;
+      const shadingColor = yBlock.get("shadingColor") as string | undefined;
       const fontFamily = yBlock.get("fontFamily") as string | undefined;
+      const relativeSizePct = yBlock.get("relativeSizePct") as number | undefined;
+      const charWidthPct = yBlock.get("charWidthPct") as number | undefined;
+      const charPosPct = yBlock.get("charPosPct") as number | undefined;
+      const letterSpacingPct = yBlock.get("letterSpacingPct") as number | undefined;
+      const marginLeftPt = yBlock.get("marginLeftPt") as number | undefined;
+      const marginRightPt = yBlock.get("marginRightPt") as number | undefined;
+      const firstLineType = yBlock.get("firstLineType") as "none" | "indent" | "outdent" | undefined;
+      const firstLinePt = yBlock.get("firstLinePt") as number | undefined;
+      const lineSpacingPct = yBlock.get("lineSpacingPct") as number | undefined;
+      const spaceBeforePt = yBlock.get("spaceBeforePt") as number | undefined;
+      const spaceAfterPt = yBlock.get("spaceAfterPt") as number | undefined;
+      const paraBorderType = yBlock.get("paraBorderType") as string | undefined;
+      const paraBorderWidth = yBlock.get("paraBorderWidth") as string | undefined;
+      const paraBorderColor = yBlock.get("paraBorderColor") as string | undefined;
+      const paraBgColor = yBlock.get("paraBgColor") as string | undefined;
       const pageBreak = yBlock.get("pageBreak") as boolean | undefined;
       const charPrId = yBlock.get("charPrId") as string | undefined;
       const rawXml = yBlock.get("rawXml") as string | undefined;
@@ -1664,8 +1715,25 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         bold,
         italic,
         underline,
+        strikethrough,
         color,
+        shadingColor,
         fontFamily,
+        relativeSizePct,
+        charWidthPct,
+        charPosPct,
+        letterSpacingPct,
+        marginLeftPt,
+        marginRightPt,
+        firstLineType,
+        firstLinePt,
+        lineSpacingPct,
+        spaceBeforePt,
+        spaceAfterPt,
+        paraBorderType,
+        paraBorderWidth,
+        paraBorderColor,
+        paraBgColor,
         pageBreak,
         rawAttrs,
         charPrId,

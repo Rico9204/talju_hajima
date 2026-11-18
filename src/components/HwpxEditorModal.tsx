@@ -135,6 +135,8 @@ import {
   TemplateModal,
   TableCalcModal,
   SpellCheckModal,
+  CharShapeModal,
+  ParaShapeModal,
 } from "./HwpxEditorModals";
 import { getAllEditorFonts, injectAllWebFonts, type EditorFontItem } from "../lib/editorFonts";
 
@@ -350,6 +352,49 @@ function getCrossParagraphSelection(): {
     endIdx: Math.max(rawStartIdx, rawEndIdx),
     endOffset: rawStartIdx < rawEndIdx ? endOffset : startOffset,
   };
+}
+
+function getPointOffsetInParagraph(pEl: HTMLElement, clientX: number, clientY: number): number {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  if (doc.caretRangeFromPoint) {
+    const r = doc.caretRangeFromPoint(clientX, clientY);
+    if (r && pEl.contains(r.startContainer)) {
+      try {
+        const pre = document.createRange();
+        pre.selectNodeContents(pEl);
+        pre.setEnd(r.startContainer, r.startOffset);
+        return pre.toString().length;
+      } catch {
+        // fallback below
+      }
+    }
+  }
+  const rect = pEl.getBoundingClientRect();
+  const textLen = (pEl.innerText || "").replace(/\r?\n$/, "").length;
+  if (clientY < rect.top + rect.height * 0.5 && clientX < rect.left + rect.width * 0.5) return 0;
+  return textLen;
+}
+
+function resolveNodeAndOffset(pEl: HTMLElement, targetOffset: number): { node: Node; offset: number } {
+  const walker = document.createTreeWalker(pEl, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, targetOffset);
+  let node = walker.nextNode();
+  let lastText: Node | null = null;
+  while (node) {
+    lastText = node;
+    const len = node.textContent?.length ?? 0;
+    if (remaining <= len) {
+      return { node, offset: remaining };
+    }
+    remaining -= len;
+    node = walker.nextNode();
+  }
+  if (lastText) {
+    return { node: lastText, offset: lastText.textContent?.length ?? 0 };
+  }
+  return { node: pEl, offset: 0 };
 }
 
 function getCaretClientPosition(): { x: number; y: number } | null {
@@ -774,6 +819,7 @@ function ContentEditableParagraph({
   alignClass,
   fontSize,
   showParaMarks,
+  isCrossSelecting,
   onSelect,
   onChangeText,
   onSplit,
@@ -789,6 +835,7 @@ function ContentEditableParagraph({
   alignClass: string;
   fontSize: string;
   showParaMarks: boolean;
+  isCrossSelecting?: boolean;
   onSelect: () => void;
   onChangeText: (text: string) => void;
   onSplit: (before: string, after: string) => void;
@@ -937,7 +984,7 @@ function ContentEditableParagraph({
 
       <p
         ref={pRef}
-        contentEditable={true}
+        contentEditable={isCrossSelecting ? undefined : true}
         data-block-idx={idx}
         suppressContentEditableWarning={true}
         spellCheck={false}
@@ -952,17 +999,43 @@ function ContentEditableParagraph({
           handleInput();
         }}
         onKeyDown={handleKeyDown}
-        className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words cursor-text ${alignClass} ${
-          showParaMarks ? "after:content-['↵'] after:text-blue-400 after:text-[10px] after:opacity-60 after:ml-1 after:select-none after:pointer-events-none" : ""
-        }`}
+        className={`w-full p-0 leading-relaxed outline-none min-h-[1.5em] whitespace-pre-wrap break-words cursor-text ${alignClass} ${showParaMarks ? "after:content-['↵'] after:text-[#0066cc] after:text-[11px] after:font-sans after:opacity-90 after:ml-0.5 after:select-none after:pointer-events-none" : ""
+          }`}
         style={{
-          fontSize,
+          fontSize: `${((block.sizePt || 10) * ((block.relativeSizePct ?? 100) / 100)).toFixed(2)}pt`,
           fontWeight: block.bold ? "bold" : "normal",
           fontStyle: block.italic ? "italic" : "normal",
-          textDecoration: block.underline ? "underline" : "none",
+          textDecoration:
+            [block.underline ? "underline" : "", block.strikethrough ? "line-through" : ""].filter(Boolean).join(" ") || "none",
           color: block.color || "#111827",
+          backgroundColor: block.paraBgColor || block.shadingColor || undefined,
           fontFamily: block.fontFamily || "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-          lineHeight: 1.65,
+          lineHeight: block.lineSpacingPct ? block.lineSpacingPct / 100 : 1.65,
+          paddingLeft:
+            (block.marginLeftPt || 0) + (block.firstLineType === "outdent" ? block.firstLinePt || 0 : 0) > 0
+              ? `${(block.marginLeftPt || 0) + (block.firstLineType === "outdent" ? block.firstLinePt || 0 : 0)}pt`
+              : undefined,
+          paddingRight: block.marginRightPt ? `${block.marginRightPt}pt` : undefined,
+          textIndent:
+            block.firstLineType === "indent" && block.firstLinePt
+              ? `${block.firstLinePt}pt`
+              : block.firstLineType === "outdent" && block.firstLinePt
+                ? `-${block.firstLinePt}pt`
+                : undefined,
+          marginTop: block.spaceBeforePt ? `${block.spaceBeforePt}pt` : undefined,
+          marginBottom: block.spaceAfterPt ? `${block.spaceAfterPt}pt` : undefined,
+          border:
+            block.paraBorderType && block.paraBorderType !== "없음"
+              ? `max(1px, ${block.paraBorderWidth || "0.1mm"}) ${
+                  block.paraBorderType === "점선" ? "dotted" : block.paraBorderType === "파선" ? "dashed" : "solid"
+                } ${block.paraBorderColor || "#000000"}`
+              : undefined,
+          letterSpacing: block.letterSpacingPct ? `${block.letterSpacingPct * 0.01}em` : undefined,
+          width: block.charWidthPct && block.charWidthPct !== 100 ? `${10000 / block.charWidthPct}%` : undefined,
+          transform: block.charWidthPct && block.charWidthPct !== 100 ? `scaleX(${block.charWidthPct / 100})` : undefined,
+          transformOrigin: block.charWidthPct && block.charWidthPct !== 100 ? "left top" : undefined,
+          position: block.charPosPct ? "relative" : undefined,
+          top: block.charPosPct ? `${-block.charPosPct * 0.01}em` : undefined,
           textJustify: block.align === "justify" ? "auto" : undefined,
           wordBreak: "break-all",
         }}
@@ -1318,6 +1391,9 @@ function HwpxEditorModalInner({
   const [pageViewColumns, setPageViewColumns] = useState<1 | 2 | 3>(1);
   const [pageBreakIndices, setPageBreakIndices] = useState<number[]>([0]);
   const [canvasUnscaledSize, setCanvasUnscaledSize] = useState<{ w: number; h: number } | null>(null);
+  const [isCrossSelecting, setIsCrossSelecting] = useState(false);
+  const crossDragRef = useRef<{ startIdx: number; startOffset: number; crossed: boolean } | null>(null);
+  const justFinishedCrossDragRef = useRef(false);
   const [zoomFitMode, setZoomFitMode] = useState<"custom" | "page" | "width">("custom");
   const [showFormatToolbar, setShowFormatToolbar] = useState(true);
   const [showAllMemos, setShowAllMemos] = useState(true);
@@ -1374,7 +1450,7 @@ function HwpxEditorModalInner({
     const url = window.location.href;
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).catch(() => {});
+        navigator.clipboard.writeText(url).catch(() => { });
       }
     } catch {
       // ignore
@@ -1549,10 +1625,14 @@ function HwpxEditorModalInner({
       return;
     }
     if (container) {
+      container.scrollTop = 0;
       const availW = Math.max(240, container.clientWidth - 80);
+      const availH = Math.max(240, container.clientHeight - 112);
+      const pagePxH = Math.max(200, Math.round(pageHeightMm * 3.78));
       const neededW = cols * pagePxW + (cols - 1) * 24;
-      if (neededW > availW) {
-        const fitPct = Math.max(30, Math.min(100, Math.floor((availW / neededW) * 100)));
+      const fitRatio = Math.min(availW / neededW, availH / pagePxH);
+      if (fitRatio < 1) {
+        const fitPct = Math.max(30, Math.min(100, Math.floor(fitRatio * 100)));
         setZoomFitMode("custom");
         setZoomPercent(fitPct);
       }
@@ -1562,7 +1642,40 @@ function HwpxEditorModalInner({
     | { mode: "offset"; blockId: string; offset: number }
     | { mode: "point"; blockId: string; x: number; toEnd: boolean };
   const pendingCaretRef = useRef<PendingCaret | null>(null);
+  const pendingObjectFocusRef = useRef<string | null>(null);
   const lastDeletedIdxRef = useRef<number | null>(null);
+
+  interface HwpxMemoItem {
+    id: string;
+    blockId: string;
+    author: string;
+    createdAt: string;
+    text: string;
+    anchorText?: string;
+  }
+
+  const extractMemosFromYDoc = useCallback((yDoc: Y.Doc): HwpxMemoItem[] => {
+    const yMemos = yDoc.getArray<Y.Map<unknown>>("hwpx_memos");
+    const list: HwpxMemoItem[] = [];
+    for (let i = 0; i < yMemos.length; i++) {
+      const m = yMemos.get(i);
+      const id = String(m.get("id") || "");
+      const blockId = String(m.get("blockId") || "");
+      if (!id || !blockId) continue;
+      list.push({
+        id,
+        blockId,
+        author: String(m.get("author") || "나"),
+        createdAt: String(m.get("createdAt") || ""),
+        text: String(m.get("text") || ""),
+        anchorText: m.get("anchorText") ? String(m.get("anchorText")) : undefined,
+      });
+    }
+    return list;
+  }, []);
+
+  const [memos, setMemos] = useState<HwpxMemoItem[]>(() => extractMemosFromYDoc(doc));
+  const [activeMemoId, setActiveMemoId] = useState<string | null>(null);
 
   // Yjs UndoManager로 블록 삽입/삭제/수정 내역을 추적
   const undoManager = useMemo(() => {
@@ -1597,13 +1710,115 @@ function HwpxEditorModalInner({
   useEffect(() => {
     const onUpdate = () => {
       setBlocks(extractBlocksFromYDoc(doc));
+      setMemos(extractMemosFromYDoc(doc));
     };
     doc.on("update", onUpdate);
     return () => { doc.off("update", onUpdate); };
-  }, [doc]);
+  }, [doc, extractMemosFromYDoc]);
+
+  const formatMemoTimestamp = () => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const addMemoToBlock = (blockIdx: number, anchorText?: string) => {
+    const targetBlock = blocks[blockIdx];
+    if (!targetBlock) {
+      showToast("메모를 추가할 문단을 먼저 선택하세요.");
+      return;
+    }
+    const selStr = (anchorText ?? window.getSelection()?.toString() ?? "").trim();
+    const authorName = editors[0]?.name || "작성자";
+    const memoId = `memo_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const yMemos = doc.getArray<Y.Map<unknown>>("hwpx_memos");
+    const yMemo = new Y.Map<unknown>();
+    yMemo.set("id", memoId);
+    yMemo.set("blockId", targetBlock.id);
+    yMemo.set("author", authorName);
+    yMemo.set("createdAt", formatMemoTimestamp());
+    yMemo.set("text", "");
+    if (selStr) yMemo.set("anchorText", selStr.slice(0, 80));
+    doc.transact(() => {
+      yMemos.push([yMemo]);
+    });
+    setShowAllMemos(true);
+    setActiveMemoId(memoId);
+  };
+
+  const updateMemoText = (memoId: string, text: string) => {
+    const yMemos = doc.getArray<Y.Map<unknown>>("hwpx_memos");
+    doc.transact(() => {
+      for (let i = 0; i < yMemos.length; i++) {
+        const m = yMemos.get(i);
+        if (m.get("id") === memoId) {
+          m.set("text", text);
+          break;
+        }
+      }
+    });
+  };
+
+  const focusBlockAfterMemoDelete = (blockId: string) => {
+    if (!blockId) return;
+    const bIdx = blocks.findIndex((b) => b.id === blockId);
+    if (bIdx !== -1) setSelectedIdx(bIdx);
+    requestAnimationFrame(() => {
+      const pEl = document.querySelector<HTMLElement>(`[data-block-id="${blockId}"] p[contenteditable="true"]`);
+      if (pEl) {
+        pEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+        pEl.focus({ preventScroll: true });
+        setCaretOffset(pEl, (pEl.textContent || "").length);
+      }
+    });
+  };
+
+  const deleteMemo = (memoId: string) => {
+    const yMemos = doc.getArray<Y.Map<unknown>>("hwpx_memos");
+    let targetBlockId = "";
+    doc.transact(() => {
+      for (let i = yMemos.length - 1; i >= 0; i--) {
+        if (yMemos.get(i).get("id") === memoId) {
+          if (!targetBlockId) targetBlockId = String(yMemos.get(i).get("blockId") || "");
+          yMemos.delete(i, 1);
+        }
+      }
+    });
+    if (activeMemoId === memoId) setActiveMemoId(null);
+    focusBlockAfterMemoDelete(targetBlockId);
+  };
+
+  const deleteMemosForBlock = (blockIdx: number) => {
+    const targetBlock = blocks[blockIdx];
+    if (!targetBlock) return;
+    const yMemos = doc.getArray<Y.Map<unknown>>("hwpx_memos");
+    doc.transact(() => {
+      for (let i = yMemos.length - 1; i >= 0; i--) {
+        if (yMemos.get(i).get("blockId") === targetBlock.id) {
+          yMemos.delete(i, 1);
+        }
+      }
+    });
+    focusBlockAfterMemoDelete(targetBlock.id);
+  };
 
   // 블록 추가/삭제/분할 후 지정된 문단 및 오프셋/위치로 커서 복원
   useLayoutEffect(() => {
+    if (pendingObjectFocusRef.current) {
+      const objId = pendingObjectFocusRef.current;
+      const objEl = document.querySelector<HTMLElement>(`[data-block-id="${objId}"]`);
+      if (objEl) {
+        pendingObjectFocusRef.current = null;
+        objEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+        const firstInput = objEl.querySelector<HTMLElement>("input, textarea");
+        if (firstInput) {
+          firstInput.focus({ preventScroll: true });
+        } else {
+          objEl.focus({ preventScroll: true });
+        }
+        return;
+      }
+    }
     if (!pendingCaretRef.current) return;
     const target = pendingCaretRef.current;
     pendingCaretRef.current = null;
@@ -2023,9 +2238,26 @@ function HwpxEditorModalInner({
         if (patch.bold !== undefined) yBlock.set("bold", patch.bold);
         if (patch.italic !== undefined) yBlock.set("italic", patch.italic);
         if (patch.underline !== undefined) yBlock.set("underline", patch.underline);
+        if (patch.strikethrough !== undefined) yBlock.set("strikethrough", patch.strikethrough);
         if (patch.sizePt !== undefined) yBlock.set("sizePt", patch.sizePt);
         if (patch.align !== undefined) yBlock.set("align", patch.align);
         if (patch.color !== undefined) yBlock.set("color", patch.color);
+        if (patch.shadingColor !== undefined) yBlock.set("shadingColor", patch.shadingColor);
+        if (patch.relativeSizePct !== undefined) yBlock.set("relativeSizePct", patch.relativeSizePct);
+        if (patch.charWidthPct !== undefined) yBlock.set("charWidthPct", patch.charWidthPct);
+        if (patch.charPosPct !== undefined) yBlock.set("charPosPct", patch.charPosPct);
+        if (patch.letterSpacingPct !== undefined) yBlock.set("letterSpacingPct", patch.letterSpacingPct);
+        if (patch.marginLeftPt !== undefined) yBlock.set("marginLeftPt", patch.marginLeftPt);
+        if (patch.marginRightPt !== undefined) yBlock.set("marginRightPt", patch.marginRightPt);
+        if (patch.firstLineType !== undefined) yBlock.set("firstLineType", patch.firstLineType);
+        if (patch.firstLinePt !== undefined) yBlock.set("firstLinePt", patch.firstLinePt);
+        if (patch.lineSpacingPct !== undefined) yBlock.set("lineSpacingPct", patch.lineSpacingPct);
+        if (patch.spaceBeforePt !== undefined) yBlock.set("spaceBeforePt", patch.spaceBeforePt);
+        if (patch.spaceAfterPt !== undefined) yBlock.set("spaceAfterPt", patch.spaceAfterPt);
+        if (patch.paraBorderType !== undefined) yBlock.set("paraBorderType", patch.paraBorderType);
+        if (patch.paraBorderWidth !== undefined) yBlock.set("paraBorderWidth", patch.paraBorderWidth);
+        if (patch.paraBorderColor !== undefined) yBlock.set("paraBorderColor", patch.paraBorderColor);
+        if (patch.paraBgColor !== undefined) yBlock.set("paraBgColor", patch.paraBgColor);
         if (patch.fontFamily !== undefined) {
           yBlock.set("fontFamily", patch.fontFamily);
           yBlock.set("fontEdited", true); // 저장할 때 원본 문단 XML에도 새 글꼴을 반영
@@ -2122,7 +2354,7 @@ function HwpxEditorModalInner({
       // 블록이 다음/이전 페이지로 이동할 때 포커스 및 커서 오프셋 보존
       const activeEl = document.activeElement as HTMLElement | null;
       const activeBlockEl = activeEl?.closest("[data-block-id]") as HTMLElement | null;
-      if (activeBlockEl && !pendingCaretRef.current) {
+      if (activeBlockEl && !pendingCaretRef.current && !pendingObjectFocusRef.current) {
         const activeBlockId = activeBlockEl.getAttribute("data-block-id");
         const pEl = activeBlockEl.querySelector("p");
         if (activeBlockId && pEl && (activeEl === pEl || pEl.contains(activeEl))) {
@@ -2135,7 +2367,7 @@ function HwpxEditorModalInner({
       }
       return breaks;
     });
-  }, [blocks, pageHeightMm, pageMarginTopMm, pageMarginBottomMm]);
+  }, [blocks, pageHeightMm, pageMarginTopMm, pageMarginBottomMm, pageViewColumns, showPageOutline]);
 
   useLayoutEffect(() => {
     recomputePagination();
@@ -2307,12 +2539,13 @@ function HwpxEditorModalInner({
   const [showHighlightPalette, setShowHighlightPalette] = useState(false);
   const [showColorPalette, setShowColorPalette] = useState(false);
 
-  // ── 개체(표, 그림, 도형) 우클릭 컨텍스트 메뉴 상태 ──
+  // ── 개체(표, 그림, 도형, 문단) 우클릭 컨텍스트 메뉴 상태 ──
   interface ObjectContextMenuState {
     x: number;
     y: number;
     blockIdx: number;
-    blockType: "table" | "image" | "shape";
+    blockType: "table" | "image" | "shape" | "paragraph";
+    hasSelection?: boolean;
   }
   const [contextMenu, setContextMenu] = useState<ObjectContextMenuState | null>(null);
 
@@ -2583,6 +2816,114 @@ function HwpxEditorModalInner({
     setPropertyTargetIdx(null);
   };
 
+  // 문단 간 연속 마우스 드래그 선택 지원 (contentEditable 편집 호스트 경계 넘김 처리)
+  useEffect(() => {
+    const findParagraphAtPoint = (clientX: number, clientY: number): HTMLElement | null => {
+      const root = canvasRef.current;
+      if (!root) return null;
+      const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+      const directP = el?.closest('[data-block-type="paragraph"] p') as HTMLElement | null;
+      if (directP && root.contains(directP)) return directP;
+      const allPs = Array.from(root.querySelectorAll<HTMLElement>('[data-block-type="paragraph"] p'));
+      let best: HTMLElement | null = null;
+      let bestDist = Infinity;
+      for (const p of allPs) {
+        const r = p.getBoundingClientRect();
+        const dx = clientX < r.left ? r.left - clientX : clientX > r.right ? clientX - r.right : 0;
+        const dy = clientY < r.top ? r.top - clientY : clientY > r.bottom ? clientY - r.bottom : 0;
+        const dist = dx + dy;
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = p;
+        }
+      }
+      return best;
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const drag = crossDragRef.current;
+      if (!drag) return;
+      if ((e.buttons & 1) === 0) {
+        crossDragRef.current = null;
+        return;
+      }
+      const root = canvasRef.current;
+      if (!root) return;
+      const targetP = findParagraphAtPoint(e.clientX, e.clientY);
+      if (!targetP) return;
+      const targetIdx = Number(targetP.getAttribute("data-block-idx"));
+      if (isNaN(targetIdx)) return;
+
+      if (!drag.crossed && targetIdx === drag.startIdx) {
+        return; // 같은 문단 내에서는 브라우저 기본 드래그 선택 유지
+      }
+
+      if (!drag.crossed) {
+        drag.crossed = true;
+        // DOM에서 즉시 각 문단의 개별 contentEditable 속성을 제거하고 상위 canvasRef를 단일 편집 호스트로 전환 (브라우저 미니 메뉴 억제 + 문단 경계 선택 허용)
+        root.querySelectorAll<HTMLElement>('[data-block-type="paragraph"] p').forEach((p) => {
+          p.removeAttribute("contenteditable");
+        });
+        root.setAttribute("contenteditable", "true");
+        setIsCrossSelecting(true);
+      }
+
+      const startP = root.querySelector<HTMLElement>(`[data-block-type="paragraph"] p[data-block-idx="${drag.startIdx}"]`);
+      if (!startP) return;
+      const targetOffset = getPointOffsetInParagraph(targetP, e.clientX, e.clientY);
+      const startPt = resolveNodeAndOffset(startP, drag.startOffset);
+      const endPt = resolveNodeAndOffset(targetP, targetOffset);
+      const sel = window.getSelection();
+      if (sel) {
+        try {
+          sel.setBaseAndExtent(startPt.node, startPt.offset, endPt.node, endPt.offset);
+        } catch {
+          // ignore range errors during rapid drag
+        }
+      }
+    };
+
+    const onMouseUp = () => {
+      const drag = crossDragRef.current;
+      if (drag?.crossed) {
+        justFinishedCrossDragRef.current = true;
+        setTimeout(() => {
+          justFinishedCrossDragRef.current = false;
+        }, 50);
+      }
+      crossDragRef.current = null;
+    };
+
+    const onSelectionChange = () => {
+      if (!isCrossSelecting || crossDragRef.current?.crossed) return;
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) {
+        setIsCrossSelecting(false);
+      }
+    };
+
+    const onCancelDrag = () => {
+      crossDragRef.current = null;
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("dragstart", onCancelDrag, true);
+    window.addEventListener("dragend", onCancelDrag, true);
+    window.addEventListener("drop", onCancelDrag, true);
+    window.addEventListener("blur", onCancelDrag);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("dragstart", onCancelDrag, true);
+      window.removeEventListener("dragend", onCancelDrag, true);
+      window.removeEventListener("drop", onCancelDrag, true);
+      window.removeEventListener("blur", onCancelDrag);
+      document.removeEventListener("selectionchange", onSelectionChange);
+    };
+  }, [isCrossSelecting]);
+
   // 단축키 (Ctrl+S / Cmd+S: 클라우드 저장, Ctrl+Z: 실행 취소, Ctrl+Y / Ctrl+Shift+Z: 다시 실행, P: 선택된 개체 속성 다이얼로그, Delete/Backspace: 선택된 개체 삭제)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -2610,6 +2951,7 @@ function HwpxEditorModalInner({
             yBlocks.delete(crossSel.startIdx + 1, deleteCount);
           });
           pendingCaretRef.current = { mode: "offset", blockId: startBlock.id, offset: crossSel.startOffset };
+          setIsCrossSelecting(false);
           setSelectedIdx(crossSel.startIdx);
         }
         return;
@@ -2791,15 +3133,27 @@ function HwpxEditorModalInner({
   useEffect(() => {
     const handleCloseMenus = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (target.closest(".relative button") || target.closest(".z-60") || target.closest("[style*='box-shadow']"))) {
+      if (target && (target.closest("[data-context-menu='true']") || target.closest(".z-60"))) {
+        return;
+      }
+      if (target && target.closest(".relative button") && !target.closest("[data-page-idx]")) {
         return;
       }
       setContextMenu(null);
       setOpenDropdown(null);
       setHoverSubmenu(null);
     };
+    const handleCloseContextOnMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("[data-context-menu='true']")) return;
+      setContextMenu(null);
+    };
     window.addEventListener("click", handleCloseMenus);
-    return () => window.removeEventListener("click", handleCloseMenus);
+    window.addEventListener("mousedown", handleCloseContextOnMouseDown, true);
+    return () => {
+      window.removeEventListener("click", handleCloseMenus);
+      window.removeEventListener("mousedown", handleCloseContextOnMouseDown, true);
+    };
   }, []);
 
   // 모양 복사 버퍼
@@ -2812,6 +3166,8 @@ function HwpxEditorModalInner({
     underline?: boolean;
     align?: "left" | "center" | "right" | "justify";
   } | null>(null);
+
+  const copiedTextBufferRef = useRef<string>("");
 
   // 서식 복사 (모양 복사)
   const handleCopyFormat = () => {
@@ -3103,11 +3459,11 @@ function HwpxEditorModalInner({
     const tocLines = headings.length > 0
       ? headings.map((h, i) => `${h} ························································ ${i + 1}`)
       : [
-          "1. 연구 배경 및 서론 ························································ 1",
-          "2. 주요 설계 및 추진 내용 ··················································· 2",
-          "3. 실증 분석 및 결과 ························································ 3",
-          "4. 결론 및 향후 제언 ························································ 4",
-        ];
+        "1. 연구 배경 및 서론 ························································ 1",
+        "2. 주요 설계 및 추진 내용 ··················································· 2",
+        "3. 실증 분석 및 결과 ························································ 3",
+        "4. 결론 및 향후 제언 ························································ 4",
+      ];
 
     const tocPara: HwpxParagraphBlock = {
       id: `toc-${Date.now()}`,
@@ -3447,14 +3803,14 @@ function HwpxEditorModalInner({
 </head>
 <body>
   ${blocks
-    .map((b) => {
-      if (b.type === "paragraph") return `<p style="text-align:${b.align || "left"};font-size:${b.sizePt || 10}pt;${b.bold ? "font-weight:bold;" : ""}">${b.text}</p>`;
-      if (b.type === "table") {
-        return `<table>${b.rows.map((r) => `<tr>${r.map((c) => `<td>${c.text}</td>`).join("")}</tr>`).join("")}</table>`;
-      }
-      return "";
-    })
-    .join("\n")}
+        .map((b) => {
+          if (b.type === "paragraph") return `<p style="text-align:${b.align || "left"};font-size:${b.sizePt || 10}pt;${b.bold ? "font-weight:bold;" : ""}">${b.text}</p>`;
+          if (b.type === "table") {
+            return `<table>${b.rows.map((r) => `<tr>${r.map((c) => `<td>${c.text}</td>`).join("")}</tr>`).join("")}</table>`;
+          }
+          return "";
+        })
+        .join("\n")}
 </body>
 </html>`;
     const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
@@ -3465,15 +3821,217 @@ function HwpxEditorModalInner({
     URL.revokeObjectURL(a.href);
   };
 
-  // 클립보드 오려두기 / 복사
+  // 클립보드 오려두기 / 복사 / 붙여넣기
+  useEffect(() => {
+    const syncSelectionToBuffer = () => {
+      const sel = window.getSelection();
+      const txt = sel?.toString() ?? "";
+      if (txt) copiedTextBufferRef.current = txt;
+    };
+    document.addEventListener("copy", syncSelectionToBuffer);
+    document.addEventListener("cut", syncSelectionToBuffer);
+    return () => {
+      document.removeEventListener("copy", syncSelectionToBuffer);
+      document.removeEventListener("cut", syncSelectionToBuffer);
+    };
+  }, []);
+
   const handleCut = () => {
+    const crossSel = getCrossParagraphSelection();
+    if (crossSel) {
+      const selText = window.getSelection()?.toString() ?? "";
+      if (selText) {
+        copiedTextBufferRef.current = selText;
+        navigator.clipboard?.writeText(selText).catch(() => { });
+      }
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const startBlock = blocks[crossSel.startIdx];
+      const endBlock = blocks[crossSel.endIdx];
+      if (startBlock && endBlock && startBlock.type === "paragraph" && endBlock.type === "paragraph") {
+        const mergedText = (startBlock.text || "").slice(0, crossSel.startOffset) + (endBlock.text || "").slice(crossSel.endOffset);
+        doc.transact(() => {
+          const yStart = yBlocks.get(crossSel.startIdx);
+          const yText = yStart?.get("text") as Y.Text | undefined;
+          if (yText) {
+            yText.delete(0, yText.length);
+            yText.insert(0, mergedText);
+          }
+          yBlocks.delete(crossSel.startIdx + 1, crossSel.endIdx - crossSel.startIdx);
+        });
+        pendingCaretRef.current = { mode: "offset", blockId: startBlock.id, offset: crossSel.startOffset };
+        setIsCrossSelecting(false);
+        setSelectedIdx(crossSel.startIdx);
+      }
+      return;
+    }
     restoreSelection();
+    const selText = window.getSelection()?.toString() ?? "";
+    if (selText) {
+      copiedTextBufferRef.current = selText;
+      navigator.clipboard?.writeText(selText).catch(() => { });
+    }
     document.execCommand("cut");
     triggerActiveBlockInput();
   };
+
   const handleCopy = () => {
     restoreSelection();
+    const selText = window.getSelection()?.toString() ?? "";
+    if (selText) {
+      copiedTextBufferRef.current = selText;
+      navigator.clipboard?.writeText(selText).catch(() => { });
+    }
     document.execCommand("copy");
+  };
+
+  const handlePaste = async (explicitBlockIdx?: number) => {
+    let pasteText = "";
+    try {
+      const clip = await navigator.clipboard?.readText();
+      if (clip) pasteText = clip;
+    } catch {
+      // 클립보드 읽기 권한이 거부된 경우 내부 버퍼 폴백 사용
+    }
+    if (!pasteText) {
+      pasteText = copiedTextBufferRef.current;
+    }
+    if (!pasteText) {
+      showToast("붙여넣을 텍스트가 클립보드에 없습니다.");
+      return;
+    }
+    const normalized = pasteText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const lines = normalized.split("\n");
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+
+    const crossSel = getCrossParagraphSelection();
+    if (crossSel) {
+      const startBlock = blocks[crossSel.startIdx];
+      const endBlock = blocks[crossSel.endIdx];
+      if (startBlock && endBlock && startBlock.type === "paragraph" && endBlock.type === "paragraph") {
+        const before = (startBlock.text || "").slice(0, crossSel.startOffset);
+        const after = (endBlock.text || "").slice(crossSel.endOffset);
+        let focusId = startBlock.id;
+        let focusOffset = crossSel.startOffset + lines[0].length;
+        doc.transact(() => {
+          const yStart = yBlocks.get(crossSel.startIdx);
+          const yText = yStart?.get("text") as Y.Text | undefined;
+          const delCount = crossSel.endIdx - crossSel.startIdx;
+          if (delCount > 0) yBlocks.delete(crossSel.startIdx + 1, delCount);
+          if (lines.length === 1) {
+            if (yText) {
+              yText.delete(0, yText.length);
+              yText.insert(0, before + lines[0] + after);
+            }
+          } else {
+            if (yText) {
+              yText.delete(0, yText.length);
+              yText.insert(0, before + lines[0]);
+            }
+            const extraMaps: Y.Map<unknown>[] = [];
+            for (let i = 1; i < lines.length; i++) {
+              const isLast = i === lines.length - 1;
+              const newId = `para-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`;
+              const m = new Y.Map<unknown>();
+              m.set("id", newId);
+              m.set("type", "paragraph");
+              m.set("text", isLast ? lines[i] + after : lines[i]);
+              if (startBlock.align) m.set("align", startBlock.align);
+              if (startBlock.fontFamily) m.set("fontFamily", startBlock.fontFamily);
+              if (startBlock.sizePt) m.set("sizePt", startBlock.sizePt);
+              extraMaps.push(m);
+              if (isLast) {
+                focusId = newId;
+                focusOffset = lines[i].length;
+              }
+            }
+            yBlocks.insert(crossSel.startIdx + 1, extraMaps);
+          }
+        });
+        setIsCrossSelecting(false);
+        pendingCaretRef.current = { mode: "offset", blockId: focusId, offset: focusOffset };
+        setSelectedIdx(crossSel.startIdx + lines.length - 1);
+        return;
+      }
+    }
+
+    const targetIdx = explicitBlockIdx ?? selectedIdx;
+    const targetBlock = blocks[targetIdx];
+    if (!targetBlock || targetBlock.type !== "paragraph") {
+      showToast("텍스트를 붙여넣을 문단을 먼저 선택해 주세요.");
+      return;
+    }
+
+    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${targetBlock.id}"] p`);
+    const fullText = targetBlock.text || "";
+    let selStart = fullText.length;
+    let selEnd = fullText.length;
+
+    const activeSel = window.getSelection();
+    const activeRange =
+      activeSel && activeSel.rangeCount > 0 && pEl && pEl.contains(activeSel.anchorNode)
+        ? activeSel.getRangeAt(0)
+        : lastSelectionRangeRef.current && pEl && pEl.contains(lastSelectionRangeRef.current.startContainer)
+          ? lastSelectionRangeRef.current
+          : null;
+
+    if (activeRange && pEl) {
+      try {
+        const preStart = document.createRange();
+        preStart.selectNodeContents(pEl);
+        preStart.setEnd(activeRange.startContainer, activeRange.startOffset);
+        selStart = Math.min(fullText.length, preStart.toString().length);
+
+        const preEnd = document.createRange();
+        preEnd.selectNodeContents(pEl);
+        preEnd.setEnd(activeRange.endContainer, activeRange.endOffset);
+        selEnd = Math.max(selStart, Math.min(fullText.length, preEnd.toString().length));
+      } catch {
+        selStart = fullText.length;
+        selEnd = fullText.length;
+      }
+    }
+
+    const before = fullText.slice(0, selStart);
+    const after = fullText.slice(selEnd);
+    let focusId = targetBlock.id;
+    let focusOffset = selStart + lines[0].length;
+
+    doc.transact(() => {
+      const yTarget = yBlocks.get(targetIdx);
+      const yText = yTarget?.get("text") as Y.Text | undefined;
+      if (lines.length === 1) {
+        if (yText) {
+          yText.delete(0, yText.length);
+          yText.insert(0, before + lines[0] + after);
+        }
+      } else {
+        if (yText) {
+          yText.delete(0, yText.length);
+          yText.insert(0, before + lines[0]);
+        }
+        const extraMaps: Y.Map<unknown>[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          const isLast = i === lines.length - 1;
+          const newId = `para-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`;
+          const m = new Y.Map<unknown>();
+          m.set("id", newId);
+          m.set("type", "paragraph");
+          m.set("text", isLast ? lines[i] + after : lines[i]);
+          if (targetBlock.align) m.set("align", targetBlock.align);
+          if (targetBlock.fontFamily) m.set("fontFamily", targetBlock.fontFamily);
+          if (targetBlock.sizePt) m.set("sizePt", targetBlock.sizePt);
+          extraMaps.push(m);
+          if (isLast) {
+            focusId = newId;
+            focusOffset = lines[i].length;
+          }
+        }
+        yBlocks.insert(targetIdx + 1, extraMaps);
+      }
+    });
+
+    pendingCaretRef.current = { mode: "offset", blockId: focusId, offset: focusOffset };
+    setSelectedIdx(targetIdx + lines.length - 1);
   };
 
   // 실행 취소 / 다시 실행 (Yjs UndoManager 연동)
@@ -3699,14 +4257,18 @@ function HwpxEditorModalInner({
   // 수식 블록 삽입
   const addEquation = (script: string, afterIdx: number) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const newId = `eq_${Date.now()}`;
     const yBlock = new Y.Map<unknown>();
-    yBlock.set("id", `eq_${Date.now()}`);
+    yBlock.set("id", newId);
     yBlock.set("type", "equation");
     yBlock.set("script", new Y.Text(script || "E = mc^2"));
+    const targetIdx = Math.max(0, Math.min(afterIdx + 1, yBlocks.length));
+    pendingCaretRef.current = null;
+    pendingObjectFocusRef.current = newId;
     doc.transact(() => {
-      yBlocks.insert(afterIdx + 1, [yBlock]);
+      yBlocks.insert(targetIdx, [yBlock]);
     });
-    setSelectedIdx(afterIdx + 1);
+    setSelectedIdx(targetIdx);
     setShowEquationModal(false);
     setNewEquationScript("");
   };
@@ -3998,8 +4560,9 @@ function HwpxEditorModalInner({
   // 표 추가
   const addTable = (rows: number, cols: number, afterIdx: number) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const newId = `tbl_${Date.now()}`;
     const yBlock = new Y.Map<unknown>();
-    yBlock.set("id", `tbl_${Date.now()}`);
+    yBlock.set("id", newId);
     yBlock.set("type", "table");
 
     const yRows = new Y.Array<Y.Array<Y.Map<unknown>>>();
@@ -4014,10 +4577,13 @@ function HwpxEditorModalInner({
     }
     yBlock.set("rows", yRows);
 
+    const targetIdx = Math.max(0, Math.min(afterIdx + 1, yBlocks.length));
+    pendingCaretRef.current = null;
+    pendingObjectFocusRef.current = newId;
     doc.transact(() => {
-      yBlocks.insert(afterIdx + 1, [yBlock]);
+      yBlocks.insert(targetIdx, [yBlock]);
     });
-    setSelectedIdx(afterIdx + 1);
+    setSelectedIdx(targetIdx);
     setShowTableModal(false);
   };
 
@@ -4381,11 +4947,10 @@ function HwpxEditorModalInner({
                         setActiveTab(menu.id);
                       }
                     }}
-                    className={`px-3.5 py-1.5 font-medium transition cursor-pointer border-b-2 ${
-                      isDropdownOpen || (openDropdown === null && isTabActive)
-                        ? "border-[#0099e5] text-neutral-900 font-semibold bg-[#eceef0]"
-                        : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
-                    }`}
+                    className={`px-3.5 py-1.5 font-medium transition cursor-pointer border-b-2 ${isDropdownOpen || (openDropdown === null && isTabActive)
+                      ? "border-[#0099e5] text-neutral-900 font-semibold bg-[#eceef0]"
+                      : "border-transparent text-neutral-700 hover:text-neutral-900 hover:bg-neutral-50"
+                      }`}
                   >
                     {menu.label}
                   </button>
@@ -4571,7 +5136,7 @@ function HwpxEditorModalInner({
 
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); handlePasteFormat(); }}
+                        onClick={() => { setOpenDropdown(null); void handlePaste(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
@@ -5176,6 +5741,17 @@ function HwpxEditorModalInner({
                           <span>날짜/시간...</span>
                         </span>
                       </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); addMemoToBlock(selectedIdx); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <CommentIcon className="w-4 h-4 text-amber-500" />
+                          <span>메모</span>
+                        </span>
+                      </button>
                     </div>
                   )}
 
@@ -5426,6 +6002,27 @@ function HwpxEditorModalInner({
                     >
                       <button
                         type="button"
+                        onClick={() => { setOpenDropdown(null); addMemoToBlock(selectedIdx); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <CommentIcon className="w-4 h-4 text-amber-500" />
+                          <span>메모</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); deleteMemosForBlock(selectedIdx); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span className="w-4 text-center text-red-500 font-bold">✕</span>
+                          <span>메모 지우기</span>
+                        </span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
                         onClick={() => { setOpenDropdown(null); setShowSpellCheckModal(true); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
@@ -5550,7 +6147,7 @@ function HwpxEditorModalInner({
                 </button>
                 <button
                   type="button"
-                  onClick={handlePasteFormat}
+                  onClick={() => void handlePaste()}
                   className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
                   title="붙이기 (Ctrl+V)"
                 >
@@ -5560,9 +6157,8 @@ function HwpxEditorModalInner({
                 <button
                   type="button"
                   onClick={() => setShowFormatCopyModal(true)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
-                    copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700 hover:text-[#0066cc]"
-                  }`}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${copiedStyle ? "bg-blue-50 text-[#0066cc] font-bold" : "text-neutral-700 hover:text-[#0066cc]"
+                    }`}
                   title="모양 복사 (Ctrl+Alt+C / Alt+C)"
                 >
                   <FormatPainterIcon className="w-5 h-5 shrink-0" />
@@ -5727,6 +6323,15 @@ function HwpxEditorModalInner({
                   <PageSetupIcon className="w-5 h-5 text-neutral-600 shrink-0" />
                   <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">개체 속성</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => addMemoToBlock(selectedIdx)}
+                  className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-white hover:shadow-xs transition text-neutral-700 hover:text-[#0066cc] cursor-pointer shrink-0 whitespace-nowrap min-w-fit"
+                  title="메모 넣기"
+                >
+                  <CommentIcon className="w-5 h-5 text-amber-500 shrink-0" />
+                  <span className="text-[10px] mt-0.5 text-neutral-600 whitespace-nowrap">메모</span>
+                </button>
               </div>
 
               <div className="w-[1px] h-8 bg-neutral-300 mx-0.5 shrink-0" />
@@ -5758,9 +6363,8 @@ function HwpxEditorModalInner({
                 <button
                   type="button"
                   onClick={() => setShowControlMarks(!showControlMarks)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
-                    showControlMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
-                  }`}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${showControlMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
+                    }`}
                   title="조판 부호 켜기/끄기"
                 >
                   <ClearControlMarksIcon className="w-5 h-5 shrink-0" />
@@ -5769,9 +6373,8 @@ function HwpxEditorModalInner({
                 <button
                   type="button"
                   onClick={() => setShowParaMarks(!showParaMarks)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
-                    showParaMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
-                  }`}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${showParaMarks ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
+                    }`}
                   title="문단 부호 켜기/끄기 (Enter 기호 표시)"
                 >
                   <ParaMarkIcon className="w-5 h-5 shrink-0" />
@@ -5780,9 +6383,8 @@ function HwpxEditorModalInner({
                 <button
                   type="button"
                   onClick={() => setShowGrid(!showGrid)}
-                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${
-                    showGrid ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
-                  }`}
+                  className={`flex flex-col items-center justify-center px-2 py-1 rounded transition cursor-pointer shrink-0 whitespace-nowrap min-w-fit ${showGrid ? "bg-blue-100 text-[#0066cc] font-bold shadow-2xs" : "hover:bg-white hover:shadow-xs text-neutral-700 hover:text-[#0066cc]"
+                    }`}
                   title="격자(모눈) 보기"
                 >
                   <GridIcon className="w-5 h-5 shrink-0" />
@@ -5808,378 +6410,368 @@ function HwpxEditorModalInner({
           {/* 4열: 한컴 표준 빠른 서식 툴바 (2단 툴바) */}
           {showFormatToolbar && (
             <div className="flex items-center gap-1 px-3 py-1 bg-white border-b border-neutral-300 text-xs overflow-x-auto whitespace-nowrap select-none">
-            {/* 실행 취소 / 다시 실행 */}
-            <button
-              type="button"
-              onClick={handleUndo}
-              className={`w-6 h-6 rounded flex items-center justify-center transition cursor-pointer ${
-                canUndo ? "text-neutral-800 hover:bg-neutral-100" : "text-neutral-300 hover:bg-neutral-50"
-              }`}
-              title="실행 취소 (Ctrl+Z)"
-            >
-              <UndoIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleRedo}
-              className={`w-6 h-6 rounded flex items-center justify-center transition cursor-pointer ${
-                canRedo ? "text-neutral-800 hover:bg-neutral-100" : "text-neutral-300 hover:bg-neutral-50"
-              }`}
-              title="다시 실행 (Ctrl+Y)"
-            >
-              <RedoIcon className="w-3.5 h-3.5" />
-            </button>
-
-            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
-
-            {/* 스타일 프리셋 (바탕글 ▾) */}
-            <select
-              onChange={(e) => applyStylePreset(e.target.value)}
-              defaultValue="body"
-              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] cursor-pointer"
-              title="스타일 선택"
-            >
-              <option value="body">바탕글</option>
-              <option value="heading1">개요 1 (제목 1)</option>
-              <option value="heading2">개요 2 (제목 2)</option>
-              <option value="title">문서 제목</option>
-            </select>
-
-            {/* 언어 영역 (대표 ▾) */}
-            <select
-              defaultValue="rep"
-              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] cursor-pointer"
-              title="글꼴 언어 영역"
-            >
-              <option value="rep">대표</option>
-              <option value="hangul">한글</option>
-              <option value="latin">영문</option>
-              <option value="hanja">한자</option>
-              <option value="symbol">기호</option>
-            </select>
-
-            {/* 대표 글꼴 */}
-            <select
-              disabled={!isParagraph}
-              value={currentPara?.fontFamily || editorFonts[0]?.value || FONT_FAMILIES[0].value}
-              onChange={(e) => {
-                if (e.target.value === "__ADD_FONT__") {
-                  setShowAddFontModal(true);
-                  return;
-                }
-                applyFontFamily(e.target.value);
-              }}
-              className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] disabled:opacity-40 max-w-[130px] cursor-pointer"
-              title="글꼴 변경"
-            >
-              {editorFonts.map((f) => (
-                <option key={f.id || f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-              <option value="__ADD_FONT__">➕ 폰트 추가 / 관리...</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => setShowAddFontModal(true)}
-              className="px-1.5 py-0.5 rounded border border-neutral-300 hover:bg-neutral-100 text-neutral-700 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-              title="글꼴(폰트) 추가 및 관리"
-            >
-              <span className="text-[11px]">🔤</span>
-              <span className="text-[10px] text-blue-600 font-bold">+</span>
-            </button>
-
-            {/* 글자 크기 스피너 [-] 10.0 pt [+] */}
-            <div className="flex items-center border border-neutral-300 rounded bg-neutral-50 overflow-hidden">
+              {/* 실행 취소 / 다시 실행 */}
               <button
                 type="button"
-                disabled={!isParagraph}
-                onClick={() => applyFontSize(Math.max(6, (currentPara?.sizePt || 10) - 1))}
-                className="px-1 py-0.5 hover:bg-neutral-200 text-neutral-600 disabled:opacity-40 text-[10px]"
-                title="글자 크기 1pt 줄이기"
+                onClick={handleUndo}
+                className={`w-6 h-6 rounded flex items-center justify-center transition cursor-pointer ${canUndo ? "text-neutral-800 hover:bg-neutral-100" : "text-neutral-300 hover:bg-neutral-50"
+                  }`}
+                title="실행 취소 (Ctrl+Z)"
               >
-                ▼
+                <UndoIcon className="w-3.5 h-3.5" />
               </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                className={`w-6 h-6 rounded flex items-center justify-center transition cursor-pointer ${canRedo ? "text-neutral-800 hover:bg-neutral-100" : "text-neutral-300 hover:bg-neutral-50"
+                  }`}
+                title="다시 실행 (Ctrl+Y)"
+              >
+                <RedoIcon className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+              {/* 스타일 프리셋 (바탕글 ▾) */}
+              <select
+                onChange={(e) => applyStylePreset(e.target.value)}
+                defaultValue="body"
+                className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] cursor-pointer"
+                title="스타일 선택"
+              >
+                <option value="body">바탕글</option>
+                <option value="heading1">개요 1 (제목 1)</option>
+                <option value="heading2">개요 2 (제목 2)</option>
+                <option value="title">문서 제목</option>
+              </select>
+
+              {/* 언어 영역 (대표 ▾) */}
+              <select
+                defaultValue="rep"
+                className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] cursor-pointer"
+                title="글꼴 언어 영역"
+              >
+                <option value="rep">대표</option>
+                <option value="hangul">한글</option>
+                <option value="latin">영문</option>
+                <option value="hanja">한자</option>
+                <option value="symbol">기호</option>
+              </select>
+
+              {/* 대표 글꼴 */}
               <select
                 disabled={!isParagraph}
-                value={Math.round(currentPara?.sizePt || 10)}
-                onChange={(e) => applyFontSize(Number(e.target.value))}
-                className="bg-transparent text-neutral-800 text-xs px-1 py-0.5 outline-none text-center disabled:opacity-40 cursor-pointer"
-                title="글자 크기 선택"
+                value={currentPara?.fontFamily || editorFonts[0]?.value || FONT_FAMILIES[0].value}
+                onChange={(e) => {
+                  if (e.target.value === "__ADD_FONT__") {
+                    setShowAddFontModal(true);
+                    return;
+                  }
+                  applyFontFamily(e.target.value);
+                }}
+                className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-[#0066cc] disabled:opacity-40 max-w-[130px] cursor-pointer"
+                title="글꼴 변경"
               >
-                {FONT_SIZES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}.0 pt
+                {editorFonts.map((f) => (
+                  <option key={f.id || f.value} value={f.value}>
+                    {f.label}
                   </option>
                 ))}
+                <option value="__ADD_FONT__">➕ 폰트 추가 / 관리...</option>
               </select>
               <button
                 type="button"
-                disabled={!isParagraph}
-                onClick={() => applyFontSize((currentPara?.sizePt || 10) + 1)}
-                className="px-1 py-0.5 hover:bg-neutral-200 text-neutral-600 disabled:opacity-40 text-[10px]"
-                title="글자 크기 1pt 늘리기"
+                onClick={() => setShowAddFontModal(true)}
+                className="px-1.5 py-0.5 rounded border border-neutral-300 hover:bg-neutral-100 text-neutral-700 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                title="글꼴(폰트) 추가 및 관리"
               >
-                ▲
+                <span className="text-[11px]">🔤</span>
+                <span className="text-[10px] text-blue-600 font-bold">+</span>
               </button>
-            </div>
 
-            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+              {/* 글자 크기 스피너 [-] 10.0 pt [+] */}
+              <div className="flex items-center border border-neutral-300 rounded bg-neutral-50 overflow-hidden">
+                <button
+                  type="button"
+                  disabled={!isParagraph}
+                  onClick={() => applyFontSize(Math.max(6, (currentPara?.sizePt || 10) - 1))}
+                  className="px-1 py-0.5 hover:bg-neutral-200 text-neutral-600 disabled:opacity-40 text-[10px]"
+                  title="글자 크기 1pt 줄이기"
+                >
+                  ▼
+                </button>
+                <select
+                  disabled={!isParagraph}
+                  value={Math.round(currentPara?.sizePt || 10)}
+                  onChange={(e) => applyFontSize(Number(e.target.value))}
+                  className="bg-transparent text-neutral-800 text-xs px-1 py-0.5 outline-none text-center disabled:opacity-40 cursor-pointer"
+                  title="글자 크기 선택"
+                >
+                  {FONT_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}.0 pt
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!isParagraph}
+                  onClick={() => applyFontSize((currentPara?.sizePt || 10) + 1)}
+                  className="px-1 py-0.5 hover:bg-neutral-200 text-neutral-600 disabled:opacity-40 text-[10px]"
+                  title="글자 크기 1pt 늘리기"
+                >
+                  ▲
+                </button>
+              </div>
 
-            {/* 글자 서식: 가(굵게), 가(기울임), 가(밑줄), 가(취소선) */}
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={applyBold}
-              className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs transition cursor-pointer ${
-                currentPara?.bold ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="굵게 (Ctrl+B)"
-            >
-              가
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={applyItalic}
-              className={`w-6 h-6 rounded flex items-center justify-center italic font-serif text-xs transition cursor-pointer ${
-                currentPara?.italic ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="기울임 (Ctrl+I)"
-            >
-              가
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={applyUnderline}
-              className={`w-6 h-6 rounded flex items-center justify-center underline text-xs transition cursor-pointer ${
-                currentPara?.underline ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="밑줄 (Ctrl+U)"
-            >
-              가
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={applyStrikethrough}
-              className="w-6 h-6 rounded flex items-center justify-center line-through text-xs hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
-              title="취소선"
-            >
-              가
-            </button>
+              <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
 
-            {/* 글자 색상 드롭다운 */}
-            <div className="relative">
+              {/* 글자 서식: 가(굵게), 가(기울임), 가(밑줄), 가(취소선) */}
               <button
                 type="button"
                 disabled={!isParagraph}
-                onClick={() => setShowColorPalette(!showColorPalette)}
-                className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
-                title="글자 색상"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={applyBold}
+                className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs transition cursor-pointer ${currentPara?.bold ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="굵게 (Ctrl+B)"
               >
-                <span className="font-bold border-b-2" style={{ borderColor: currentPara?.color || "#111827" }}>
-                  가
-                </span>
-                <span className="text-[8px]">▾</span>
+                가
               </button>
-              {showColorPalette && (
-                <div className="absolute top-8 left-0 z-50 bg-white border border-neutral-300 shadow-lg rounded p-2 flex items-center gap-1">
-                  {FONT_COLORS.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => {
-                        applyTextColor(c.value);
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={applyItalic}
+                className={`w-6 h-6 rounded flex items-center justify-center italic font-serif text-xs transition cursor-pointer ${currentPara?.italic ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="기울임 (Ctrl+I)"
+              >
+                가
+              </button>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={applyUnderline}
+                className={`w-6 h-6 rounded flex items-center justify-center underline text-xs transition cursor-pointer ${currentPara?.underline ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="밑줄 (Ctrl+U)"
+              >
+                가
+              </button>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={applyStrikethrough}
+                className="w-6 h-6 rounded flex items-center justify-center line-through text-xs hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
+                title="취소선"
+              >
+                가
+              </button>
+
+              {/* 글자 색상 드롭다운 */}
+              <div className="relative">
+                <button
+                  type="button"
+                  disabled={!isParagraph}
+                  onClick={() => setShowColorPalette(!showColorPalette)}
+                  className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
+                  title="글자 색상"
+                >
+                  <span className="font-bold border-b-2" style={{ borderColor: currentPara?.color || "#111827" }}>
+                    가
+                  </span>
+                  <span className="text-[8px]">▾</span>
+                </button>
+                {showColorPalette && (
+                  <div className="absolute top-8 left-0 z-50 bg-white border border-neutral-300 shadow-lg rounded p-2 flex items-center gap-1">
+                    {FONT_COLORS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => {
+                          applyTextColor(c.value);
+                          setShowColorPalette(false);
+                        }}
+                        className="w-4 h-4 rounded-full border border-black/20 hover:scale-125 transition cursor-pointer"
+                        style={{ background: c.value }}
+                        title={c.label}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      value={currentPara?.color || "#111827"}
+                      onChange={(e) => {
+                        applyTextColor(e.target.value);
                         setShowColorPalette(false);
                       }}
-                      className="w-4 h-4 rounded-full border border-black/20 hover:scale-125 transition cursor-pointer"
-                      style={{ background: c.value }}
-                      title={c.label}
+                      className="w-5 h-5 rounded cursor-pointer"
+                      title="사용자 지정 색상"
                     />
-                  ))}
-                  <input
-                    type="color"
-                    value={currentPara?.color || "#111827"}
-                    onChange={(e) => {
-                      applyTextColor(e.target.value);
-                      setShowColorPalette(false);
-                    }}
-                    className="w-5 h-5 rounded cursor-pointer"
-                    title="사용자 지정 색상"
-                  />
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
 
-            {/* 형광펜 (배경 하이라이트) */}
-            <div className="relative">
+              {/* 형광펜 (배경 하이라이트) */}
+              <div className="relative">
+                <button
+                  type="button"
+                  disabled={!isParagraph}
+                  onClick={() => setShowHighlightPalette(!showHighlightPalette)}
+                  className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
+                  title="형광펜 (배경색)"
+                >
+                  <HighlighterIcon className="w-3.5 h-3.5" />
+                  <span className="text-[8px]">▾</span>
+                </button>
+                {showHighlightPalette && (
+                  <div className="absolute top-8 left-0 z-50 bg-white border border-neutral-300 shadow-lg rounded p-2 flex items-center gap-1">
+                    {[
+                      { color: "#fef08a", label: "노랑" },
+                      { color: "#bbf7d0", label: "연두" },
+                      { color: "#bae6fd", label: "하늘" },
+                      { color: "#fbcfe8", label: "분홍" },
+                      { color: "#fed7aa", label: "주황" },
+                      { color: "transparent", label: "없음" },
+                    ].map((h) => (
+                      <button
+                        key={h.color}
+                        type="button"
+                        onClick={() => applyHighlight(h.color)}
+                        className="w-4 h-4 rounded border border-neutral-400 hover:scale-125 transition cursor-pointer"
+                        style={{ background: h.color === "transparent" ? "#fff" : h.color }}
+                        title={h.label}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+              {/* 문단 정렬 4종 (양쪽맞춤, 왼, 가운데, 오른) */}
               <button
                 type="button"
                 disabled={!isParagraph}
-                onClick={() => setShowHighlightPalette(!showHighlightPalette)}
-                className="h-6 px-1.5 rounded flex items-center gap-1 hover:bg-neutral-100 text-neutral-800 transition cursor-pointer disabled:opacity-40"
-                title="형광펜 (배경색)"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
+                className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${currentPara?.align === "justify" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="양쪽 맞춤"
               >
-                <HighlighterIcon className="w-3.5 h-3.5" />
-                <span className="text-[8px]">▾</span>
-              </button>
-              {showHighlightPalette && (
-                <div className="absolute top-8 left-0 z-50 bg-white border border-neutral-300 shadow-lg rounded p-2 flex items-center gap-1">
-                  {[
-                    { color: "#fef08a", label: "노랑" },
-                    { color: "#bbf7d0", label: "연두" },
-                    { color: "#bae6fd", label: "하늘" },
-                    { color: "#fbcfe8", label: "분홍" },
-                    { color: "#fed7aa", label: "주황" },
-                    { color: "transparent", label: "없음" },
-                  ].map((h) => (
-                    <button
-                      key={h.color}
-                      type="button"
-                      onClick={() => applyHighlight(h.color)}
-                      className="w-4 h-4 rounded border border-neutral-400 hover:scale-125 transition cursor-pointer"
-                      style={{ background: h.color === "transparent" ? "#fff" : h.color }}
-                      title={h.label}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
-
-            {/* 문단 정렬 4종 (양쪽맞춤, 왼, 가운데, 오른) */}
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
-              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
-                currentPara?.align === "justify" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="양쪽 맞춤"
-            >
-              <AlignJustifyIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => updateParagraphStyle(selectedIdx, { align: "left" })}
-              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
-                currentPara?.align === "left" || !currentPara?.align ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="왼쪽 정렬"
-            >
-              <AlignLeftIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => updateParagraphStyle(selectedIdx, { align: "center" })}
-              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
-                currentPara?.align === "center" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="가운데 정렬"
-            >
-              <AlignCenterIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => updateParagraphStyle(selectedIdx, { align: "right" })}
-              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
-                currentPara?.align === "right" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="오른쪽 정렬"
-            >
-              <AlignRightIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
-              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${
-                currentPara?.align === "justify" ? "hover:bg-neutral-100 text-neutral-800" : "hover:bg-neutral-100 text-neutral-800"
-              } disabled:opacity-40`}
-              title="배분 정렬"
-            >
-              <AlignDistributeIcon className="w-3.5 h-3.5" />
-            </button>
-
-            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
-
-            {/* 줄 간격 (160%) */}
-            <div className="flex items-center gap-1 text-xs text-neutral-700">
-              <span title="줄 간격">
-                <LineSpacingIcon className="w-3.5 h-3.5" />
-              </span>
-              <select
-                defaultValue="160"
-                className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1 py-0.5 text-xs outline-none cursor-pointer"
-                title="줄 간격 설정"
-              >
-                <option value="100">100%</option>
-                <option value="130">130%</option>
-                <option value="150">150%</option>
-                <option value="160">160%</option>
-                <option value="180">180%</option>
-                <option value="200">200%</option>
-              </select>
-            </div>
-
-            <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
-
-            {/* 들여쓰기 / 내어쓰기 */}
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onClick={() => handleIndent(false)}
-              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
-              title="내어쓰기 (공백 제거)"
-            >
-              <IndentDecIcon className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={!isParagraph}
-              onClick={() => handleIndent(true)}
-              className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
-              title="들여쓰기 (문단 시작 공백 추가)"
-            >
-              <IndentIncIcon className="w-3.5 h-3.5" />
-            </button>
-
-            {/* 문단 추가 / 삭제 */}
-            <div className="ml-auto flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => addParagraph(selectedIdx)}
-                className="px-2 py-0.5 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium border border-neutral-300 transition cursor-pointer flex items-center gap-1"
-                title="아래에 새 문단 추가"
-              >
-                <span>↵</span>
-                <span>문단 추가</span>
+                <AlignJustifyIcon className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
-                disabled={blocks.length <= 1}
-                onClick={() => deleteBlock(selectedIdx)}
-                className="p-1 rounded text-red-600 hover:bg-red-50 text-xs transition disabled:opacity-30 cursor-pointer"
-                title="현재 블록 삭제"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => updateParagraphStyle(selectedIdx, { align: "left" })}
+                className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${currentPara?.align === "left" || !currentPara?.align ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="왼쪽 정렬"
               >
-                <TrashIcon className="w-3.5 h-3.5" />
+                <AlignLeftIcon className="w-3.5 h-3.5" />
               </button>
-            </div>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => updateParagraphStyle(selectedIdx, { align: "center" })}
+                className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${currentPara?.align === "center" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="가운데 정렬"
+              >
+                <AlignCenterIcon className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => updateParagraphStyle(selectedIdx, { align: "right" })}
+                className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${currentPara?.align === "right" ? "bg-[#0066cc] text-white" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="오른쪽 정렬"
+              >
+                <AlignRightIcon className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => updateParagraphStyle(selectedIdx, { align: "justify" })}
+                className={`w-6 h-6 rounded flex items-center justify-center text-xs transition cursor-pointer ${currentPara?.align === "justify" ? "hover:bg-neutral-100 text-neutral-800" : "hover:bg-neutral-100 text-neutral-800"
+                  } disabled:opacity-40`}
+                title="배분 정렬"
+              >
+                <AlignDistributeIcon className="w-3.5 h-3.5" />
+              </button>
+
+              <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+              {/* 줄 간격 (160%) */}
+              <div className="flex items-center gap-1 text-xs text-neutral-700">
+                <span title="줄 간격">
+                  <LineSpacingIcon className="w-3.5 h-3.5" />
+                </span>
+                <select
+                  defaultValue="160"
+                  className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1 py-0.5 text-xs outline-none cursor-pointer"
+                  title="줄 간격 설정"
+                >
+                  <option value="100">100%</option>
+                  <option value="130">130%</option>
+                  <option value="150">150%</option>
+                  <option value="160">160%</option>
+                  <option value="180">180%</option>
+                  <option value="200">200%</option>
+                </select>
+              </div>
+
+              <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
+
+              {/* 들여쓰기 / 내어쓰기 */}
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onClick={() => handleIndent(false)}
+                className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
+                title="내어쓰기 (공백 제거)"
+              >
+                <IndentDecIcon className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={!isParagraph}
+                onClick={() => handleIndent(true)}
+                className="w-6 h-6 rounded flex items-center justify-center text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 cursor-pointer"
+                title="들여쓰기 (문단 시작 공백 추가)"
+              >
+                <IndentIncIcon className="w-3.5 h-3.5" />
+              </button>
+
+              {/* 문단 추가 / 삭제 */}
+              <div className="ml-auto flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => addParagraph(selectedIdx)}
+                  className="px-2 py-0.5 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium border border-neutral-300 transition cursor-pointer flex items-center gap-1"
+                  title="아래에 새 문단 추가"
+                >
+                  <span>↵</span>
+                  <span>문단 추가</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={blocks.length <= 1}
+                  onClick={() => deleteBlock(selectedIdx)}
+                  className="p-1 rounded text-red-600 hover:bg-red-50 text-xs transition disabled:opacity-30 cursor-pointer"
+                  title="현재 블록 삭제"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -6268,11 +6860,10 @@ function HwpxEditorModalInner({
                     key={s.type}
                     type="button"
                     onClick={() => setNewShapeType(s.type)}
-                    className={`flex flex-col items-center justify-center p-2 rounded-lg border text-xs transition cursor-pointer ${
-                      newShapeType === s.type
-                        ? "border-[#0066cc] bg-blue-50 text-[#0066cc] font-bold shadow-xs"
-                        : "border-neutral-200 hover:bg-neutral-50 text-neutral-700"
-                    }`}
+                    className={`flex flex-col items-center justify-center p-2 rounded-lg border text-xs transition cursor-pointer ${newShapeType === s.type
+                      ? "border-[#0066cc] bg-blue-50 text-[#0066cc] font-bold shadow-xs"
+                      : "border-neutral-200 hover:bg-neutral-50 text-neutral-700"
+                      }`}
                   >
                     <span className="text-lg leading-none mb-1">{s.icon}</span>
                     <span className="text-[10px] text-center">{s.label}</span>
@@ -6300,11 +6891,10 @@ function HwpxEditorModalInner({
                       setNewShapeFill(c.fill);
                       setNewShapeStroke(c.stroke);
                     }}
-                    className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] transition cursor-pointer ${
-                      newShapeFill === c.fill && newShapeStroke === c.stroke
-                        ? "border-[#0066cc] bg-blue-50/50 font-bold"
-                        : "border-neutral-200 hover:bg-neutral-50"
-                    }`}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] transition cursor-pointer ${newShapeFill === c.fill && newShapeStroke === c.stroke
+                      ? "border-[#0066cc] bg-blue-50/50 font-bold"
+                      : "border-neutral-200 hover:bg-neutral-50"
+                      }`}
                   >
                     <span
                       className="w-3.5 h-3.5 rounded border shrink-0"
@@ -6329,11 +6919,10 @@ function HwpxEditorModalInner({
                     key={w}
                     type="button"
                     onClick={() => setNewShapeWidth(w)}
-                    className={`px-2 py-0.5 rounded text-[11px] border transition cursor-pointer ${
-                      newShapeWidth === w
-                        ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
-                        : "bg-neutral-50 text-neutral-700 border-neutral-300 hover:bg-neutral-100"
-                    }`}
+                    className={`px-2 py-0.5 rounded text-[11px] border transition cursor-pointer ${newShapeWidth === w
+                      ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
+                      : "bg-neutral-50 text-neutral-700 border-neutral-300 hover:bg-neutral-100"
+                      }`}
                   >
                     {w}%
                   </button>
@@ -6516,11 +7105,10 @@ function HwpxEditorModalInner({
                       <div
                         key={type.id}
                         onClick={() => setSelectedChartType(type.id)}
-                        className={`p-3 rounded-lg border-2 cursor-pointer flex items-center gap-3 transition-all ${
-                          selectedChartType === type.id
-                            ? "border-[#0066cc] bg-blue-50/50 shadow-xs"
-                            : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
-                        }`}
+                        className={`p-3 rounded-lg border-2 cursor-pointer flex items-center gap-3 transition-all ${selectedChartType === type.id
+                          ? "border-[#0066cc] bg-blue-50/50 shadow-xs"
+                          : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
+                          }`}
                       >
                         <div className="shrink-0 p-1 bg-white rounded border border-neutral-200 shadow-2xs">
                           {type.icon}
@@ -6942,156 +7530,188 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* 글자 모양 모달 */}
+        {/* 글자 모양 모달 (한컴독스 표준: 기본 + 확장 탭) */}
         {showCharShapeModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <CharShapeIcon className="w-4 h-4" />
-                <span>글자 모양 (Alt+L)</span>
-              </span>
-              <button type="button" onClick={() => setShowCharShapeModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-            </h4>
-            <div className="flex flex-col gap-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span>글꼴:</span>
-                <select
-                  value={currentPara?.fontFamily || editorFonts[0]?.value || FONT_FAMILIES[0].value}
-                  onChange={(e) => {
-                    if (e.target.value === "__ADD_FONT__") {
-                      setShowAddFontModal(true);
-                      return;
+          <CharShapeModal
+            initial={{
+              fontFamily: currentPara?.fontFamily || editorFonts[0]?.value || FONT_FAMILIES[0].value,
+              sizePt: currentPara?.sizePt || 10,
+              bold: Boolean(currentPara?.bold),
+              italic: Boolean(currentPara?.italic),
+              underline: Boolean(currentPara?.underline),
+              strikethrough: Boolean(currentPara?.strikethrough),
+              color: currentPara?.color || "#000000",
+              shadingColor: currentPara?.shadingColor || "",
+              relativeSizePct: currentPara?.relativeSizePct ?? 100,
+              charWidthPct: currentPara?.charWidthPct ?? 100,
+              charPosPct: currentPara?.charPosPct ?? 0,
+              letterSpacingPct: currentPara?.letterSpacingPct ?? 0,
+            }}
+            editorFonts={editorFonts}
+            onOpenAddFont={() => setShowAddFontModal(true)}
+            onApply={(v) => {
+              const targetBlockId = currentPara?.id;
+              const applySpanStyle = (span: HTMLSpanElement) => {
+                if (v.fontFamily) span.style.fontFamily = v.fontFamily;
+                const effPt = (v.sizePt || 10) * ((v.relativeSizePct ?? 100) / 100);
+                span.style.fontSize = `${Number(effPt.toFixed(2))}pt`;
+                span.style.fontWeight = v.bold ? "bold" : "normal";
+                span.style.fontStyle = v.italic ? "italic" : "normal";
+                span.style.textDecoration =
+                  [v.underline ? "underline" : "", v.strikethrough ? "line-through" : ""].filter(Boolean).join(" ") || "none";
+                if (v.color) span.style.color = v.color;
+                span.style.backgroundColor = v.shadingColor || "";
+                span.style.letterSpacing = v.letterSpacingPct ? `${v.letterSpacingPct * 0.01}em` : "";
+                if (v.charWidthPct && v.charWidthPct !== 100) {
+                  span.style.display = "inline-block";
+                  span.style.transform = `scaleX(${v.charWidthPct / 100})`;
+                  span.style.transformOrigin = "left center";
+                }
+                if (v.charPosPct) {
+                  span.style.position = "relative";
+                  span.style.top = `${-v.charPosPct * 0.01}em`;
+                }
+                if (v.superscript) span.style.verticalAlign = "super";
+                else if (v.subscript) span.style.verticalAlign = "sub";
+              };
+
+              restoreSelection();
+              const sel = window.getSelection();
+              const range =
+                sel && sel.rangeCount > 0 && !sel.isCollapsed
+                  ? sel.getRangeAt(0)
+                  : lastSelectionRangeRef.current && !lastSelectionRangeRef.current.collapsed
+                    ? lastSelectionRangeRef.current
+                    : null;
+
+              const crossSel = getCrossParagraphSelection();
+              if (range && !crossSel) {
+                const startEl =
+                  range.startContainer.nodeType === Node.ELEMENT_NODE
+                    ? (range.startContainer as HTMLElement)
+                    : range.startContainer.parentElement;
+                const pEl = startEl?.closest('[data-block-type="paragraph"] p') as HTMLElement | null;
+                if (pEl && pEl.contains(range.commonAncestorContainer)) {
+                  const span = document.createElement("span");
+                  applySpanStyle(span);
+                  span.appendChild(range.extractContents());
+                  range.insertNode(span);
+                  const newRange = document.createRange();
+                  newRange.selectNodeContents(span);
+                  sel?.removeAllRanges();
+                  sel?.addRange(newRange);
+                  lastSelectionRangeRef.current = newRange.cloneRange();
+                  requestAnimationFrame(() => {
+                    pEl.focus({ preventScroll: true });
+                    pEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+                  });
+                  return;
+                }
+              }
+
+              if (crossSel) {
+                // 문단 간 드래그 선택 시 각 문단의 선택 범위만 span으로 스타일 적용
+                const root = canvasRef.current;
+                if (root) {
+                  for (let i = crossSel.startIdx; i <= crossSel.endIdx; i++) {
+                    const pEl = root.querySelector<HTMLElement>(`[data-block-type="paragraph"] p[data-block-idx="${i}"]`);
+                    if (!pEl) continue;
+                    const textLen = (pEl.innerText || "").replace(/\r?\n$/, "").length;
+                    const sOff = i === crossSel.startIdx ? crossSel.startOffset : 0;
+                    const eOff = i === crossSel.endIdx ? crossSel.endOffset : textLen;
+                    if (eOff <= sOff) continue;
+                    const startPt = resolveNodeAndOffset(pEl, sOff);
+                    const endPt = resolveNodeAndOffset(pEl, eOff);
+                    const r = document.createRange();
+                    r.setStart(startPt.node, startPt.offset);
+                    r.setEnd(endPt.node, endPt.offset);
+                    const span = document.createElement("span");
+                    applySpanStyle(span);
+                    span.appendChild(r.extractContents());
+                    r.insertNode(span);
+                  }
+                  setIsCrossSelecting(false);
+                }
+                return;
+              }
+
+              updateParagraphStyle(selectedIdx, {
+                fontFamily: v.fontFamily,
+                sizePt: v.sizePt,
+                bold: v.bold,
+                italic: v.italic,
+                underline: v.underline,
+                strikethrough: v.strikethrough,
+                color: v.color,
+                shadingColor: v.shadingColor,
+                relativeSizePct: v.relativeSizePct,
+                charWidthPct: v.charWidthPct,
+                charPosPct: v.charPosPct,
+                letterSpacingPct: v.letterSpacingPct,
+              });
+              if (targetBlockId) {
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${targetBlockId}"] p`);
+                    if (pEl) {
+                      pEl.focus({ preventScroll: true });
+                      pEl.scrollIntoView({ block: "nearest", inline: "nearest" });
                     }
-                    applyFontFamily(e.target.value);
-                  }}
-                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1 w-44"
-                >
-                  {editorFonts.map((f) => (
-                    <option key={f.id || f.value} value={f.value}>{f.label}</option>
-                  ))}
-                  <option value="__ADD_FONT__">➕ 폰트 추가 / 관리...</option>
-                </select>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>글자 크기:</span>
-                <input
-                  type="number"
-                  min={6}
-                  max={72}
-                  value={Math.round(currentPara?.sizePt || 10)}
-                  onChange={(e) => applyFontSize(Number(e.target.value))}
-                  className="bg-neutral-50 border border-neutral-300 rounded px-2 py-1 w-20 text-center"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span>글자 속성:</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={applyBold}
-                    className={`px-2 py-1 rounded border text-xs font-bold ${currentPara?.bold ? "bg-[#0066cc] text-white" : "bg-neutral-50"}`}
-                  >
-                    B
-                  </button>
-                  <button
-                    type="button"
-                    onClick={applyItalic}
-                    className={`px-2 py-1 rounded border text-xs italic ${currentPara?.italic ? "bg-[#0066cc] text-white" : "bg-neutral-50"}`}
-                  >
-                    I
-                  </button>
-                  <button
-                    type="button"
-                    onClick={applyUnderline}
-                    className={`px-2 py-1 rounded border text-xs underline ${currentPara?.underline ? "bg-[#0066cc] text-white" : "bg-neutral-50"}`}
-                  >
-                    U
-                  </button>
-                  <button
-                    type="button"
-                    onClick={applyStrikethrough}
-                    className="px-2 py-1 rounded border text-xs line-through bg-neutral-50"
-                  >
-                    S
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-neutral-200">
-              <button
-                type="button"
-                onClick={() => setShowCharShapeModal(false)}
-                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
-              >
-                확인
-              </button>
-            </div>
-          </div>
+                  });
+                });
+              }
+            }}
+            onClose={() => setShowCharShapeModal(false)}
+          />
         )}
 
-        {/* 문단 모양 모달 */}
+        {/* 문단 모양 모달 (한컴독스 표준: 기본 + 테두리/배경 탭) */}
         {showParaShapeModal && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-60 bg-white border border-neutral-300 shadow-2xl p-4 rounded-xl flex flex-col gap-3 w-80 text-neutral-800">
-            <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-              <span className="flex items-center gap-1.5">
-                <ParaShapeIcon className="w-4 h-4" />
-                <span>문단 모양 (Alt+T)</span>
-              </span>
-              <button type="button" onClick={() => setShowParaShapeModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-            </h4>
-            <div className="flex flex-col gap-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span>정렬 방식:</span>
-                <div className="flex items-center gap-1">
-                  {[
-                    { align: "justify" as const, label: "양쪽" },
-                    { align: "left" as const, label: "왼쪽" },
-                    { align: "center" as const, label: "가운데" },
-                    { align: "right" as const, label: "오른쪽" },
-                  ].map((a) => (
-                    <button
-                      key={a.align}
-                      type="button"
-                      onClick={() => updateParagraphStyle(selectedIdx, { align: a.align })}
-                      className={`px-2 py-1 rounded border text-xs ${
-                        (currentPara?.align || "justify") === a.align ? "bg-[#0066cc] text-white font-bold" : "bg-neutral-50"
-                      }`}
-                    >
-                      {a.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>들여쓰기:</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleIndent(false)}
-                    className="px-2 py-1 rounded border bg-neutral-50 hover:bg-neutral-100"
-                  >
-                    내어쓰기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleIndent(true)}
-                    className="px-2 py-1 rounded border bg-neutral-50 hover:bg-neutral-100"
-                  >
-                    들여쓰기
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-neutral-200">
-              <button
-                type="button"
-                onClick={() => setShowParaShapeModal(false)}
-                className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
-              >
-                확인
-              </button>
-            </div>
-          </div>
+          <ParaShapeModal
+            initial={{
+              align: currentPara?.align || "justify",
+              marginLeftPt: currentPara?.marginLeftPt ?? 0,
+              marginRightPt: currentPara?.marginRightPt ?? 0,
+              firstLineType: currentPara?.firstLineType ?? "none",
+              firstLinePt: currentPara?.firstLinePt ?? 0,
+              lineSpacingPct: currentPara?.lineSpacingPct ?? 160,
+              spaceBeforePt: currentPara?.spaceBeforePt ?? 0,
+              spaceAfterPt: currentPara?.spaceAfterPt ?? 0,
+              paraBorderType: currentPara?.paraBorderType || "없음",
+              paraBorderWidth: currentPara?.paraBorderWidth || "0.1mm",
+              paraBorderColor: currentPara?.paraBorderColor || "#000000",
+              paraBgColor: currentPara?.paraBgColor || "",
+            }}
+            onApply={(v) => {
+              const targetBlockId = currentPara?.id;
+              updateParagraphStyle(selectedIdx, {
+                align: v.align,
+                marginLeftPt: v.marginLeftPt,
+                marginRightPt: v.marginRightPt,
+                firstLineType: v.firstLineType,
+                firstLinePt: v.firstLinePt,
+                lineSpacingPct: v.lineSpacingPct,
+                spaceBeforePt: v.spaceBeforePt,
+                spaceAfterPt: v.spaceAfterPt,
+                paraBorderType: v.paraBorderType,
+                paraBorderWidth: v.paraBorderWidth,
+                paraBorderColor: v.paraBorderColor,
+                paraBgColor: v.paraBgColor,
+              });
+              if (targetBlockId) {
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    const pEl = document.querySelector<HTMLElement>(`[data-block-id="${targetBlockId}"] p`);
+                    if (pEl) {
+                      pEl.focus({ preventScroll: true });
+                      pEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+                    }
+                  });
+                });
+              }
+            }}
+            onClose={() => setShowParaShapeModal(false)}
+          />
         )}
 
         {/* 한컴독스 표준 찾아 바꾸기 모달 (Ctrl+H) */}
@@ -7464,11 +8084,10 @@ function HwpxEditorModalInner({
                         <button
                           type="button"
                           onClick={() => handleDraftOrientationChange("portrait")}
-                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
-                            draftPageOrientation === "portrait"
-                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
-                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
-                          }`}
+                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${draftPageOrientation === "portrait"
+                            ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                            : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                            }`}
                           title="세로 방향"
                         >
                           <div className="w-5 h-7 border border-neutral-600 bg-white flex flex-col justify-center gap-0.5 p-0.5 shadow-2xs">
@@ -7482,11 +8101,10 @@ function HwpxEditorModalInner({
                         <button
                           type="button"
                           onClick={() => handleDraftOrientationChange("landscape")}
-                          className={`w-11 h-10 border rounded-xs flex items-center justify-center cursor-pointer transition ${
-                            draftPageOrientation === "landscape"
-                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
-                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
-                          }`}
+                          className={`w-11 h-10 border rounded-xs flex items-center justify-center cursor-pointer transition ${draftPageOrientation === "landscape"
+                            ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                            : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                            }`}
                           title="가로 방향"
                         >
                           <div className="w-7 h-5 border border-neutral-600 bg-white flex flex-col justify-center gap-0.5 p-0.5 shadow-2xs">
@@ -7506,11 +8124,10 @@ function HwpxEditorModalInner({
                         <button
                           type="button"
                           onClick={() => setDraftPageBindingType("left")}
-                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
-                            draftPageBindingType === "left"
-                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
-                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
-                          }`}
+                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${draftPageBindingType === "left"
+                            ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                            : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                            }`}
                           title="한쪽 제본"
                         >
                           <div className="w-5 h-7 border border-neutral-600 bg-white relative flex items-center justify-center shadow-2xs">
@@ -7523,11 +8140,10 @@ function HwpxEditorModalInner({
                         <button
                           type="button"
                           onClick={() => setDraftPageBindingType("spread")}
-                          className={`w-11 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
-                            draftPageBindingType === "spread"
-                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
-                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
-                          }`}
+                          className={`w-11 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${draftPageBindingType === "spread"
+                            ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                            : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                            }`}
                           title="맞쪽 제본"
                         >
                           <div className="w-8 h-7 border border-neutral-600 bg-white relative flex items-center justify-between px-0.5 shadow-2xs">
@@ -7541,11 +8157,10 @@ function HwpxEditorModalInner({
                         <button
                           type="button"
                           onClick={() => setDraftPageBindingType("top")}
-                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${
-                            draftPageBindingType === "top"
-                              ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
-                              : "border-[#c5ceda] bg-white hover:bg-neutral-50"
-                          }`}
+                          className={`w-10 h-11 border rounded-xs flex items-center justify-center cursor-pointer transition ${draftPageBindingType === "top"
+                            ? "border-[#7b8ba5] bg-[#e2e6ee] shadow-2xs"
+                            : "border-[#c5ceda] bg-white hover:bg-neutral-50"
+                            }`}
                           title="위쪽 제본"
                         >
                           <div className="w-5 h-7 border border-neutral-600 bg-white relative flex flex-col items-center justify-center shadow-2xs">
@@ -7653,19 +8268,194 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* ── 한컴오피스 / 한컴독스 표준 개체 우클릭 컨텍스트 메뉴 (첨부 1번 이미지 100% 매칭) ── */}
+        {/* ── 한컴오피스 / 한컴독스 표준 우클릭 컨텍스트 메뉴 (문단 일반/선택 & 개체) ── */}
         {contextMenu && (() => {
+          if (contextMenu.blockType === "paragraph") {
+            const hasSel = Boolean(contextMenu.hasSelection);
+            const handleEraseSelection = () => {
+              const crossSel = getCrossParagraphSelection();
+              if (crossSel) {
+                const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                const startBlock = blocks[crossSel.startIdx];
+                const endBlock = blocks[crossSel.endIdx];
+                if (startBlock && endBlock && startBlock.type === "paragraph" && endBlock.type === "paragraph") {
+                  const mergedText = (startBlock.text || "").slice(0, crossSel.startOffset) + (endBlock.text || "").slice(crossSel.endOffset);
+                  doc.transact(() => {
+                    const yStart = yBlocks.get(crossSel.startIdx);
+                    const yText = yStart?.get("text") as Y.Text | undefined;
+                    if (yText) {
+                      yText.delete(0, yText.length);
+                      yText.insert(0, mergedText);
+                    }
+                    yBlocks.delete(crossSel.startIdx + 1, crossSel.endIdx - crossSel.startIdx);
+                  });
+                  pendingCaretRef.current = { mode: "offset", blockId: startBlock.id, offset: crossSel.startOffset };
+                  setIsCrossSelecting(false);
+                  setSelectedIdx(crossSel.startIdx);
+                  return;
+                }
+              }
+              restoreSelection();
+              document.execCommand("delete");
+              triggerActiveBlockInput();
+            };
+            return (
+              <div
+                data-context-menu="true"
+                style={{
+                  top: `${Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - (hasSel ? 340 : 260))}px`,
+                  left: `${Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 240)}px`,
+                }}
+                className="fixed z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[230px] text-[12px] text-neutral-800 select-none animate-in fade-in duration-100 font-sans"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {hasSel && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setContextMenu(null); handleCut(); }}
+                      className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <CutIcon className="w-4 h-4 text-neutral-600" />
+                        <span>오려 두기</span>
+                      </span>
+                      <span className="text-[11px] text-neutral-400 font-mono">Ctrl+X</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setContextMenu(null); handleCopy(); }}
+                      className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <CopyIcon className="w-4 h-4 text-neutral-600" />
+                        <span>복사하기</span>
+                      </span>
+                      <span className="text-[11px] text-neutral-400 font-mono">Ctrl+C</span>
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetIdx = contextMenu.blockIdx;
+                    setContextMenu(null);
+                    void handlePaste(targetIdx);
+                  }}
+                  className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <PasteIcon className="w-4 h-4 text-amber-600" />
+                    <span>붙이기</span>
+                  </span>
+                  <span className="text-[11px] text-neutral-400 font-mono">Ctrl+V</span>
+                </button>
+
+                {hasSel && (
+                  <button
+                    type="button"
+                    onClick={() => { setContextMenu(null); handleEraseSelection(); }}
+                    className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <EraserIcon className="w-4 h-4 text-neutral-600" />
+                      <span>지우기</span>
+                    </span>
+                  </button>
+                )}
+
+                <div className="my-1 border-t border-neutral-200" />
+
+                <button
+                  type="button"
+                  onClick={() => { setContextMenu(null); setShowCharShapeModal(true); }}
+                  className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <CharShapeIcon className="w-4 h-4 text-blue-600" />
+                    <span>글자 모양...</span>
+                  </span>
+                  <span className="text-[11px] text-neutral-400 font-mono">Alt+L</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setContextMenu(null); setShowParaShapeModal(true); }}
+                  className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <ParaShapeIcon className="w-4 h-4 text-blue-600" />
+                    <span>문단 모양...</span>
+                  </span>
+                  <span className="text-[11px] text-neutral-400 font-mono">Alt+T</span>
+                </button>
+
+                <div className="my-1 border-t border-neutral-200" />
+
+                <button
+                  type="button"
+                  onClick={() => { setContextMenu(null); setShowHyperlinkModal(true); }}
+                  className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <HyperlinkIcon className="w-4 h-4 text-blue-600" />
+                    <span>하이퍼링크...</span>
+                  </span>
+                  <span className="text-[11px] text-neutral-400 font-mono">Ctrl+K+H</span>
+                </button>
+
+                <div className="my-1 border-t border-neutral-200" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetIdx = contextMenu.blockIdx;
+                    setContextMenu(null);
+                    addMemoToBlock(targetIdx);
+                  }}
+                  className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <CommentIcon className="w-4 h-4 text-amber-500" />
+                    <span>메모</span>
+                  </span>
+                </button>
+
+                {!hasSel && (
+                  <>
+                    <div className="my-1 border-t border-neutral-200" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContextMenu(null);
+                        showToast(`${currentPageNum}쪽 ${contextMenu.blockIdx + 1}번째 문단 위치를 공유했습니다.`);
+                      }}
+                      className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <span className="w-4 inline-block" />
+                        <span>채팅 창에 현재 위치 공유</span>
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          }
+
           const targetBlock = blocks[contextMenu.blockIdx];
           const hasCaption = !!(
             targetBlock &&
             (("captionPos" in targetBlock && targetBlock.captionPos && targetBlock.captionPos !== "none") ||
-             ("caption" in targetBlock && targetBlock.caption && targetBlock.caption.trim() !== ""))
+              ("caption" in targetBlock && targetBlock.caption && targetBlock.caption.trim() !== ""))
           );
           const isShape = targetBlock?.type === "shape";
           const shapeHasText = isShape && !!((targetBlock as HwpxShapeBlock).text);
 
           return (
             <div
+              data-context-menu="true"
               style={{
                 top: `${Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 340)}px`,
                 left: `${Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 220)}px`,
@@ -7796,7 +8586,7 @@ function HwpxEditorModalInner({
                 type="button"
                 disabled={hasCaption}
                 onClick={() => {
-                  if (hasCaption) return;
+                  if (hasCaption || contextMenu.blockType === "paragraph") return;
                   const autoText = getAutoCaptionText(contextMenu.blockIdx, contextMenu.blockType);
                   const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
                   const yBlock = yBlocks.get(contextMenu.blockIdx);
@@ -7811,11 +8601,10 @@ function HwpxEditorModalInner({
                   }
                   setContextMenu(null);
                 }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left ${
-                  hasCaption
-                    ? "text-neutral-300 cursor-not-allowed"
-                    : "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
-                }`}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left ${hasCaption
+                  ? "text-neutral-300 cursor-not-allowed"
+                  : "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                  }`}
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
                   <rect x="3" y="4" width="18" height="13" rx="1.5" stroke={hasCaption ? "#d1d5db" : "#4b5563"} strokeWidth="1.5" />
@@ -7840,11 +8629,10 @@ function HwpxEditorModalInner({
                   }
                   setContextMenu(null);
                 }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left pl-9 ${
-                  hasCaption
-                    ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
-                    : "text-neutral-300 cursor-not-allowed"
-                }`}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left pl-9 ${hasCaption
+                  ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                  : "text-neutral-300 cursor-not-allowed"
+                  }`}
               >
                 <span>캡션 지우기</span>
               </button>
@@ -7861,11 +8649,10 @@ function HwpxEditorModalInner({
                   }
                   setContextMenu(null);
                 }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left ${
-                  isShape
-                    ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
-                    : "text-neutral-300 cursor-not-allowed"
-                }`}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left ${isShape
+                  ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                  : "text-neutral-300 cursor-not-allowed"
+                  }`}
               >
                 <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
                   <rect x="3" y="5" width="18" height="14" rx="1" stroke={isShape ? "#3b82f6" : "#cbd5e1"} strokeWidth="1.2" strokeDasharray="2 2" fill={isShape ? "#eff6ff" : "#f8fafc"} />
@@ -7884,11 +8671,10 @@ function HwpxEditorModalInner({
                   }
                   setContextMenu(null);
                 }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left pl-9 ${
-                  shapeHasText
-                    ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
-                    : "text-neutral-300 cursor-not-allowed"
-                }`}
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left pl-9 ${shapeHasText
+                  ? "hover:bg-[#ebf3fb] text-neutral-800 cursor-pointer"
+                  : "text-neutral-300 cursor-not-allowed"
+                  }`}
               >
                 <span>글상자 속성 없애기</span>
               </button>
@@ -7950,8 +8736,8 @@ function HwpxEditorModalInner({
                   {blocks[propertyTargetIdx]?.type === "table"
                     ? "표/셀 속성"
                     : blocks[propertyTargetIdx]?.type === "image"
-                    ? "그림 개체 속성"
-                    : "도형 개체 속성"}
+                      ? "그림 개체 속성"
+                      : "도형 개체 속성"}
                 </span>
                 <button
                   type="button"
@@ -7979,11 +8765,10 @@ function HwpxEditorModalInner({
                         key={tab.id}
                         type="button"
                         onClick={() => setPropActiveTab(tab.id)}
-                        className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 text-xs ${
-                          propActiveTab === tab.id
-                            ? "border-[#0066cc] text-[#0066cc] font-bold bg-white -mb-px border-t border-x border-neutral-200"
-                            : "border-transparent text-neutral-600 hover:text-neutral-900"
-                        }`}
+                        className={`px-3 py-1 font-medium transition cursor-pointer border-b-2 text-xs ${propActiveTab === tab.id
+                          ? "border-[#0066cc] text-[#0066cc] font-bold bg-white -mb-px border-t border-x border-neutral-200"
+                          : "border-transparent text-neutral-600 hover:text-neutral-900"
+                          }`}
                       >
                         {tab.label}
                       </button>
@@ -8102,11 +8887,10 @@ function HwpxEditorModalInner({
                                   key={item.id}
                                   type="button"
                                   onClick={() => setPropTextWrap(item.id)}
-                                  className={`px-3 py-1.5 rounded border flex items-center gap-1 text-xs cursor-pointer transition ${
-                                    propTextWrap === item.id
-                                      ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold shadow-xs"
-                                      : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
-                                  }`}
+                                  className={`px-3 py-1.5 rounded border flex items-center gap-1 text-xs cursor-pointer transition ${propTextWrap === item.id
+                                    ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold shadow-xs"
+                                    : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+                                    }`}
                                   title={item.label}
                                 >
                                   <span>{item.symbol}</span>
@@ -8292,11 +9076,10 @@ function HwpxEditorModalInner({
                                   key={btn.id}
                                   type="button"
                                   onClick={() => setPropCaptionPos(btn.id)}
-                                  className={`w-9 h-8 rounded text-[10px] font-mono flex items-center justify-center border cursor-pointer transition ${
-                                    propCaptionPos === btn.id
-                                      ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
-                                      : "bg-white text-blue-700 border-neutral-300 hover:bg-neutral-50"
-                                  }`}
+                                  className={`w-9 h-8 rounded text-[10px] font-mono flex items-center justify-center border cursor-pointer transition ${propCaptionPos === btn.id
+                                    ? "bg-[#0066cc] text-white border-[#0066cc] font-bold"
+                                    : "bg-white text-blue-700 border-neutral-300 hover:bg-neutral-50"
+                                    }`}
                                   title={btn.id}
                                 >
                                   {btn.label}
@@ -8417,9 +9200,8 @@ function HwpxEditorModalInner({
                                     type="button"
                                     onClick={() => setPropBorderColor(c)}
                                     style={{ backgroundColor: c }}
-                                    className={`w-4 h-4 rounded-full border border-neutral-300 cursor-pointer ${
-                                      propBorderColor === c ? "ring-2 ring-blue-500" : ""
-                                    }`}
+                                    className={`w-4 h-4 rounded-full border border-neutral-300 cursor-pointer ${propBorderColor === c ? "ring-2 ring-blue-500" : ""
+                                      }`}
                                   />
                                 ))}
                               </div>
@@ -8462,11 +9244,10 @@ function HwpxEditorModalInner({
                                 key={pos.id}
                                 type="button"
                                 onClick={() => setPropBorderTarget(pos.id)}
-                                className={`w-10 h-10 rounded border flex flex-col items-center justify-center text-xs cursor-pointer transition ${
-                                  propBorderTarget === pos.id
-                                    ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold"
-                                    : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
-                                }`}
+                                className={`w-10 h-10 rounded border flex flex-col items-center justify-center text-xs cursor-pointer transition ${propBorderTarget === pos.id
+                                  ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold"
+                                  : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+                                  }`}
                                 title={pos.label}
                               >
                                 <span className="text-sm">{pos.icon}</span>
@@ -8526,9 +9307,8 @@ function HwpxEditorModalInner({
                                       type="button"
                                       onClick={() => setPropFillColor(c)}
                                       style={{ backgroundColor: c }}
-                                      className={`w-5 h-5 rounded border border-neutral-300 cursor-pointer ${
-                                        propFillColor === c ? "ring-2 ring-blue-500" : ""
-                                      }`}
+                                      className={`w-5 h-5 rounded border border-neutral-300 cursor-pointer ${propFillColor === c ? "ring-2 ring-blue-500" : ""
+                                        }`}
                                     />
                                   ))}
                                 </div>
@@ -8660,11 +9440,10 @@ function HwpxEditorModalInner({
                                   key={item.id}
                                   type="button"
                                   onClick={() => setPropTablePageBreak(item.id)}
-                                  className={`px-3 py-1.5 rounded border text-xs cursor-pointer flex items-center gap-1.5 transition ${
-                                    propTablePageBreak === item.id
-                                      ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold"
-                                      : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
-                                  }`}
+                                  className={`px-3 py-1.5 rounded border text-xs cursor-pointer flex items-center gap-1.5 transition ${propTablePageBreak === item.id
+                                    ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold"
+                                    : "bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+                                    }`}
                                   title={item.label}
                                 >
                                   <span>{item.icon}</span>
@@ -8809,10 +9588,10 @@ function HwpxEditorModalInner({
           </div>
         )}
 
-        {/* 메인 문서 편집 영역 (한글 A4 용지 스타일) */}
+        {/* 메인 문서 편집 영역 (한글 A4 용지 스타일 / 쪽 윤곽 끔 시 연속 편집 모드) */}
         <main
           ref={canvasScrollRef}
-          className="flex-1 overflow-auto p-4 sm:p-8 bg-[#edf0f5]"
+          className={`flex-1 overflow-auto ${showPageOutline ? "p-4 sm:p-8 bg-[#edf0f5]" : "p-0 bg-white"}`}
           onClick={(e) => {
             if (e.target === e.currentTarget && blocks.length > 0) {
               const lastIdx = blocks.length - 1;
@@ -8825,868 +9604,1041 @@ function HwpxEditorModalInner({
           }}
         >
           <div
-            className="mx-auto my-6 shrink-0 relative overflow-hidden"
+            className={`${showPageOutline ? "mx-auto my-6" : "w-full"} shrink-0 relative ${memos.length > 0 && showAllMemos ? "overflow-visible" : "overflow-clip"}`}
             style={
-              canvasUnscaledSize
+              showPageOutline && canvasUnscaledSize
                 ? {
-                    width: `${Math.round(canvasUnscaledSize.w * (zoomPercent / 100))}px`,
-                    height: `${Math.round(canvasUnscaledSize.h * (zoomPercent / 100))}px`,
-                  }
+                  width: `${Math.round(canvasUnscaledSize.w * (zoomPercent / 100))}px`,
+                  height: `${Math.round(canvasUnscaledSize.h * (zoomPercent / 100))}px`,
+                }
                 : undefined
             }
           >
             <div
               ref={canvasRef}
-              style={{
-                transform: `scale(${zoomPercent / 100})`,
-                transformOrigin: "top left",
+              contentEditable={isCrossSelecting}
+              suppressContentEditableWarning={true}
+              role="textbox"
+              aria-multiline="true"
+              onBeforeInput={(e) => {
+                if (isCrossSelecting) e.preventDefault();
               }}
-              className={`min-w-max ${
-                pageViewColumns === 3
-                  ? "grid grid-cols-[repeat(3,max-content)] gap-6 justify-items-center"
-                  : pageViewColumns === 2
-                    ? "grid grid-cols-[repeat(2,max-content)] gap-6 justify-items-center"
-                    : "flex flex-col items-center gap-6"
-              }`}
-            >
-            {pages.map((pageIndices, pageIdx) => (
-              <div
-                key={`page-${pageIdx}`}
-                data-page-idx={pageIdx}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget && pageIndices.length > 0) {
-                    const lastIdx = pageIndices[pageIndices.length - 1];
-                    setSelectedIdx(lastIdx);
-                    const lastBlock = blocks[lastIdx];
-                    if (lastBlock?.type === "paragraph") {
-                      pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
+              onMouseDown={(e) => {
+                if (e.button !== 0) return;
+                const target = e.target as HTMLElement | null;
+                if (!target) return;
+                if (target.closest("button, input, textarea, select, [data-drag-handle]")) return;
+                const pEl = target.closest('[data-block-type="paragraph"] p') as HTMLElement | null;
+                if (isCrossSelecting) {
+                  setIsCrossSelecting(false);
+                }
+                if (!pEl) {
+                  crossDragRef.current = null;
+                  return;
+                }
+                const idxAttr = pEl.getAttribute("data-block-idx");
+                const startIdx = idxAttr !== null ? Number(idxAttr) : NaN;
+                if (isNaN(startIdx)) return;
+                crossDragRef.current = {
+                  startIdx,
+                  startOffset: getPointOffsetInParagraph(pEl, e.clientX, e.clientY),
+                  crossed: false,
+                };
+              }}
+              style={
+                showPageOutline
+                  ? {
+                      transform: `scale(${zoomPercent / 100})`,
+                      transformOrigin: "top left",
                     }
+                  : undefined
+              }
+              className={
+                !showPageOutline
+                  ? "w-full flex flex-col items-stretch gap-0"
+                  : `w-max ${pageViewColumns === 3
+                    ? "grid grid-cols-[repeat(3,max-content)] gap-6 justify-items-center"
+                    : pageViewColumns === 2
+                      ? "grid grid-cols-[repeat(2,max-content)] gap-6 justify-items-center"
+                      : `flex flex-col items-center gap-6 ${memos.length > 0 && showAllMemos ? "pr-[170px]" : ""}`
+                    }`
+              }
+            >
+              {pages.map((pageIndices, pageIdx) => (
+                <div
+                  key={`page-${pageIdx}`}
+                  data-page-idx={pageIdx}
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget && pageIndices.length > 0) {
+                      const lastIdx = pageIndices[pageIndices.length - 1];
+                      setSelectedIdx(lastIdx);
+                      const lastBlock = blocks[lastIdx];
+                      if (lastBlock?.type === "paragraph") {
+                        pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
+                      }
+                    }
+                  }}
+                  className={`h-auto bg-white text-neutral-900 shrink-0 transition-shadow duration-150 outline-none cursor-text relative ${
+                    showPageOutline
+                      ? "shadow-xl rounded-xs border border-neutral-300"
+                      : `w-full ${pageIdx > 0 ? "border-t border-dashed border-neutral-300" : ""}`
+                  } ${showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
+                    } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
+                  style={
+                    showPageOutline
+                      ? {
+                          fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
+                          boxShadow: "0 4px 24px rgba(0,0,0,0.14)",
+                          width: `${Math.round(pageWidthMm * 3.78)}px`,
+                          minHeight: `${Math.round(pageHeightMm * 3.78)}px`,
+                          paddingTop: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                          paddingBottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                          paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                        }
+                      : {
+                          fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
+                          padding: "16px 28px",
+                        }
                   }
-                }}
-                className={`h-auto bg-white text-neutral-900 shrink-0 transition-all duration-300 outline-none cursor-text relative ${
-                  showPageOutline ? "shadow-xl rounded-xs border border-neutral-300" : "border border-transparent"
-                } ${
-                  showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
-                } ${pagePulse ? "ring-4 ring-blue-500/50 shadow-2xl scale-[1.005]" : ""}`}
-                style={{
-                  fontFamily: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-                  boxShadow: showPageOutline ? "0 4px 24px rgba(0,0,0,0.14)" : "none",
-                  width: `${Math.round(pageWidthMm * 3.78)}px`,
-                  minHeight: `${Math.round(pageHeightMm * 3.78)}px`,
-                  paddingTop: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                  paddingBottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                  paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                  paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                }}
-              >
-                {/* 상하좌우 여백 모서리 꺾쇠 표시선 (한컴독스 자름표 / 여백 경계선) */}
-                {showPageOutline && (
-                  <>
-                    <div
-                      className="absolute pointer-events-none border-t border-l border-neutral-400/80"
-                      style={{
-                        top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                        left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                        width: "12px",
-                        height: "12px",
-                      }}
-                    />
-                    <div
-                      className="absolute pointer-events-none border-t border-r border-neutral-400/80"
-                      style={{
-                        top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                        right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                        width: "12px",
-                        height: "12px",
-                      }}
-                    />
-                    <div
-                      className="absolute pointer-events-none border-b border-l border-neutral-400/80"
-                      style={{
-                        bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                        left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
-                        width: "12px",
-                        height: "12px",
-                      }}
-                    />
-                    <div
-                      className="absolute pointer-events-none border-b border-r border-neutral-400/80"
-                      style={{
-                        bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
-                        right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
-                        width: "12px",
-                        height: "12px",
-                      }}
-                    />
-                  </>
-                )}
-                {(() => {
-                  let pageCounter = pageIdx;
-                  return pageIndices.map((idx) => {
-                    const block = blocks[idx];
-                    if (!block) return null;
-                    const isSelected = selectedIdx === idx;
-                    const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
-
-                const handleBlockDragOver = (e: React.DragEvent) => {
-                  const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
-                  const from = rawFrom !== "" ? Number(rawFrom) : (draggedBlockIdxRef.current ?? draggedBlockIdx);
-                  if (from === null || isNaN(from) || from === idx) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  e.dataTransfer.dropEffect = "move";
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const midY = rect.top + rect.height / 2;
-                  const pos = e.clientY < midY ? "before" : "after";
-                  setDropIndicator({ idx, pos });
-                };
-
-                const handleBlockDragLeave = () => {
-                  if (dropIndicator?.idx === idx) {
-                    setDropIndicator(null);
-                  }
-                };
-
-                const handleBlockDrop = (e: React.DragEvent) => {
-                  const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
-                  const from = rawFrom !== "" ? Number(rawFrom) : (draggedBlockIdxRef.current ?? draggedBlockIdx);
-                  if (from === null || isNaN(from) || from === idx) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const midY = rect.top + rect.height / 2;
-                  const pos = e.clientY < midY ? "before" : "after";
-                  moveBlock(from, idx, pos);
-                  setDraggedBlock(null);
-                  setDropIndicator(null);
-                };
-
-                const renderDropIndicator = () => {
-                  if (dropIndicator?.idx !== idx) return null;
-                  return (
-                    <div
-                      className={`absolute left-0 right-0 h-1 bg-blue-500 z-50 pointer-events-none rounded-full shadow-md animate-pulse ${
-                        dropIndicator.pos === "before" ? "-top-1" : "-bottom-1"
-                      }`}
-                    />
-                  );
-                };
-
-                if (block.type === "paragraph") {
-                  const alignClass =
-                    block.align === "center"
-                      ? "text-center"
-                      : block.align === "right"
-                      ? "text-right"
-                      : block.align === "justify"
-                      ? "text-justify"
-                      : "text-left";
-                  const fontSize = block.sizePt ? `${block.sizePt}pt` : "10pt";
-
-                  return (
-                    <div
-                      key={block.id}
-                      data-block-id={block.id}
-                      data-block-idx={idx}
-                      data-block-type="paragraph"
-                      onDragOver={handleBlockDragOver}
-                      onDragLeave={handleBlockDragLeave}
-                      onDrop={handleBlockDrop}
-                      className="w-full relative"
-                    >
-                      {renderDropIndicator()}
-
-                      {showPageBreak && (
-                        <div
-                          data-page-break-line="true"
-                          contentEditable={false}
-                          className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none cursor-default"
-                        >
-                          <div className="h-[1px] flex-1 bg-neutral-300" />
-                          <span className="text-[11px] font-bold text-neutral-600 tracking-wider">
-                            ── {++pageCounter} 쪽 ──
-                          </span>
-                          <div className="h-[1px] flex-1 bg-neutral-300" />
-                        </div>
-                      )}
-
-                      <ContentEditableParagraph
-                        block={block}
-                        idx={idx}
-                        alignClass={alignClass}
-                        fontSize={fontSize}
-                        showParaMarks={showParaMarks}
-                        onSelect={() => setSelectedIdx(idx)}
-                        onChangeText={(newText) => updateParagraph(idx, newText)}
-                        onSplit={(before, after) => splitParagraph(idx, before, after)}
-                        onMergePrevious={() => mergeParagraphWithPrevious(idx)}
-                        onNavigatePrev={(clientX) => navigateToPrevParagraph(idx, clientX)}
-                        onNavigateNext={(clientX) => navigateToNextParagraph(idx, clientX)}
-                        onIndent={(inc) => handleIndent(inc)}
-                        onDragStart={() => setDraggedBlock(idx)}
-                        onDragEnd={() => {
-                          setDraggedBlock(null);
-                          setDropIndicator(null);
+                >
+                  {/* 상하좌우 여백 모서리 꺾쇠 표시선 (한컴독스 자름표 / 여백 경계선) */}
+                  {showPageOutline && (
+                    <>
+                      <div
+                        className="absolute pointer-events-none border-t border-l border-neutral-400/80"
+                        style={{
+                          top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                          left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                          width: "12px",
+                          height: "12px",
                         }}
                       />
-                    </div>
-                  );
-                }
+                      <div
+                        className="absolute pointer-events-none border-t border-r border-neutral-400/80"
+                        style={{
+                          top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                          right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                          width: "12px",
+                          height: "12px",
+                        }}
+                      />
+                      <div
+                        className="absolute pointer-events-none border-b border-l border-neutral-400/80"
+                        style={{
+                          bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                          width: "12px",
+                          height: "12px",
+                        }}
+                      />
+                      <div
+                        className="absolute pointer-events-none border-b border-r border-neutral-400/80"
+                        style={{
+                          bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                          width: "12px",
+                          height: "12px",
+                        }}
+                      />
+                    </>
+                  )}
+                  {(() => {
+                    let pageCounter = pageIdx;
+                    return pageIndices.map((idx) => {
+                      const block = blocks[idx];
+                      if (!block) return null;
+                      const isSelected = selectedIdx === idx;
+                      const showPageBreak = block.type === "paragraph" && block.pageBreak && idx > 0;
 
-                if (block.type === "table") {
-                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
-                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
-                  const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 100;
-                  const tblWidth = `${currentWidthPct}%`;
-                  const tblBg = block.fillMode === "none" || !block.fillColor || block.fillColor === "transparent" ? "transparent" : block.fillColor;
-                  const bStyle = block.borderType === "DASH" ? "dashed" : block.borderType === "DOT" ? "dotted" : block.borderType === "DOUBLE" ? "double" : block.borderType === "NONE" ? "none" : "solid";
-                  const bColor = block.borderColor || "#000000";
-                  const bWidth = block.borderThickness || "1px";
-                  const hasOuterBorder = block.borderType !== "NONE";
-                  const padTop = block.cellPaddingTopMm !== undefined ? `${block.cellPaddingTopMm * 3.78}px` : "4px";
-                  const padBottom = block.cellPaddingBottomMm !== undefined ? `${block.cellPaddingBottomMm * 3.78}px` : "4px";
-                  const padLeft = block.cellPaddingLeftMm !== undefined ? `${block.cellPaddingLeftMm * 3.78}px` : "6.8px";
-                  const padRight = block.cellPaddingRightMm !== undefined ? `${block.cellPaddingRightMm * 3.78}px` : "6.8px";
-                  const hasCellSpacing = !!(block.cellSpacingEnabled && (block.cellSpacingMm || 0) > 0);
-                  const cellSpacingPx = hasCellSpacing && block.cellSpacingMm ? `${block.cellSpacingMm * 3.78}px` : "0px";
-                  const hasTableCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
-                  const isCaptionTop = hasTableCaption && block.captionPos?.startsWith("top");
-                  const isCaptionBottom = hasTableCaption && !isCaptionTop;
-                  const captionAlignClass = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
-
-                  return (
-                    <div
-                      key={block.id}
-                      data-block-id={block.id}
-                      data-block-idx={idx}
-                      data-block-type="table"
-                      contentEditable={false}
-                      onDragOver={handleBlockDragOver}
-                      onDragLeave={handleBlockDragLeave}
-                      onDrop={handleBlockDrop}
-                      onClick={() => setSelectedIdx(idx)}
-                      onContextMenu={(e) => {
+                      const handleBlockDragOver = (e: React.DragEvent) => {
+                        const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
+                        const from = rawFrom !== "" ? Number(rawFrom) : (draggedBlockIdxRef.current ?? draggedBlockIdx);
+                        if (from === null || isNaN(from) || from === idx) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        setSelectedIdx(idx);
-                        setContextMenu({
-                          x: e.clientX,
-                          y: e.clientY,
-                          blockIdx: idx,
-                          blockType: "table",
-                        });
-                      }}
-                      onPointerDown={(e) => {
-                        const targetEl = e.target as HTMLElement | null;
-                        if (!targetEl) return;
-                        if (
-                          targetEl.tagName === "INPUT" ||
-                          targetEl.tagName === "TEXTAREA" ||
-                          targetEl.tagName === "BUTTON" ||
-                          targetEl.closest("button") ||
-                          targetEl.closest(".table-remote-control")
-                        ) {
-                          return;
+                        e.dataTransfer.dropEffect = "move";
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const midY = rect.top + rect.height / 2;
+                        const pos = e.clientY < midY ? "before" : "after";
+                        setDropIndicator({ idx, pos });
+                      };
+
+                      const handleBlockDragLeave = () => {
+                        if (dropIndicator?.idx === idx) {
+                          setDropIndicator(null);
                         }
-                        handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y);
-                      }}
-                      style={{
-                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
-                        zIndex: isSelected ? 20 : 1,
-                        marginTop: block.marginTopMm ? `${block.marginTopMm * 3.78}px` : undefined,
-                        marginBottom: block.marginBottomMm ? `${block.marginBottomMm * 3.78}px` : undefined,
-                        marginLeft: block.marginLeftMm ? `${block.marginLeftMm * 3.78}px` : "auto",
-                        marginRight: block.marginRightMm ? `${block.marginRightMm * 3.78}px` : "auto",
-                        width: tblWidth,
-                      }}
-                      className={`hwpx-resizable-box my-6 py-1 relative group/tbl cursor-default select-none ${
-                        isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
-                      }`}
-                    >
-                      {renderDropIndicator()}
-                      {/* 8방향 선택 조절점 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
-                      {isSelected && (
-                        <HwpxSelectionHandles
-                          onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
-                        />
-                      )}
+                      };
 
-                      {/* 표 전용 플로팅 리모컨 (표 클릭/선택 시 우측 옆에 플로팅 리모컨 형태로 노출) */}
-                      {isSelected && (
-                        <div
-                          contentEditable={false}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
-                          className="table-remote-control absolute top-0 left-[calc(100%+14px)] z-40 flex flex-col gap-1.5 p-2.5 bg-white/95 backdrop-blur-md border border-neutral-300 shadow-2xl rounded-xl text-xs select-none w-38 animate-in fade-in zoom-in-95 duration-150"
-                          style={{ boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)" }}
-                        >
-                          {/* 리모컨 상단 타이틀 바 */}
-                          <div className="flex items-center justify-between pb-1.5 border-b border-neutral-200">
-                            <div className="flex items-center gap-1.5 font-bold text-neutral-800 text-[11px]">
-                              <span className="text-blue-600 font-bold">⊞</span>
-                              <span>표 리모컨</span>
-                              <span className="text-[10px] font-mono text-neutral-500 bg-neutral-100 px-1 py-0.5 rounded border border-neutral-200">
-                                {block.rows.length}×{block.rows[0]?.length || 0}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedIdx(-1);
-                              }}
-                              className="text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded w-4 h-4 flex items-center justify-center text-[11px] cursor-pointer"
-                              title="리모컨 닫기 (선택 해제)"
-                            >
-                              ✕
-                            </button>
-                          </div>
-
-                          {/* 개체 속성 */}
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => openPropertyModal(idx)}
-                              className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
-                              title="표/셀 개체 속성 (단축키 P)"
-                            >
-                              <span>⚙</span>
-                              <span>개체 속성 (P)</span>
-                            </button>
-                          </div>
-
-                          {/* 행 / 열 편집 조작 */}
-                          <div className="space-y-1">
-                            <div className="text-[10px] font-semibold text-neutral-500 px-0.5">행 / 열 편집</div>
-                            <div className="grid grid-cols-2 gap-1">
-                              <button
-                                type="button"
-                                onClick={() => addTableRow(idx, block.rows.length - 1)}
-                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
-                                title="표 맨 아래에 행 추가"
-                              >
-                                <span>+</span>
-                                <span>행 추가</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteTableRow(idx, block.rows.length - 1)}
-                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
-                                title="마지막 행 삭제"
-                              >
-                                <span>-</span>
-                                <span>행 삭제</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => addTableCol(idx, (block.rows[0]?.length || 1) - 1)}
-                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
-                                title="표 맨 오른쪽에 열 추가"
-                              >
-                                <span>+</span>
-                                <span>열 추가</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteTableCol(idx, (block.rows[0]?.length || 1) - 1)}
-                                className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
-                                title="마지막 열 삭제"
-                              >
-                                <span>-</span>
-                                <span>열 삭제</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 표 삭제 */}
-                          <div className="pt-1 border-t border-neutral-200">
-                            <button
-                              type="button"
-                              onClick={() => deleteBlock(idx)}
-                              className="w-full py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                              title="표 전체 삭제"
-                            >
-                              <span>🗑</span>
-                              <span>표 삭제</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 상단 캡션 */}
-                      {isCaptionTop && (
-                        <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${captionAlignClass}`}>
-                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
-                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
-                            <input
-                              type="text"
-                              value={block.caption || ""}
-                              onChange={(e) => {
-                                const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-                                const yBlock = yBlocks.get(idx);
-                                if (yBlock) yBlock.set("caption", e.target.value);
-                              }}
-                              placeholder="[표 캡션 입력...]"
-                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="w-full overflow-x-auto">
-                        <table
-                          style={{
-                            backgroundColor: tblBg,
-                            borderCollapse: hasCellSpacing ? "separate" : "collapse",
-                            borderSpacing: cellSpacingPx,
-                            border: hasOuterBorder ? `${bWidth} ${bStyle} ${bColor}` : "none",
-                          }}
-                          className="w-full text-xs text-neutral-900"
-                        >
-                          <tbody>
-                            {block.rows.map((row, rIdx) => {
-                              const isHeaderRow = rIdx === 0;
-                              return (
-                                <tr
-                                  key={rIdx}
-                                  style={{
-                                    borderBottom: `${bWidth} ${bStyle} ${bColor}`,
-                                  }}
-                                  className={isHeaderRow && !tblBg ? "bg-neutral-50/60 font-semibold" : ""}
-                                >
-                                  {row.map((cell, cIdx) => (
-                                    <td
-                                      key={cIdx}
-                                      style={{
-                                        paddingTop: padTop,
-                                        paddingBottom: padBottom,
-                                        paddingLeft: padLeft,
-                                        paddingRight: padRight,
-                                        borderRight: `${bWidth} ${bStyle} ${bColor}`,
-                                        backgroundColor: cell.bgColor || undefined,
-                                      }}
-                                      className="last:border-r-0 min-w-[70px] cursor-move"
-                                    >
-                                      <input
-                                        type="text"
-                                        value={cell.text}
-                                        onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
-                                        onFocus={() => setSelectedIdx(idx)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "ArrowUp") {
-                                            if (rIdx === 0) {
-                                              e.preventDefault();
-                                              const rect = (e.target as HTMLElement).getBoundingClientRect();
-                                              navigateToPrevParagraph(idx, rect.left);
-                                            } else {
-                                              const tableEl = (e.target as HTMLElement).closest("table");
-                                              const targetInput = tableEl?.querySelectorAll("tr")[rIdx - 1]?.querySelectorAll("input")[cIdx];
-                                              if (targetInput) {
-                                                e.preventDefault();
-                                                targetInput.focus();
-                                              }
-                                            }
-                                          } else if (e.key === "ArrowDown") {
-                                            if (rIdx === block.rows.length - 1) {
-                                              e.preventDefault();
-                                              const rect = (e.target as HTMLElement).getBoundingClientRect();
-                                              navigateToNextParagraph(idx, rect.left);
-                                            } else {
-                                              const tableEl = (e.target as HTMLElement).closest("table");
-                                              const targetInput = tableEl?.querySelectorAll("tr")[rIdx + 1]?.querySelectorAll("input")[cIdx];
-                                              if (targetInput) {
-                                                e.preventDefault();
-                                                targetInput.focus();
-                                              }
-                                            }
-                                          } else if (e.key === "ArrowLeft") {
-                                            const inputEl = e.currentTarget;
-                                            if (inputEl.selectionStart === 0 && inputEl.selectionEnd === 0) {
-                                              if (cIdx === 0 && rIdx === 0) {
-                                                e.preventDefault();
-                                                navigateToPrevParagraph(idx, 999999);
-                                              } else if (cIdx > 0) {
-                                                const tableEl = inputEl.closest("table");
-                                                const prevInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx - 1];
-                                                if (prevInput) {
-                                                  e.preventDefault();
-                                                  prevInput.focus();
-                                                  prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
-                                                }
-                                              }
-                                            }
-                                          } else if (e.key === "ArrowRight") {
-                                            const inputEl = e.currentTarget;
-                                            const valLen = inputEl.value.length;
-                                            if (inputEl.selectionStart === valLen && inputEl.selectionEnd === valLen) {
-                                              if (cIdx === row.length - 1 && rIdx === block.rows.length - 1) {
-                                                e.preventDefault();
-                                                navigateToNextParagraph(idx, 0);
-                                              } else if (cIdx < row.length - 1) {
-                                                const tableEl = inputEl.closest("table");
-                                                const nextInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx + 1];
-                                                if (nextInput) {
-                                                  e.preventDefault();
-                                                  nextInput.focus();
-                                                  nextInput.setSelectionRange(0, 0);
-                                                }
-                                              }
-                                            }
-                                          }
-                                        }}
-                                        className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs cursor-text"
-                                      />
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* 하단 캡션 */}
-                      {isCaptionBottom && (
-                        <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${captionAlignClass}`}>
-                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
-                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
-                            <input
-                              type="text"
-                              value={block.caption || ""}
-                              onChange={(e) => {
-                                const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-                                const yBlock = yBlocks.get(idx);
-                                if (yBlock) yBlock.set("caption", e.target.value);
-                              }}
-                              placeholder="[표 캡션 입력...]"
-                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-
-                if (block.type === "image") {
-                  const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
-                  const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 75;
-                  const widthStyle = `${currentWidthPct}%`;
-                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
-                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
-                  const hasImageCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
-                  const isImageCaptionTop = hasImageCaption && block.captionPos?.startsWith("top");
-                  const isImageCaptionBottom = hasImageCaption && !isImageCaptionTop;
-                  const imageCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
-
-                  return (
-                    <div
-                      key={block.id}
-                      data-block-id={block.id}
-                      data-block-idx={idx}
-                      data-block-type="image"
-                      contentEditable={false}
-                      onDragOver={handleBlockDragOver}
-                      onDragLeave={handleBlockDragLeave}
-                      onDrop={handleBlockDrop}
-                      onClick={() => setSelectedIdx(idx)}
-                      onContextMenu={(e) => {
+                      const handleBlockDrop = (e: React.DragEvent) => {
+                        const rawFrom = e.dataTransfer.getData("application/x-hwpx-block");
+                        const from = rawFrom !== "" ? Number(rawFrom) : (draggedBlockIdxRef.current ?? draggedBlockIdx);
+                        if (from === null || isNaN(from) || from === idx) return;
                         e.preventDefault();
                         e.stopPropagation();
-                        setSelectedIdx(idx);
-                        setContextMenu({
-                          x: e.clientX,
-                          y: e.clientY,
-                          blockIdx: idx,
-                          blockType: "image",
-                        });
-                      }}
-                      style={{
-                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
-                        zIndex: isSelected ? 30 : 1,
-                      }}
-                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass}`}
-                    >
-                      {renderDropIndicator()}
-                      {/* 그림 상단 캡션 */}
-                      {isImageCaptionTop && (
-                        <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${imageCaptionAlign}`} style={{ width: widthStyle }}>
-                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
-                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
-                            <input
-                              type="text"
-                              value={block.caption || ""}
-                              onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
-                              placeholder="[그림 캡션 입력...]"
-                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
-                            />
-                          </div>
-                        </div>
-                      )}
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const midY = rect.top + rect.height / 2;
+                        const pos = e.clientY < midY ? "before" : "after";
+                        moveBlock(from, idx, pos);
+                        setDraggedBlock(null);
+                        setDropIndicator(null);
+                      };
 
-                      <div
-                        onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                        className={`hwpx-resizable-box relative flex flex-col items-center cursor-move ${
-                          isSelected
-                            ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
-                            : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
-                        }`}
-                        style={{ width: widthStyle }}
-                      >
-                        {/* 8방향 선택 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
-                        {isSelected && (
-                          <HwpxSelectionHandles
-                            onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                      const renderDropIndicator = () => {
+                        if (dropIndicator?.idx !== idx) return null;
+                        return (
+                          <div
+                            className={`absolute left-0 right-0 h-1 bg-blue-500 z-50 pointer-events-none rounded-full shadow-md animate-pulse ${dropIndicator.pos === "before" ? "-top-1" : "-bottom-1"
+                              }`}
                           />
-                        )}
+                        );
+                      };
 
-                        {/* 부유 제어 바 (선택 시에만 노출) */}
-                        {isSelected && (
-                          <HwpxFloatingToolbar>
-                            <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
-                              <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>그림</span>
-                            </span>
+                      if (block.type === "paragraph") {
+                        const alignClass =
+                          block.align === "center"
+                            ? "text-center"
+                            : block.align === "right"
+                              ? "text-right"
+                              : block.align === "justify"
+                                ? "text-justify"
+                                : "text-left";
+                        const fontSize = block.sizePt ? `${block.sizePt}pt` : "10pt";
 
-                            {/* 개체 속성 다이얼로그 (P) */}
-                            <button
-                              type="button"
-                              onClick={() => openPropertyModal(idx)}
-                              className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
-                              title="그림 개체 속성 (단축키 P)"
-                            >
-                              <span>⚙</span>
-                              <span>속성 (P)</span>
-                            </button>
+                        return (
+                          <div
+                            key={block.id}
+                            data-block-id={block.id}
+                            data-block-idx={idx}
+                            data-block-type="paragraph"
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const sel = window.getSelection();
+                              const hasSel = Boolean(sel && !sel.isCollapsed && sel.toString().length > 0);
+                              setSelectedIdx(idx);
+                              setContextMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                blockIdx: idx,
+                                blockType: "paragraph",
+                                hasSelection: hasSel,
+                              });
+                            }}
+                            onDragOver={handleBlockDragOver}
+                            onDragLeave={handleBlockDragLeave}
+                            onDrop={handleBlockDrop}
+                            className="w-full relative"
+                          >
+                            {renderDropIndicator()}
 
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
-
-                            <button
-                              type="button"
-                              onClick={() => deleteBlock(idx)}
-                              className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
-                            >
-                              삭제
-                            </button>
-                          </HwpxFloatingToolbar>
-                        )}
-
-                        <img
-                          src={block.src}
-                          alt={block.caption || "그림"}
-                          className="w-full h-auto object-contain max-h-[600px] block select-none pointer-events-none"
-                        />
-                      </div>
-
-                      {/* 그림 하단 캡션 */}
-                      {isImageCaptionBottom && (
-                        <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${imageCaptionAlign}`} style={{ width: widthStyle }}>
-                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
-                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
-                            <input
-                              type="text"
-                              value={block.caption || ""}
-                              onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
-                              placeholder="[그림 캡션 입력...]"
-                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-
-                if (block.type === "shape") {
-                  const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
-                  const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 75;
-                  const currentHeightPt = dragResize[idx]?.heightPt ?? block.heightPt ?? (block.shapeType === "line" ? 2 : 60);
-                  const widthStyle = `${currentWidthPct}%`;
-                  const isLine = block.shapeType === "line";
-                  const borderRadius = block.shapeType === "roundRect" ? "8px" : block.shapeType === "ellipse" ? "9999px" : "0px";
-                  const fillColor = block.fillColor === "transparent" ? "transparent" : (block.fillColor || "#FFFFFF");
-                  const strokeColor = block.strokeColor || "#1F2937";
-                  const strokeWidth = block.strokeWidth || 1.5;
-                  const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
-                  const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
-                  const hasShapeCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
-                  const isShapeCaptionTop = hasShapeCaption && block.captionPos?.startsWith("top");
-                  const isShapeCaptionBottom = hasShapeCaption && !isShapeCaptionTop;
-                  const shapeCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
-
-                  return (
-                    <div
-                      key={block.id}
-                      data-block-id={block.id}
-                      data-block-idx={idx}
-                      data-block-type="shape"
-                      contentEditable={false}
-                      onDragOver={handleBlockDragOver}
-                      onDragLeave={handleBlockDragLeave}
-                      onDrop={handleBlockDrop}
-                      onClick={() => setSelectedIdx(idx)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setSelectedIdx(idx);
-                        setContextMenu({
-                          x: e.clientX,
-                          y: e.clientY,
-                          blockIdx: idx,
-                          blockType: "shape",
-                        });
-                      }}
-                      style={{
-                        transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
-                        zIndex: isSelected ? 30 : 1,
-                      }}
-                      className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass}`}
-                    >
-                      {renderDropIndicator()}
-                      {/* 도형 상단 캡션 */}
-                      {isShapeCaptionTop && (
-                        <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${shapeCaptionAlign}`} style={{ width: widthStyle }}>
-                          <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
-                            <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
-                            <input
-                              type="text"
-                              value={block.caption || ""}
-                              onChange={(e) => updateShapeBlock(idx, { caption: e.target.value })}
-                              placeholder="[도형 캡션 입력...]"
-                              className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div
-                        onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
-                        className={`hwpx-resizable-box relative flex flex-col items-center cursor-move ${
-                          isSelected
-                            ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
-                            : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
-                        }`}
-                        style={{ width: widthStyle }}
-                      >
-                        {/* 8방향 선택 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
-                        {isSelected && (
-                          <HwpxSelectionHandles
-                            onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
-                          />
-                        )}
-
-                        {/* 부유 제어 바 (선택 시에만 노출) */}
-                        {isSelected && (
-                          <HwpxFloatingToolbar>
-                            <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
-                              <ShapesIcon className="w-3.5 h-3.5" />
-                              <span>
-                                {block.shapeType === "rect"
-                                  ? "직사각형"
-                                  : block.shapeType === "roundRect"
-                                  ? "둥근 사각형"
-                                  : block.shapeType === "ellipse"
-                                  ? "타원"
-                                  : "가로선"}
-                              </span>
-                            </span>
-
-                            {/* 개체 속성 다이얼로그 (P) */}
-                            <button
-                              type="button"
-                              onClick={() => openPropertyModal(idx)}
-                              className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
-                              title="도형 개체 속성 (단축키 P)"
-                            >
-                              <span>⚙</span>
-                              <span>속성 (P)</span>
-                            </button>
-
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
-
-                            {/* 면 채우기 (선이 아닐 때) */}
-                            {!isLine && (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-neutral-500">채우기:</span>
-                                {[
-                                  { name: "투명", color: "transparent" },
-                                  { name: "흰색", color: "#FFFFFF" },
-                                  { name: "연회색", color: "#F1F5F9" },
-                                  { name: "연파랑", color: "#EFF6FF" },
-                                  { name: "연노랑", color: "#FEF3C7" },
-                                  { name: "연초록", color: "#DCFCE7" },
-                                ].map((c) => (
-                                  <button
-                                    key={c.name}
-                                    type="button"
-                                    title={c.name}
-                                    onClick={() => updateShapeBlock(idx, { fillColor: c.color })}
-                                    className={`w-3.5 h-3.5 rounded-full border border-neutral-400 cursor-pointer ${
-                                      fillColor === c.color ? "ring-2 ring-[#0066cc] scale-110" : "hover:scale-105"
-                                    }`}
-                                    style={{ background: c.color === "transparent" ? "linear-gradient(45deg, #fff 40%, #ef4444 40%, #ef4444 60%, #fff 60%)" : c.color }}
-                                  />
-                                ))}
+                            {showPageBreak && (
+                              <div
+                                data-page-break-line="true"
+                                contentEditable={false}
+                                className="my-10 -mx-10 sm:-mx-16 flex items-center justify-center gap-3 py-2 bg-neutral-100 border-y border-neutral-300 select-none cursor-default"
+                              >
+                                <div className="h-[1px] flex-1 bg-neutral-300" />
+                                <span className="text-[11px] font-bold text-neutral-600 tracking-wider">
+                                  ── {++pageCounter} 쪽 ──
+                                </span>
+                                <div className="h-[1px] flex-1 bg-neutral-300" />
                               </div>
                             )}
 
-                            {!isLine && <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />}
+                            {(() => {
+                              const blockMemos = memos.filter((m) => m.blockId === block.id);
+                              const hasMemos = blockMemos.length > 0;
+                              return (
+                                <div className={hasMemos && showAllMemos ? "relative bg-orange-50/75 border-b border-orange-300/80 rounded-[2px]" : "relative"}>
+                                  {showControlMarks && (idx === 0 || showPageBreak || hasMemos) && (
+                                    <div className="flex items-center gap-1 mb-0.5 select-none pointer-events-none flex-wrap">
+                                      {idx === 0 && (
+                                        <span data-control-mark="section" className="text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px]">
+                                          [구역]
+                                        </span>
+                                      )}
+                                      {showPageBreak && (
+                                        <span data-control-mark="pageBreak" className="text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px]">
+                                          [쪽 나누기]
+                                        </span>
+                                      )}
+                                      {hasMemos && (
+                                        <span data-control-mark="memoStart" className="text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px]">
+                                          [메모 시작]
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
 
-                            {/* 선 색상 */}
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-neutral-500">선:</span>
-                              {[
-                                { name: "검정", color: "#1F2937" },
-                                { name: "회색", color: "#94A3B8" },
-                                { name: "파랑", color: "#2563EB" },
-                                { name: "빨강", color: "#DC2626" },
-                              ].map((c) => (
-                                <button
-                                  key={c.name}
-                                  type="button"
-                                  title={c.name}
-                                  onClick={() => updateShapeBlock(idx, { strokeColor: c.color })}
-                                  className={`w-3.5 h-3.5 rounded-full border border-neutral-400 cursor-pointer ${
-                                    strokeColor === c.color ? "ring-2 ring-[#0066cc] scale-110" : "hover:scale-105"
-                                  }`}
-                                  style={{ background: c.color }}
-                                />
-                              ))}
+                                  <ContentEditableParagraph
+                                    block={block}
+                                    idx={idx}
+                                    alignClass={alignClass}
+                                    fontSize={fontSize}
+                                    showParaMarks={showParaMarks}
+                                    isCrossSelecting={isCrossSelecting}
+                                    onSelect={() => {
+                                      if (!justFinishedCrossDragRef.current) setSelectedIdx(idx);
+                                    }}
+                                    onChangeText={(newText) => updateParagraph(idx, newText)}
+                                    onSplit={(before, after) => splitParagraph(idx, before, after)}
+                                    onMergePrevious={() => mergeParagraphWithPrevious(idx)}
+                                    onNavigatePrev={(clientX) => navigateToPrevParagraph(idx, clientX)}
+                                    onNavigateNext={(clientX) => navigateToNextParagraph(idx, clientX)}
+                                    onIndent={(inc) => handleIndent(inc)}
+                                    onDragStart={() => setDraggedBlock(idx)}
+                                    onDragEnd={() => {
+                                      setDraggedBlock(null);
+                                      setDropIndicator(null);
+                                    }}
+                                  />
+
+                                  {showControlMarks && hasMemos && (
+                                    <span data-control-mark="memoEnd" className="inline-block mt-0.5 text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px] select-none pointer-events-none">
+                                      [메모 끝]
+                                    </span>
+                                  )}
+
+                                  {hasMemos && showAllMemos && (
+                                    <div
+                                      contentEditable={false}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`absolute top-0 z-40 flex flex-col gap-1.5 select-none ${
+                                        showPageOutline ? "left-[calc(100%+18px)]" : "right-2"
+                                      }`}
+                                      style={{ width: "200px" }}
+                                    >
+                                      {showMemoGuides && showPageOutline && (
+                                        <div
+                                          aria-hidden="true"
+                                          className="absolute right-full top-3 h-[1px] bg-neutral-700 pointer-events-none"
+                                          style={{ width: "18px" }}
+                                        />
+                                      )}
+                                      {blockMemos.map((memo) => {
+                                        const memoNumber = memos.findIndex((m) => m.id === memo.id) + 1;
+                                        return (
+                                          <div
+                                            key={memo.id}
+                                            data-memo-card={memo.id}
+                                            className="border border-neutral-800 shadow-md rounded-[1px] overflow-hidden text-[11px] font-sans"
+                                          >
+                                            <div className="bg-[#a6c8e8] border-b border-neutral-800 px-1.5 py-0.5 flex items-center justify-between gap-1 text-[10px] text-neutral-900">
+                                              <span className="font-semibold truncate">
+                                                [메모:{memoNumber}] {memo.author}
+                                              </span>
+                                              <span className="flex items-center gap-1 shrink-0 text-[9px] text-neutral-800">
+                                                <span>{memo.createdAt}</span>
+                                                <button
+                                                  type="button"
+                                                  onMouseDown={(e) => e.preventDefault()}
+                                                  onClick={() => deleteMemo(memo.id)}
+                                                  title="메모 지우기"
+                                                  className="hover:text-red-700 font-bold leading-none px-0.5 cursor-pointer"
+                                                >
+                                                  ✕
+                                                </button>
+                                              </span>
+                                            </div>
+                                            <div className="bg-[#ffffa5] p-1.5">
+                                              <textarea
+                                                autoFocus={activeMemoId === memo.id}
+                                                value={memo.text}
+                                                onChange={(e) => updateMemoText(memo.id, e.target.value)}
+                                                onFocus={() => setActiveMemoId(memo.id)}
+                                                placeholder="메모 내용을 입력하세요..."
+                                                rows={Math.max(2, memo.text.split("\n").length)}
+                                                className="w-full bg-transparent border-none outline-none resize-none text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-500"
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        );
+                      }
+
+                      if (block.type === "table") {
+                        const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                        const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+                        const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 100;
+                        const tblWidth = `${currentWidthPct}%`;
+                        const tblBg = block.fillMode === "none" || !block.fillColor || block.fillColor === "transparent" ? "transparent" : block.fillColor;
+                        const bStyle = block.borderType === "DASH" ? "dashed" : block.borderType === "DOT" ? "dotted" : block.borderType === "DOUBLE" ? "double" : block.borderType === "NONE" ? "none" : "solid";
+                        const bColor = block.borderColor || "#000000";
+                        const bWidth = block.borderThickness || "1px";
+                        const hasOuterBorder = block.borderType !== "NONE";
+                        const padTop = block.cellPaddingTopMm !== undefined ? `${block.cellPaddingTopMm * 3.78}px` : "4px";
+                        const padBottom = block.cellPaddingBottomMm !== undefined ? `${block.cellPaddingBottomMm * 3.78}px` : "4px";
+                        const padLeft = block.cellPaddingLeftMm !== undefined ? `${block.cellPaddingLeftMm * 3.78}px` : "6.8px";
+                        const padRight = block.cellPaddingRightMm !== undefined ? `${block.cellPaddingRightMm * 3.78}px` : "6.8px";
+                        const hasCellSpacing = !!(block.cellSpacingEnabled && (block.cellSpacingMm || 0) > 0);
+                        const cellSpacingPx = hasCellSpacing && block.cellSpacingMm ? `${block.cellSpacingMm * 3.78}px` : "0px";
+                        const hasTableCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
+                        const isCaptionTop = hasTableCaption && block.captionPos?.startsWith("top");
+                        const isCaptionBottom = hasTableCaption && !isCaptionTop;
+                        const captionAlignClass = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
+
+                        return (
+                          <div
+                            key={block.id}
+                            data-block-id={block.id}
+                            data-block-idx={idx}
+                            data-block-type="table"
+                            contentEditable={false}
+                            onDragOver={handleBlockDragOver}
+                            onDragLeave={handleBlockDragLeave}
+                            onDrop={handleBlockDrop}
+                            onClick={() => setSelectedIdx(idx)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedIdx(idx);
+                              setContextMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                blockIdx: idx,
+                                blockType: "table",
+                              });
+                            }}
+                            onPointerDown={(e) => {
+                              const targetEl = e.target as HTMLElement | null;
+                              if (!targetEl) return;
+                              if (
+                                targetEl.tagName === "INPUT" ||
+                                targetEl.tagName === "TEXTAREA" ||
+                                targetEl.tagName === "BUTTON" ||
+                                targetEl.closest("button") ||
+                                targetEl.closest(".table-remote-control")
+                              ) {
+                                return;
+                              }
+                              handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y);
+                            }}
+                            style={{
+                              transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                              zIndex: isSelected ? 20 : 1,
+                              marginTop: block.marginTopMm ? `${block.marginTopMm * 3.78}px` : undefined,
+                              marginBottom: block.marginBottomMm ? `${block.marginBottomMm * 3.78}px` : undefined,
+                              marginLeft: block.marginLeftMm ? `${block.marginLeftMm * 3.78}px` : "auto",
+                              marginRight: block.marginRightMm ? `${block.marginRightMm * 3.78}px` : "auto",
+                              width: tblWidth,
+                            }}
+                            className={`hwpx-resizable-box my-6 py-1 relative group/tbl cursor-default select-none ${isSelected ? "ring-1 ring-blue-500 rounded shadow-md" : ""
+                              }`}
+                          >
+                            {renderDropIndicator()}
+                            {/* 8방향 선택 조절점 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
+                            {isSelected && (
+                              <HwpxSelectionHandles
+                                onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                              />
+                            )}
+
+                            {/* 표 전용 플로팅 리모컨 (표 클릭/선택 시 우측 옆에 플로팅 리모컨 형태로 노출) */}
+                            {isSelected && (
+                              <div
+                                contentEditable={false}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                                className="table-remote-control absolute top-0 left-[calc(100%+14px)] z-40 flex flex-col gap-1.5 p-2.5 bg-white/95 backdrop-blur-md border border-neutral-300 shadow-2xl rounded-xl text-xs select-none w-38 animate-in fade-in zoom-in-95 duration-150"
+                                style={{ boxShadow: "0 8px 24px rgba(0, 0, 0, 0.16)" }}
+                              >
+                                {/* 리모컨 상단 타이틀 바 */}
+                                <div className="flex items-center justify-between pb-1.5 border-b border-neutral-200">
+                                  <div className="flex items-center gap-1.5 font-bold text-neutral-800 text-[11px]">
+                                    <span className="text-blue-600 font-bold">⊞</span>
+                                    <span>표 리모컨</span>
+                                    <span className="text-[10px] font-mono text-neutral-500 bg-neutral-100 px-1 py-0.5 rounded border border-neutral-200">
+                                      {block.rows.length}×{block.rows[0]?.length || 0}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedIdx(-1);
+                                    }}
+                                    className="text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded w-4 h-4 flex items-center justify-center text-[11px] cursor-pointer"
+                                    title="리모컨 닫기 (선택 해제)"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+
+                                {/* 개체 속성 */}
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openPropertyModal(idx)}
+                                    className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] text-neutral-700 hover:bg-neutral-100 bg-neutral-50 border border-neutral-200 font-medium cursor-pointer"
+                                    title="표/셀 개체 속성 (단축키 P)"
+                                  >
+                                    <span>⚙</span>
+                                    <span>개체 속성 (P)</span>
+                                  </button>
+                                </div>
+
+                                {/* 행 / 열 편집 조작 */}
+                                <div className="space-y-1">
+                                  <div className="text-[10px] font-semibold text-neutral-500 px-0.5">행 / 열 편집</div>
+                                  <div className="grid grid-cols-2 gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => addTableRow(idx, block.rows.length - 1)}
+                                      className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                      title="표 맨 아래에 행 추가"
+                                    >
+                                      <span>+</span>
+                                      <span>행 추가</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteTableRow(idx, block.rows.length - 1)}
+                                      className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                      title="마지막 행 삭제"
+                                    >
+                                      <span>-</span>
+                                      <span>행 삭제</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => addTableCol(idx, (block.rows[0]?.length || 1) - 1)}
+                                      className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                      title="표 맨 오른쪽에 열 추가"
+                                    >
+                                      <span>+</span>
+                                      <span>열 추가</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteTableCol(idx, (block.rows[0]?.length || 1) - 1)}
+                                      className="px-1.5 py-1 bg-white border border-neutral-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-300 text-neutral-700 text-[10px] font-medium flex items-center justify-center gap-0.5 cursor-pointer transition-colors"
+                                      title="마지막 열 삭제"
+                                    >
+                                      <span>-</span>
+                                      <span>열 삭제</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* 표 삭제 */}
+                                <div className="pt-1 border-t border-neutral-200">
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteBlock(idx)}
+                                    className="w-full py-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                                    title="표 전체 삭제"
+                                  >
+                                    <span>🗑</span>
+                                    <span>표 삭제</span>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 상단 캡션 */}
+                            {showControlMarks && (
+                              <span data-control-mark="table" className="inline-block mb-0.5 text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px] select-none pointer-events-none">
+                                [표]
+                              </span>
+                            )}
+                            {isCaptionTop && (
+                              <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${captionAlignClass}`}>
+                                <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                                  <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                                  <input
+                                    type="text"
+                                    value={block.caption || ""}
+                                    onChange={(e) => {
+                                      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                                      const yBlock = yBlocks.get(idx);
+                                      if (yBlock) yBlock.set("caption", e.target.value);
+                                    }}
+                                    placeholder="[표 캡션 입력...]"
+                                    className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="w-full overflow-x-auto">
+                              {(() => {
+                                const effectiveBorder = hasOuterBorder
+                                  ? `${bWidth} ${bStyle} ${bColor}`
+                                  : showTransparentLines
+                                    ? "1px dashed rgba(220, 38, 38, 0.35)"
+                                    : "none";
+                                return (
+                                  <table
+                                    data-transparent-border={!hasOuterBorder && showTransparentLines ? "true" : "false"}
+                                    style={{
+                                      backgroundColor: tblBg,
+                                      borderCollapse: hasCellSpacing ? "separate" : "collapse",
+                                      borderSpacing: cellSpacingPx,
+                                      border: effectiveBorder,
+                                    }}
+                                    className="w-full text-xs text-neutral-900"
+                                  >
+                                    <tbody>
+                                      {block.rows.map((row, rIdx) => {
+                                        const isHeaderRow = rIdx === 0;
+                                        return (
+                                          <tr
+                                            key={rIdx}
+                                            style={{
+                                              borderBottom: effectiveBorder,
+                                            }}
+                                            className={isHeaderRow && !tblBg ? "bg-neutral-50/60 font-semibold" : ""}
+                                          >
+                                            {row.map((cell, cIdx) => (
+                                              <td
+                                                key={cIdx}
+                                                style={{
+                                                  paddingTop: padTop,
+                                                  paddingBottom: padBottom,
+                                                  paddingLeft: padLeft,
+                                                  paddingRight: padRight,
+                                                  borderRight: effectiveBorder,
+                                                  backgroundColor: cell.bgColor || undefined,
+                                                }}
+                                            className="last:border-r-0 min-w-[70px] cursor-move"
+                                          >
+                                            <input
+                                              type="text"
+                                              value={cell.text}
+                                              onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
+                                              onFocus={() => setSelectedIdx(idx)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "ArrowUp") {
+                                                  if (rIdx === 0) {
+                                                    e.preventDefault();
+                                                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                                    navigateToPrevParagraph(idx, rect.left);
+                                                  } else {
+                                                    const tableEl = (e.target as HTMLElement).closest("table");
+                                                    const targetInput = tableEl?.querySelectorAll("tr")[rIdx - 1]?.querySelectorAll("input")[cIdx];
+                                                    if (targetInput) {
+                                                      e.preventDefault();
+                                                      targetInput.focus();
+                                                    }
+                                                  }
+                                                } else if (e.key === "ArrowDown") {
+                                                  if (rIdx === block.rows.length - 1) {
+                                                    e.preventDefault();
+                                                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                                    navigateToNextParagraph(idx, rect.left);
+                                                  } else {
+                                                    const tableEl = (e.target as HTMLElement).closest("table");
+                                                    const targetInput = tableEl?.querySelectorAll("tr")[rIdx + 1]?.querySelectorAll("input")[cIdx];
+                                                    if (targetInput) {
+                                                      e.preventDefault();
+                                                      targetInput.focus();
+                                                    }
+                                                  }
+                                                } else if (e.key === "ArrowLeft") {
+                                                  const inputEl = e.currentTarget;
+                                                  if (inputEl.selectionStart === 0 && inputEl.selectionEnd === 0) {
+                                                    if (cIdx === 0 && rIdx === 0) {
+                                                      e.preventDefault();
+                                                      navigateToPrevParagraph(idx, 999999);
+                                                    } else if (cIdx > 0) {
+                                                      const tableEl = inputEl.closest("table");
+                                                      const prevInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx - 1];
+                                                      if (prevInput) {
+                                                        e.preventDefault();
+                                                        prevInput.focus();
+                                                        prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
+                                                      }
+                                                    }
+                                                  }
+                                                } else if (e.key === "ArrowRight") {
+                                                  const inputEl = e.currentTarget;
+                                                  const valLen = inputEl.value.length;
+                                                  if (inputEl.selectionStart === valLen && inputEl.selectionEnd === valLen) {
+                                                    if (cIdx === row.length - 1 && rIdx === block.rows.length - 1) {
+                                                      e.preventDefault();
+                                                      navigateToNextParagraph(idx, 0);
+                                                    } else if (cIdx < row.length - 1) {
+                                                      const tableEl = inputEl.closest("table");
+                                                      const nextInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx + 1];
+                                                      if (nextInput) {
+                                                        e.preventDefault();
+                                                        nextInput.focus();
+                                                        nextInput.setSelectionRange(0, 0);
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }}
+                                              className="w-full bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs cursor-text"
+                                            />
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                );
+                              })()}
                             </div>
 
-                            <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+                            {/* 하단 캡션 */}
+                            {isCaptionBottom && (
+                              <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${captionAlignClass}`}>
+                                <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                                  <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                                  <input
+                                    type="text"
+                                    value={block.caption || ""}
+                                    onChange={(e) => {
+                                      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+                                      const yBlock = yBlocks.get(idx);
+                                      if (yBlock) yBlock.set("caption", e.target.value);
+                                    }}
+                                    placeholder="[표 캡션 입력...]"
+                                    className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
 
-                            <button
-                              type="button"
-                              onClick={() => deleteBlock(idx)}
-                              className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                      if (block.type === "image") {
+                        const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
+                        const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 75;
+                        const widthStyle = `${currentWidthPct}%`;
+                        const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                        const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+                        const hasImageCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
+                        const isImageCaptionTop = hasImageCaption && block.captionPos?.startsWith("top");
+                        const isImageCaptionBottom = hasImageCaption && !isImageCaptionTop;
+                        const imageCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
+
+                        return (
+                          <div
+                            key={block.id}
+                            data-block-id={block.id}
+                            data-block-idx={idx}
+                            data-block-type="image"
+                            contentEditable={false}
+                            onDragOver={handleBlockDragOver}
+                            onDragLeave={handleBlockDragLeave}
+                            onDrop={handleBlockDrop}
+                            onClick={() => setSelectedIdx(idx)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedIdx(idx);
+                              setContextMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                blockIdx: idx,
+                                blockType: "image",
+                              });
+                            }}
+                            style={{
+                              transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                              zIndex: isSelected ? 30 : 1,
+                            }}
+                            className={`my-6 flex flex-col items-center cursor-default select-none relative group/img ${alignClass}`}
+                          >
+                            {renderDropIndicator()}
+                            {showControlMarks && (
+                              <span data-control-mark="image" className="inline-block mb-0.5 text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px] select-none pointer-events-none">
+                                [그림]
+                              </span>
+                            )}
+                            {/* 그림 상단 캡션 */}
+                            {isImageCaptionTop && (
+                              <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${imageCaptionAlign}`} style={{ width: widthStyle }}>
+                                <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                                  <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                                  <input
+                                    type="text"
+                                    value={block.caption || ""}
+                                    onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
+                                    placeholder="[그림 캡션 입력...]"
+                                    className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            <div
+                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                              className={`hwpx-resizable-box relative flex flex-col items-center cursor-move ${isSelected
+                                ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
+                                : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
+                                }`}
+                              style={{ width: widthStyle }}
                             >
-                              삭제
-                            </button>
-                          </HwpxFloatingToolbar>
-                        )}
+                              {/* 8방향 선택 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
+                              {isSelected && (
+                                <HwpxSelectionHandles
+                                  onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                                />
+                              )}
 
-                        {/* 도형 렌더링 */}
-                        {isLine ? (
+                              {/* 부유 제어 바 (선택 시에만 노출) */}
+                              {isSelected && (
+                                <HwpxFloatingToolbar>
+                                  <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
+                                    <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>그림</span>
+                                  </span>
+
+                                  {/* 개체 속성 다이얼로그 (P) */}
+                                  <button
+                                    type="button"
+                                    onClick={() => openPropertyModal(idx)}
+                                    className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
+                                    title="그림 개체 속성 (단축키 P)"
+                                  >
+                                    <span>⚙</span>
+                                    <span>속성 (P)</span>
+                                  </button>
+
+                                  <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteBlock(idx)}
+                                    className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                                  >
+                                    삭제
+                                  </button>
+                                </HwpxFloatingToolbar>
+                              )}
+
+                              <img
+                                src={block.src}
+                                alt={block.caption || "그림"}
+                                className="w-full h-auto object-contain max-h-[600px] block select-none pointer-events-none"
+                              />
+                            </div>
+
+                            {/* 그림 하단 캡션 */}
+                            {isImageCaptionBottom && (
+                              <div className={`mt-2 text-xs text-neutral-800 font-sans flex items-center ${imageCaptionAlign}`} style={{ width: widthStyle }}>
+                                <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                                  <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                                  <input
+                                    type="text"
+                                    value={block.caption || ""}
+                                    onChange={(e) => updateImageBlock(idx, { caption: e.target.value })}
+                                    placeholder="[그림 캡션 입력...]"
+                                    className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (block.type === "shape") {
+                        const alignClass = block.align === "left" ? "justify-start" : block.align === "right" ? "justify-end" : "justify-center";
+                        const currentWidthPct = dragResize[idx]?.widthPercent ?? block.widthPercent ?? 75;
+                        const currentHeightPt = dragResize[idx]?.heightPt ?? block.heightPt ?? (block.shapeType === "line" ? 2 : 60);
+                        const widthStyle = `${currentWidthPct}%`;
+                        const isLine = block.shapeType === "line";
+                        const borderRadius = block.shapeType === "roundRect" ? "8px" : block.shapeType === "ellipse" ? "9999px" : "0px";
+                        const fillColor = block.fillColor === "transparent" ? "transparent" : (block.fillColor || "#FFFFFF");
+                        const strokeColor = block.strokeColor || "#1F2937";
+                        const strokeWidth = block.strokeWidth || 1.5;
+                        const currentOffset = dragOffsets[idx] || { x: block.offsetX || 0, y: block.offsetY || 0 };
+                        const isMoved = currentOffset.x !== 0 || currentOffset.y !== 0;
+                        const hasShapeCaption = !!((block.captionPos && block.captionPos !== "none") || (block.caption !== undefined && block.caption !== null && block.caption !== ""));
+                        const isShapeCaptionTop = hasShapeCaption && block.captionPos?.startsWith("top");
+                        const isShapeCaptionBottom = hasShapeCaption && !isShapeCaptionTop;
+                        const shapeCaptionAlign = block.captionPos?.includes("left") ? "justify-start" : block.captionPos?.includes("right") ? "justify-end" : "justify-center";
+
+                        return (
                           <div
-                            style={{
-                              width: "100%",
-                              height: `${Math.max(1, strokeWidth)}px`,
-                              backgroundColor: strokeColor,
+                            key={block.id}
+                            data-block-id={block.id}
+                            data-block-idx={idx}
+                            data-block-type="shape"
+                            contentEditable={false}
+                            onDragOver={handleBlockDragOver}
+                            onDragLeave={handleBlockDragLeave}
+                            onDrop={handleBlockDrop}
+                            onClick={() => setSelectedIdx(idx)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedIdx(idx);
+                              setContextMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                blockIdx: idx,
+                                blockType: "shape",
+                              });
                             }}
-                            className="my-3"
-                          />
-                        ) : (
-                          <div
                             style={{
-                              width: "100%",
-                              height: `${currentHeightPt}px`,
-                              backgroundColor: fillColor,
-                              borderColor: strokeColor,
-                              borderWidth: `${strokeWidth}px`,
-                              borderStyle: block.strokeType === "DASH" ? "dashed" : block.strokeType === "DOT" ? "dotted" : "solid",
-                              borderRadius,
+                              transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
+                              zIndex: isSelected ? 30 : 1,
                             }}
+                            className={`my-6 flex flex-col items-center cursor-default select-none relative group/shape ${alignClass}`}
+                          >
+                            {renderDropIndicator()}
+                            {showControlMarks && (
+                              <span data-control-mark="shape" className="inline-block mb-0.5 text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px] select-none pointer-events-none">
+                                [도형]
+                              </span>
+                            )}
+                            {/* 도형 상단 캡션 */}
+                            {isShapeCaptionTop && (
+                              <div className={`mb-2 text-xs text-neutral-800 font-sans flex items-center ${shapeCaptionAlign}`} style={{ width: widthStyle }}>
+                                <div className="inline-flex items-center gap-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-300 rounded px-2 py-0.5 shadow-2xs">
+                                  <span className="text-[10px] text-blue-700 font-bold font-mono">#1</span>
+                                  <input
+                                    type="text"
+                                    value={block.caption || ""}
+                                    onChange={(e) => updateShapeBlock(idx, { caption: e.target.value })}
+                                    placeholder="[도형 캡션 입력...]"
+                                    className="bg-transparent border-none outline-none text-xs text-neutral-800 font-semibold min-w-[70px]"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            <div
+                              onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
+                              className={`hwpx-resizable-box relative flex flex-col items-center cursor-move ${isSelected
+                                ? "outline outline-[1.5px] outline-[#0066cc] outline-offset-1"
+                                : "hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-300"
+                                }`}
+                              style={{ width: widthStyle }}
+                            >
+                              {/* 8방향 선택 핸들 (끝부분 잡고 드래그하여 크기 조절) */}
+                              {isSelected && (
+                                <HwpxSelectionHandles
+                                  onResizeStart={(e, dir) => handleObjectResizeStart(e, idx, dir)}
+                                />
+                              )}
+
+                              {/* 부유 제어 바 (선택 시에만 노출) */}
+                              {isSelected && (
+                                <HwpxFloatingToolbar>
+                                  <span className="flex items-center gap-1 font-bold text-[#0066cc] text-[11px] pr-1.5 border-r border-neutral-200">
+                                    <ShapesIcon className="w-3.5 h-3.5" />
+                                    <span>
+                                      {block.shapeType === "rect"
+                                        ? "직사각형"
+                                        : block.shapeType === "roundRect"
+                                          ? "둥근 사각형"
+                                          : block.shapeType === "ellipse"
+                                            ? "타원"
+                                            : "가로선"}
+                                    </span>
+                                  </span>
+
+                                  {/* 개체 속성 다이얼로그 (P) */}
+                                  <button
+                                    type="button"
+                                    onClick={() => openPropertyModal(idx)}
+                                    className="px-1.5 py-0.5 rounded text-[10px] text-neutral-700 hover:bg-neutral-100 border border-neutral-300 font-medium cursor-pointer flex items-center gap-1"
+                                    title="도형 개체 속성 (단축키 P)"
+                                  >
+                                    <span>⚙</span>
+                                    <span>속성 (P)</span>
+                                  </button>
+
+                                  <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                                  {/* 면 채우기 (선이 아닐 때) */}
+                                  {!isLine && (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-neutral-500">채우기:</span>
+                                      {[
+                                        { name: "투명", color: "transparent" },
+                                        { name: "흰색", color: "#FFFFFF" },
+                                        { name: "연회색", color: "#F1F5F9" },
+                                        { name: "연파랑", color: "#EFF6FF" },
+                                        { name: "연노랑", color: "#FEF3C7" },
+                                        { name: "연초록", color: "#DCFCE7" },
+                                      ].map((c) => (
+                                        <button
+                                          key={c.name}
+                                          type="button"
+                                          title={c.name}
+                                          onClick={() => updateShapeBlock(idx, { fillColor: c.color })}
+                                          className={`w-3.5 h-3.5 rounded-full border border-neutral-400 cursor-pointer ${fillColor === c.color ? "ring-2 ring-[#0066cc] scale-110" : "hover:scale-105"
+                                            }`}
+                                          style={{ background: c.color === "transparent" ? "linear-gradient(45deg, #fff 40%, #ef4444 40%, #ef4444 60%, #fff 60%)" : c.color }}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {!isLine && <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />}
+
+                                  {/* 선 색상 */}
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-neutral-500">선:</span>
+                                    {[
+                                      { name: "검정", color: "#1F2937" },
+                                      { name: "회색", color: "#94A3B8" },
+                                      { name: "파랑", color: "#2563EB" },
+                                      { name: "빨강", color: "#DC2626" },
+                                    ].map((c) => (
+                                      <button
+                                        key={c.name}
+                                        type="button"
+                                        title={c.name}
+                                        onClick={() => updateShapeBlock(idx, { strokeColor: c.color })}
+                                        className={`w-3.5 h-3.5 rounded-full border border-neutral-400 cursor-pointer ${strokeColor === c.color ? "ring-2 ring-[#0066cc] scale-110" : "hover:scale-105"
+                                          }`}
+                                        style={{ background: c.color }}
+                                      />
+                                    ))}
+                                  </div>
+
+                                  <div className="w-[1px] h-3 bg-neutral-200 mx-0.5" />
+
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteBlock(idx)}
+                                    className="px-1.5 py-0.5 rounded text-[10px] text-red-600 hover:bg-red-50 font-bold cursor-pointer"
+                                  >
+                                    삭제
+                                  </button>
+                                </HwpxFloatingToolbar>
+                              )}
+
+                              {/* 도형 렌더링 */}
+                              {isLine ? (
+                                <div
+                                  style={{
+                                    width: "100%",
+                                    height: `${Math.max(1, strokeWidth)}px`,
+                                    backgroundColor: strokeColor,
+                                  }}
+                                  className="my-3"
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: "100%",
+                                    height: `${currentHeightPt}px`,
+                                    backgroundColor: fillColor,
+                                    borderColor: strokeColor,
+                                    borderWidth: `${strokeWidth}px`,
+                                    borderStyle: block.strokeType === "DASH" ? "dashed" : block.strokeType === "DOT" ? "dotted" : "solid",
+                                    borderRadius,
+                                  }}
                             className="p-3 flex items-center justify-center relative overflow-hidden"
                           >
                             <textarea
@@ -9749,6 +10701,7 @@ function HwpxEditorModalInner({
                       data-block-id={block.id}
                       data-block-idx={idx}
                       data-block-type="equation"
+                      tabIndex={-1}
                       contentEditable={false}
                       onDragOver={handleBlockDragOver}
                       onDragLeave={handleBlockDragLeave}
@@ -9759,9 +10712,14 @@ function HwpxEditorModalInner({
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
                       }}
-                      className="my-5 flex flex-col items-center cursor-default select-none relative group/eq"
+                      className="my-5 flex flex-col items-center cursor-default select-none relative group/eq outline-none"
                     >
                       {renderDropIndicator()}
+                      {showControlMarks && (
+                        <span data-control-mark="equation" className="self-start mb-1 text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px] select-none pointer-events-none">
+                          [수식]
+                        </span>
+                      )}
                       <div
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
                         className={`relative inline-flex items-center justify-center px-4 py-2 rounded-xs transition-all cursor-move ${
@@ -9841,6 +10799,11 @@ function HwpxEditorModalInner({
                       className={`my-6 flex flex-col ${chartAlignClass} cursor-default select-none relative group/chart`}
                     >
                       {renderDropIndicator()}
+                      {showControlMarks && (
+                        <span data-control-mark="chart" className="self-start mb-1 text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px] select-none pointer-events-none">
+                          [차트]
+                        </span>
+                      )}
 
                       <div
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
