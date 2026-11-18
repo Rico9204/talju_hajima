@@ -50,7 +50,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const {
     project, team, isManager, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
-    toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
+    toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, rejectTaskReview, toggleTaskCommentReaction,
     toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile, markSectionViewed,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
@@ -343,13 +343,13 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                       )}
 
                       {/* Move actions on hover */}
-                      {!locked && isManager && (
+                      {!locked && (isManager || (task.status !== "done" && !!currentMember && task.assigneeIds.includes(currentMember.id))) && (
                         <div
                           className="flex gap-1.5 mt-3 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {columns
-                            .filter((c) => c.id !== col.id)
+                            .filter((c) => c.id !== col.id && (isManager || c.id !== "done"))
                             .map((c) => (
                               <button
                                 key={c.id}
@@ -527,7 +527,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           currentMember={currentMember}
           isManager={isManager}
           isAssignee={!!currentMember && selectedTask.assigneeIds.includes(currentMember.id)}
-          canChangeStatus={isManager}
+          canChangeStatus={isManager || (!!currentMember && selectedTask.assigneeIds.includes(currentMember.id))}
           locked={locked}
           onClose={() => setSelectedTaskId(null)}
           onUpdateDetails={(patch) => run(() => updateTaskDetails(selectedTask.id, patch))}
@@ -536,6 +536,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           onToggleChecklist={(itemId, done) => void run(() => toggleTaskChecklistItem(selectedTask.id, itemId, done))}
           onAddChecklistItem={(text) => run(() => addTaskChecklistItem(selectedTask.id, text), "체크리스트 항목을 추가하지 못했습니다.")}
           onAddComment={(text) => run(() => addTaskComment(selectedTask.id, text), "댓글을 남기지 못했습니다.")}
+          onReject={(reason) => run(() => rejectTaskReview(selectedTask.id, reason), "반려하지 못했습니다.")}
           onToggleCommentReaction={(commentId, emoji) => void run(() => toggleTaskCommentReaction(commentId, emoji))}
           onToggleTeamSchedule={(checked) => void run(() => toggleTaskTeamSchedule(selectedTask.id, checked))}
           onTogglePersonalSchedule={(checked) => void run(() => toggleTaskPersonalSchedule(selectedTask.id, checked))}

@@ -3,12 +3,11 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb, setupProject, startApp } from './helpers.mjs';
 
-let pg, app, api, s;
+let pg, db, app, api, s;
 const call = (user, method, path, body) => api(user?.token ?? null, method, path, body);
 let task;
 
 before(async () => {
-  let db;
   ({ pg, db } = await createTestDb());
   ({ app, api } = await startApp(db));
   s = await setupProject(api, pg);
@@ -122,4 +121,39 @@ test('다가오는 일정(메인 화면): 내 프로젝트의 오늘 이후 일�
 
   for (const e of [future, past, ongoing]) await call(s.leader, 'DELETE', `/schedule/${e.id}`);
   for (const e of [secret, busy]) await call(s.member, 'DELETE', `/schedule/${e.id}`);
+});
+
+test('검토 흐름: 담당자는 검토 중까지, 완료·완료 취소·반려는 팀장만, 반려 사유는 반려 피드백 댓글로', async () => {
+  const created = (await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '발표 자료', assigneeIds: [s.member.memberId], status: 'todo' })).body;
+  const status = (user, value) => call(user, 'PUT', `/tasks/${created.id}/status`, { status: value });
+  const reject = (user, text) => call(user, 'POST', `/tasks/${created.id}/reject`, { text });
+  const current = async () => (await call(s.member, 'GET', `/projects/${s.p}/tasks`)).body.find((t) => t.id === created.id);
+
+  assert.equal((await reject(s.leader, '아직')).status, 400); // 검토 중이 아니면 반려할 수 없다
+  assert.equal((await status(s.member, 'review')).status, 204);
+  const skip = await status(s.member, 'done');
+  assert.equal(skip.status, 400);
+  assert.match(skip.body.message, /팀장·부팀장만/);
+  assert.equal((await reject(s.member, '셀프 반려')).status, 400);
+  assert.equal((await reject(s.leader, '   ')).status, 400); // 사유 필수
+
+  const feedback = await reject(s.leader, '출처를 표 아래에 적어 주세요');
+  assert.equal(feedback.status, 201);
+  assert.equal(feedback.body.kind, 'rejection');
+  let task = await current();
+  assert.equal(task.status, 'inprogress');
+  assert.deepEqual(task.comments.map((c) => [c.kind, c.text]), [['rejection', '출처를 표 아래에 적어 주세요']]);
+
+  // 팀원 댓글은 일반 댓글이고, DB에 직접 넣어도 반려 피드백을 흉내 낼 수 없다.
+  assert.equal((await call(s.member, 'POST', `/tasks/${created.id}/comments`, { text: '고쳤습니다' })).body.kind, 'comment');
+  await assert.rejects(db.asUser(s.member.id, (query) => query(
+    "insert into public.task_comments(task_id, member_id, author, avatar, text, kind) values ($1, $2, 'user3', 'U', '가짜 반려', 'rejection')",
+    [created.id, s.member.memberId])), /row-level security/);
+
+  assert.equal((await status(s.member, 'review')).status, 204);
+  assert.equal((await status(s.leader, 'done')).status, 204); // 승인
+  assert.equal((await status(s.member, 'inprogress')).status, 400); // 완료 취소도 팀장만
+  task = await current();
+  assert.equal(task.status, 'done');
+  await call(s.leader, 'DELETE', `/tasks/${created.id}`);
 });

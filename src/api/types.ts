@@ -191,6 +191,7 @@ export interface TaskComment {
   avatar: string;
   date: string;
   text: string;
+  kind?: "comment" | "rejection"; // rejection = 팀장·부팀장의 검토 반려 피드백
   reactions: TaskCommentReaction[];
 }
 

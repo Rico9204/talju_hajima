@@ -119,6 +119,7 @@ export class RestDataRepository implements DataRepository {
   addTaskChecklistItem(taskId: number, text: string) { return this.api.request<ChecklistItem>(`/tasks/${taskId}/checklist`, { method: "POST", body: JSON.stringify({ text }) }); }
   toggleTaskChecklistItem(itemId: number, done: boolean) { return this.api.request<void>(`/checklist/${itemId}`, { method: "PUT", body: JSON.stringify({ done }) }); }
   addTaskComment(taskId: number, _actorMemberId: string, _actorName: string, _actorAvatar: string, text: string) { return this.api.request<TaskComment>(`/tasks/${taskId}/comments`, { method: "POST", body: JSON.stringify({ text }) }); }
+  rejectTaskReview(taskId: number, reason: string) { return this.api.request<TaskComment>(`/tasks/${taskId}/reject`, { method: "POST", body: JSON.stringify({ text: reason }) }); }
   setTaskCommentReaction(commentId: number, _memberId: string, emoji: string, active: boolean) { return this.api.request<void>(`/task-comments/${commentId}/reaction`, { method: "PUT", body: JSON.stringify({ emoji, active }) }); }
   setTaskScheduleLink(taskId: number, field: "team" | "personal", eventId: number | null) { return this.api.request<void>(`/tasks/${taskId}/schedule-link`, { method: "PUT", body: JSON.stringify({ field, eventId }) }); }
   listScheduleEvents(projectId: string) { return this.api.request<ScheduleEvent[]>(`/projects/${encodeURIComponent(projectId)}/schedule`); }

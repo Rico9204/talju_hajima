@@ -204,6 +204,15 @@ export class TasksController {
     });
   }
 
+  // 검토 반려: 검토 중 → 진행 중 + 반려 사유를 "반려 피드백" 댓글로(권한·상태 확인은 DB 함수가 한다).
+  @Post("tasks/:taskId/reject")
+  rejectReview(@UserId() userId: string, @Param("taskId", ParseIntPipe) taskId: number, @Body() body: TextDto) {
+    return this.db.asUser(userId, async (query) => {
+      const [{ id }] = await query<{ id: number }>("select public.reject_task_review($1, $2) as id", [taskId, body.text]);
+      return mapTaskComment(await selectOneJson(query, "select * from public.task_comments where id = $1", [id]));
+    });
+  }
+
   @Put("task-comments/:commentId/reaction")
   @HttpCode(204)
   async setCommentReaction(@UserId() userId: string, @Param("commentId", ParseIntPipe) commentId: number, @Body() body: ReactionDto) {

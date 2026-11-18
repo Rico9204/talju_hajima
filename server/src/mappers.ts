@@ -100,7 +100,7 @@ export function mapChecklistItem(row: Row) {
 
 export function mapTaskComment(row: Row) {
   return {
-    id: row.id, memberId: row.member_id ?? null, author: row.author, avatar: row.avatar, date: row.date, text: row.text,
+    id: row.id, memberId: row.member_id ?? null, author: row.author, avatar: row.avatar, date: row.date, text: row.text, kind: row.kind ?? "comment",
     reactions: (row.task_comment_reactions ?? []).map((r: Row) => ({ commentId: row.id, memberId: r.member_id, emoji: r.emoji })),
   };
 }

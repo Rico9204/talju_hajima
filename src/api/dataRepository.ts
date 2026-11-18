@@ -135,6 +135,8 @@ export interface DataRepository {
   addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
   toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
   addTaskComment(taskId: number, actorMemberId: string, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  // 검토 중 → 진행 중으로 돌리고 사유를 반려 피드백 댓글로 남긴다(팀장·부팀장)
+  rejectTaskReview(taskId: number, reason: string): Promise<TaskComment>;
   setTaskCommentReaction(commentId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
   subscribeToTaskCommentReactions(projectId: string, onChange: () => void): () => void;
   subscribeToTasks(projectId: string, onChange: () => void): () => void;

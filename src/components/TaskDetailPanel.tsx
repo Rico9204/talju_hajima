@@ -23,6 +23,7 @@ interface Props {
   onToggleChecklist: (itemId: number, done: boolean) => void;
   onAddChecklistItem: (text: string) => Promise<boolean> | void; // false면 저장 실패(입력을 되돌림)
   onAddComment: (text: string) => Promise<boolean> | void;
+  onReject: (reason: string) => Promise<boolean> | void;
   onToggleCommentReaction: (commentId: number, emoji: string) => void;
   onToggleTeamSchedule: (checked: boolean) => void;
   onTogglePersonalSchedule: (checked: boolean) => void;
@@ -45,6 +46,7 @@ export default function TaskDetailPanel({
   onToggleChecklist,
   onAddChecklistItem,
   onAddComment,
+  onReject,
   onToggleCommentReaction,
   onToggleTeamSchedule,
   onTogglePersonalSchedule,
@@ -109,6 +111,15 @@ export default function TaskDetailPanel({
     if (!text.trim()) return;
     setCommentDraft("");
     if ((await onAddComment(text)) === false) setCommentDraft((current) => current || text);
+  }
+  // 검토 반려: 사유를 꼭 적게 하고, 보내면 상태가 진행 중으로 돌아가며 사유가 반려 피드백 댓글로 남는다.
+  const [rejectDraft, setRejectDraft] = useState<string | null>(null); // null = 반려 입력칸 닫힘
+  useEffect(() => { setRejectDraft(null); }, [task.id]);
+  async function submitReject() {
+    const reason = rejectDraft ?? "";
+    if (!reason.trim()) return;
+    setRejectDraft(null);
+    if ((await onReject(reason)) === false) setRejectDraft((current) => current || reason);
   }
   const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<number | null>(null);
@@ -285,7 +296,7 @@ export default function TaskDetailPanel({
               <div className="text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>상태</div>
               <select
                 value={task.status}
-                disabled={!canChangeStatus || locked}
+                disabled={!canChangeStatus || locked || (!isManager && task.status === "done")}
                 onChange={(e) => onChangeStatus(e.target.value as TaskStatus)}
                 className="w-full text-xs px-2 py-1.5 border outline-none"
                 style={{
@@ -296,11 +307,68 @@ export default function TaskDetailPanel({
                 }}
               >
                 {columns.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
+                  <option key={c.id} value={c.id} disabled={!isManager && c.id === "done"}>
+                    {c.label}{!isManager && c.id === "done" ? " (팀장·부팀장)" : ""}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
+
+          {task.status === "review" && !locked && (
+            <div className="mb-4 p-3" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+              {isManager ? (
+                rejectDraft === null ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onChangeStatus("done")}
+                      className="flex-1 text-xs font-700 py-2"
+                      style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}
+                    >
+                      승인 (완료)
+                    </button>
+                    <button
+                      onClick={() => setRejectDraft("")}
+                      className="flex-1 text-xs font-700 py-2"
+                      style={{ background: "#ef444415", color: "#ef4444", borderRadius: "var(--radius-sm)" }}
+                    >
+                      반려
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      autoFocus
+                      value={rejectDraft}
+                      maxLength={2000}
+                      rows={3}
+                      onChange={(e) => setRejectDraft(e.target.value)}
+                      placeholder="반려 사유와 고칠 점을 적어 주세요. 댓글에 반려 피드백으로 남아요."
+                      className="w-full text-xs px-3 py-2 outline-none resize-none"
+                      style={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "8px" }}
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => setRejectDraft(null)} className="text-xs px-3 py-1.5" style={{ color: "var(--muted-foreground)" }}>
+                        취소
+                      </button>
+                      <button
+                        onClick={() => void submitReject()}
+                        disabled={!rejectDraft.trim()}
+                        className="text-xs font-700 px-3 py-1.5"
+                        style={{ background: rejectDraft.trim() ? "#ef4444" : "var(--border)", color: "#fff", borderRadius: "20px" }}
+                      >
+                        반려하기
+                      </button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  팀장·부팀장의 검토를 기다리고 있어요. 승인되면 완료로, 반려되면 피드백과 함께 진행 중으로 돌아와요.
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mb-4">
             <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>태그</div>
@@ -448,9 +516,15 @@ export default function TaskDetailPanel({
                   <div className="relative flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-700">{c.author}</span>
+                      {c.kind === "rejection" && (
+                        <span className="text-[10px] font-700 px-1.5 py-0.5" style={{ background: "#ef444420", color: "#ef4444", borderRadius: "6px" }}>반려 피드백</span>
+                      )}
                       <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{c.date}</span>
                     </div>
-                    <p className="text-xs mt-0.5 leading-relaxed px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}>
+                    <p
+                      className="text-xs mt-0.5 leading-relaxed px-3 py-2 whitespace-pre-wrap"
+                      style={{ background: c.kind === "rejection" ? "#ef444412" : "var(--muted)", border: c.kind === "rejection" ? "1px solid #ef444440" : undefined, borderRadius: "10px", color: "var(--foreground)" }}
+                    >
                       {c.text}
                     </p>
                     <div className="absolute right-0 top-0 opacity-0 pointer-events-none group-hover/comment:opacity-100 group-hover/comment:pointer-events-auto group-focus-within/comment:opacity-100 group-focus-within/comment:pointer-events-auto transition-opacity z-10">

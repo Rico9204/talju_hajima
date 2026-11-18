@@ -156,6 +156,7 @@ interface ProjectContextValue {
   addTaskChecklistItem: (taskId: number, text: string) => Promise<void>;
   toggleTaskChecklistItem: (taskId: number, itemId: number, done: boolean) => Promise<void>;
   addTaskComment: (taskId: number, text: string) => Promise<void>;
+  rejectTaskReview: (taskId: number, reason: string) => Promise<void>;
   toggleTaskCommentReaction: (commentId: number, emoji: string) => Promise<void>;
   toggleTaskTeamSchedule: (taskId: number, checked: boolean) => Promise<void>;
   toggleTaskPersonalSchedule: (taskId: number, checked: boolean) => Promise<void>;
@@ -1092,6 +1093,12 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     await refreshTasks();
   }
 
+  async function rejectTaskReview(taskId: number, reason: string) {
+    if (!isManager || !reason.trim()) return;
+    await dataRepository.rejectTaskReview(taskId, reason);
+    await refreshTasks();
+  }
+
   async function toggleTaskCommentReaction(commentId: number, emoji: string) {
     if (!currentMember) return;
     const comment = tasks.flatMap((task) => task.comments).find((item) => item.id === commentId);
@@ -1438,6 +1445,7 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         addTaskChecklistItem,
         toggleTaskChecklistItem,
         addTaskComment,
+        rejectTaskReview,
         toggleTaskCommentReaction,
         toggleTaskTeamSchedule,
         toggleTaskPersonalSchedule,
