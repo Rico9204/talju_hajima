@@ -95,7 +95,7 @@ export function mapFile(row: Row) {
 }
 
 export function mapChecklistItem(row: Row) {
-  return { id: row.id, text: row.text, done: row.done };
+  return { id: row.id, text: row.text, done: row.done, assigneeMemberId: row.assignee_member_id ?? null };
 }
 
 export function mapTaskComment(row: Row) {

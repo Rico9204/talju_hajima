@@ -1,7 +1,7 @@
 // 과제·일정 API: 만들기(팀장), 상태·내용 수정, 체크리스트, 댓글·반응, 일정 연결·삭제, 개인 일정 공개 범위.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTestDb, setupProject, startApp } from './helpers.mjs';
+import { createTestDb, joinCode, setupProject, signupUsers, startApp } from './helpers.mjs';
 
 let pg, db, app, api, s;
 const call = (user, method, path, body) => api(user?.token ?? null, method, path, body);
@@ -155,5 +155,42 @@ test('검토 흐름: 담당자는 검토 중까지, 완료·완료 취소·반�
   assert.equal((await status(s.member, 'inprogress')).status, 400); // 완료 취소도 팀장만
   task = await current();
   assert.equal(task.status, 'done');
+  await call(s.leader, 'DELETE', `/tasks/${created.id}`);
+});
+
+test('세부 업무: 담당자는 과제 담당자 중에서, 완료 표시는 그 담당자와 팀장만, 과제 담당자에서 빠지면 담당자 없음', async () => {
+  const third = (await signupUsers(api, 1, 'sub'))[0];
+  await call(third, 'POST', `/projects/${s.p}/join`, { code: await joinCode(api, s.leader, s.p), school: '한국대학교', major: '컴퓨터공학과', student: '1' });
+  third.memberId = (await call(s.leader, 'GET', `/projects/${s.p}/team`)).body.members.find((m) => m.userId === third.id).id;
+  const created = (await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '발표 준비', assigneeIds: [s.member.memberId, third.memberId], status: 'todo' })).body;
+  const add = (user, text, assigneeMemberId) => call(user, 'POST', `/tasks/${created.id}/checklist`, { text, assigneeMemberId });
+  const items = async () => (await call(s.leader, 'GET', `/projects/${s.p}/tasks`)).body.find((t) => t.id === created.id).checklist;
+
+  const outside = await add(s.leader, '남에게', s.leader.memberId); // 팀장이지만 이 과제 담당자는 아님
+  assert.equal(outside.status, 400);
+  assert.match(outside.body.message, /과제의 담당자 중에서/);
+  const slides = (await add(s.leader, '슬라이드', s.member.memberId)).body; // 팀장도 세부 업무를 나눌 수 있다
+  assert.equal(slides.assigneeMemberId, s.member.memberId);
+  const script = (await add(s.member, '대본', third.memberId)).body; // 과제 담당자도 나눌 수 있다
+  const free = (await add(third, '리허설')).body;
+  assert.equal(free.assigneeMemberId, null);
+  assert.equal((await add(s.outsider, '몰래')).status, 403);
+
+  assert.equal((await call(third, 'PUT', `/checklist/${slides.id}`, { done: true })).status, 400); // 남의 세부 업무
+  assert.equal((await call(s.member, 'PUT', `/checklist/${slides.id}`, { done: true })).status, 204);
+  assert.equal((await call(s.leader, 'PUT', `/checklist/${script.id}`, { done: true })).status, 204); // 팀장은 모두
+  assert.equal((await call(s.member, 'PUT', `/checklist/${free.id}`, { done: true })).status, 204); // 담당자 없음 → 과제 담당자 누구나
+  assert.deepEqual((await items()).map((i) => i.done), [true, true, true]);
+
+  assert.equal((await call(s.member, 'PUT', `/checklist/${free.id}/assignee`, { memberId: s.leader.memberId })).status, 400);
+  assert.equal((await call(s.member, 'PUT', `/checklist/${free.id}/assignee`, { memberId: s.member.memberId })).status, 204);
+
+  // third를 과제 담당자에서 빼면 third가 맡던 "대본"은 담당자 없음으로
+  assert.equal((await call(s.leader, 'PATCH', `/tasks/${created.id}`, { assigneeIds: [s.member.memberId] })).status, 204);
+  assert.deepEqual((await items()).map((i) => [i.text, i.assigneeMemberId]), [['슬라이드', s.member.memberId], ['대본', null], ['리허설', s.member.memberId]]);
+
+  await call(s.outsider, 'DELETE', `/checklist/${free.id}`); // 권한 없음 → 그대로
+  assert.equal((await call(s.member, 'DELETE', `/checklist/${free.id}`)).status, 204);
+  assert.deepEqual((await items()).map((i) => i.text), ['슬라이드', '대본']);
   await call(s.leader, 'DELETE', `/tasks/${created.id}`);
 });

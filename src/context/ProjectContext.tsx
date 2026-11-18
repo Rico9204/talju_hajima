@@ -153,8 +153,10 @@ interface ProjectContextValue {
     patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
   ) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
-  addTaskChecklistItem: (taskId: number, text: string) => Promise<void>;
+  addTaskChecklistItem: (taskId: number, text: string, assigneeMemberId?: string | null) => Promise<void>;
   toggleTaskChecklistItem: (taskId: number, itemId: number, done: boolean) => Promise<void>;
+  setTaskChecklistAssignee: (taskId: number, itemId: number, memberId: string | null) => Promise<void>;
+  deleteTaskChecklistItem: (taskId: number, itemId: number) => Promise<void>;
   addTaskComment: (taskId: number, text: string) => Promise<void>;
   rejectTaskReview: (taskId: number, reason: string) => Promise<void>;
   toggleTaskCommentReaction: (commentId: number, emoji: string) => Promise<void>;
@@ -1075,15 +1077,28 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
     return !!tasks.find((t) => t.id === taskId)?.assigneeIds.includes(currentMember.id);
   }
 
-  async function addTaskChecklistItem(taskId: number, text: string) {
-    if (!isTaskAssignee(taskId)) return;
-    await dataRepository.addTaskChecklistItem(taskId, text);
+  // 세부 업무: 팀장·부팀장과 과제 담당자. 항목별 완료 권한(그 세부 업무의 담당자)은 DB가 확인한다.
+  async function addTaskChecklistItem(taskId: number, text: string, assigneeMemberId: string | null = null) {
+    if (!isManager && !isTaskAssignee(taskId)) return;
+    await dataRepository.addTaskChecklistItem(taskId, text, assigneeMemberId);
     await refreshTasks();
   }
 
   async function toggleTaskChecklistItem(taskId: number, itemId: number, done: boolean) {
-    if (!isTaskAssignee(taskId)) return;
+    if (!isManager && !isTaskAssignee(taskId)) return;
     await dataRepository.toggleTaskChecklistItem(itemId, done);
+    await refreshTasks();
+  }
+
+  async function setTaskChecklistAssignee(taskId: number, itemId: number, memberId: string | null) {
+    if (!isManager && !isTaskAssignee(taskId)) return;
+    await dataRepository.setTaskChecklistAssignee(itemId, memberId);
+    await refreshTasks();
+  }
+
+  async function deleteTaskChecklistItem(taskId: number, itemId: number) {
+    if (!isManager && !isTaskAssignee(taskId)) return;
+    await dataRepository.deleteTaskChecklistItem(itemId);
     await refreshTasks();
   }
 
@@ -1444,6 +1459,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
         deleteTask,
         addTaskChecklistItem,
         toggleTaskChecklistItem,
+        setTaskChecklistAssignee,
+        deleteTaskChecklistItem,
         addTaskComment,
         rejectTaskReview,
         toggleTaskCommentReaction,

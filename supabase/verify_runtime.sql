@@ -33,7 +33,7 @@ with required_functions(label, signature) as (
   union all
   select 'column', table_name || '.' || column_name,
     exists(select 1 from information_schema.columns c where c.table_schema = 'public' and c.table_name = t.table_name and c.column_name = t.column_name)
-  from (values ('folders', 'sort_order'), ('files', 'sort_order'), ('task_comments', 'kind')) as t(table_name, column_name)
+  from (values ('folders', 'sort_order'), ('files', 'sort_order'), ('task_comments', 'kind'), ('task_checklist_items', 'assignee_member_id')) as t(table_name, column_name)
 )
 select kind, item, ready, case when ready then 'ready' else 'apply schema or the matching migration' end as action
 from checks

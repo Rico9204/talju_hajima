@@ -35,6 +35,14 @@ class TextDto {
   @IsString() @MaxLength(2000) text!: string;
 }
 
+class ChecklistDto extends TextDto {
+  @IsOptional() @ValidateIf((dto: ChecklistDto) => dto.assigneeMemberId !== null) @IsUUID() assigneeMemberId?: string | null;
+}
+
+class ChecklistAssigneeDto {
+  @ValidateIf((dto: ChecklistAssigneeDto) => dto.memberId !== null) @IsUUID() memberId!: string | null;
+}
+
 class DoneDto {
   @IsBoolean() done!: boolean;
 }
@@ -151,6 +159,8 @@ export class TasksController {
       if (patch.assigneeIds !== undefined) {
         await query("delete from public.task_assignees where task_id = $1", [taskId]);
         await query("insert into public.task_assignees(task_id, member_id) select $1, unnest($2::uuid[])", [taskId, patch.assigneeIds]);
+        // 과제 담당자에서 빠진 사람이 맡던 세부 업무는 담당자 없음으로.
+        await query("update public.task_checklist_items set assignee_member_id = null where task_id = $1 and assignee_member_id <> all($2::uuid[])", [taskId, patch.assigneeIds]);
       }
     });
   }
@@ -176,11 +186,12 @@ export class TasksController {
   }
 
   @Post("tasks/:taskId/checklist")
-  addChecklistItem(@UserId() userId: string, @Param("taskId", ParseIntPipe) taskId: number, @Body() body: TextDto) {
+  addChecklistItem(@UserId() userId: string, @Param("taskId", ParseIntPipe) taskId: number, @Body() body: ChecklistDto) {
     const text = body.text.trim();
-    if (!text) throw new BadRequestException("체크리스트 내용을 입력해주세요.");
+    if (!text) throw new BadRequestException("세부 업무 내용을 입력해주세요.");
     return this.db.asUser(userId, async (query) => {
-      const [row] = await query<{ id: number }>("insert into public.task_checklist_items(task_id, text) values ($1, $2) returning id", [taskId, text]);
+      const [row] = await query<{ id: number }>("insert into public.task_checklist_items(task_id, text, assignee_member_id) values ($1, $2, $3) returning id",
+        [taskId, text, body.assigneeMemberId ?? null]);
       return mapChecklistItem(await selectOneJson(query, "select * from public.task_checklist_items where id = $1", [row.id]));
     });
   }
@@ -189,6 +200,19 @@ export class TasksController {
   @HttpCode(204)
   async toggleChecklistItem(@UserId() userId: string, @Param("itemId", ParseIntPipe) itemId: number, @Body() body: DoneDto) {
     await this.db.asUser(userId, (query) => query("update public.task_checklist_items set done = $2 where id = $1", [itemId, body.done]));
+  }
+
+  // 세부 업무 담당자 바꾸기(그 과제의 담당자 중에서만, DB 트리거가 확인)와 삭제. 권한이 없으면 아무 행도 바뀌지 않는다.
+  @Put("checklist/:itemId/assignee")
+  @HttpCode(204)
+  async setChecklistAssignee(@UserId() userId: string, @Param("itemId", ParseIntPipe) itemId: number, @Body() body: ChecklistAssigneeDto) {
+    await this.db.asUser(userId, (query) => query("update public.task_checklist_items set assignee_member_id = $2 where id = $1", [itemId, body.memberId]));
+  }
+
+  @Delete("checklist/:itemId")
+  @HttpCode(204)
+  async deleteChecklistItem(@UserId() userId: string, @Param("itemId", ParseIntPipe) itemId: number) {
+    await this.db.asUser(userId, (query) => query("delete from public.task_checklist_items where id = $1", [itemId]));
   }
 
   @Post("tasks/:taskId/comments")
