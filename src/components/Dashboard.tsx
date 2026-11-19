@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import ProjectNoticeCard from "./ProjectNoticeCard";
 import { dashboardActivity } from "../lib/dashboardActivity";
 import { useEffect, useState } from "react";
 import { summarizeDashboardTasks } from "../lib/dashboardTasks";
@@ -737,6 +738,9 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
           {bannerText}
         </div>
       )}
+
+      {/* 담당 교수 공지: 위젯 배치와 상관없이 늘 맨 위(옮기거나 숨길 수 없음). 공지가 없으면 그리지 않는다. */}
+      <ProjectNoticeCard projectId={project.id} />
 
       {/* Top Controls: Edit Layout & Reset */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">

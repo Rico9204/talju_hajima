@@ -9,6 +9,8 @@ import JoinProjectModal from "./JoinProjectModal";
 import ProfileModal from "./ProfileModal";
 import UserMenu from "./UserMenu";
 import NavIcon from "./NavIcon";
+import { useAuth } from "../context/AuthContext";
+import { unreadProjectCount, useAnnouncements } from "../lib/announcementsStore";
 import { useMenuOrder, reorderMenuItem, type NavPage } from "../lib/menuPreferences";
 
 const navItems: { id: Page; label: string; icon: ReactNode }[] = [
@@ -30,7 +32,10 @@ export default function Sidebar({ currentPage, onNavigate, onHome }: { currentPa
     tasksUnread, scheduleUnread, workspaceUnread,
     newTasks, newScheduleEvents, newFiles,
   } = useProject();
-  const navUnread: Partial<Record<Page, number>> = { chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
+  // 대시보드 배지 = 확인하지 않은 담당 교수 공지 수(공지 카드가 대시보드 맨 위에 있다).
+  const { user } = useAuth();
+  const { items: announcements } = useAnnouncements(user?.id);
+  const navUnread: Partial<Record<Page, number>> = { dashboard: unreadProjectCount(announcements, project.id), chat: chatUnreadTotal, tasks: tasksUnread, schedule: scheduleUnread, workspace: workspaceUnread };
   const totalUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifPos, setNotifPos] = useState<{ top: number; left: number } | null>(null);

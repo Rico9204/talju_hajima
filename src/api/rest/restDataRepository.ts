@@ -131,6 +131,7 @@ export class RestDataRepository implements DataRepository {
   async createAnnouncement(input: import("../types").NewAnnouncementInput) { await this.api.request("/announcements", { method: "POST", body: JSON.stringify(input) }); }
   deleteAnnouncement(id: number) { return this.api.request<void>(`/announcements/${id}`, { method: "DELETE" }); }
   dismissAnnouncement(id: number) { return this.api.request<void>(`/announcements/${id}/dismiss`, { method: "POST" }); }
+  markAnnouncementRead(id: number) { return this.api.request<void>(`/announcements/${id}/read`, { method: "POST" }); }
   subscribeToAnnouncements(onChange: () => void) { return this.realtime.subscribe("announcements", (message) => { if (message.type === "change" || message.type === "joined") onChange(); }); }
   listAccountWithdrawals() { return this.api.request<import("../types").AccountWithdrawalLists>("/admin/account-withdrawals"); }
   approveAccountWithdrawal(userId: string) { return this.api.request<void>(`/admin/account-withdrawals/${encodeURIComponent(userId)}/approve`, { method: "POST" }); }

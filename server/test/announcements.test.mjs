@@ -1,7 +1,7 @@
 // 관리자 공지(기간·대상·다시 보지 않기·실시간 알림), 홈 "전체 일정" 조회, 로컬 폴더 동기화 접속 표시.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTestDb, setupProject, startApp } from './helpers.mjs';
+import { createTestDb, setupProject, signupUsers, startApp } from './helpers.mjs';
 
 let pg, app, api, origin, s;
 const call = (user, method, path, body) => api(user?.token ?? null, method, path, body);
@@ -15,6 +15,8 @@ before(async () => {
   ({ pg, db } = await createTestDb());
   ({ app, api, origin } = await startApp(db));
   s = await setupProject(api, pg);
+  // s.admin은 이 프로젝트의 승인 담당 관리자이면서 운영자(시스템 공지를 보낼 수 있음).
+  await pg.query('update profiles set is_operator = true where id = $1', [s.admin.id]);
 });
 after(async () => { await app?.close(); await pg?.close(); });
 
@@ -56,6 +58,38 @@ test('다시 보지 않기는 사용자별로 기록되고, 대상이 아닌 공
   assert.ok(!(await activeIds(s.member)).includes(s.all));
   assert.ok((await activeIds(s.leader)).includes(s.all));
   assert.equal((await call(s.outsider, 'POST', `/announcements/${s.proj}/dismiss`)).status, 400); // 존재 여부도 알려 주지 않는다
+});
+
+test('시스템 공지는 운영자만, 프로젝트 공지는 승인 담당 관리자만. 확인 인원 수는 보낸 관리자에게만', async () => {
+  const [prof] = await signupUsers(api, 1, 'prof'); // 다른 교수 관리자(이 프로젝트의 승인 담당이 아님)
+  await pg.query('update profiles set is_admin = true where id = $1', [prof.id]);
+  const system = await call(prof, 'POST', '/announcements', make());
+  assert.equal(system.status, 400);
+  assert.match(system.body.message, /운영자만/);
+  const other = await call(prof, 'POST', '/announcements', make({ targetAll: false, projectIds: [s.projectId] }));
+  assert.equal(other.status, 400);
+  assert.match(other.body.message, /내가 승인한/);
+  assert.equal((await call(s.admin, 'POST', '/announcements', make({ priority: 'loud' }))).status, 400);
+
+  const id = (await call(s.admin, 'POST', '/announcements', make({ title: '중간 발표 안내', targetAll: false, projectIds: [s.projectId], priority: 'important' }))).body.id;
+  const mine = async () => (await call(s.member, 'GET', '/announcements/active')).body.find((a) => a.id === id);
+  let got = await mine();
+  assert.equal(got.read, false);
+  assert.equal(got.priority, 'important');
+  assert.ok(got.authorName);
+  assert.equal(got.readCount, undefined); // 팀원에게는 확인 인원 수가 오지 않는다
+  assert.equal((await call(s.member, 'POST', `/announcements/${id}/read`)).status, 204);
+  assert.equal((await call(s.member, 'POST', `/announcements/${id}/read`)).status, 204); // 두 번 눌러도 괜찮다
+  got = await mine();
+  assert.equal(got.read, true);
+  assert.equal((await call(s.outsider, 'POST', `/announcements/${id}/read`)).status, 400); // 대상이 아닌 공지
+
+  const listed = (await call(s.admin, 'GET', '/announcements')).body.find((a) => a.id === id);
+  assert.deepEqual([listed.readCount, listed.recipientCount], [1, 2]); // 팀장·팀원 2명 중 1명 확인
+  assert.deepEqual((await call(prof, 'GET', '/announcements')).body, []); // 다른 교수에게는 남의 공지가 안 보인다
+  assert.deepEqual((await call(s.member, 'GET', '/announcements')).body, []); // 팀원은 관리 목록을 받지 않는다
+  assert.equal((await call(prof, 'DELETE', `/announcements/${id}`)).status, 400); // 남의 공지는 못 지운다
+  assert.equal((await call(s.admin, 'DELETE', `/announcements/${id}`)).status, 204);
 });
 
 test('삭제는 관리자만, 지우면 목록에서 사라진다', async () => {

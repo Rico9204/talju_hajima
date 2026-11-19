@@ -19,7 +19,10 @@ with required_functions(label, signature) as (
     ('admin revoke', 'public.revoke_admin(uuid)'),
     ('workspace folder move', 'public.move_workspace_folder(bigint,bigint)'),
     ('workspace manual order', 'public.reorder_workspace_items(text,bigint[])'),
-    ('task review rejection', 'public.reject_task_review(bigint,text)')
+    ('task review rejection', 'public.reject_task_review(bigint,text)'),
+    ('announcement read', 'public.mark_announcement_read(bigint)'),
+    ('announcement read counts', 'public.announcement_read_counts()'),
+    ('announcement create', 'public.create_announcement(text,text,date,date,boolean,text[],text)')
 ), checks as (
   select 'function'::text as kind, label as item, to_regprocedure(signature) is not null as ready
   from required_functions
@@ -33,7 +36,7 @@ with required_functions(label, signature) as (
   union all
   select 'column', table_name || '.' || column_name,
     exists(select 1 from information_schema.columns c where c.table_schema = 'public' and c.table_name = t.table_name and c.column_name = t.column_name)
-  from (values ('folders', 'sort_order'), ('files', 'sort_order'), ('task_comments', 'kind'), ('task_checklist_items', 'assignee_member_id'), ('file_versions', 'uploaded_by_user_id')) as t(table_name, column_name)
+  from (values ('folders', 'sort_order'), ('files', 'sort_order'), ('task_comments', 'kind'), ('task_checklist_items', 'assignee_member_id'), ('file_versions', 'uploaded_by_user_id'), ('announcements', 'priority')) as t(table_name, column_name)
 )
 select kind, item, ready, case when ready then 'ready' else 'apply schema or the matching migration' end as action
 from checks

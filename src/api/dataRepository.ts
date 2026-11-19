@@ -158,6 +158,7 @@ export interface DataRepository {
   createAnnouncement(input: import("./types").NewAnnouncementInput): Promise<void>;
   deleteAnnouncement(id: number): Promise<void>;
   dismissAnnouncement(id: number): Promise<void>;
+  markAnnouncementRead(id: number): Promise<void>; // "확인했어요"
   subscribeToAnnouncements(onChange: () => void): () => void;
   // 운영자: 탈퇴 신청·복구 신청 목록과 처리(탈퇴 승인 = 14일이 지난 계정의 정보 삭제)
   listAccountWithdrawals(): Promise<import("./types").AccountWithdrawalLists>;

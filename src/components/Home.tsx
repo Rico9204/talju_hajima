@@ -27,6 +27,8 @@ import { dDayLabel, todayKst } from "../lib/dday";
 import { recruitPostFromNotice, type BoardInitialState } from "../lib/recruitFromNotice";
 import NavIcon from "./NavIcon";
 import WindowPanel from "./WindowPanel";
+import SystemNoticeBar from "./SystemNoticeBar";
+import { unreadProjectCount, useAnnouncements } from "../lib/announcementsStore";
 
 const EVENT_TYPE: Record<ScheduleEventType, { label: string; color: string }> = {
   deadline: { label: "마감", color: "#ef4444" },
@@ -89,6 +91,7 @@ export default function Home() {
   const liveUnread = chatUnreadTotal + tasksUnread + scheduleUnread + workspaceUnread;
   const hasAlert = (id: string) => (id === project.id ? liveUnread > 0 : alertProjectIds.has(id));
   const { user } = useAuth();
+  const { items: announcements } = useAnnouncements(user?.id);
   const navigate = useNavigate();
   const { backgroundStyle, glassStyle, lineSafeStyle } = useAccountBackground();
   const [createOpen, setCreateOpen] = useState(false);
@@ -481,6 +484,7 @@ export default function Home() {
             <Achievements />
           ) : (
             <>
+              <SystemNoticeBar />
               <div className="flex items-center justify-between gap-2 mb-6">
                 <div>
                   <h1 className="text-xl font-700">내 프로젝트</h1>
@@ -568,6 +572,11 @@ export default function Home() {
                           {p.approvalStatus === "pending" && (
                             <span className="text-xs font-700 px-2 py-0.5" style={{ background: "#f0a50018", color: "#f0a500", borderRadius: "20px" }}>
                               승인 대기
+                            </span>
+                          )}
+                          {unreadProjectCount(announcements, p.id) > 0 && (
+                            <span className="text-xs font-700 px-2 py-0.5" title="확인하지 않은 담당 교수 공지" style={{ background: "rgba(74, 116, 181, 0.14)", color: "var(--primary-text)", borderRadius: "20px" }}>
+                              📌 새 공지 {unreadProjectCount(announcements, p.id)}
                             </span>
                           )}
                           {p.approvalStatus === "rejected" && (

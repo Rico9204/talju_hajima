@@ -492,7 +492,9 @@ export interface AdminAccount {
   pendingProjects: number;
 }
 
-// 관리자 공지: 기간(startDate~endDate, 한국 시간 날짜)과 대상(전체 또는 고른 프로젝트)을 정해 작은 팝업으로 알린다.
+// 공지: 기간(startDate~endDate, 한국 시간 날짜)과 대상을 정해 보낸다.
+// 시스템 공지(targetAll)는 운영자가 보내 메인 화면에, 프로젝트 공지는 승인 담당 관리자(교수 등)가 보내 그 프로젝트 안에 뜬다.
+export type AnnouncementPriority = "normal" | "important" | "urgent";
 export interface Announcement {
   id: number;
   title: string;
@@ -502,6 +504,11 @@ export interface Announcement {
   targetAll: boolean;
   projectIds: string[]; // targetAll이 false일 때의 대상 프로젝트
   createdAt: string;
+  priority: AnnouncementPriority; // 중요·긴급은 확인 전까지 팝업으로도 뜬다
+  authorName: string;
+  read?: boolean; // 받는 공지 목록에서만: 내가 "확인했어요"를 눌렀는지
+  readCount?: number | null; // 관리 목록의 프로젝트 공지에서만(보낸 관리자·운영자): 확인한 팀원 수
+  recipientCount?: number | null; // 위와 같음: 대상 프로젝트 팀원 수
 }
 
 export interface NewAnnouncementInput {
@@ -511,6 +518,7 @@ export interface NewAnnouncementInput {
   endDate: string;
   targetAll: boolean;
   projectIds: string[];
+  priority: AnnouncementPriority;
 }
 
 // 계정 탈퇴: 탈퇴를 신청해도 14일 동안은 계정 정보를 보관하고, 그 안에 복구를 신청할 수 있다.
