@@ -313,122 +313,155 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   const [layout, saveLayout, resetSavedLayout] = useDashboardLayout();
   const [editMode, setEditMode] = useState(false);
 
-  // 배치가 바뀔 때 카드가 원래 자리에서 새 자리로 미끄러지게 한다(FLIP: 바뀌기 직전 위치를 재 두고, 그린 뒤 그 차이만큼 되돌렸다가 0으로).
-  // 옮긴 카드는 잠깐 테두리를 밝혀 어디로 갔는지 보이게 한다. 동작 줄이기 설정이면 움직이지 않는다.
+  // ===== 카드 옮기기 =====
+  // 브라우저 기본 끌어 놓기(draggable)는 카드의 반투명 "사진"만 끌고 다녀(유리 배경이 빠져 뜯긴 것처럼 보임),
+  // 놓기 전까지 다른 카드도 움직이지 않는다. 그래서 포인터로 직접 옮긴다:
+  // - 끄는 카드는 실제 카드 그대로 들려(그림자·살짝 확대) 손을 따라오고,
+  // - 다른 카드는 끄는 동안 바로 새 순서로 비켜 주며(FLIP: 바뀌기 직전 위치를 재 두고 그 차이만큼 되돌렸다가 0으로),
+  // - 놓으면 빈자리로 미끄러져 들어간다. 버튼(↑ ↓ ⇄)·기본 배치 복원도 같은 움직임을 쓴다.
+  // 동작 줄이기 설정이면 움직임 없이 바로 바뀐다.
   const widgetEls = useRef(new Map<DashboardWidgetId, HTMLDivElement>());
+  const columnEls = useRef<Record<DashboardColumnId, HTMLDivElement | null>>({ main: null, side: null });
   const beforeRects = useRef<Map<DashboardWidgetId, DOMRect> | null>(null);
   const [movedWidget, setMovedWidget] = useState<DashboardWidgetId | null>(null);
-  function setLayout(next: typeof layout, moved?: DashboardWidgetId) {
+  const [drag, setDrag] = useState<{ id: DashboardWidgetId; preview: typeof layout } | null>(null);
+  const dragInfo = useRef<{ id: DashboardWidgetId; pointerId: number; startX: number; startY: number; grabX: number; grabY: number; x: number; y: number; started: boolean; preview: typeof layout } | null>(null);
+  const shownLayout = drag?.preview ?? layout;
+  const reducedMotion = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+  function snapshot() {
     beforeRects.current = new Map([...widgetEls.current].map(([id, el]) => [id, el.getBoundingClientRect()]));
+  }
+  function setLayout(next: typeof layout, moved?: DashboardWidgetId) {
+    snapshot();
     if (moved) setMovedWidget(moved);
     saveLayout(next);
   }
   function resetLayout() {
-    beforeRects.current = new Map([...widgetEls.current].map(([id, el]) => [id, el.getBoundingClientRect()]));
+    snapshot();
     resetSavedLayout();
   }
+
+  // 끄는 카드를 손 위치에 둔다(자리 = 지금 배치에서의 원래 위치, 거기서 손까지 옮겨 그린다).
+  function placeDragged() {
+    const info = dragInfo.current;
+    const el = info ? widgetEls.current.get(info.id) : null;
+    if (!info?.started || !el) return;
+    el.style.transform = "";
+    const home = el.getBoundingClientRect();
+    el.style.transform = `translate(${info.x - info.grabX - home.left}px, ${info.y - info.grabY - home.top}px) scale(1.02)`;
+  }
+
   useLayoutEffect(() => {
     const before = beforeRects.current;
     beforeRects.current = null;
-    if (!before) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    placeDragged();
+    if (!before || reducedMotion()) return;
     for (const [id, el] of widgetEls.current) {
+      if (drag && id === drag.id) continue; // 끄는 카드는 손을 따라간다
       const prev = before.get(id);
       if (!prev) continue;
       const now = el.getBoundingClientRect();
       const dx = prev.left - now.left;
       const dy = prev.top - now.top;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], { duration: 320, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], { duration: 260, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
     }
-  }, [layout]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownLayout]);
   useEffect(() => {
     if (!movedWidget) return;
     const timer = window.setTimeout(() => setMovedWidget(null), 900);
     return () => window.clearTimeout(timer);
   }, [movedWidget]);
-  const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
-  const [dragOverWidget, setDragOverWidget] = useState<DashboardWidgetId | null>(null);
-  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
-  const [dragOverColumn, setDragOverColumn] = useState<DashboardColumnId | null>(null);
+
+  // 손 위치로 놓일 자리를 정한다: 손이 있는(없으면 가장 가까운) 열에서, 손보다 아래에 중심이 있는 첫 카드 앞.
+  function dropTarget(x: number, y: number, preview: typeof layout, id: DashboardWidgetId): typeof layout {
+    const cols = (["main", "side"] as const)
+      .map((col) => ({ col, rect: columnEls.current[col]?.getBoundingClientRect() }))
+      .filter((c): c is { col: DashboardColumnId; rect: DOMRect } => !!c.rect);
+    if (!cols.length) return preview;
+    const distance = (r: DOMRect) => Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+    const col = cols.reduce((best, c) => (distance(c.rect) < distance(best.rect) ? c : best)).col;
+    const others = preview[col].filter((w) => w !== id);
+    let at = others.findIndex((w) => {
+      const r = widgetEls.current.get(w)?.getBoundingClientRect();
+      return !!r && y < r.top + r.height / 2;
+    });
+    if (at === -1) at = others.length;
+    return moveWidget(preview, id, col, at);
+  }
+
+  function startPointerDrag(e: React.PointerEvent<HTMLDivElement>, id: DashboardWidgetId) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    // 편집 모드에서는 카드 어디든(버튼·입력칸·링크 빼고), 평소에는 ⠿ 손잡이로만 끈다.
+    if (editMode ? target.closest("button, a, input, select, textarea, [role='slider'], [contenteditable='true']") : !target.closest("[data-drag-handle]")) return;
+    if (dragInfo.current) return;
+    if (editMode) {
+      // 안쪽 목록의 끌어서 스크롤·글자 선택이 함께 움직이지 않게(포인터 기본 동작을 막으면 뒤따르는 마우스 이벤트도 생기지 않는다).
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    dragInfo.current = { id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, grabX: 0, grabY: 0, x: e.clientX, y: e.clientY, started: false, preview: layout };
+
+    const scroller = e.currentTarget.closest("main");
+    const move = (ev: PointerEvent) => {
+      const info = dragInfo.current;
+      if (!info || ev.pointerId !== info.pointerId) return;
+      info.x = ev.clientX;
+      info.y = ev.clientY;
+      if (!info.started) {
+        if (Math.hypot(ev.clientX - info.startX, ev.clientY - info.startY) < 5) return; // 작은 흔들림은 클릭
+        const el = widgetEls.current.get(info.id);
+        const rect = el?.getBoundingClientRect();
+        if (!rect) return;
+        info.started = true;
+        info.grabX = info.startX - rect.left;
+        info.grabY = info.startY - rect.top;
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "grabbing";
+        setDrag({ id: info.id, preview: info.preview });
+      }
+      ev.preventDefault();
+      // 화면 위·아래 끝에 가까우면 스크롤
+      if (scroller) {
+        if (ev.clientY < 70) scroller.scrollTop -= 14;
+        else if (ev.clientY > window.innerHeight - 70) scroller.scrollTop += 14;
+      }
+      const next = dropTarget(ev.clientX, ev.clientY, info.preview, info.id);
+      if (next.main.join() !== info.preview.main.join() || next.side.join() !== info.preview.side.join()) {
+        info.preview = next;
+        snapshot();
+        setDrag({ id: info.id, preview: next });
+      } else {
+        placeDragged();
+      }
+    };
+    const end = (ev: PointerEvent) => {
+      const info = dragInfo.current;
+      if (!info || ev.pointerId !== info.pointerId) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      dragInfo.current = null;
+      if (!info.started) return;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      // 들린 위치를 재 둔 뒤 손 위치 이동을 풀면, 위의 FLIP이 그 자리에서 빈자리로 미끄러뜨린다.
+      snapshot();
+      const el = widgetEls.current.get(info.id);
+      if (el) el.style.transform = "";
+      setDrag(null);
+      setMovedWidget(info.id);
+      saveLayout(info.preview);
+    };
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
   const isDefault = isDefaultDashboardLayout(layout);
 
-  function handleDragStart(e: React.DragEvent, id: DashboardWidgetId) {
-    e.dataTransfer.setData("text/plain", id);
-    e.dataTransfer.effectAllowed = "move";
-    setDraggedWidget(id);
-  }
-
-  function handleDragOver(e: React.DragEvent, id: DashboardWidgetId, col: DashboardColumnId) {
-    if (!draggedWidget || draggedWidget === id) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mid = rect.top + rect.height / 2;
-    setDragOverWidget(id);
-    setDragOverColumn(col);
-    setDropPosition(e.clientY < mid ? "before" : "after");
-  }
-
-  function handleDrop(e: React.DragEvent, targetId: DashboardWidgetId, targetCol: DashboardColumnId) {
-    e.preventDefault();
-    // 바깥 열의 놓기(handleColumnDrop)까지 올라가면, 아직 바뀌기 전 배치를 보고 "다른 열에서 왔다"며 맨 아래로 다시 옮긴다.
-    e.stopPropagation();
-    if (!draggedWidget || draggedWidget === targetId) {
-      setDraggedWidget(null);
-      setDragOverWidget(null);
-      setDropPosition(null);
-      setDragOverColumn(null);
-      return;
-    }
-    const targetList = layout[targetCol];
-    const targetIdx = targetList.indexOf(targetId);
-    if (targetIdx !== -1) {
-      const fromSameCol = layout[targetCol].includes(draggedWidget);
-      const fromIdx = targetList.indexOf(draggedWidget);
-      let insertIdx = dropPosition === "after" ? targetIdx + 1 : targetIdx;
-      if (fromSameCol && fromIdx !== -1 && fromIdx < insertIdx) {
-        insertIdx = Math.max(0, insertIdx - 1);
-      }
-      setLayout(moveWidget(layout, draggedWidget, targetCol, insertIdx), draggedWidget);
-    }
-    setDraggedWidget(null);
-    setDragOverWidget(null);
-    setDropPosition(null);
-    setDragOverColumn(null);
-  }
-
-  function handleColumnDragOver(e: React.DragEvent, col: DashboardColumnId) {
-    if (!draggedWidget) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverColumn(col);
-  }
-
-  // 카드 사이 틈이나 열의 빈 곳에 놓았을 때: 맨 아래가 아니라 놓은 높이에 넣는다(마우스보다 아래쪽 첫 카드 앞).
-  function handleColumnDrop(e: React.DragEvent, col: DashboardColumnId) {
-    e.preventDefault();
-    if (draggedWidget) {
-      const others = layout[col].filter((id) => id !== draggedWidget);
-      const at = others.findIndex((id) => {
-        const rect = widgetEls.current.get(id)?.getBoundingClientRect();
-        return !!rect && e.clientY < rect.top + rect.height / 2;
-      });
-      const next = moveWidget(layout, draggedWidget, col, at === -1 ? others.length : at);
-      if (next[col].join() !== layout[col].join() || !layout[col].includes(draggedWidget)) setLayout(next, draggedWidget);
-    }
-    setDraggedWidget(null);
-    setDragOverWidget(null);
-    setDropPosition(null);
-    setDragOverColumn(null);
-  }
-
-  function handleDragEnd() {
-    setDraggedWidget(null);
-    setDragOverWidget(null);
-    setDropPosition(null);
-    setDragOverColumn(null);
-  }
 
   function renderHeaderControls(id: DashboardWidgetId, col: DashboardColumnId, idx: number, total: number) {
     return (
@@ -461,14 +494,16 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             >
               {col === "main" ? "우측 ➔" : "⬅ 좌측"}
             </button>
-            <span title="마우스로 끌어서 순서 변경" className="cursor-grab active:cursor-grabbing px-1 text-xs opacity-70 hover:opacity-100 select-none">
+            <span data-drag-handle title="끌어서 옮기기" className="cursor-grab active:cursor-grabbing px-1 text-xs opacity-70 hover:opacity-100 select-none" style={{ touchAction: "none" }}>
               ⠿
             </span>
           </>
         ) : (
           <span
-            title="마우스로 끌어서 배치 변경"
+            data-drag-handle
+            title="끌어서 배치 변경"
             className="cursor-grab active:cursor-grabbing px-1.5 py-0.5 rounded text-[11px] opacity-40 group-hover/widget:opacity-90 hover:bg-black/5 dark:hover:bg-white/10 transition-opacity select-none"
+            style={{ touchAction: "none" }}
           >
             ⠿
           </span>
@@ -750,40 +785,37 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   }
 
   function renderDraggableWidget(id: DashboardWidgetId, col: DashboardColumnId, idx: number, total: number) {
-    const isDragging = draggedWidget === id;
-    const isOver = dragOverWidget === id;
-    const justMoved = movedWidget === id;
+    const isDragging = drag?.id === id;
+    const justMoved = movedWidget === id && !drag;
     return (
       <div
         key={id}
         ref={(el) => { if (el) widgetEls.current.set(id, el); else widgetEls.current.delete(id); }}
-        draggable
-        onDragStart={(e) => handleDragStart(e, id)}
-        onDragOver={(e) => handleDragOver(e, id, col)}
-        onDrop={(e) => handleDrop(e, id, col)}
-        onDragEnd={handleDragEnd}
-        className={`relative group/widget transition-opacity duration-150 ${isDragging ? "opacity-40" : ""}`}
+        // 편집 모드에서는 카드 안 목록의 "끌어서 스크롤"보다 먼저 받아 카드 옮기기로 쓴다(그 밖에는 ⠿ 손잡이로만).
+        onPointerDownCapture={(e) => startPointerDrag(e, id)}
+        onDragStart={(e) => { if (editMode || drag) e.preventDefault(); }} // 이미지·링크의 브라우저 기본 끌기 막기
+        className={`relative group/widget ${editMode ? "cursor-grab" : ""}`}
+        style={isDragging ? {
+          zIndex: 40,
+          cursor: "grabbing",
+          borderRadius: "var(--radius)",
+          boxShadow: "0 22px 50px rgba(15,18,53,0.28), 0 6px 16px rgba(15,18,53,0.16)",
+          willChange: "transform",
+          touchAction: "none",
+        } : editMode ? { touchAction: "none" } : undefined}
       >
         {renderWidgetContent(id, col, idx, total)}
         {/* 편집 테두리: 카드 바깥 6px에 따로 그려 카드 모서리·그림자에 가려지거나 잘리지 않게(레이아웃에 영향 없음). */}
-        {(editMode || justMoved) && (
+        {(editMode || justMoved || isDragging) && (
           <span
             aria-hidden="true"
             className="absolute -inset-1.5 pointer-events-none border-2 transition-colors duration-300 group-hover/widget:border-[var(--primary)]"
             style={{
-              borderStyle: justMoved ? "solid" : "dashed",
-              borderColor: justMoved ? "var(--primary)" : "color-mix(in srgb, var(--primary) 45%, transparent)",
+              borderStyle: justMoved || isDragging ? "solid" : "dashed",
+              borderColor: justMoved || isDragging ? "var(--primary)" : "color-mix(in srgb, var(--primary) 45%, transparent)",
               borderRadius: "calc(var(--radius) + 6px)",
               boxShadow: justMoved ? "0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent)" : undefined,
             }}
-          />
-        )}
-        {/* 놓을 자리 표시: 카드 사이 틈에 막대로(카드를 밀어내지 않는다). */}
-        {isOver && dropPosition && (
-          <span
-            aria-hidden="true"
-            className={`absolute left-0 right-0 h-1 rounded-full pointer-events-none ${dropPosition === "before" ? "-top-3" : "-bottom-3"}`}
-            style={{ background: "var(--primary)", boxShadow: "0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent)" }}
           />
         )}
       </div>
@@ -838,36 +870,24 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_330px] gap-5 items-start">
         {/* Main (Left) Column */}
-        <div
-          onDragOver={(e) => handleColumnDragOver(e, "main")}
-          onDrop={(e) => handleColumnDrop(e, "main")}
-          className={`flex flex-col gap-5 min-w-0 transition-colors rounded-2xl p-0.5 ${
-            dragOverColumn === "main" && layout.main.length === 0 ? "bg-[var(--primary)]/5 ring-2 ring-dashed ring-[var(--primary)] min-h-[160px]" : ""
-          }`}
-        >
-          {layout.main.length === 0 ? (
+        <div ref={(el) => { columnEls.current.main = el; }} className="flex flex-col gap-5 min-w-0 min-h-[120px]">
+          {shownLayout.main.length === 0 ? (
             <div className="py-12 border-2 border-dashed border-[var(--border)] rounded-2xl text-center text-xs text-muted-foreground">
               카드를 이곳으로 끌어다 놓으세요.
             </div>
           ) : (
-            layout.main.map((widgetId, index) => renderDraggableWidget(widgetId, "main", index, layout.main.length))
+            shownLayout.main.map((widgetId, index) => renderDraggableWidget(widgetId, "main", index, shownLayout.main.length))
           )}
         </div>
 
         {/* Side (Right) Column */}
-        <div
-          onDragOver={(e) => handleColumnDragOver(e, "side")}
-          onDrop={(e) => handleColumnDrop(e, "side")}
-          className={`flex flex-col gap-5 min-w-0 transition-colors rounded-2xl p-0.5 ${
-            dragOverColumn === "side" && layout.side.length === 0 ? "bg-[var(--primary)]/5 ring-2 ring-dashed ring-[var(--primary)] min-h-[160px]" : ""
-          }`}
-        >
-          {layout.side.length === 0 ? (
+        <div ref={(el) => { columnEls.current.side = el; }} className="flex flex-col gap-5 min-w-0 min-h-[120px]">
+          {shownLayout.side.length === 0 ? (
             <div className="py-12 border-2 border-dashed border-[var(--border)] rounded-2xl text-center text-xs text-muted-foreground">
               카드를 이곳으로 끌어다 놓으세요.
             </div>
           ) : (
-            layout.side.map((widgetId, index) => renderDraggableWidget(widgetId, "side", index, layout.side.length))
+            shownLayout.side.map((widgetId, index) => renderDraggableWidget(widgetId, "side", index, shownLayout.side.length))
           )}
         </div>
       </div>
