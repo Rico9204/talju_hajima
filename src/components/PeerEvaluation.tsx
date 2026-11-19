@@ -482,6 +482,7 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
                   <div className="flex justify-center" role="group" aria-label="선택한 동료의 항목별 평가 오각형 차트">
                     <PentagonChart
                       size={300}
+                      resetKey={selectedPeer}
                       data={criteria.map((c) => ({ label: c.label, value: peerScores[c.id] ?? 0, display: peerScores[c.id] === null ? "—" : undefined }))}
                       onValueChange={(index, value) => handleScoreClick(criteria[index].id, value)}
                       limits={criteria.map((c) => maxAllowed(c.id, selectedPeer))}

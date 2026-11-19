@@ -899,3 +899,31 @@ html, body, #root {
 
 /* 오류 문구(text-red-600)는 어두운 화면에서 대비가 모자라 밝은 빨강으로 바꾼다. */
 :root[data-theme="dark"] .text-red-600, .dark .text-red-600 { color: #f87171; }
+
+/* 동료 평가 오각형(PentagonChart): 점수가 오르면 채움이 잠깐 밝아지고 꼭짓점에서 물결이 퍼진다(차오름),
+   내리면 예전 모양이 옅게 남았다 사라지고 물결이 안으로 모인다(빠져나감). 동작 줄이기 설정이면 끈다. */
+@keyframes radar-fill-up {
+  0% { fill-opacity: 0.2; }
+  35% { fill-opacity: 0.42; }
+  100% { fill-opacity: 0.2; }
+}
+@keyframes radar-ghost-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes radar-ripple-out {
+  0% { transform: scale(0.6); opacity: 0.75; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes radar-ripple-in {
+  0% { transform: scale(2.4); opacity: 0.6; }
+  100% { transform: scale(0.5); opacity: 0; }
+}
+.radar-fill-up { animation: radar-fill-up 650ms ease-out; }
+.radar-ghost-out { animation: radar-ghost-out 650ms ease-in forwards; }
+.radar-ripple-out { animation: radar-ripple-out 650ms ease-out forwards; }
+.radar-ripple-in { animation: radar-ripple-in 600ms ease-in forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .radar-fill-up, .radar-ghost-out, .radar-ripple-out, .radar-ripple-in { animation: none; opacity: 0; }
+  .radar-fill-up { opacity: 1; }
+}
