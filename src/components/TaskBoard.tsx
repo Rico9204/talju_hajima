@@ -56,11 +56,12 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const [filter, setFilter] = useState<string>("all");
   const [view, setView] = useState<"board" | "member">("board");
   const [assigneeFilterSearch, setAssigneeFilterSearch] = useState("");
+  const [laneMemberSearch, setLaneMemberSearch] = useState(""); // 팀원별 보기: 담당자(팀원) 이름 검색
   const [quickAddAssigneeSearch, setQuickAddAssigneeSearch] = useState("");
   const [boardSearch, setBoardSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null); // 삭제 확인 창
-  const [addingCol, setAddingCol] = useState<TaskStatus | null>(null);
+  const [adding, setAdding] = useState(false); // 과제 생성 창 열림
   const [newTitle, setNewTitle] = useState("");
   const [newAssignees, setNewAssignees] = useState<string[]>(team.members[0] ? [team.members[0].id] : []);
 
@@ -69,9 +70,10 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   useEffect(() => {
     setFilter("all");
     setAssigneeFilterSearch("");
+    setLaneMemberSearch("");
     setBoardSearch("");
     setSelectedTaskId(null);
-    setAddingCol(null);
+    setAdding(false);
     setNewTitle("");
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
     setQuickAddAssigneeSearch("");
@@ -107,10 +109,14 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
       (!boardSearchTrimmed || t.title.toLowerCase().includes(boardSearchTrimmed))
   );
   const laneTasks = tasks.filter((t) => !boardSearchTrimmed || t.title.toLowerCase().includes(boardSearchTrimmed));
+  const laneMemberSearchTrimmed = laneMemberSearch.trim().toLowerCase();
+  const laneMembers = laneMemberSearchTrimmed
+    ? team.members.filter((m) => m.name.toLowerCase().includes(laneMemberSearchTrimmed))
+    : team.members;
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
 
-  function startQuickAdd(col: TaskStatus) {
-    setAddingCol(col);
+  function startQuickAdd() {
+    setAdding(true);
     setNewTitle("");
     setNewAssignees(team.members[0] ? [team.members[0].id] : []);
     setQuickAddAssigneeSearch("");
@@ -133,15 +139,15 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     }
   }
 
-  async function submitQuickAdd(col: TaskStatus) {
+  async function submitQuickAdd() {
     if (locked || !newTitle.trim() || newAssignees.length === 0) return;
     const title = newTitle.trim();
-    setAddingCol(null);
+    setAdding(false);
     setNewTitle("");
     // 실패하면 입력한 제목을 되돌려 다시 시도할 수 있게 한다.
-    if (!(await run(() => addTask({ title, assigneeIds: newAssignees, status: col }), "과제를 추가하지 못했습니다."))) {
+    if (!(await run(() => addTask({ title, assigneeIds: newAssignees, status: "todo" }), "과제를 추가하지 못했습니다."))) {
       setNewTitle((current) => current || title);
-      setAddingCol(col);
+      setAdding(true);
     }
   }
 
@@ -189,6 +195,89 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                 {tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0}%
               </span>
             </div>
+            {/* 과제 생성: 보드 오른쪽 위(완료 칸 위) 버튼 하나. 새 과제는 항상 "할 일"에서 시작한다
+                (검토 중·완료로 바로 만들면 검토 흐름과 완료 수가 어긋난다). */}
+            {isManager && !locked && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => (adding ? setAdding(false) : startQuickAdd())}
+                  aria-expanded={adding}
+                  aria-haspopup="dialog"
+                  className="text-xs font-700 px-4 py-2 transition-all"
+                  style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+                >
+                  + 과제 생성
+                </button>
+                {adding && (
+                  <div
+                    role="dialog"
+                    aria-label="새 과제 만들기"
+                    onKeyDown={(e) => { if (e.key === "Escape") setAdding(false); }}
+                    className="absolute right-0 top-full mt-2 z-30 w-72 max-w-[calc(100vw-2rem)] p-3 flex flex-col gap-2"
+                    style={{ background: "var(--surface-opaque)", border: "1px solid var(--border)", borderRadius: "var(--radius)", boxShadow: "0 12px 32px rgba(15,18,53,0.18)" }}
+                  >
+                    <div className="text-xs font-700">새 과제 <span className="font-500" style={{ color: "var(--muted-foreground)" }}>· “할 일”에 추가돼요</span></div>
+                    <input
+                      autoFocus
+                      value={newTitle}
+                      maxLength={200}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submitQuickAdd()}
+                      placeholder="과제 제목"
+                      className="text-xs px-2.5 py-2 border outline-none"
+                      style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                    />
+                    {showQuickAddSearch && (
+                      <input
+                        value={quickAddAssigneeSearch}
+                        onChange={(e) => setQuickAddAssigneeSearch(e.target.value)}
+                        placeholder="담당자 검색"
+                        className="text-xs px-2.5 py-1.5 border outline-none"
+                        style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
+                      />
+                    )}
+                    <div
+                      className="flex flex-col gap-1 max-h-40 overflow-y-auto px-2.5 py-2 border"
+                      style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)" }}
+                    >
+                      {visibleQuickAddMembers.map((m) => (
+                        <label key={m.id} className="flex items-center gap-1.5 text-xs">
+                          <input type="checkbox" checked={newAssignees.includes(m.id)} onChange={() => toggleNewAssignee(m.id)} />
+                          {m.name}
+                        </label>
+                      ))}
+                      {visibleQuickAddMembers.length === 0 && (
+                        <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => submitQuickAdd()}
+                        disabled={!newTitle.trim() || newAssignees.length === 0}
+                        className="flex-1 text-xs font-700 py-1.5 transition-all"
+                        style={{
+                          background: newTitle.trim() && newAssignees.length > 0 ? "var(--primary)" : "var(--muted)",
+                          color: newTitle.trim() && newAssignees.length > 0 ? "#fff" : "var(--muted-foreground)",
+                          borderRadius: "20px",
+                        }}
+                      >
+                        추가
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdding(false)}
+                        className="px-3 text-xs font-600"
+                        style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -209,6 +298,16 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
             value={assigneeFilterSearch}
             onChange={(e) => setAssigneeFilterSearch(e.target.value)}
             placeholder="담당자 검색"
+            className="w-40 min-w-0 text-xs px-3 py-1.5 border outline-none"
+            style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
+          />
+        )}
+        {view === "member" && (
+          <input
+            value={laneMemberSearch}
+            onChange={(e) => setLaneMemberSearch(e.target.value)}
+            placeholder="담당자 검색"
+            aria-label="팀원별 보기에서 담당자 이름 검색"
             className="w-40 min-w-0 text-xs px-3 py-1.5 border outline-none"
             style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--card)", fontFamily: "var(--font-outfit)" }}
           />
@@ -372,75 +471,6 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                   </div>
                 )}
                 </div>
-
-                {/* Quick add */}
-                {isManager && !locked && (
-                  addingCol === col.id ? (
-                    <div className="p-3 flex flex-col gap-2" style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-card)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}>
-                      <input
-                        autoFocus
-                        value={newTitle}
-                        maxLength={200}
-                        onChange={(e) => setNewTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submitQuickAdd(col.id)}
-                        placeholder="과제 제목"
-                        className="text-xs px-2.5 py-2 border outline-none"
-                        style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-                      />
-                      {showQuickAddSearch && (
-                        <input
-                          value={quickAddAssigneeSearch}
-                          onChange={(e) => setQuickAddAssigneeSearch(e.target.value)}
-                          placeholder="담당자 검색"
-                          className="text-xs px-2.5 py-1.5 border outline-none"
-                          style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-                        />
-                      )}
-                      <div
-                        className="flex flex-col gap-1 max-h-28 overflow-y-auto px-2.5 py-2 border"
-                        style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)" }}
-                      >
-                        {visibleQuickAddMembers.map((m) => (
-                          <label key={m.id} className="flex items-center gap-1.5 text-xs">
-                            <input type="checkbox" checked={newAssignees.includes(m.id)} onChange={() => toggleNewAssignee(m.id)} />
-                            {m.name}
-                          </label>
-                        ))}
-                        {visibleQuickAddMembers.length === 0 && (
-                          <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
-                        )}
-                      </div>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => submitQuickAdd(col.id)}
-                          className="flex-1 text-xs font-700 py-1.5 transition-all"
-                          style={{
-                            background: newTitle.trim() && newAssignees.length > 0 ? "var(--primary)" : "var(--muted)",
-                            color: newTitle.trim() && newAssignees.length > 0 ? "#fff" : "var(--muted-foreground)",
-                            borderRadius: "20px",
-                          }}
-                        >
-                          추가
-                        </button>
-                        <button
-                          onClick={() => setAddingCol(null)}
-                          className="px-3 text-xs font-600"
-                          style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
-                        >
-                          취소
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => startQuickAdd(col.id)}
-                      className="w-full text-xs font-600 py-2 transition-all"
-                      style={{ border: `2px dashed var(--border)`, color: "var(--muted-foreground)", borderRadius: "var(--radius)" }}
-                    >
-                      + 새 과제
-                    </button>
-                  )
-                )}
               </div>
             </WindowPanel>
           );
@@ -456,7 +486,10 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                 <span key={c.id} className="flex items-center gap-1.5"><i className="w-2 h-2 rounded-full block" style={{ background: c.color }} />{c.label}</span>
               ))}
             </div>
-            {team.members.map((m) => {
+            {laneMembers.length === 0 && (
+              <div className="px-4 py-6 text-center text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
+            )}
+            {laneMembers.map((m) => {
               const mine = laneTasks.filter((t) => t.assigneeIds.includes(m.id));
               const mineDone = mine.filter((t) => t.status === "done").length;
               return (
