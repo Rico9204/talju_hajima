@@ -11,7 +11,7 @@ interface RadarAxis {
 
 const MAX_VALUE = 10;
 const MID_VALUE = 5;
-const ANIMATION_MS = 450;
+const ANIMATION_MS = 250;
 const EFFECT_MS = 700;
 
 function prefersReducedMotion() {
