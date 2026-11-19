@@ -376,7 +376,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                 })}
 
                 {colTasks.length === 0 && (
-                  <div className="p-4 text-center text-xs" style={{ border: `2px dashed ${col.color}40`, color: "var(--muted-foreground)", borderRadius: "var(--radius)" }}>
+                  <div className="p-4 text-center text-xs" style={{ border: `2px dashed color-mix(in srgb, ${col.color} 25%, transparent)`, color: "var(--muted-foreground)", borderRadius: "var(--radius)" }}>
                     {colTasksUnfiltered === 0 ? "과제 없음" : "검색 결과가 없어요"}
                   </div>
                 )}
