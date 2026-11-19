@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import ProjectNoticeCard from "./ProjectNoticeCard";
 import { dashboardActivity } from "../lib/dashboardActivity";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { summarizeDashboardTasks } from "../lib/dashboardTasks";
 import MyEvaluationSummary from "./MyEvaluationSummary";
 import { Page } from "../App";
@@ -310,8 +310,43 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     { status: "review", label: "검토", color: "#f59e0b", text: "var(--warning-text)" },
   ] as const;
 
-  const [layout, setLayout, resetLayout] = useDashboardLayout();
+  const [layout, saveLayout, resetSavedLayout] = useDashboardLayout();
   const [editMode, setEditMode] = useState(false);
+
+  // 배치가 바뀔 때 카드가 원래 자리에서 새 자리로 미끄러지게 한다(FLIP: 바뀌기 직전 위치를 재 두고, 그린 뒤 그 차이만큼 되돌렸다가 0으로).
+  // 옮긴 카드는 잠깐 테두리를 밝혀 어디로 갔는지 보이게 한다. 동작 줄이기 설정이면 움직이지 않는다.
+  const widgetEls = useRef(new Map<DashboardWidgetId, HTMLDivElement>());
+  const beforeRects = useRef<Map<DashboardWidgetId, DOMRect> | null>(null);
+  const [movedWidget, setMovedWidget] = useState<DashboardWidgetId | null>(null);
+  function setLayout(next: typeof layout, moved?: DashboardWidgetId) {
+    beforeRects.current = new Map([...widgetEls.current].map(([id, el]) => [id, el.getBoundingClientRect()]));
+    if (moved) setMovedWidget(moved);
+    saveLayout(next);
+  }
+  function resetLayout() {
+    beforeRects.current = new Map([...widgetEls.current].map(([id, el]) => [id, el.getBoundingClientRect()]));
+    resetSavedLayout();
+  }
+  useLayoutEffect(() => {
+    const before = beforeRects.current;
+    beforeRects.current = null;
+    if (!before) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    for (const [id, el] of widgetEls.current) {
+      const prev = before.get(id);
+      if (!prev) continue;
+      const now = el.getBoundingClientRect();
+      const dx = prev.left - now.left;
+      const dy = prev.top - now.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], { duration: 320, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    }
+  }, [layout]);
+  useEffect(() => {
+    if (!movedWidget) return;
+    const timer = window.setTimeout(() => setMovedWidget(null), 900);
+    return () => window.clearTimeout(timer);
+  }, [movedWidget]);
   const [draggedWidget, setDraggedWidget] = useState<DashboardWidgetId | null>(null);
   const [dragOverWidget, setDragOverWidget] = useState<DashboardWidgetId | null>(null);
   const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
@@ -337,6 +372,8 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
 
   function handleDrop(e: React.DragEvent, targetId: DashboardWidgetId, targetCol: DashboardColumnId) {
     e.preventDefault();
+    // 바깥 열의 놓기(handleColumnDrop)까지 올라가면, 아직 바뀌기 전 배치를 보고 "다른 열에서 왔다"며 맨 아래로 다시 옮긴다.
+    e.stopPropagation();
     if (!draggedWidget || draggedWidget === targetId) {
       setDraggedWidget(null);
       setDragOverWidget(null);
@@ -353,7 +390,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
       if (fromSameCol && fromIdx !== -1 && fromIdx < insertIdx) {
         insertIdx = Math.max(0, insertIdx - 1);
       }
-      setLayout(moveWidget(layout, draggedWidget, targetCol, insertIdx));
+      setLayout(moveWidget(layout, draggedWidget, targetCol, insertIdx), draggedWidget);
     }
     setDraggedWidget(null);
     setDragOverWidget(null);
@@ -368,10 +405,17 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
     setDragOverColumn(col);
   }
 
+  // 카드 사이 틈이나 열의 빈 곳에 놓았을 때: 맨 아래가 아니라 놓은 높이에 넣는다(마우스보다 아래쪽 첫 카드 앞).
   function handleColumnDrop(e: React.DragEvent, col: DashboardColumnId) {
     e.preventDefault();
-    if (draggedWidget && !layout[col].includes(draggedWidget)) {
-      setLayout(moveWidget(layout, draggedWidget, col));
+    if (draggedWidget) {
+      const others = layout[col].filter((id) => id !== draggedWidget);
+      const at = others.findIndex((id) => {
+        const rect = widgetEls.current.get(id)?.getBoundingClientRect();
+        return !!rect && e.clientY < rect.top + rect.height / 2;
+      });
+      const next = moveWidget(layout, draggedWidget, col, at === -1 ? others.length : at);
+      if (next[col].join() !== layout[col].join() || !layout[col].includes(draggedWidget)) setLayout(next, draggedWidget);
     }
     setDraggedWidget(null);
     setDragOverWidget(null);
@@ -394,7 +438,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             <button
               type="button"
               disabled={idx === 0}
-              onClick={() => setLayout(moveWidgetStep(layout, id, "up"))}
+              onClick={() => setLayout(moveWidgetStep(layout, id, "up"), id)}
               title="위로 이동"
               className="w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold transition-all disabled:opacity-20 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
             >
@@ -403,7 +447,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             <button
               type="button"
               disabled={idx === total - 1}
-              onClick={() => setLayout(moveWidgetStep(layout, id, "down"))}
+              onClick={() => setLayout(moveWidgetStep(layout, id, "down"), id)}
               title="아래로 이동"
               className="w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold transition-all disabled:opacity-20 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
             >
@@ -411,7 +455,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
             </button>
             <button
               type="button"
-              onClick={() => setLayout(moveWidgetStep(layout, id, "cross"))}
+              onClick={() => setLayout(moveWidgetStep(layout, id, "cross"), id)}
               title={col === "main" ? "우측 사이드로 이동" : "좌측 메인으로 이동"}
               className="px-1.5 h-5 flex items-center justify-center rounded text-[10px] font-semibold transition-all hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer text-primary-text"
             >
@@ -708,25 +752,40 @@ export default function Dashboard({ onNavigate }: { onNavigate: (p: Page) => voi
   function renderDraggableWidget(id: DashboardWidgetId, col: DashboardColumnId, idx: number, total: number) {
     const isDragging = draggedWidget === id;
     const isOver = dragOverWidget === id;
+    const justMoved = movedWidget === id;
     return (
       <div
         key={id}
+        ref={(el) => { if (el) widgetEls.current.set(id, el); else widgetEls.current.delete(id); }}
         draggable
         onDragStart={(e) => handleDragStart(e, id)}
         onDragOver={(e) => handleDragOver(e, id, col)}
         onDrop={(e) => handleDrop(e, id, col)}
         onDragEnd={handleDragEnd}
-        className={`transition-all duration-150 relative group/widget rounded-xl ${
-          isDragging ? "opacity-35 scale-[0.98] ring-2 ring-[var(--primary)]/40" : ""
-        } ${
-          isOver && dropPosition === "before" ? "border-t-4 border-[var(--primary)] pt-1" : ""
-        } ${
-          isOver && dropPosition === "after" ? "border-b-4 border-[var(--primary)] pb-1" : ""
-        } ${
-          editMode ? "ring-1 ring-dashed ring-[var(--primary)]/30 hover:ring-[var(--primary)] p-0.5" : ""
-        }`}
+        className={`relative group/widget transition-opacity duration-150 ${isDragging ? "opacity-40" : ""}`}
       >
         {renderWidgetContent(id, col, idx, total)}
+        {/* 편집 테두리: 카드 바깥 6px에 따로 그려 카드 모서리·그림자에 가려지거나 잘리지 않게(레이아웃에 영향 없음). */}
+        {(editMode || justMoved) && (
+          <span
+            aria-hidden="true"
+            className="absolute -inset-1.5 pointer-events-none border-2 transition-colors duration-300 group-hover/widget:border-[var(--primary)]"
+            style={{
+              borderStyle: justMoved ? "solid" : "dashed",
+              borderColor: justMoved ? "var(--primary)" : "color-mix(in srgb, var(--primary) 45%, transparent)",
+              borderRadius: "calc(var(--radius) + 6px)",
+              boxShadow: justMoved ? "0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent)" : undefined,
+            }}
+          />
+        )}
+        {/* 놓을 자리 표시: 카드 사이 틈에 막대로(카드를 밀어내지 않는다). */}
+        {isOver && dropPosition && (
+          <span
+            aria-hidden="true"
+            className={`absolute left-0 right-0 h-1 rounded-full pointer-events-none ${dropPosition === "before" ? "-top-3" : "-bottom-3"}`}
+            style={{ background: "var(--primary)", boxShadow: "0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent)" }}
+          />
+        )}
       </div>
     );
   }

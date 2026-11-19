@@ -217,8 +217,9 @@ export function moveWidgetStep(
   if (idx === -1) return layout;
 
   if (direction === "cross") {
+    // 반대쪽 열의 같은 높이(같은 순서)로 옮긴다. 예전에는 늘 맨 아래로 가서, 위쪽에 두려면 여러 번 올려야 했다.
     const otherCol: DashboardColumnId = inMain ? "side" : "main";
-    return moveWidget(layout, widgetId, otherCol);
+    return moveWidget(layout, widgetId, otherCol, idx);
   }
 
   const targetIdx = direction === "up" ? idx - 1 : idx + 1;

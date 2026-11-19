@@ -67,4 +67,10 @@ test("moveWidgetStep moves up, down, and cross columns", () => {
   const cross = moveWidgetStep(DEFAULT_DASHBOARD_LAYOUT, "board", "cross");
   assert.ok(!cross.main.includes("board"));
   assert.ok(cross.side.includes("board"));
+  assert.equal(cross.side.indexOf("board"), 1); // 반대쪽 열의 같은 높이(맨 아래가 아니라)
+
+  // 맨 위 카드는 반대쪽 열 맨 위로, 반대쪽이 짧으면 그 끝으로
+  assert.equal(moveWidgetStep(DEFAULT_DASHBOARD_LAYOUT, "profile", "cross").side[0], "profile");
+  const short = { main: ["profile", "board", "pace", "achievements", "mytasks", "deadlines"], side: ["evaluation", "activity"] };
+  assert.deepEqual(moveWidgetStep(short, "deadlines", "cross").side, ["evaluation", "activity", "deadlines"]);
 });
