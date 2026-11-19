@@ -82,7 +82,7 @@ export function mapFile(row: Row) {
     .map((v: Row) => ({
       id: v.id, parentVersionId: v.parent_version_id ?? null, storagePath: v.storage_path ?? null, originalName: v.original_name ?? null,
       mimeType: v.mime_type ?? "application/octet-stream", byteSize: v.byte_size ?? null, pinned: v.pinned ?? false, version: v.version,
-      searchText: v.search_text ?? "", searchStatus: v.search_status ?? "pending", uploadedBy: v.uploaded_by, uploadedAt: v.uploaded_at ?? null,
+      searchText: v.search_text ?? "", searchStatus: v.search_status ?? "pending", uploadedBy: v.uploaded_by, uploadedByUserId: v.uploaded_by_user_id ?? null, uploadedAt: v.uploaded_at ?? null,
       date: v.date, size: v.size, note: v.note, current: v.current,
     }));
   const comments = (row.file_comments ?? []).slice().sort((a: Row, b: Row) => a.id - b.id).map(mapComment);

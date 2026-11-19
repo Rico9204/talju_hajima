@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Extension } from "@tiptap/core";
+import { Decoration, Extension } from "@tiptap/core";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -13,6 +13,9 @@ import { RICH_DOC_FIELD, richDocKey, richDocText } from "../lib/richDoc";
 import { exportElementAsPdf, exportRichDocAsDocx } from "../lib/exportRichDoc";
 import { collabImageError, COLLAB_IMAGE_TYPES, createCollabImageLoader, type CollabImageStore } from "../lib/collabImages";
 import { WorkspaceImage } from "../lib/workspaceImageNode";
+import { fileEditStatus, normalizeEditLine, originalLineSet, originalVersion } from "../lib/workspaceFiles";
+import { useOtherEditMarks } from "../hooks/useOtherEditMarks";
+import OtherEditNotice from "./OtherEditNotice";
 
 // 워크스페이스 "문서"(.rtdoc) 편집기: 서식 있는 글을 여러 명이 함께 쓴다(TipTap + Yjs, Supabase Realtime으로 동기화).
 // 저장 방식은 "바로 수정"과 같다 — 저장 버튼(Ctrl/⌘+S)이나 5분 자동 저장 때 지금 합쳐진 문서가 새 버전으로 올라가고,
@@ -42,6 +45,33 @@ function collabCursor(awareness: Awareness) {
     },
   });
 }
+
+// 원작자의 처음 글(첫 버전의 검색용 글)에 없는 문단을 표시한다. 줄바꿈(Shift+Enter)으로 나뉜 줄은 한 줄씩 비교한다.
+// 켜고 끄기는 바깥 상자의 hide-other-edits 클래스로 해서, 스위치를 눌러도 문서를 다시 훑지 않는다.
+function otherEditHighlight(getOriginal: () => { lines: Set<string>; author: string } | null) {
+  return Extension.create({
+    name: "otherEditHighlight",
+    addDecorations() {
+      return {
+        create: ({ state }) => {
+          const original = getOriginal();
+          if (!original) return [];
+          const marks: Decoration[] = [];
+          state.doc.descendants((node, pos) => {
+            if (!node.isTextblock) return true;
+            const lines = node.textBetween(0, node.content.size, "\n", "\n").split("\n").map(normalizeEditLine).filter(Boolean);
+            if (lines.some((line) => !original.lines.has(line))) {
+              marks.push(Decoration.Node(pos, pos + node.nodeSize, { class: "other-edit-mark", title: `원작자 ${original.author} 님의 처음 글에 없던 문단` }));
+            }
+            return false;
+          });
+          return marks;
+        },
+      };
+    },
+  });
+}
+
 export default function DocEditorModal({ projectId, file, room, mode, initialBytes, presence, editors, save, images, onClose }: {
   projectId: string;
   file: WorkspaceFile;
@@ -70,10 +100,19 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
   }, [loader]);
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
   const baseName = file.name.replace(/\.rtdoc$/i, "") || "문서";
+  // 수정을 시작한 버전(room)을 원작자가 아닌 팀원이 저장했으면, 처음 글과 달라진 문단을 표시한다.
+  // 첫 버전의 글을 아직 뽑는 중이면(검색용 글이 비어 있으면) 표시하지 않는다 — 모든 문단이 달라 보이지 않게.
+  const editStatus = fileEditStatus(file, file.versions.find((v) => v.id === room));
+  const [showOtherEdits, toggleOtherEdits] = useOtherEditMarks();
+  const originalText = originalVersion(file)?.searchText ?? "";
+  const originalRef = useRef<{ lines: Set<string>; author: string } | null>(null);
+  originalRef.current = editStatus?.byOther && originalText.trim() ? { lines: originalLineSet(originalText), author: editStatus.originalAuthor } : null;
+  const highlighting = originalRef.current !== null;
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ undoRedo: false, link: { openOnClick: false, protocols: ["http", "https", "mailto"] } }),
+      otherEditHighlight(() => originalRef.current),
       Collaboration.configure({ document: doc, field: RICH_DOC_FIELD }),
       collabCursor(awareness),
       WorkspaceImage.configure({ loader }),
@@ -160,6 +199,8 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
         .rich-doc-export, .rich-doc-export * { color: #111827 !important; background: #fff !important; }
         .rich-doc-export a { color: #2563eb !important; }
         .rich-doc-export pre { background: #f3f4f6 !important; }
+        .other-edit-mark { background: rgba(249, 115, 22, 0.12); box-shadow: inset 3px 0 0 #ea580c; padding-left: 10px; border-radius: 4px; }
+        .hide-other-edits .other-edit-mark, .rich-doc-export .other-edit-mark { background: transparent; box-shadow: none; padding-left: 0; }
       `}</style>
       <section className="w-[min(96vw,900px)] h-[min(88vh,760px)] flex flex-col border" aria-label="문서 편집" style={{ background: "var(--card)", borderColor: "var(--border)", borderRadius: "var(--radius)", boxShadow: "0 24px 70px rgba(15,18,53,0.25)", color: "var(--foreground)" }}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b shrink-0 flex-wrap" style={{ borderColor: "var(--border)" }}>
@@ -179,6 +220,10 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
           <EditorAvatars editors={roomEditors} size={26} max={6} />
           <span>{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중 · 사진을 누르면 이름이 보여요` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}</span>
         </div>
+        {editStatus?.byOther && (
+          <OtherEditNotice status={editStatus} on={showOtherEdits} onToggle={toggleOtherEdits}
+            detail={highlighting ? "원작자의 처음 글에 없던 문단을 주황색으로 표시해요." : "처음 글을 아직 불러오지 못해 문단 표시는 생략했어요."} className="mx-5 mt-2 shrink-0" />
+        )}
         {confirmClose && (
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
             <span className="flex-1 min-w-48">저장하지 않은 변경사항이 있어요.{lastEditor && " 지금 나가면 지금까지 수정한 내용이 사라질 수 있어요."}</span>
@@ -192,7 +237,7 @@ export default function DocEditorModal({ projectId, file, room, mode, initialByt
         <input ref={imageInputRef} type="file" accept={COLLAB_IMAGE_TYPES.join(",")} multiple hidden aria-label="넣을 이미지"
           onChange={(e) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; if (files.length) void insertImages(files); }} />
         <div
-          className="flex-1 min-h-0 overflow-auto mx-5 mb-5 rounded-[10px] border"
+          className={`flex-1 min-h-0 overflow-auto mx-5 mb-5 rounded-[10px] border ${showOtherEdits ? "" : "hide-other-edits"}`}
           style={{ background: "var(--muted)", borderColor: "var(--border)" }}
           onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void runSave(); } }}
         >

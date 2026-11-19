@@ -75,6 +75,13 @@ test('워크스페이스: 원본 업로드 + 버전 등록, 팀원만 내려받�
   // 외부인은 원본 목록(storage.objects) 권한 규칙에서 먼저 막힌다.
   assert.equal((await upload(s.outsider.token, `/projects/${s.p}/files`, { name: 'a.pdf', type: 'application/pdf', bytes: PDF }, { folderId: '' })).status, 403);
   assert.equal((await pg.query("select count(*)::int n from storage.objects where bucket_id = 'workspace-files'")).rows[0].n, 2); // 거부된 업로드는 남지 않음
+  // 버전마다 올린 사람의 계정 ID가 남는다(이름이 같거나 바뀌어도 "다른 팀원이 고친 버전"을 가릴 수 있게).
+  const third = await upload(s.leader.token, `/projects/${s.p}/files`, { name: '중간 보고서.pdf', type: 'application/pdf', bytes: PDF }, { fileId: String(fileId), baseVersionId: String(second.body.versionId), folderId: '' });
+  assert.equal(third.status, 201);
+  const listed = (await call(s.member, 'GET', `/projects/${s.p}/files`)).body.find((f) => f.id === fileId);
+  const uploaderOf = new Map(listed.versions.map((v) => [v.id, v.uploadedByUserId]));
+  assert.equal(uploaderOf.get(versionId), s.member.id);
+  assert.equal(uploaderOf.get(third.body.versionId), s.leader.id);
 });
 
 test('워크스페이스 정리: 지운 파일의 원본이 목록·디스크에서 사라진다', async () => {

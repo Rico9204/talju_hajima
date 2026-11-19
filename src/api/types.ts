@@ -115,6 +115,7 @@ export interface FileVersion {
   pinned: boolean;
   version: string;
   uploadedBy: string;
+  uploadedByUserId?: string | null; // 올린 사람의 계정 ID(예전 버전은 null — 그때는 uploadedBy 이름으로 비교)
   uploadedAt?: string | null;
   date: string;
   size: string;

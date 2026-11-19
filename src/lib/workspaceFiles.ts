@@ -161,3 +161,53 @@ export function isEditableTextFile(name: string, byteSize: number | null): boole
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return EDITABLE_TEXT_EXTENSIONS.includes(ext) && (byteSize ?? 0) <= MAX_EDITABLE_BYTES;
 }
+
+// ===== 다른 팀원이 고친 내용 표시 =====
+// 원작자 = 맨 처음 버전을 올린 사람. files.uploader는 새 버전을 저장할 때마다 마지막 저장한 사람으로 바뀌므로 쓰지 않는다.
+// 같은 사람인지는 계정 ID로 가리고, 예전 버전처럼 ID가 없으면 그때 이름으로 비교한다.
+export function originalVersion(file: WorkspaceFile): FileVersion | null {
+  return file.versions.reduce<FileVersion | null>((first, v) => (!first || v.id < first.id ? v : first), null);
+}
+
+function sameUploader(a: FileVersion, b: FileVersion): boolean {
+  if (a.uploadedByUserId && b.uploadedByUserId) return a.uploadedByUserId === b.uploadedByUserId;
+  return a.uploadedBy.trim() === b.uploadedBy.trim();
+}
+
+export interface FileEditStatus {
+  originalAuthor: string; // 원작자 이름
+  editor: string; // 이 버전을 저장한 사람 이름
+  byOther: boolean; // 원작자가 아닌 사람이 저장한 버전인가
+}
+
+// version을 주지 않으면 현재 버전(없으면 가장 최근 버전) 기준.
+export function fileEditStatus(file: WorkspaceFile, version?: FileVersion | null): FileEditStatus | null {
+  const original = originalVersion(file);
+  const target = version ?? file.versions.find((v) => v.current) ?? file.versions.reduce<FileVersion | null>((last, v) => (!last || v.id > last.id ? v : last), null);
+  if (!original || !target) return null;
+  return {
+    originalAuthor: original.uploadedBy.trim() || "작성자",
+    editor: target.uploadedBy.trim() || "팀원",
+    byOther: target.id !== original.id && !sameUploader(target, original),
+  };
+}
+
+// 원작자의 처음 글에 없는 줄 번호(0부터). 공백 차이는 무시하고, 빈 줄은 표시하지 않는다.
+// 줄 순서만 바뀐 것은 고친 것으로 보지 않는다(같은 글이 처음 글 어딘가에 있으면 원래 있던 줄).
+export function normalizeEditLine(line: string): string {
+  return line.replace(/[\u00A0\s]+/g, " ").trim();
+}
+
+export function originalLineSet(originalText: string): Set<string> {
+  return new Set(originalText.split(/\r\n|\r|\n/).map(normalizeEditLine).filter(Boolean));
+}
+
+export function linesChangedFromOriginal(originalText: string, text: string): Set<number> {
+  const original = originalLineSet(originalText);
+  const changed = new Set<number>();
+  text.split(/\r\n|\r|\n/).forEach((line, i) => {
+    const clean = normalizeEditLine(line);
+    if (clean && !original.has(clean)) changed.add(i);
+  });
+  return changed;
+}

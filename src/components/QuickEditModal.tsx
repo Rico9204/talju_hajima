@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { WorkspaceFile } from "../api/types";
 import EditorAvatars from "./EditorAvatars";
+import OtherEditNotice from "./OtherEditNotice";
+import { useOtherEditMarks } from "../hooks/useOtherEditMarks";
+import { fileEditStatus } from "../lib/workspaceFiles";
 import { useLeaveGuard } from "../lib/useLeaveGuard";
 import CodeHighlight from "./CodeHighlight";
 import CodeRunPanel, { useCodeRun } from "./CodeRunPanel";
@@ -40,6 +43,9 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
   const pendingSel = useRef<[number, number] | null>(null);
   const saving = useRef(false);
   const roomEditors = editors.filter((e) => e.fileId === file.id && e.room === room && e.mode === mode);
+  // 수정을 시작한 버전(room)을 원작자가 아닌 팀원이 저장했으면 안내한다. 글 상자 안에는 줄 표시를 넣지 않는다.
+  const editStatus = fileEditStatus(file, file.versions.find((v) => v.id === room));
+  const [showOtherEdits, toggleOtherEdits] = useOtherEditMarks();
   const saveRef = useRef(save);
   saveRef.current = save;
   const [cursors, setCursors] = useState<RemoteCursor[]>([]);
@@ -235,6 +241,9 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
           <EditorAvatars editors={roomEditors} size={26} max={6} />
           <span>{names.length > 1 ? `지금 ${names.length}명이 함께 수정 중 · 사진을 누르면 이름이 보여요` : "지금은 나만 수정 중이에요. 다른 팀원이 들어오면 여기에 표시돼요."}</span>
         </div>
+        {editStatus?.byOther && (
+          <OtherEditNotice status={editStatus} on={showOtherEdits} onToggle={toggleOtherEdits} detail="어느 줄이 바뀌었는지는 버전 기록의 “페이지” 보기에서 이름과 함께 볼 수 있어요." className="mx-5 mt-2 shrink-0" />
+        )}
         {confirmClose && (
           <div role="alertdialog" aria-label="저장하지 않은 변경사항" className="mx-5 mt-2 p-3 text-xs rounded-lg flex flex-wrap items-center gap-2" style={{ background: "rgba(245, 158, 11, 0.14)", color: "var(--foreground)", border: "1px solid rgba(245, 158, 11, 0.35)" }}>
             <span className="flex-1 min-w-48">저장하지 않은 변경사항이 있어요.{lastEditor && " 지금 나가면 지금까지 수정한 내용이 사라질 수 있어요."}</span>

@@ -2619,6 +2619,7 @@ export default function Workspace({ focusFile }: { focusFile?: WorkspaceFocus | 
         <OfficeEditorModal
           fileId={officeEditingFile.id}
           fileName={officeEditingFile.name}
+          file={files.find((f) => f.id === officeEditingFile.id)}
           readOnly={locked}
           presence={presenceRef.current}
           editors={editors}

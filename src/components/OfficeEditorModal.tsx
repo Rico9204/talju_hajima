@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { dataRepository } from "../api";
 import { backendOrigin } from "../api/rest/backendUrl";
+import type { WorkspaceFile } from "../api/types";
 import type { CollabEditor, CollabPresence } from "../lib/collab";
+import { fileEditStatus, linesChangedFromOriginal, originalVersion } from "../lib/workspaceFiles";
+import { useOtherEditMarks } from "../hooks/useOtherEditMarks";
 import EditorAvatars from "./EditorAvatars";
+import OtherEditNotice from "./OtherEditNotice";
 import AddFontModal from "./AddFontModal";
 import { injectAllWebFonts } from "../lib/editorFonts";
 
@@ -62,7 +66,25 @@ export function warmOfficeEditor(): void {
   void loadEditorScript().catch(() => { warmed = false; });
 }
 
-export default function OfficeEditorModal({ fileId, fileName, readOnly, presence = null, editors = [], onClose }: { fileId: number; fileName: string; readOnly: boolean; presence?: CollabPresence | null; editors?: CollabEditor[]; onClose: () => void }) {
+const MAX_CHANGED_LINES = 300;
+
+export default function OfficeEditorModal({ fileId, fileName, file, readOnly, presence = null, editors = [], onClose }: { fileId: number; fileName: string; file?: WorkspaceFile; readOnly: boolean; presence?: CollabPresence | null; editors?: CollabEditor[]; onClose: () => void }) {
+  // 지금 버전을 원작자가 아닌 팀원이 저장했으면 안내하고, 처음 글에 없던 줄(문서에서 뽑은 글 기준)을 옆 패널에 모아 보여 준다.
+  // 문서 안의 표시는 OnlyOffice "검토 → 변경 내용 추적"이 맡는다(워드 문서만, 서버 설정에서 편집할 수 있는 사람에게 권한을 연다).
+  const editStatus = file ? fileEditStatus(file) : null;
+  const [showOtherEdits, toggleOtherEdits] = useOtherEditMarks();
+  const [panelOpen, setPanelOpen] = useState(false);
+  const currentText = file?.versions.find((v) => v.current)?.searchText ?? "";
+  const originalText = file ? originalVersion(file)?.searchText ?? "" : "";
+  const changedLines = useMemo(() => {
+    if (!editStatus?.byOther || !originalText.trim() || !currentText.trim()) return null;
+    const lines = currentText.split(/\r\n|\r|\n/);
+    return [...linesChangedFromOriginal(originalText, currentText)].map((i) => lines[i]);
+  }, [editStatus?.byOther, originalText, currentText]);
+  const isWord = fileName.toLowerCase().endsWith(".docx");
+  const otherDetail = changedLines === null ? "문서의 글을 아직 뽑는 중이라 바뀐 줄은 보여 줄 수 없어요."
+    : changedLines.length === 0 ? "글은 처음과 같아요(서식·도형만 바뀌었을 수 있어요)."
+    : `처음 글에 없던 줄 ${changedLines.length}개를 “바뀐 내용”에서 볼 수 있어요.`;
   // 편집 중인 사람 표시는 문서 서버 것 대신(중계에서 숨김) 우리 프로필로: 워크스페이스 접속 상태에 "오피스로 여는 중"을 올린다.
   const officeEditors = editors.filter((e) => e.fileId === fileId && e.mode === "office");
   useEffect(() => {
@@ -132,6 +154,13 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
           {readOnly && <span className="text-xs px-2 py-0.5 rounded-full shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>보기 전용</span>}
         </div>
         {officeEditors.length > 0 && <span className="ml-auto shrink-0"><EditorAvatars editors={officeEditors} size={26} max={6} /></span>}
+        {editStatus?.byOther && showOtherEdits && !!changedLines?.length && (
+          <button type="button" onClick={() => setPanelOpen((v) => !v)} aria-pressed={panelOpen} title="처음 글에 없던 줄을 옆에 모아 봅니다"
+            className="h-8 px-2.5 flex items-center gap-1.5 text-xs font-700 shrink-0 border rounded-lg"
+            style={{ background: panelOpen ? "rgba(245, 158, 11, 0.18)" : "var(--muted)", borderColor: panelOpen ? "rgba(245, 158, 11, 0.45)" : "var(--border)", color: "var(--foreground)" }}>
+            ✏️ 바뀐 내용 {changedLines.length}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowFontModal(true)}
@@ -147,7 +176,12 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
         </button>
         <button onClick={onClose} aria-label="닫기" title="닫기" className="w-8 h-8 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>×</button>
       </div>
-      <div className="flex-1 min-h-0 relative">
+      {editStatus?.byOther && (
+        <OtherEditNotice status={editStatus} on={showOtherEdits} onToggle={toggleOtherEdits} className="mx-5 mt-2 shrink-0"
+          detail={`${otherDetail}${isWord && !readOnly ? " 앞으로 고치는 내용을 문서에 표시하려면 위쪽 “검토” 탭에서 “변경 내용 추적”을 켜고, 다 본 뒤 수락·거부해 주세요." : ""}`} />
+      )}
+      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-w-0 relative">
         {/* 편집기 자체 로딩 화면(외부 편집기 이름이 나옴)을 덮는 가림막 — 편집기가 준비되면 걷힌다. */}
         {loading && <p role="status" className="absolute inset-0 z-10 flex items-center justify-center text-sm" style={{ background: "var(--card)", color: "var(--muted-foreground)" }}>편집기를 불러오는 중…</p>}
         {error && (
@@ -157,6 +191,19 @@ export default function OfficeEditorModal({ fileId, fileName, readOnly, presence
           </div>
         )}
         <div ref={container} className="w-full h-full" />
+      </div>
+      {panelOpen && showOtherEdits && !!changedLines?.length && editStatus && (
+        <aside aria-label="처음 글에 없던 줄" className="w-72 max-w-[45%] shrink-0 overflow-y-auto p-3 text-xs border-l" style={{ borderColor: "var(--border)", background: "var(--muted)" }}>
+          <p className="font-700 mb-1">처음 글에 없던 줄</p>
+          <p className="mb-2" style={{ color: "var(--muted-foreground)" }}>원작자 {editStatus.originalAuthor} 님의 처음 버전과 지금 버전({editStatus.editor} 님 저장)을 비교했어요. 저장된 버전 기준이라 지금 편집 중인 내용은 저장된 뒤에 반영돼요.</p>
+          <ul className="flex flex-col gap-1">
+            {changedLines.slice(0, MAX_CHANGED_LINES).map((line, i) => (
+              <li key={i} className="px-2 py-1 rounded whitespace-pre-wrap break-words" style={{ background: "rgba(249, 115, 22, 0.12)", boxShadow: "inset 3px 0 0 #ea580c" }}>{line.trim()}</li>
+            ))}
+          </ul>
+          {changedLines.length > MAX_CHANGED_LINES && <p className="mt-2" style={{ color: "var(--muted-foreground)" }}>외 {changedLines.length - MAX_CHANGED_LINES}줄은 생략했어요.</p>}
+        </aside>
+      )}
       </div>
       </div>
       {showFontModal && <AddFontModal isOffice onClose={() => setShowFontModal(false)} />}

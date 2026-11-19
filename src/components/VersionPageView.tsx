@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FileVersion, WorkspaceFile } from "../api/types";
 import { buildFullTextDiff } from "../lib/textDiff";
-import { formatUploadTime, isEditableTextFile } from "../lib/workspaceFiles";
+import { fileEditStatus, formatUploadTime, isEditableTextFile } from "../lib/workspaceFiles";
 import { isRichDocName } from "../lib/richDoc";
 import { isSlidesName } from "../lib/slidesDoc";
 import { isHwpxName } from "../lib/hwpx";
+import { useOtherEditMarks } from "../hooks/useOtherEditMarks";
+import OtherEditNotice from "./OtherEditNotice";
 
 // 비전공자용 "페이지" 보기 — 분기 트리 대신 저장 순서대로 한 번에 버전 하나만 보여주고
 // 이전/다음으로 넘긴다. 각 페이지는 실제로 고쳐 만든 부모 버전(parentVersionId)과 비교해
@@ -30,6 +32,7 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
   const [index, setIndex] = useState(currentIndex);
   const [expanded, setExpanded] = useState(true);
   const [texts, setTexts] = useState<{ id: number; cur: string | null; prev: string | null } | null>(null);
+  const [showOtherEdits, toggleOtherEdits] = useOtherEditMarks();
 
   useEffect(() => { setIndex(currentIndex); }, [currentIndex, pages.length]);
 
@@ -63,6 +66,9 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
   if (!version) return <p className="text-xs py-4">아직 버전이 없습니다.</p>;
 
   const isCurrent = version.current;
+  // 원작자가 아닌 팀원이 저장한 버전이면, 이 버전에서 바뀐 줄에 그 사람 이름을 붙인다.
+  const editStatus = fileEditStatus(file, version);
+  const markOther = !!editStatus?.byOther && showOtherEdits;
   const actionClass = "text-xs px-2.5 py-1.5 rounded-lg border disabled:opacity-40";
   const summary = !ready ? "불러오는 중…"
     : ready.cur == null ? "이 형식은 줄 단위 비교를 지원하지 않아요"
@@ -90,6 +96,7 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
         <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-600 mb-1.5" style={{ color: isCurrent ? "#fff" : "var(--primary-text)" }}>
           {summary} {expanded ? "▲" : "▼"}
         </button>
+        {editStatus?.byOther && <OtherEditNotice status={editStatus} on={showOtherEdits} onToggle={toggleOtherEdits} detail={canCompare && changed > 0 ? "바뀐 줄에 이름을 붙여 표시해요." : undefined} className="mb-1.5" />}
         {expanded && ready?.cur != null && !tooLong && (
           <div className="text-xs whitespace-pre-wrap break-words p-2 mb-2 max-h-72 overflow-y-auto rounded-lg" style={{ background: isCurrent ? "rgba(255,255,255,0.15)" : "var(--card)", fontFamily: "var(--font-jetbrains)" }}>
             {lines.map((line, i) => (
@@ -98,6 +105,7 @@ export default function VersionPageView({ file, locked, busy, loadText, onOpen, 
                 title={canCompare && line.changed ? (line.oldText != null ? `수정 전: ${line.oldText || "(빈 줄)"}` : "새로 추가된 줄") : undefined}
                 style={line.changed && canCompare ? { background: isCurrent ? "rgba(253,224,71,0.35)" : "#fef08a", color: isCurrent ? "#fff" : "#422006", borderRadius: 3 } : undefined}
               >
+                {markOther && canCompare && line.changed && <span className="inline-block mr-1.5 px-1 text-[10px] font-700 rounded select-none" style={{ background: "rgba(234, 88, 12, 0.18)", color: isCurrent ? "#fff" : "#9a3412" }}>{editStatus?.editor} 수정</span>}
                 {line.text || " "}
               </div>
             ))}
