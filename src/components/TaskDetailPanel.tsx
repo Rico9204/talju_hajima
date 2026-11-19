@@ -21,8 +21,11 @@ interface Props {
   onChangeStatus: (status: TaskStatus) => void;
   onDelete: () => void;
   onToggleChecklist: (itemId: number, done: boolean) => void;
-  onAddChecklistItem: (text: string) => Promise<boolean> | void; // false면 저장 실패(입력을 되돌림)
+  onAddChecklistItem: (text: string, assigneeMemberId: string | null) => Promise<boolean> | void; // false면 저장 실패(입력을 되돌림)
+  onSetChecklistAssignee: (itemId: number, memberId: string | null) => void;
+  onDeleteChecklistItem: (itemId: number) => void;
   onAddComment: (text: string) => Promise<boolean> | void;
+  onReject: (reason: string) => Promise<boolean> | void;
   onToggleCommentReaction: (commentId: number, emoji: string) => void;
   onToggleTeamSchedule: (checked: boolean) => void;
   onTogglePersonalSchedule: (checked: boolean) => void;
@@ -44,7 +47,10 @@ export default function TaskDetailPanel({
   onDelete,
   onToggleChecklist,
   onAddChecklistItem,
+  onSetChecklistAssignee,
+  onDeleteChecklistItem,
   onAddComment,
+  onReject,
   onToggleCommentReaction,
   onToggleTeamSchedule,
   onTogglePersonalSchedule,
@@ -96,13 +102,14 @@ export default function TaskDetailPanel({
   }
   const [tagDraft, setTagDraft] = useState("");
   const [checklistDraft, setChecklistDraft] = useState("");
+  const [checklistAssignee, setChecklistAssignee] = useState(""); // "" = 담당자 없음
   const [commentDraft, setCommentDraft] = useState("");
   // 보낸 뒤 입력칸을 비우고, 저장에 실패하면(false) 그 사이 새로 입력하지 않았을 때만 되돌린다.
   async function submitChecklist() {
     const text = checklistDraft;
     if (!text.trim()) return;
     setChecklistDraft("");
-    if ((await onAddChecklistItem(text)) === false) setChecklistDraft((current) => current || text);
+    if ((await onAddChecklistItem(text, checklistAssignee || null)) === false) setChecklistDraft((current) => current || text);
   }
   async function submitComment() {
     const text = commentDraft;
@@ -110,11 +117,22 @@ export default function TaskDetailPanel({
     setCommentDraft("");
     if ((await onAddComment(text)) === false) setCommentDraft((current) => current || text);
   }
+  // 검토 반려: 사유를 꼭 적게 하고, 보내면 상태가 진행 중으로 돌아가며 사유가 반려 피드백 댓글로 남는다.
+  const [rejectDraft, setRejectDraft] = useState<string | null>(null); // null = 반려 입력칸 닫힘
+  useEffect(() => { setRejectDraft(null); }, [task.id]);
+  async function submitReject() {
+    const reason = rejectDraft ?? "";
+    if (!reason.trim()) return;
+    setRejectDraft(null);
+    if ((await onReject(reason)) === false) setRejectDraft((current) => current || reason);
+  }
   const [commentEmojiPickerOpen, setCommentEmojiPickerOpen] = useState(false);
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<number | null>(null);
 
   const doneCount = task.checklist.filter((c) => c.done).length;
   const canEditFields = isManager && !locked;
+  const canEditSubtasks = !locked && (isManager || isAssignee);
+  const taskAssignees = members.filter((m) => task.assigneeIds.includes(m.id));
   const showAssigneeSearch = members.length > 8;
   const assigneeSearchTrimmed = assigneeSearch.trim().toLowerCase();
   const visibleAssigneeMembers = assigneeSearchTrimmed
@@ -285,7 +303,7 @@ export default function TaskDetailPanel({
               <div className="text-xs font-600 mb-1" style={{ color: "var(--muted-foreground)" }}>상태</div>
               <select
                 value={task.status}
-                disabled={!canChangeStatus || locked}
+                disabled={!canChangeStatus || locked || (!isManager && task.status === "done")}
                 onChange={(e) => onChangeStatus(e.target.value as TaskStatus)}
                 className="w-full text-xs px-2 py-1.5 border outline-none"
                 style={{
@@ -296,11 +314,68 @@ export default function TaskDetailPanel({
                 }}
               >
                 {columns.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
+                  <option key={c.id} value={c.id} disabled={!isManager && c.id === "done"}>
+                    {c.label}{!isManager && c.id === "done" ? " (팀장·부팀장)" : ""}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
+
+          {task.status === "review" && !locked && (
+            <div className="mb-4 p-3" style={{ background: "var(--muted)", borderRadius: "10px" }}>
+              {isManager ? (
+                rejectDraft === null ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onChangeStatus("done")}
+                      className="flex-1 text-xs font-700 py-2"
+                      style={{ background: "var(--primary)", color: "#fff", borderRadius: "var(--radius-sm)" }}
+                    >
+                      승인 (완료)
+                    </button>
+                    <button
+                      onClick={() => setRejectDraft("")}
+                      className="flex-1 text-xs font-700 py-2"
+                      style={{ background: "#ef444415", color: "#ef4444", borderRadius: "var(--radius-sm)" }}
+                    >
+                      반려
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      autoFocus
+                      value={rejectDraft}
+                      maxLength={2000}
+                      rows={3}
+                      onChange={(e) => setRejectDraft(e.target.value)}
+                      placeholder="반려 사유와 고칠 점을 적어 주세요. 댓글에 반려 피드백으로 남아요."
+                      className="w-full text-xs px-3 py-2 outline-none resize-none"
+                      style={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "8px" }}
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => setRejectDraft(null)} className="text-xs px-3 py-1.5" style={{ color: "var(--muted-foreground)" }}>
+                        취소
+                      </button>
+                      <button
+                        onClick={() => void submitReject()}
+                        disabled={!rejectDraft.trim()}
+                        className="text-xs font-700 px-3 py-1.5"
+                        style={{ background: rejectDraft.trim() ? "#ef4444" : "var(--border)", color: "#fff", borderRadius: "20px" }}
+                      >
+                        반려하기
+                      </button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                  팀장·부팀장의 검토를 기다리고 있어요. 승인되면 완료로, 반려되면 피드백과 함께 진행 중으로 돌아와요.
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mb-4">
             <div className="text-xs font-600 mb-1.5" style={{ color: "var(--muted-foreground)" }}>태그</div>
@@ -367,45 +442,79 @@ export default function TaskDetailPanel({
 
           <div className="h-px mb-4" style={{ background: "var(--border)" }} />
 
-          {/* Checklist */}
+          {/* 세부 업무: 과제를 나눠 과제 담당자에게 하나씩 맡긴다 */}
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-700">체크리스트</span>
+              <span className="text-xs font-700">세부 업무</span>
               <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>
                 {doneCount}/{task.checklist.length}
               </span>
             </div>
             <div className="flex flex-col gap-1.5 mb-2">
-              {task.checklist.map((item) => (
-                <label key={item.id} className="flex items-center gap-2 text-xs px-2.5 py-1.5" style={{ background: "var(--muted)", borderRadius: "8px" }}>
-                  <input type="checkbox" checked={item.done} disabled={locked || !isAssignee} onChange={(e) => onToggleChecklist(item.id, e.target.checked)} />
-                  <span style={{ textDecoration: item.done ? "line-through" : "none", color: item.done ? "var(--muted-foreground)" : "var(--foreground)" }}>
-                    {item.text}
-                  </span>
-                </label>
-              ))}
+              {task.checklist.map((item) => {
+                const owner = item.assigneeMemberId ? members.find((m) => m.id === item.assigneeMemberId) : undefined;
+                // 완료 표시: 그 세부 업무의 담당자(없으면 과제 담당자 누구나)와 팀장·부팀장
+                const canToggle = !locked && (isManager || (item.assigneeMemberId ? item.assigneeMemberId === currentMember?.id : isAssignee));
+                return (
+                  <div key={item.id} className="flex items-center gap-2 text-xs px-2.5 py-1.5" style={{ background: "var(--muted)", borderRadius: "8px" }}>
+                    <input type="checkbox" checked={item.done} disabled={!canToggle} onChange={(e) => onToggleChecklist(item.id, e.target.checked)} aria-label={`${item.text} 완료`} />
+                    <span className="flex-1 min-w-0 break-words" style={{ textDecoration: item.done ? "line-through" : "none", color: item.done ? "var(--muted-foreground)" : "var(--foreground)" }}>
+                      {item.text}
+                    </span>
+                    {canEditSubtasks ? (
+                      <select
+                        value={item.assigneeMemberId ?? ""}
+                        onChange={(e) => onSetChecklistAssignee(item.id, e.target.value || null)}
+                        className="text-xs px-1.5 py-0.5 border outline-none shrink-0 max-w-[96px]"
+                        style={{ borderColor: "var(--border)", borderRadius: "6px", background: "var(--surface-opaque)", color: "var(--foreground)" }}
+                        aria-label={`${item.text} 담당자`}
+                      >
+                        <option value="">담당자 없음</option>
+                        {taskAssignees.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    ) : (
+                      owner && <span className="shrink-0 px-1.5 py-0.5" style={{ background: "var(--secondary)", color: "var(--primary-text)", borderRadius: "6px" }}>{owner.name}</span>
+                    )}
+                    {canEditSubtasks && (
+                      <button onClick={() => onDeleteChecklistItem(item.id)} className="shrink-0 px-1" style={{ color: "var(--muted-foreground)" }} title="세부 업무 삭제" aria-label={`${item.text} 삭제`}>
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
               {task.checklist.length === 0 && (
                 <div className="text-xs text-center py-2" style={{ color: "var(--muted-foreground)" }}>
-                  아직 체크리스트 항목이 없어요.
+                  아직 세부 업무가 없어요. 과제를 나눠 담당자에게 하나씩 맡겨 보세요.
                 </div>
               )}
             </div>
-            {!isAssignee && (
+            {!isManager && !isAssignee && (
               <div className="text-xs text-center py-2 mb-2" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "8px" }}>
-                이 과제의 담당자만 체크리스트를 변경할 수 있어요
+                팀장·부팀장과 이 과제의 담당자만 세부 업무를 나눌 수 있어요
               </div>
             )}
-            {!locked && isAssignee && (
+            {canEditSubtasks && (
               <div className="flex gap-2">
                 <input
                   value={checklistDraft}
                   maxLength={2000}
                   onChange={(e) => setChecklistDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void submitChecklist()}
-                  placeholder="항목 추가..."
-                  className="flex-1 text-xs px-3 py-1.5 outline-none"
+                  placeholder="세부 업무 추가..."
+                  className="flex-1 min-w-0 text-xs px-3 py-1.5 outline-none"
                   style={{ background: "var(--muted)", borderRadius: "20px" }}
                 />
+                <select
+                  value={checklistAssignee}
+                  onChange={(e) => setChecklistAssignee(e.target.value)}
+                  className="text-xs px-1.5 border outline-none shrink-0 max-w-[96px]"
+                  style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--surface-opaque)", color: "var(--foreground)" }}
+                  aria-label="새 세부 업무 담당자"
+                >
+                  <option value="">담당자 없음</option>
+                  {taskAssignees.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
                 <button
                   onClick={() => void submitChecklist()}
                   className="px-3 text-xs font-700 shrink-0 transition-all"
@@ -448,9 +557,15 @@ export default function TaskDetailPanel({
                   <div className="relative flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-700">{c.author}</span>
+                      {c.kind === "rejection" && (
+                        <span className="text-[10px] font-700 px-1.5 py-0.5" style={{ background: "#ef444420", color: "#ef4444", borderRadius: "6px" }}>반려 피드백</span>
+                      )}
                       <span className="text-xs" style={{ color: "var(--muted-foreground)", fontFamily: "var(--font-jetbrains)" }}>{c.date}</span>
                     </div>
-                    <p className="text-xs mt-0.5 leading-relaxed px-3 py-2" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--foreground)" }}>
+                    <p
+                      className="text-xs mt-0.5 leading-relaxed px-3 py-2 whitespace-pre-wrap"
+                      style={{ background: c.kind === "rejection" ? "#ef444412" : "var(--muted)", border: c.kind === "rejection" ? "1px solid #ef444440" : undefined, borderRadius: "10px", color: "var(--foreground)" }}
+                    >
                       {c.text}
                     </p>
                     <div className="absolute right-0 top-0 opacity-0 pointer-events-none group-hover/comment:opacity-100 group-hover/comment:pointer-events-auto group-focus-within/comment:opacity-100 group-focus-within/comment:pointer-events-auto transition-opacity z-10">

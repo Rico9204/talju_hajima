@@ -50,7 +50,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const {
     project, team, isManager, currentMember,
     tasks, addTask, updateTaskDetails, moveTask, deleteTask,
-    toggleTaskChecklistItem, addTaskChecklistItem, addTaskComment, toggleTaskCommentReaction,
+    toggleTaskChecklistItem, addTaskChecklistItem, setTaskChecklistAssignee, deleteTaskChecklistItem, addTaskComment, rejectTaskReview, toggleTaskCommentReaction,
     toggleTaskTeamSchedule, toggleTaskPersonalSchedule, openMemberProfile, markSectionViewed,
   } = useProject();
   const [filter, setFilter] = useState<string>("all");
@@ -343,13 +343,13 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
                       )}
 
                       {/* Move actions on hover */}
-                      {!locked && isManager && (
+                      {!locked && (isManager || (task.status !== "done" && !!currentMember && task.assigneeIds.includes(currentMember.id))) && (
                         <div
                           className="flex gap-1.5 mt-3 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {columns
-                            .filter((c) => c.id !== col.id)
+                            .filter((c) => c.id !== col.id && (isManager || c.id !== "done"))
                             .map((c) => (
                               <button
                                 key={c.id}
@@ -527,15 +527,18 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           currentMember={currentMember}
           isManager={isManager}
           isAssignee={!!currentMember && selectedTask.assigneeIds.includes(currentMember.id)}
-          canChangeStatus={isManager}
+          canChangeStatus={isManager || (!!currentMember && selectedTask.assigneeIds.includes(currentMember.id))}
           locked={locked}
           onClose={() => setSelectedTaskId(null)}
           onUpdateDetails={(patch) => run(() => updateTaskDetails(selectedTask.id, patch))}
           onChangeStatus={(s) => void run(() => moveTask(selectedTask.id, s), "과제 상태를 바꾸지 못했습니다.")}
           onDelete={() => setPendingDelete({ id: selectedTask.id, title: selectedTask.title })}
           onToggleChecklist={(itemId, done) => void run(() => toggleTaskChecklistItem(selectedTask.id, itemId, done))}
-          onAddChecklistItem={(text) => run(() => addTaskChecklistItem(selectedTask.id, text), "체크리스트 항목을 추가하지 못했습니다.")}
+          onAddChecklistItem={(text, assigneeMemberId) => run(() => addTaskChecklistItem(selectedTask.id, text, assigneeMemberId), "세부 업무를 추가하지 못했습니다.")}
+          onSetChecklistAssignee={(itemId, memberId) => void run(() => setTaskChecklistAssignee(selectedTask.id, itemId, memberId), "세부 업무 담당자를 바꾸지 못했습니다.")}
+          onDeleteChecklistItem={(itemId) => void run(() => deleteTaskChecklistItem(selectedTask.id, itemId), "세부 업무를 지우지 못했습니다.")}
           onAddComment={(text) => run(() => addTaskComment(selectedTask.id, text), "댓글을 남기지 못했습니다.")}
+          onReject={(reason) => run(() => rejectTaskReview(selectedTask.id, reason), "반려하지 못했습니다.")}
           onToggleCommentReaction={(commentId, emoji) => void run(() => toggleTaskCommentReaction(commentId, emoji))}
           onToggleTeamSchedule={(checked) => void run(() => toggleTaskTeamSchedule(selectedTask.id, checked))}
           onTogglePersonalSchedule={(checked) => void run(() => toggleTaskPersonalSchedule(selectedTask.id, checked))}
@@ -550,7 +553,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
       {pendingDelete && (
         <ConfirmDialog
           title="과제를 삭제할까요?"
-          message={<><strong>{pendingDelete.title}</strong> 과제와 댓글·체크리스트가 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</>}
+          message={<><strong>{pendingDelete.title}</strong> 과제와 세부 업무·댓글이 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</>}
           onConfirm={async () => { await deleteTask(pendingDelete.id); setSelectedTaskId(null); }}
           onClose={() => setPendingDelete(null)}
         />

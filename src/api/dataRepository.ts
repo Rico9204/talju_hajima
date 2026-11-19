@@ -132,9 +132,14 @@ export interface DataRepository {
     patch: Partial<{ title: string; assigneeIds: string[]; priority: TaskPriority; due: string; tags: string[] }>
   ): Promise<void>;
   deleteTask(taskId: number): Promise<void>;
-  addTaskChecklistItem(taskId: number, text: string): Promise<ChecklistItem>;
+  // 세부 업무(체크리스트 항목). 담당자는 그 과제의 담당자 중 한 명 또는 null
+  addTaskChecklistItem(taskId: number, text: string, assigneeMemberId: string | null): Promise<ChecklistItem>;
   toggleTaskChecklistItem(itemId: number, done: boolean): Promise<void>;
+  setTaskChecklistAssignee(itemId: number, memberId: string | null): Promise<void>;
+  deleteTaskChecklistItem(itemId: number): Promise<void>;
   addTaskComment(taskId: number, actorMemberId: string, actorName: string, actorAvatar: string, text: string): Promise<TaskComment>;
+  // 검토 중 → 진행 중으로 돌리고 사유를 반려 피드백 댓글로 남긴다(팀장·부팀장)
+  rejectTaskReview(taskId: number, reason: string): Promise<TaskComment>;
   setTaskCommentReaction(commentId: number, memberId: string, emoji: string, active: boolean): Promise<void>;
   subscribeToTaskCommentReactions(projectId: string, onChange: () => void): () => void;
   subscribeToTasks(projectId: string, onChange: () => void): () => void;

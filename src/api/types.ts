@@ -182,6 +182,7 @@ export interface ChecklistItem {
   id: number;
   text: string;
   done: boolean;
+  assigneeMemberId?: string | null; // 세부 업무 담당자(그 과제의 담당자 중 한 명), null = 담당자 없음
 }
 
 export interface TaskComment {
@@ -191,6 +192,7 @@ export interface TaskComment {
   avatar: string;
   date: string;
   text: string;
+  kind?: "comment" | "rejection"; // rejection = 팀장·부팀장의 검토 반려 피드백
   reactions: TaskCommentReaction[];
 }
 
