@@ -14,10 +14,23 @@ before(async () => {
 });
 after(async () => { await app?.close(); await pg?.close(); });
 
-test('과제 만들기: 팀장만, 첫 담당자의 이름·색이 카드에 들어가고 담당자 목록이 붙는다', async () => {
+test('과제 만들기: 팀장·부팀장은 누구에게나, 팀원은 본인이 포함된 과제만. 첫 담당자의 이름·색이 카드에 들어간다', async () => {
   assert.equal((await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '자료 조사', assigneeIds: [], status: 'todo' })).status, 400);
-  const denied = await call(s.member, 'POST', `/projects/${s.p}/tasks`, { title: '몰래', assigneeIds: [s.member.memberId], status: 'todo' });
-  assert.equal(denied.status, 403); // 권한 규칙(RLS)에 걸림
+  // 팀원: 남에게만 배정하는 과제는 못 만든다
+  const pushed = await call(s.member, 'POST', `/projects/${s.p}/tasks`, { title: '떠넘기기', assigneeIds: [s.leader.memberId], status: 'todo' });
+  assert.equal(pushed.status, 400);
+  assert.match(pushed.body.message, /본인이 담당자에 포함/);
+  // 팀원: 본인을 넣으면 다른 팀원도 함께 넣을 수 있다
+  const mine = await call(s.member, 'POST', `/projects/${s.p}/tasks`, { title: '같이 할 일', assigneeIds: [s.member.memberId, s.leader.memberId], status: 'todo', checklist: [{ text: '내 몫', assigneeMemberId: s.member.memberId }] });
+  assert.equal(mine.status, 201);
+  assert.equal(mine.body.status, 'todo');
+  assert.deepEqual(mine.body.checklist.map((i) => i.text), ['내 몫']);
+  assert.equal((await call(s.member, 'DELETE', `/tasks/${mine.body.id}`)).status, 204); // 삭제는 팀장·부팀장만 → 아무것도 안 지워짐
+  assert.equal((await call(s.member, 'GET', `/projects/${s.p}/tasks`)).body.length, 1);
+  await call(s.leader, 'DELETE', `/tasks/${mine.body.id}`);
+  // 외부인·없는 팀원·남의 프로젝트 팀원은 거부
+  assert.equal((await call(s.outsider, 'POST', `/projects/${s.p}/tasks`, { title: '외부', assigneeIds: [s.member.memberId], status: 'todo' })).status, 400);
+  assert.equal((await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '없는 사람', assigneeIds: ['00000000-0000-0000-0000-000000000000'], status: 'todo' })).status, 400);
   // 새 과제는 예정에서만 시작(검토 중·완료로 바로 만들 수 없음)
   const skipped = await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '바로 완료', assigneeIds: [s.member.memberId], status: 'done' });
   assert.equal(skipped.status, 400);

@@ -130,14 +130,13 @@ export class TasksController {
   @Post("projects/:projectId/tasks")
   createTask(@UserId() userId: string, @Param("projectId") projectId: string, @Body() body: CreateTaskDto) {
     return this.db.asUser(userId, async (query) => {
-      const first = await firstAssignee(query, body.assigneeIds[0]);
-      const tags = [...new Set((body.tags ?? []).map((t) => t.trim()).filter(Boolean))];
+      // 팀장·부팀장은 누구에게나, 팀원은 본인이 담당자에 들어 있을 때만 만든다(검사는 DB 함수 create_task).
+      // 새 과제는 늘 예정에서 시작한다(status는 예전 화면과의 호환을 위해 받기만 하고, 예정이 아니면 DB가 거부).
+      if (body.status !== "todo") throw new BadRequestException("새 과제는 예정 단계에서 시작합니다.");
       const [row] = await query<{ id: number }>(
-        `insert into public.tasks(project_id, title, assignee, avatar, priority, due, tags, status, color)
-         values ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9) returning id`,
-        [projectId, body.title.trim(), first.name, first.avatar, body.priority ?? "mid", body.due ?? "", tags, body.status, first.color]);
+        "select public.create_task($1, $2, $3::uuid[], $4, $5, $6::text[]) as id",
+        [projectId, body.title, body.assigneeIds, body.priority ?? "mid", body.due ?? "", body.tags ?? []]);
       const assignees = [...new Set(body.assigneeIds)];
-      await query("insert into public.task_assignees(task_id, member_id) select $1, unnest($2::uuid[])", [row.id, assignees]);
       // 세부 업무 담당자는 이 과제의 담당자 중에서만(아니면 담당자 없음으로). 빈 줄은 건너뛴다.
       for (const item of body.checklist ?? []) {
         const text = item.text.trim();

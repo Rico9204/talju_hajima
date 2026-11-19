@@ -177,7 +177,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
             </div>
             {/* 과제 생성: 보드 오른쪽 위(완료 칸 위) 버튼 하나. 새 과제는 항상 "할 일"에서 시작한다
                 (검토 중·완료로 바로 만들면 검토 흐름과 완료 수가 어긋난다). */}
-            {isManager && !locked && (
+            {!!currentMember && !locked && (
               <button
                 type="button"
                 onClick={() => setCreating(true)}
@@ -501,7 +501,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           onClose={() => setPendingDelete(null)}
         />
       )}
-      {creating && <TaskCreateModal members={team.members} onSubmit={createTask} onClose={() => setCreating(false)} />}
+      {creating && <TaskCreateModal members={team.members} requiredMemberId={isManager ? null : currentMember?.id ?? null} onSubmit={createTask} onClose={() => setCreating(false)} />}
     </div>
   );
 }

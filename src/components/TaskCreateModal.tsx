@@ -6,6 +6,7 @@ import Avatar from "./Avatar";
 
 // 과제 보드의 "과제 생성" 창: 화면 가운데에 띄운다. 새 과제는 항상 "예정"에서 시작한다.
 // 꼭 필요한 것: 제목, 담당자(한 명 이상). 고르면 함께 저장: 우선순위, 마감일, 태그, 세부 업무(각각 담당자 지정 가능).
+// 팀원이 만들 때는 본인이 담당자에 꼭 들어간다(requiredMemberId, 빼지 못함). 다른 팀원은 함께 넣을 수 있다.
 // Esc나 바깥을 눌러 닫을 때 쓰던 내용이 있으면 한 번 묻는다. Ctrl/⌘+Enter로 바로 만든다.
 
 const PRIORITIES: { id: TaskPriority; label: string; color: string; hint: string }[] = [
@@ -23,13 +24,14 @@ function dueHint(due: string): string {
   return diff === 0 ? "오늘 마감" : diff > 0 ? `D-${diff}` : `${-diff}일 지남`;
 }
 
-export default function TaskCreateModal({ members, onSubmit, onClose }: {
+export default function TaskCreateModal({ members, requiredMemberId = null, onSubmit, onClose }: {
   members: Member[];
+  requiredMemberId?: string | null; // 팀원이 만들 때 = 본인(담당자에서 뺄 수 없다). 팀장·부팀장이면 null
   onSubmit: (input: NewTaskInput) => Promise<string | null>; // null이면 성공, 글이면 실패 안내(창은 그대로)
   onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
-  const [assignees, setAssignees] = useState<string[]>([]);
+  const [assignees, setAssignees] = useState<string[]>(requiredMemberId ? [requiredMemberId] : []);
   const [memberSearch, setMemberSearch] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("mid");
   const [due, setDue] = useState("");
@@ -48,7 +50,7 @@ export default function TaskCreateModal({ members, onSubmit, onClose }: {
   const q = memberSearch.trim().toLowerCase();
   const visibleMembers = q ? members.filter((m) => m.name.toLowerCase().includes(q)) : members;
   const chosenMembers = useMemo(() => members.filter((m) => assignees.includes(m.id)), [members, assignees]);
-  const dirty = !!(title.trim() || assignees.length || tags.length || subtasks.some((s) => s.text.trim()) || due || priority !== "mid");
+  const dirty = !!(title.trim() || assignees.some((id) => id !== requiredMemberId) || tags.length || subtasks.some((s) => s.text.trim()) || due || priority !== "mid");
   const valid = !!title.trim() && assignees.length > 0;
 
   function requestClose() {
@@ -64,6 +66,7 @@ export default function TaskCreateModal({ members, onSubmit, onClose }: {
   });
 
   function toggleAssignee(id: string) {
+    if (id === requiredMemberId) return; // 팀원 본인은 뺄 수 없다
     const next = assignees.includes(id) ? assignees.filter((x) => x !== id) : [...assignees, id];
     setAssignees(next);
     // 과제 담당자에서 빠진 사람이 맡던 세부 업무는 담당자 없음으로
@@ -124,7 +127,7 @@ export default function TaskCreateModal({ members, onSubmit, onClose }: {
           <div className="min-w-0 flex-1">
             <h2 id="task-create-title" className="text-base font-700">새 과제 만들기</h2>
             <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-              <span className="inline-flex items-center gap-1 font-600"><i className="w-2 h-2 rounded-full inline-block" style={{ background: "#454b6e" }} />예정</span> 단계에 추가돼요. 팀원은 검토 중까지, 완료는 팀장·부팀장이 처리해요.
+              <span className="inline-flex items-center gap-1 font-600"><i className="w-2 h-2 rounded-full inline-block" style={{ background: "#454b6e" }} />예정</span> 단계에 추가돼요. 담당 팀원은 검토 중까지 옮기고, 완료는 팀장·부팀장이 처리해요.
             </p>
           </div>
           <button type="button" onClick={requestClose} aria-label="닫기" className="w-8 h-8 flex items-center justify-center text-lg shrink-0" style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "10px" }}>×</button>
@@ -152,6 +155,9 @@ export default function TaskCreateModal({ members, onSubmit, onClose }: {
 
           <div>
             <div className={label}>담당자 <span style={{ color: "#ef4444" }}>*</span><span className="font-500" style={{ color: "var(--muted-foreground)" }}>{assignees.length ? `${assignees.length}명 선택` : "한 명 이상"}</span></div>
+            {requiredMemberId && (
+              <p className="text-[11px] -mt-1 mb-1.5" style={{ color: "var(--muted-foreground)" }}>팀원은 본인이 포함된 과제만 만들 수 있어요. 함께할 팀원을 더 고를 수 있어요.</p>
+            )}
             {showSearch && (
               <input value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} placeholder="팀원 이름 검색" aria-label="담당자 검색"
                 className="w-full text-xs px-3 py-1.5 border outline-none mb-2" style={{ ...field, borderRadius: "20px" }} />
@@ -159,19 +165,23 @@ export default function TaskCreateModal({ members, onSubmit, onClose }: {
             <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-0.5">
               {visibleMembers.map((m) => {
                 const on = assignees.includes(m.id);
+                const fixed = m.id === requiredMemberId;
                 return (
                   <button
                     key={m.id}
                     type="button"
                     aria-pressed={on}
+                    aria-disabled={fixed || undefined}
+                    title={fixed ? "본인은 담당자에서 뺄 수 없어요" : undefined}
                     onClick={() => toggleAssignee(m.id)}
-                    className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 border transition-colors"
+                    className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 text-xs font-600 border transition-colors ${fixed ? "cursor-default" : ""}`}
                     style={{ borderRadius: "20px", background: on ? "var(--primary)" : "var(--muted)", color: on ? "#fff" : "var(--foreground)", borderColor: on ? "var(--primary)" : "var(--border)" }}
                   >
                     <Avatar url={m.avatarUrl} initial={m.avatar} color={m.color} size={20} />
                     {m.name}
                     {(m.isLeader || m.isViceLeader) && <span className="text-[10px] opacity-80">{m.isLeader ? "팀장" : "부팀장"}</span>}
-                    {on && <span aria-hidden="true">✓</span>}
+                    {fixed && <span className="text-[10px] opacity-90">나 · 필수</span>}
+                    {on && !fixed && <span aria-hidden="true">✓</span>}
                   </button>
                 );
               })}

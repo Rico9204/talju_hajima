@@ -1040,7 +1040,8 @@ function ProjectDataProvider({ children }: { children: ReactNode }) {
   }
 
   async function addTask(input: NewTaskInput) {
-    if (!projectId || !isManager) return;
+    // 팀장·부팀장은 누구에게나, 팀원은 본인이 담당자에 들어간 과제만 만들 수 있다(DB 함수 create_task가 검사).
+    if (!projectId || !currentMember) return;
     await dataRepository.createTask(projectId, input);
     await refreshTasks();
     // Creating your own task shouldn't leave a "new content" badge for yourself.

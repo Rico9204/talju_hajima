@@ -22,7 +22,8 @@ with required_functions(label, signature) as (
     ('task review rejection', 'public.reject_task_review(bigint,text)'),
     ('announcement read', 'public.mark_announcement_read(bigint)'),
     ('announcement read counts', 'public.announcement_read_counts()'),
-    ('announcement create', 'public.create_announcement(text,text,date,date,boolean,text[],text)')
+    ('announcement create', 'public.create_announcement(text,text,date,date,boolean,text[],text)'),
+    ('task create', 'public.create_task(text,text,uuid[],text,text,text[])')
 ), checks as (
   select 'function'::text as kind, label as item, to_regprocedure(signature) is not null as ready
   from required_functions
