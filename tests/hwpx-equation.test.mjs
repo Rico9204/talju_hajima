@@ -55,6 +55,16 @@ test('parseHwpEquation: LaTeX 수식 문법(\\frac, \\sqrt)도 호환 지원한�
   assert.ok(latexResult.includes('<msqrt>'));
 });
 
+test('parseHwpEquation: 수식 글자 속 < > 는 태그가 되지 않는다(dangerouslySetInnerHTML XSS 방지)', () => {
+  const result = parseHwpEquation('a < img src=x onerror=alert(1) > b');
+  assert.ok(result.includes('<mo>&lt;</mo>'));
+  assert.ok(result.includes('<mo>&gt;</mo>'));
+  // MathML 태그 말고는 어떤 태그도 생기지 않는다.
+  const tags = [...result.matchAll(/<\/?([a-zA-Z][\w-]*)/g)].map((m) => m[1]);
+  const allowed = new Set(['math', 'mrow', 'mi', 'mo', 'mn', 'mtext', 'mspace', 'mfrac', 'msqrt', 'mroot', 'msub', 'msup', 'msubsup', 'munder', 'mover', 'munderover']);
+  assert.deepEqual(tags.filter((t) => !allowed.has(t)), []);
+});
+
 test('parseHwpEquation: 중첩 중괄호 및 따옴표가 포함된 복합 수식을 ReDoS 지연 없이 즉시 파싱한다', () => {
   const complexScript = '{hat{I}} (x,y)=`Median"{"I _{n} (i,j)vert  (i,j) IN  C _{"neu"}^{`(r)} (x,y)"}"';
   const t0 = Date.now();

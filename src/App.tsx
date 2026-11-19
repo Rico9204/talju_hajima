@@ -24,7 +24,8 @@ const TeamChat = lazy(() => import("./components/TeamChat"));
 const Schedule = lazy(() => import("./components/Schedule"));
 const AdminPanel = lazy(() => import("./components/AdminPanel"));
 const AdminApplication = lazy(() => import("./components/AdminApplication"));
-const HwpxTestPage = lazy(() => import("./components/HwpxTestPage"));
+// 한글 편집기 단독 테스트 화면(로그인 없이 열림)은 개발 서버에서만 연다. 운영 빌드에서는 경로와 코드가 빠진다.
+const HwpxTestPage = import.meta.env.DEV ? lazy(() => import("./components/HwpxTestPage")) : null;
 
 function PageLoading() {
   return <div className="flex h-full min-h-48 items-center justify-center text-sm" style={{ color: "var(--muted-foreground)" }}>화면을 불러오는 중…</div>;
@@ -171,9 +172,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="login" element={<Login />} />
-      <Route path="hwpx-test" element={<HwpxTestPage />} />
-      <Route path="hwpx" element={<HwpxTestPage />} />
-      <Route path="test" element={<HwpxTestPage />} />
+      {HwpxTestPage && <Route path="hwpx-test" element={<HwpxTestPage />} />}
       <Route path="reset-password" element={<ResetPassword />} />
       <Route path="confirm-email" element={<ConfirmEmail />} />
       <Route element={<RequireAuth />}>

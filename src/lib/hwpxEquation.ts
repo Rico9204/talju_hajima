@@ -268,7 +268,8 @@ export function parseHwpEquation(rawScript: string): string {
           tokXml = `<mi>${tok}</mi>`;
         }
       } else if (tok === "+" || tok === "-" || tok === "=" || tok === "<" || tok === ">" || tok === "," || tok === ";") {
-        tokXml = `<mo>${tok}</mo>`;
+        // 결과는 dangerouslySetInnerHTML로 그려지고 수식은 공동 편집으로 남이 넣을 수 있으므로 < > 도 이스케이프한다.
+        tokXml = `<mo>${escapeXml(tok)}</mo>`;
       } else if (tok === "(" || tok === ")" || tok === "[" || tok === "]" || tok === "|" || tok === "/") {
         tokXml = `<mo>${tok}</mo>`;
       } else {

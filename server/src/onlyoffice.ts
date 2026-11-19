@@ -95,7 +95,8 @@ export class OnlyofficeService {
         key,
         title: found.file.name,
         url: `${base}/api/onlyoffice/raw?token=${await this.signLink({ p: "raw", f: fileId, v: versionId, u: userId }, "6h")}`,
-        permissions: { edit: editable, download: true, print: true },
+        // 변경 추적(검토)·메모: 편집할 수 있는 사람만. 변경 추적은 권한만 열고 켜는 것은 사용자가 "검토" 탭에서 한다.
+        permissions: { edit: editable, download: true, print: true, review: editable, comment: editable },
       },
       documentType: type.documentType,
       editorConfig: {
@@ -106,7 +107,8 @@ export class OnlyofficeService {
         coEditing: { mode: "fast", change: true },
         // 화면에 외부 편집기 이름이 보이지 않게: 상단 로고와 도움말(외부 사이트) 메뉴를 숨긴다(무료판에서 허용되는 설정).
         // 로딩 화면 문구·로고(loaderName·loaderLogo)와 정보(about)는 유료판 전용이라, 로딩 화면은 화면 쪽에서 가린다.
-        customization: { forcesave: true, autosave: true, logo: { visible: false }, help: false, feedback: false },
+        customization: { forcesave: true, autosave: true, logo: { visible: false }, help: false, feedback: false,
+          review: { reviewDisplay: "markup", hoverMode: true } }, // 추적된 변경은 표시한 채로, 자세한 정보는 마우스를 올리면
       },
     };
     const token = await new SignJWT(config as unknown as Record<string, unknown>).setProtectedHeader({ alg: "HS256" }).sign(this.officeKey!);

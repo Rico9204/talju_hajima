@@ -201,13 +201,7 @@ export default function Landing() {
               <a href="#steps">시작 방법</a>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate("/hwpx-test")}
-              className="px-4 py-2 rounded-full text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition shadow-md flex items-center gap-1.5 cursor-pointer"
-            >
-              <span>🚀 한글 편집기 테스트</span>
-            </button>
+          <div className="flex gap-2">
             <Pill variant="secondary" onClick={login}>로그인</Pill>
             <Pill variant="primary" onClick={signup}>시작하기</Pill>
           </div>
@@ -223,12 +217,6 @@ export default function Landing() {
             채팅, 과제, 일정, 파일, 동료 평가까지. 흩어진 팀 프로젝트를 한 화면으로.
           </p>
           <div className="mt-9 flex flex-wrap justify-center gap-3">
-            <button
-              onClick={() => navigate("/hwpx-test")}
-              className="rounded-full font-bold transition-transform hover:-translate-y-0.5 h-14 px-8 text-base bg-blue-600 hover:bg-blue-500 text-white shadow-xl flex items-center gap-2 cursor-pointer"
-            >
-              <span>🚀 한글 편집기 기능 테스트 바로가기</span>
-            </button>
             <Pill variant="primary" large onClick={signup}>무료로 시작하기</Pill>
             <Pill variant="secondary" large onClick={login}>로그인</Pill>
           </div>

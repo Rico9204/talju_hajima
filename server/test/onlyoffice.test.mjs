@@ -57,6 +57,9 @@ test('편집기 설정: 팀원만, 문서 서버 비밀값으로 서명, 원본�
   assert.equal(config.editorConfig.mode, 'edit');
   assert.deepEqual(config.editorConfig.coEditing, { mode: 'fast', change: true }); // 실시간 동시 편집(Fast 모드)
   assert.deepEqual(config.editorConfig.customization.logo, { visible: false }); // 외부 편집기 로고를 숨긴다
+  assert.equal(config.document.permissions.review, true); // 편집할 수 있으면 변경 추적(검토)·메모 가능
+  assert.equal(config.document.permissions.comment, true);
+  assert.deepEqual(config.editorConfig.customization.review, { reviewDisplay: "markup", hoverMode: true });
   assert.equal(config.editorConfig.user.id, s.member.id);
   assert.ok(config.document.url.startsWith('https://api.test/api/onlyoffice/raw?token='));
   assert.ok(config.editorConfig.callbackUrl.startsWith('https://api.test/api/onlyoffice/callback?token='));
@@ -121,6 +124,8 @@ test('종료된 프로젝트는 보기 전용, pptx·docx·xlsx가 아니면 열
   const config = (await call(s.leader, 'GET', `/workspace/files/${fileId}/onlyoffice`)).body;
   assert.equal(config.editorConfig.mode, 'view');
   assert.equal(config.document.permissions.edit, false);
+  assert.equal(config.document.permissions.review, false); // 보기 전용이면 변경 추적·메모도 막는다
+  assert.equal(config.document.permissions.comment, false);
   await pg.query("update projects set status = 'active' where id = $1", [s.projectId]);
 });
 
