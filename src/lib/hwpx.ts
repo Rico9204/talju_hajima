@@ -4,7 +4,7 @@
 // HWPX 본문 텍스트 추출, 복합 서식 보호, 수정 후 ZIP 재패키징, 빈 HWPX 템플릿 생성을 지원한다.
 
 export const HWPX_EXT = "hwpx";
-export const HWPX_MIME = "application/hnc+zip";
+export const HWPX_MIME = "application/hwp+zip";
 
 export function isHwpxName(name: string): boolean {
   return name.toLowerCase().endsWith(`.${HWPX_EXT}`);
@@ -88,15 +88,32 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
   const cdParts: Uint8Array[] = [];
   let offset = 0;
 
-  // OCF(Open Container Format) 표준: mimetype 파일이 반드시 맨 첫 번째 엔트리(Offset 0)여야 함
-  const orderedEntries = new Map<string, Uint8Array>();
-  if (entries.has("mimetype")) {
-    orderedEntries.set("mimetype", entries.get("mimetype")!);
-  }
+  // DOS Date / Time 계산 (유효한 FAT 타임스탬프 부여, 최소 1980-01-01 이상)
+  const now = new Date();
+  const year = Math.max(1980, now.getFullYear());
+  const month = now.getMonth() + 1;
+  const day = Math.max(1, now.getDate());
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const seconds = Math.floor(now.getSeconds() / 2);
+  const dosTime = ((hours & 0x1f) << 11) | ((minutes & 0x3f) << 5) | (seconds & 0x1f);
+  const dosDate = (((year - 1980) & 0x7f) << 9) | ((month & 0x0f) << 5) | (day & 0x1f);
+
+  // OCF(Open Container Format) 및 KS X 6101 HWPX 표준:
+  // 1. mimetype 파일은 반드시 ZIP의 맨 첫 번째 엔트리(Offset 0)여야 함
+  // 2. 압축 방법은 무조건 0 (Stored, 무압축)
+  // 3. 내용은 정확히 19바이트 "application/hwp+zip" (개행 없음)
+  // 4. extra field 길이는 0
+  const orderedEntries: Array<[string, Uint8Array]> = [];
+
+  // mimetype 강제 고정 1번 엔트리 (한컴 표준 규격: application/hwp+zip)
+  const mimetypeContent = new TextEncoder().encode("application/hwp+zip");
+  orderedEntries.push(["mimetype", mimetypeContent]);
+
+  // 나머지 엔트리 등록 (대소문자 무관하게 기존 mimetype 관련 키 제외)
   for (const [name, content] of entries) {
-    if (name !== "mimetype") {
-      orderedEntries.set(name, content);
-    }
+    if (name.toLowerCase() === "mimetype") continue;
+    orderedEntries.push([name, content]);
   }
 
   for (const [name, content] of orderedEntries) {
@@ -114,16 +131,20 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
     }
 
     const crc = crc32(content);
+    // mimetype은 flags = 0 필수. 파일명에 비-ASCII가 포함된 경우에만 UTF-8 비트(0x0800) 세팅
+    const hasNonAscii = /[^\x00-\x7F]/.test(name);
+    const bitFlag = (!isMimetype && hasNonAscii) ? 0x0800 : 0;
+    const versionNeeded = isMimetype ? 10 : 20;
 
     // Local Header (30 + nameBytes.length)
     const lh = new Uint8Array(30 + nameBytes.length);
     const lhView = new DataView(lh.buffer);
     lhView.setUint32(0, 0x04034b50, true);
-    lhView.setUint16(4, 20, true);
-    lhView.setUint16(6, 0, true);
+    lhView.setUint16(4, versionNeeded, true);
+    lhView.setUint16(6, bitFlag, true);
     lhView.setUint16(8, method, true);
-    lhView.setUint16(10, 0, true);
-    lhView.setUint16(12, 0, true);
+    lhView.setUint16(10, dosTime, true);
+    lhView.setUint16(12, dosDate, true);
     lhView.setUint32(14, crc, true);
     lhView.setUint32(18, compData.length, true);
     lhView.setUint32(22, content.length, true);
@@ -138,12 +159,12 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
     const cdh = new Uint8Array(46 + nameBytes.length);
     const cdhView = new DataView(cdh.buffer);
     cdhView.setUint32(0, 0x02014b50, true);
-    cdhView.setUint16(4, 20, true);
-    cdhView.setUint16(6, 20, true);
-    cdhView.setUint16(8, 0, true);
+    cdhView.setUint16(4, isMimetype ? 10 : 20, true);
+    cdhView.setUint16(6, versionNeeded, true);
+    cdhView.setUint16(8, bitFlag, true);
     cdhView.setUint16(10, method, true);
-    cdhView.setUint16(12, 0, true);
-    cdhView.setUint16(14, 0, true);
+    cdhView.setUint16(12, dosTime, true);
+    cdhView.setUint16(14, dosDate, true);
     cdhView.setUint32(16, crc, true);
     cdhView.setUint32(20, compData.length, true);
     cdhView.setUint32(24, content.length, true);
@@ -152,7 +173,7 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
     cdhView.setUint16(32, 0, true);
     cdhView.setUint16(34, 0, true);
     cdhView.setUint16(36, 0, true);
-    cdhView.setUint32(38, 0, true);
+    cdhView.setUint32(38, 0x00000020, true);
     cdhView.setUint32(42, offset, true);
     cdh.set(nameBytes, 46);
 
@@ -170,8 +191,8 @@ export async function writeZipEntries(entries: Map<string, Uint8Array>): Promise
   eocdView.setUint32(0, 0x06054b50, true);
   eocdView.setUint16(4, 0, true);
   eocdView.setUint16(6, 0, true);
-  eocdView.setUint16(8, entries.size, true);
-  eocdView.setUint16(10, entries.size, true);
+  eocdView.setUint16(8, cdParts.length, true);
+  eocdView.setUint16(10, cdParts.length, true);
   eocdView.setUint32(12, cdSize, true);
   eocdView.setUint32(16, cdOffset, true);
   eocdView.setUint16(20, 0, true);
@@ -407,7 +428,7 @@ export function updateHwpxSectionXml(originalXml: string, newText: string): stri
   const newParagraphs = lines.map((line, idx) => {
     const secPrBlock = (idx === 0 && secPr) ? `<hp:run charPrIDRef="0">${secPr}</hp:run>` : "";
     const textBlock = `<hp:run charPrIDRef="0"><hp:t>${escapeXml(line)}</hp:t></hp:run>`;
-    return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${secPrBlock}${textBlock}\n    </hp:p>`;
+    return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${secPrBlock}${textBlock}\n    </hp:p>`;
   }).join("\n");
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${rootOpen}\n${newParagraphs}\n</hs:sec>`;
@@ -443,11 +464,12 @@ export async function updateHwpxBytes(originalHwpx: ArrayBuffer | Uint8Array, ne
 // ── 새 빈 HWPX 템플릿 생성 (표준 OWPML 및 A4 용지 규격 준수) ──
 export async function newHwpxBytes(initialText = ""): Promise<Uint8Array> {
   const entries = new Map<string, Uint8Array>();
-  entries.set("mimetype", new TextEncoder().encode("application/hnc+zip"));
-  entries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hcf/2011/version" major="1" minor="0" micro="0" buildNumber="0" os="1" application="1"/>`));
-  entries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container">\n  <ocf:rootfiles>\n    <ocf:rootfile ocf:full-path="Contents/content.hpf" ocf:media-type="application/hnc+zip"/>\n  </ocf:rootfiles>\n</ocf:container>`));
-  entries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata>\n    <opf:title>문서</opf:title>\n    <opf:language>ko</opf:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="section0"/>\n  </opf:spine>\n</opf:package>`));
-  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.0">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="1">\n      <hh:fontface lang="HANGUL" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000">\n        <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n      </hh:charPr>\n    </hh:charProperties>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n</hh:head>`));
+  entries.set("mimetype", new TextEncoder().encode("application/hwp+zip"));
+  entries.set("version.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="0" buildNumber="1" os="1" xmlVersion="1.31" application="Hancom Office Hangul"/>`));
+  entries.set("settings.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ha:HWPApplicationSetting xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app">\n  <ha:CaretPosition listIDRef="0" paraIDRef="0" pos="0"/>\n</ha:HWPApplicationSetting>`));
+  entries.set("META-INF/container.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ocf:container xmlns:ocf="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf">\n  <ocf:rootfiles>\n    <ocf:rootfile full-path="Contents/content.hpf" media-type="application/hwpml-package+xml"/>\n  </ocf:rootfiles>\n</ocf:container>`));
+  entries.set("Contents/content.hpf", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<opf:package xmlns:opf="http://www.idpf.org/2007/opf" xmlns:hpf="http://www.hancom.co.kr/schema/2011/hpf" version="2.0" unique-identifier="hwpx-id">\n  <opf:metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:title>문서</dc:title>\n    <dc:language>ko</dc:language>\n  </opf:metadata>\n  <opf:manifest>\n    <opf:item id="header" href="Contents/header.xml" media-type="application/xml"/>\n    <opf:item id="section0" href="Contents/section0.xml" media-type="application/xml"/>\n    <opf:item id="settings" href="settings.xml" media-type="application/xml"/>\n  </opf:manifest>\n  <opf:spine>\n    <opf:itemref idref="header" linear="no"/>\n    <opf:itemref idref="section0" linear="yes"/>\n  </opf:spine>\n</opf:package>`));
+  entries.set("Contents/header.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" version="1.31" secCnt="1">\n  <hh:beginNum page="1" footnote="1" endnote="1" pic="1" tbl="1" equation="1"/>\n  <hh:refList>\n    <hh:fontfaces itemCnt="7">\n      <hh:fontface lang="HANGUL" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n      <hh:fontface lang="LATIN" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n      <hh:fontface lang="HANJA" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n      <hh:fontface lang="JAPANESE" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n      <hh:fontface lang="OTHER" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n      <hh:fontface lang="SYMBOL" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n      <hh:fontface lang="USER" fontCnt="1">\n        <hh:font id="0" face="함초롬바탕" type="TTF" isEmbedded="0"/>\n      </hh:fontface>\n    </hh:fontfaces>\n    <hh:borderFills itemCnt="2">\n      <hh:borderFill id="1" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0">\n        <hh:slash type="NONE" Crooked="0" isCounter="0"/>\n        <hh:backSlash type="NONE" Crooked="0" isCounter="0"/>\n        <hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/>\n        <hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/>\n        <hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/>\n        <hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/>\n        <hh:diagonal type="NONE" width="0.1 mm" color="#000000"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#FFFFFF" alpha="0"/></hc:fillBrush>\n      </hh:borderFill>\n      <hh:borderFill id="2" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0">\n        <hh:slash type="NONE" Crooked="0" isCounter="0"/>\n        <hh:backSlash type="NONE" Crooked="0" isCounter="0"/>\n        <hh:leftBorder type="NONE" width="0.1 mm" color="#000000"/>\n        <hh:rightBorder type="NONE" width="0.1 mm" color="#000000"/>\n        <hh:topBorder type="NONE" width="0.1 mm" color="#000000"/>\n        <hh:bottomBorder type="NONE" width="0.1 mm" color="#000000"/>\n        <hh:diagonal type="NONE" width="0.1 mm" color="#000000"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#FFFFFF" alpha="0"/></hc:fillBrush>\n      </hh:borderFill>\n    </hh:borderFills>\n    <hh:charProperties itemCnt="1">\n      <hh:charPr id="0" height="1000" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="2">\n        <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n        <hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>\n        <hh:spacing hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n        <hh:relSz hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>\n        <hh:offset hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>\n        <hh:underline type="NONE" shape="SOLID" color="#000000"/>\n        <hh:strikeout shape="NONE" color="#000000"/>\n        <hh:outline type="NONE"/>\n        <hh:shadow type="NONE" color="#C0C0C0" offsetX="10" offsetY="10"/>\n      </hh:charPr>\n    </hh:charProperties>\n    <hh:tabProperties itemCnt="0"/>\n    <hh:numberings itemCnt="0"/>\n    <hh:bullets itemCnt="0"/>\n    <hh:paraProperties itemCnt="1">\n      <hh:paraPr id="0">\n        <hh:align horizontal="LEFT" vertical="BASELINE"/>\n        <hh:lineSpacing type="PERCENT" value="160"/>\n      </hh:paraPr>\n    </hh:paraProperties>\n    <hh:styles itemCnt="1">\n      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n    </hh:styles>\n  </hh:refList>\n  <hh:compatibleDocument targetProgram="HWP2018"><hh:layoutCompatibility/></hh:compatibleDocument>\n</hh:head>`));
 
   // 표준 A4 용지 규격 (210mm x 297mm = 59528 x 84188 HWPUNIT, 여백 포함)
   const defaultSecPr = `<hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr>`;
@@ -455,7 +477,7 @@ export async function newHwpxBytes(initialText = ""): Promise<Uint8Array> {
   const lines = (initialText || "").split(/\r?\n/);
   const pList = lines.map((line, idx) => {
     const secPr = idx === 0 ? `<hp:run charPrIDRef="0">${defaultSecPr}</hp:run>` : "";
-    return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="false" columnBreak="false" merged="false">\n      ${secPr}<hp:run charPrIDRef="0"><hp:t>${escapeXml(line)}</hp:t></hp:run>\n    </hp:p>`;
+    return `    <hp:p id="${idx}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${secPr}<hp:run charPrIDRef="0"><hp:t>${escapeXml(line)}</hp:t></hp:run>\n    </hp:p>`;
   }).join("\n");
 
   entries.set("Contents/section0.xml", new TextEncoder().encode(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">\n${pList}\n</hs:sec>`));

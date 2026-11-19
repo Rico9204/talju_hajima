@@ -285,7 +285,7 @@ test('hwpxCollab: guarantees standard OWPML A4 secPr and OCF mimetype offset 0 f
   const entries = new Map();
   entries.set('Contents/section0.xml', new TextEncoder().encode(pkg.sectionXml));
   entries.set('Contents/header.xml', new TextEncoder().encode(pkg.headerXml));
-  entries.set('mimetype', new TextEncoder().encode('application/hnc+zip'));
+  entries.set('mimetype', new TextEncoder().encode('application/hwp+zip'));
 
   const zipBytes = await writeZipEntries(entries);
   // In ZIP format: Local file header starts at offset 0: 50 4B 03 04
@@ -375,6 +375,7 @@ test('hwpxCollab: 새로 생성한 도형(shape: rect, ellipse, line)이 한컴 
   // 1. 사각형 검증 (한컴 표준 OWPML DTD 순서: offset, orgSz, curSz, flip, rotationInfo, renderingInfo, lineShape, fillBrush, shadow, pt0~pt3, sz, pos, outMargin, shapeComment, drawText)
   assert.ok(pkg.sectionXml.includes('<hp:rect id="'));
   assert.ok(pkg.sectionXml.includes('<hp:orgSz width="34016" height="6000"/>'));
+  assert.ok(pkg.sectionXml.includes('<hp:curSz width="34016" height="6000"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:rotationInfo angle="0" centerX="17008" centerY="3000"'));
   assert.ok(pkg.sectionXml.includes('<hp:renderingInfo><hc:transMatrix'));
   assert.ok(pkg.sectionXml.includes('<hc:pt0 x="0" y="0"/><hc:pt1 x="34016" y="0"/><hc:pt2 x="34016" y="6000"/><hc:pt3 x="0" y="6000"/>'));
@@ -421,14 +422,156 @@ test('hwpxCollab: 새로 생성한 표(table)가 한컴 뷰어 및 OWPML 스펙(
   assert.ok(pkg.sectionXml.includes('<hp:inMargin left="510" right="510" top="141" bottom="141"/>'));
 
   // 2. hp:tc 필수 태그 및 순서 검증 (subList, cellAddr, cellSpan, cellSz, cellMargin)
+  assert.ok(pkg.sectionXml.includes('<hp:subList id="0"'));
   assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="0" rowAddr="0"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellAddr colAddr="1" rowAddr="1"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellSpan colSpan="1" rowSpan="1"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellSz width="21260" height="2834"/>'));
   assert.ok(pkg.sectionXml.includes('<hp:cellMargin left="510" right="510" top="141" bottom="141"/>'));
+  // 셀 내부 문단 ID가 OWPML 정수 규격 준수하는지 검증 (언더스코어 등 비정수 문자 불포함)
+  assert.match(pkg.sectionXml, /<hp:p id="\d+"/);
+  assert.ok(!pkg.sectionXml.includes('id="0_0_0"'));
 
   // 3. header.xml의 borderFills 정의 포함 검증
   assert.ok(pkg.headerXml.includes('<hh:borderFills itemCnt="2">'));
   assert.ok(pkg.headerXml.includes('<hh:borderFill id="1"'));
   assert.ok(pkg.headerXml.includes('<hh:borderFill id="2"'));
+});
+
+test('hwpxCollab: 표 셀의 borderFillIDRef 보정 및 자유 이동(Floating) 도형/표의 오버레이 속성 직렬화 검증', () => {
+  const blocks = [
+    {
+      type: 'table',
+      id: 'tbl_float',
+      rawAttrs: 'name="tbl1"',
+      rows: [
+        [
+          { text: '테스트', rawAttrs: 'name="0_0"' },
+        ],
+      ],
+      offsetX: 15,
+      offsetY: 25,
+    },
+    {
+      type: 'shape',
+      id: 'shape_float',
+      shapeType: 'rect',
+      text: '부유 도형',
+      offsetX: 50,
+      offsetY: 100,
+    },
+    {
+      type: 'paragraph',
+      id: 'p_right',
+      text: '우측 정렬 문단',
+      align: 'right',
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+
+  // 1. 표 셀에 borderFillIDRef="1"이 자동 보충되었는지 검증
+  assert.ok(pkg.sectionXml.includes('borderFillIDRef="1"'));
+  // 2. 부유 표의 hp:pos treatAsChar="0", allowOverlap="1" 검증
+  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="1"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="2500" horzOffset="1500"'));
+
+  // 3. 부유 도형의 textWrap="IN_FRONT_OF_TEXT", treatAsChar="0", allowOverlap="1", zOrder="10" 검증
+  assert.ok(pkg.sectionXml.includes('textWrap="IN_FRONT_OF_TEXT"'));
+  assert.ok(pkg.sectionXml.includes('zOrder="10"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="10000" horzOffset="5000"'));
+
+  // 4. headerXml의 hh:paraProperties에 신규 정렬 서식이 등록되었는지 검증
+  assert.ok(pkg.headerXml.includes('<hh:align horizontal="RIGHT"'));
+});
+
+test('hwpxCollab: 표 및 도형의 한컴 OWPML 표준 <hp:caption> 직렬화 및 역직렬화(Roundtrip) 검증', () => {
+  const blocks = [
+    {
+      type: 'table',
+      id: 'tbl_caption_test',
+      rows: [
+        [{ text: '헤더1' }, { text: '헤더2' }],
+        [{ text: '데이터1' }, { text: '데이터2' }],
+      ],
+      caption: '표 1. 실험 결과 분석',
+      captionPos: 'top_left',
+    },
+    {
+      type: 'shape',
+      id: 'shape_caption_test',
+      shapeType: 'rect',
+      text: '모듈 블록',
+      caption: '그림 1. 아키텍처 구조도',
+      captionPos: 'bottom_center',
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+
+  // 1. 표 캡션 OWPML 직렬화 검증 (<hp:caption side="TOP" ...>)
+  assert.ok(pkg.sectionXml.includes('<hp:caption side="TOP"'));
+  assert.ok(pkg.sectionXml.includes('표 1. 실험 결과 분석'));
+
+  // 2. 도형 캡션 OWPML 직렬화 검증 (<hp:caption side="BOTTOM" ...>)
+  assert.ok(pkg.sectionXml.includes('<hp:caption side="BOTTOM"'));
+  assert.ok(pkg.sectionXml.includes('그림 1. 아키텍처 구조도'));
+
+  // 3. XML 역직렬화 (parseHwpxXmlToBlocks) 검증
+  const parsed = parseHwpxXmlToBlocks(pkg.sectionXml, pkg.headerXml);
+  assert.equal(parsed.length, 2);
+
+  assert.equal(parsed[0].type, 'table');
+  if (parsed[0].type === 'table') {
+    assert.equal(parsed[0].caption, '표 1. 실험 결과 분석');
+    assert.equal(parsed[0].captionPos, 'top_center');
+  }
+
+  assert.equal(parsed[1].type, 'shape');
+  if (parsed[1].type === 'shape') {
+    assert.equal(parsed[1].caption, '그림 1. 아키텍처 구조도');
+    assert.equal(parsed[1].captionPos, 'bottom_center');
+  }
+});
+
+test('hwpxCollab: 차트(chart) 블록이 한컴 OWPML 호환 직렬화 및 Yjs 동기화를 완벽 지원한다', () => {
+  const chartBlocks = [
+    {
+      type: 'chart',
+      id: 'chart_sample_1',
+      chartType: 'column',
+      title: '[차트 1] 분기별 경영 실적',
+      categories: ['1분기', '2분기', '3분기', '4분기'],
+      series: [
+        { name: '매출액', values: [180, 240, 290, 360], color: '#2563eb' },
+        { name: '영업이익', values: [55, 80, 105, 140], color: '#10b981' },
+      ],
+      widthPercent: 85,
+      heightPt: 220,
+      caption: '차트 1. 분기별 경영 실적',
+      captionPos: 'bottom_center',
+    },
+  ];
+
+  // 1. OWPML 직렬화 검증 (차트 캡션 및 대체 텍스트 표기 확인)
+  const pkg = serializeBlocksToHwpxPackage(chartBlocks, '', '');
+  assert.ok(pkg.sectionXml.includes('<hp:caption side="BOTTOM"'));
+  assert.ok(pkg.sectionXml.includes('차트 1. 분기별 경영 실적'));
+  assert.ok(pkg.sectionXml.includes('[차트: column] [차트 1] 분기별 경영 실적'));
+
+  // 2. Yjs CRDT 라운드트립 검증
+  const ydoc = new Y.Doc();
+  initHwpxYDoc(ydoc, chartBlocks);
+  const extracted = extractBlocksFromYDoc(ydoc);
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0].type, 'chart');
+  if (extracted[0].type === 'chart') {
+    assert.equal(extracted[0].chartType, 'column');
+    assert.equal(extracted[0].title, '[차트 1] 분기별 경영 실적');
+    assert.equal(extracted[0].categories.length, 4);
+    assert.equal(extracted[0].series.length, 2);
+    assert.equal(extracted[0].series[0].name, '매출액');
+    assert.deepEqual(extracted[0].series[0].values, [180, 240, 290, 360]);
+    assert.equal(extracted[0].caption, '차트 1. 분기별 경영 실적');
+  }
 });

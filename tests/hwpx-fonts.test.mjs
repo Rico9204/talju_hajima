@@ -105,7 +105,25 @@ test("hwpx 글꼴: 원본 문서의 글꼴은 그대로 두고, 새 글꼴만 �
     assert.ok(group.includes('fontCnt="3"'), lang);
     assert.ok(group.includes('<hh:font id="1" face="함초롬돋움"'), lang);
     assert.ok(group.includes('<hh:font id="2" face="Pretendard"'), lang);
+    assert.ok(group.includes('substFont face="맑은 고딕"'), "타 편집기 호환용 대체 글꼴(맑은 고딕) 포함");
   }
   assert.ok(charPrById(headerXml, newId).includes('<hh:fontRef hangul="2" latin="2"'));
   assert.ok(headerXml.includes('<hh:charProperties itemCnt="2">'));
+});
+
+test("hwpx 글꼴: secPr 및 컨트롤이 포함된 문단의 글꼴 변경 시 secPr 서식(0번)은 보호되고 텍스트 런만 새 글꼴로 바뀐다", () => {
+  const SEC_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:secPr id="0"/></hp:run><hp:run charPrIDRef="7"><hp:t>논문 제목</hp:t></hp:run></hp:p>
+</hs:sec>`;
+  const blocks = parseHwpxXmlToBlocks(SEC_XML, ORIGINAL_HEADER);
+  blocks[0].fontFamily = "'Gungsuh', 'GungsuhChe', serif";
+  blocks[0].fontEdited = true;
+
+  const { sectionXml, headerXml } = serializeBlocksToHwpxPackage(blocks, SEC_XML, ORIGINAL_HEADER);
+  assert.ok(sectionXml.includes('<hp:run charPrIDRef="0"><hp:secPr id="0"/></hp:run>'), "secPr은 기본 0번 charPrIDRef 유지");
+  const titleCharPr = runCharPr(sectionXml, "논문 제목");
+  assert.ok(titleCharPr && titleCharPr !== "0" && titleCharPr !== "7", "텍스트 런은 궁서체로 갱신된 새 charPr 가리킴");
+  assert.ok(fontGroup(headerXml, "HANGUL").includes('face="궁서"'));
+  assert.ok(fontGroup(headerXml, "HANGUL").includes('substFont face="궁서체"'));
 });

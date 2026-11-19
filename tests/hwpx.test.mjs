@@ -30,7 +30,7 @@ test('newHwpxBytes: 표준 OWPML HWPX ZIP 컨테이너를 올바르게 생성한
 
   const entries = await readZipEntries(bytes);
   assert.ok(entries.has('mimetype'), 'mimetype이 있어야 함');
-  assert.equal(new TextDecoder().decode(entries.get('mimetype')), 'application/hnc+zip');
+  assert.equal(new TextDecoder().decode(entries.get('mimetype')), 'application/hwp+zip');
   assert.ok(entries.has('version.xml'), 'version.xml이 있어야 함');
   assert.ok(entries.has('META-INF/container.xml'), 'container.xml이 있어야 함');
   assert.ok(entries.has('Contents/content.hpf'), 'content.hpf가 있어야 함');
@@ -62,7 +62,7 @@ test('updateHwpxBytes: 기존 HWPX의 용지 설정 등을 유지하며 본문 �
 
 test('extractWorkspaceText: .hwpx 파일에서 텍스트를 검색용으로 정상 추출한다', async () => {
   const bytes = await newHwpxBytes('프로젝트 협업 워크스페이스 한글 문서');
-  const file = new File([bytes], '과제.hwpx', { type: 'application/hnc+zip' });
+  const file = new File([bytes], '과제.hwpx', { type: 'application/hwp+zip' });
   const result = await extractWorkspaceText(file);
   assert.equal(result.status, 'ready');
   assert.equal(result.text, '프로젝트 협업 워크스페이스 한글 문서');

@@ -489,3 +489,317 @@ export function NumberListIcon({ className = "w-3.5 h-3.5" }: { className?: stri
     </svg>
   );
 }
+
+export function FootnoteIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="3" width="16" height="18" rx="2" fill="#F8FAFC" stroke="#64748B" strokeWidth="1.5"/>
+      <line x1="7" y1="7" x2="17" y2="7" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round"/>
+      <text x="14" y="6" fill="#3B82F6" fontSize="6" fontWeight="bold">1)</text>
+      <line x1="7" y1="11" x2="15" y2="11" stroke="#94A3B8" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="6" y1="15" x2="18" y2="15" stroke="#CBD5E1" strokeWidth="1" strokeDasharray="2 2"/>
+      <text x="7" y="19" fill="#2563EB" fontSize="5" fontWeight="bold">1) 각주</text>
+    </svg>
+  );
+}
+
+export function TextBoxIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="4" width="18" height="16" rx="2" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.5" strokeDasharray="3 3"/>
+      <text x="6" y="15" fill="#1D4ED8" fontSize="11" fontWeight="bold" fontFamily="sans-serif">가</text>
+      <line x1="12" y1="10" x2="18" y2="10" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="12" y1="14" x2="17" y2="14" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function CaptionIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="16" height="11" rx="1.5" fill="#E2E8F0" stroke="#64748B" strokeWidth="1.5"/>
+      <rect x="6" y="6" width="12" height="7" rx="1" fill="#FFFFFF"/>
+      <rect x="5" y="17" width="14" height="3" rx="1" fill="#3B82F6"/>
+    </svg>
+  );
+}
+
+export function HyperlinkIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" stroke="#2563EB" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function ColumnsIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="7" height="16" rx="1" fill="#DBEAFE" stroke="#3B82F6" strokeWidth="1.5"/>
+      <rect x="13" y="4" width="7" height="16" rx="1" fill="#DBEAFE" stroke="#3B82F6" strokeWidth="1.5"/>
+    </svg>
+  );
+}
+
+export function PageNumberIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="3" width="14" height="18" rx="2" fill="#FFFFFF" stroke="#64748B" strokeWidth="1.5"/>
+      <line x1="8" y1="7" x2="16" y2="7" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="8" y1="11" x2="14" y2="11" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="12" cy="17" r="2.5" fill="#3B82F6"/>
+      <text x="12" y="19" fill="#FFFFFF" fontSize="4" fontWeight="bold" textAnchor="middle">1</text>
+    </svg>
+  );
+}
+
+export function WatermarkIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="3" width="16" height="18" rx="2" fill="#FFFFFF" stroke="#64748B" strokeWidth="1.5"/>
+      <text x="12" y="14" fill="#EF4444" opacity="0.4" fontSize="6" fontWeight="bold" textAnchor="middle" transform="rotate(-30 12 14)">대외비</text>
+    </svg>
+  );
+}
+
+export function TemplateIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="16" height="16" rx="2" fill="#FEF3C7" stroke="#D97706" strokeWidth="1.5"/>
+      <path d="M7 8H17M7 12H14M7 16H11" stroke="#B45309" strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="17" cy="16" r="2" fill="#F59E0B"/>
+    </svg>
+  );
+}
+
+export function CommentIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" fill="#FEF08A" stroke="#CA8A04" strokeWidth="1.5"/>
+      <line x1="8" y1="11" x2="16" y2="11" stroke="#A16207" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function ChartIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="3" width="18" height="18" rx="2" fill="#F0FDF4" stroke="#16A34A" strokeWidth="1.5"/>
+      <rect x="6" y="12" width="3" height="7" fill="#22C55E"/>
+      <rect x="11" y="8" width="3" height="11" fill="#16A34A"/>
+      <rect x="16" y="5" width="3" height="14" fill="#15803D"/>
+    </svg>
+  );
+}
+
+export function TocIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 6H8M11 6H17M19 6H20" stroke="#2563EB" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M4 12H8M11 12H17M19 12H20" stroke="#2563EB" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M4 18H8M11 18H17M19 18H20" stroke="#2563EB" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function MergeCellIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="5" width="18" height="14" rx="2" fill="#EFF6FF" stroke="#3B82F6" strokeWidth="1.5"/>
+      <path d="M8 12H16M13 9L16 12L13 15M11 9L8 12L11 15" stroke="#1D4ED8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+export function SplitCellIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="5" width="18" height="14" rx="2" fill="#F8FAFC" stroke="#64748B" strokeWidth="1.5"/>
+      <line x1="12" y1="5" x2="12" y2="19" stroke="#EF4444" strokeWidth="1.5" strokeDasharray="2 2"/>
+      <path d="M7 12L5 12M17 12L19 12" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function CalcIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="3" width="14" height="18" rx="2" fill="#F1F5F9" stroke="#475569" strokeWidth="1.5"/>
+      <rect x="7" y="5" width="10" height="4" rx="1" fill="#CBD5E1"/>
+      <circle cx="8.5" cy="12" r="1" fill="#475569"/>
+      <circle cx="12" cy="12" r="1" fill="#475569"/>
+      <circle cx="15.5" cy="12" r="1" fill="#475569"/>
+      <circle cx="8.5" cy="15" r="1" fill="#475569"/>
+      <circle cx="12" cy="15" r="1" fill="#475569"/>
+      <circle cx="15.5" cy="15" r="1" fill="#475569"/>
+      <rect x="7.5" y="17.5" width="9" height="1.5" rx="0.75" fill="#3B82F6"/>
+    </svg>
+  );
+}
+
+export function TextConvertIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="3" y="14" fill="#1E293B" fontSize="11" fontWeight="bold">A</text>
+      <path d="M12 10L14 12L12 14" stroke="#3B82F6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <text x="16" y="14" fill="#3B82F6" fontSize="11" fontWeight="bold">a</text>
+    </svg>
+  );
+}
+
+export function SuperscriptIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="2" y="18" fill="currentColor" fontSize="15" fontWeight="bold">X</text>
+      <text x="14" y="9" fill="currentColor" fontSize="9" fontWeight="bold">2</text>
+    </svg>
+  );
+}
+
+export function SubscriptIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="2" y="18" fill="currentColor" fontSize="15" fontWeight="bold">X</text>
+      <text x="14" y="21" fill="currentColor" fontSize="9" fontWeight="bold">2</text>
+    </svg>
+  );
+}
+
+// 한컴독스(Hancom Docs) 상단 바 및 메뉴바 전용 신규 아이콘
+export function HancomDocsAppLogo({ className = "w-7 h-7" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="28" height="28" rx="6" fill="#1A73E8"/>
+      <path d="M7 6C7 4.89543 7.89543 4 9 4H19L23 8V22C23 23.1046 22.1046 24 21 24H9C7.89543 24 7 23.1046 7 22V6Z" fill="#38B6FF" opacity="0.4"/>
+      <rect x="5" y="6" width="18" height="18" rx="3" fill="#0066DA"/>
+      <circle cx="14" cy="11.5" r="1.5" fill="#FFFFFF"/>
+      <rect x="10" y="14" width="8" height="1.8" rx="0.9" fill="#FFFFFF"/>
+      <circle cx="14" cy="18.5" r="2.5" stroke="#FFFFFF" strokeWidth="1.6"/>
+    </svg>
+  );
+}
+
+export function SaveAsIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17 21H5C3.89543 21 3 20.1046 3 19V5C3 3.89543 3.89543 3 5 3H14L19 8V14" stroke="#475569" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M7 3V7H13V3" stroke="#475569" strokeWidth="1.2"/>
+      <path d="M6 13H15V21H6V13Z" fill="#FFFFFF" stroke="#475569" strokeWidth="1.2"/>
+      <path d="M19 16V22M16 19H22" stroke="#0284C7" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function ShareIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="18" cy="5" r="3" stroke="#475569" strokeWidth="1.5"/>
+      <circle cx="6" cy="12" r="3" stroke="#475569" strokeWidth="1.5"/>
+      <circle cx="18" cy="19" r="3" stroke="#475569" strokeWidth="1.5"/>
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" stroke="#475569" strokeWidth="1.5"/>
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" stroke="#475569" strokeWidth="1.5"/>
+    </svg>
+  );
+}
+
+export function RenameIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 20H8L18.5 9.5C19.3284 8.67157 19.3284 7.32843 18.5 6.5C17.6716 5.67157 16.3284 5.67157 15.5 6.5L5 17V20H4Z" stroke="#475569" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M13.5 8.5L16.5 11.5" stroke="#475569" strokeWidth="1.5"/>
+    </svg>
+  );
+}
+
+export function DownloadTrayIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 17V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V17" stroke="#475569" strokeWidth="1.75" strokeLinecap="round"/>
+      <path d="M12 3V15M12 15L7 10M12 15L17 10" stroke="#0284C7" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+export function PdfDownloadIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" fill="#FEE2E2" stroke="#DC2626" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M14 2V8H20" stroke="#DC2626" strokeWidth="1.5"/>
+      <rect x="6" y="11" width="12" height="7" rx="1" fill="#DC2626"/>
+      <text x="7" y="16.5" fill="#FFFFFF" fontSize="5" fontWeight="bold" fontFamily="sans-serif">PDF</text>
+    </svg>
+  );
+}
+
+export function GotoIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" stroke="#0284C7" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" stroke="#0284C7" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M13 19L21 19M21 19L17 15M21 19L17 23" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+export function EraserIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="6" width="16" height="12" rx="1.5" stroke="#93C5FD" strokeWidth="1.5" strokeDasharray="2 2"/>
+      <line x1="5" y1="17" x2="19" y2="7" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function ClearControlMarksIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="3" y="12" fill="#475569" fontSize="10" fontWeight="bold">##</text>
+      <rect x="2" y="3" width="13" height="11" fill="none" stroke="#94A3B8" strokeWidth="1"/>
+      <path d="M15 15L21 21M21 15L15 21" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function WebVideoIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="9" stroke="#64748B" strokeWidth="1.5"/>
+      <ellipse cx="12" cy="12" rx="4" ry="9" stroke="#94A3B8" strokeWidth="1.2"/>
+      <line x1="3" y1="12" x2="21" y2="12" stroke="#94A3B8" strokeWidth="1.2"/>
+      <circle cx="16" cy="16" r="5" fill="#FFFFFF" stroke="#0284C7" strokeWidth="1.5"/>
+      <polygon points="15,14 18,16 15,18" fill="#0284C7"/>
+    </svg>
+  );
+}
+
+export function EndnoteIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="5" y="3" width="14" height="18" rx="1.5" fill="#FFFFFF" stroke="#64748B" strokeWidth="1.5"/>
+      <text x="7" y="10" fill="#16A34A" fontSize="7" fontWeight="bold">[i]</text>
+      <line x1="8" y1="14" x2="16" y2="14" stroke="#CBD5E1" strokeWidth="1.5"/>
+      <line x1="8" y1="17" x2="14" y2="17" stroke="#CBD5E1" strokeWidth="1.5"/>
+    </svg>
+  );
+}
+
+export function SafeFontIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="9" fill="#ECFDF5" stroke="#10B981" strokeWidth="1.5"/>
+      <path d="M9 12L11 14L15 10" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M12 17V20M10 20H14" stroke="#059669" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+export function AlignDistributeIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" d="M3 6h18M3 12h18M3 18h18" />
+    </svg>
+  );
+}
+
+

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useProject } from "../context/ProjectContext";
+import { useOptionalProject } from "../context/ProjectContext";
 import type { CollabEditor } from "../lib/collab";
 import Avatar from "./Avatar";
 
 // 바로 수정 중인 사람들을 프로필 사진으로 보여준다. 사진을 누르면 이름이 뜬다(다시 누르면 닫힘).
 export default function EditorAvatars({ editors, size = 22, max = 4 }: { editors: CollabEditor[]; size?: number; max?: number }) {
-  const { team } = useProject();
+  const project = useOptionalProject();
+  const team = project?.team;
   const [openId, setOpenId] = useState<string | null>(null);
   const people = [...new Map(editors.map((e) => [e.memberId, e])).values()];
   const shown = people.slice(0, max);
@@ -14,7 +15,7 @@ export default function EditorAvatars({ editors, size = 22, max = 4 }: { editors
   return (
     <span className="relative inline-flex items-center">
       {shown.map((e, i) => {
-        const member = team.members.find((m) => m.id === e.memberId);
+        const member = team?.members.find((m) => m.id === e.memberId);
         return (
           <span
             key={e.memberId}

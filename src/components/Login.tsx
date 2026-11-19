@@ -119,6 +119,22 @@ export default function Login() {
           {mode === "admin" ? "교수·교원 등 프로젝트를 관리하는 분을 위한 가입입니다." : "팀 프로젝트에 참여하려면 계정이 필요합니다."}
         </p>
 
+        {/* 한글 편집기 기능 테스트 바로가기 배너 */}
+        <div className="mb-4 p-3 bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/40 rounded-2xl flex items-center justify-between gap-2 shadow-xs">
+          <div className="text-left">
+            <div className="text-xs font-bold text-blue-400 flex items-center gap-1">
+              <span>🚀 한글 편집기 기능 테스트</span>
+            </div>
+            <div className="text-[11px] text-neutral-400 mt-0.5">로그인 없이 모든 편집 기능을 즉시 테스트</div>
+          </div>
+          <Link
+            to="/hwpx-test"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition shadow-md shrink-0 cursor-pointer"
+          >
+            열기 →
+          </Link>
+        </div>
+
         <div className="flex gap-1 p-0.5 mb-4" style={{ background: "var(--muted)", borderRadius: "20px" }}>
           {(["signin", "signup", "admin"] as Mode[]).map((m) => (
             <button
