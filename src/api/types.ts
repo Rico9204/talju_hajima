@@ -225,6 +225,11 @@ export interface NewTaskInput {
   title: string;
   assigneeIds: string[];
   status: TaskStatus;
+  // 과제 만들기 창에서 고른 경우만(없으면 보통·마감일 없음·태그 없음·세부 업무 없음)
+  priority?: TaskPriority;
+  due?: string; // YYYY-MM-DD 또는 ""
+  tags?: string[];
+  checklist?: { text: string; assigneeMemberId: string | null }[];
 }
 
 export type ScheduleEventType = "deadline" | "meeting" | "presentation" | "other";

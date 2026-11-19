@@ -314,7 +314,6 @@ function EmptyProjectsScreen({
 
 const ProjectManagementContext = createContext<{
   isAdmin: boolean;
-  retryFileCleanup: () => Promise<void>;
   cleanupProjectFiles: typeof dataRepository.cleanupWorkspaceFiles;
   listProjects: typeof dataRepository.listProjects;
   approveProject: typeof dataRepository.approveProject;
@@ -345,9 +344,6 @@ const ProjectManagementContext = createContext<{
   setEvaluationScoreCca: typeof dataRepository.setEvaluationScoreCca;
 } | null>(null);
 const managementActions = {
-  retryFileCleanup: async () => {
-    for (const id of await dataRepository.listWorkspaceCleanupProjects()) await dataRepository.cleanupWorkspaceFiles(id);
-  },
   cleanupProjectFiles: (id: string) => dataRepository.cleanupWorkspaceFiles(id),
   listProjects: () => dataRepository.listProjects(),
   approveProject: (id: string) => dataRepository.approveProject(id),

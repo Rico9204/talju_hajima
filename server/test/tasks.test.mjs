@@ -198,3 +198,21 @@ test('세부 업무: 담당자는 과제 담당자 중에서, 완료 표시는 �
   assert.deepEqual((await items()).map((i) => i.text), ['슬라이드', '대본']);
   await call(s.leader, 'DELETE', `/tasks/${created.id}`);
 });
+
+test('과제 만들기 창: 우선순위·마감일·태그·세부 업무까지 한 번에, 세부 업무 담당자는 과제 담당자 중에서만', async () => {
+  const bad = await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '형식 오류', assigneeIds: [s.member.memberId], status: 'todo', due: '12월 5일' });
+  assert.equal(bad.status, 400);
+  const res = await call(s.leader, 'POST', `/projects/${s.p}/tasks`, {
+    title: '중간 발표 준비', assigneeIds: [s.member.memberId, s.member.memberId], status: 'todo',
+    priority: 'high', due: '2026-12-05', tags: [' 발표 ', '발표', ''],
+    checklist: [{ text: '슬라이드', assigneeMemberId: s.member.memberId }, { text: '  ' }, { text: '대본', assigneeMemberId: s.leader.memberId }],
+  });
+  assert.equal(res.status, 201);
+  const t = res.body;
+  assert.equal(t.priority, 'high');
+  assert.equal(t.due, '2026-12-05');
+  assert.deepEqual(t.tags, ['발표']); // 앞뒤 공백·중복·빈 태그 정리
+  assert.deepEqual(t.assigneeIds, [s.member.memberId]); // 중복 담당자는 한 번만
+  assert.deepEqual(t.checklist.map((i) => [i.text, i.assigneeMemberId]), [['슬라이드', s.member.memberId], ['대본', null]]); // 빈 줄은 빼고, 과제 담당자가 아니면 담당자 없음
+  await call(s.leader, 'DELETE', `/tasks/${t.id}`);
+});

@@ -4,6 +4,8 @@ import TaskDetailPanel from "./TaskDetailPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import Avatar from "./Avatar";
 import WindowPanel from "./WindowPanel";
+import TaskCreateModal from "./TaskCreateModal";
+import type { NewTaskInput } from "../api/types";
 
 export function memberInfo(members: Member[], id: string): { name: string; avatar: string; avatarUrl: string | null; color: string } {
   const m = members.find((m) => m.id === id);
@@ -57,13 +59,10 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const [view, setView] = useState<"board" | "member">("board");
   const [assigneeFilterSearch, setAssigneeFilterSearch] = useState("");
   const [laneMemberSearch, setLaneMemberSearch] = useState(""); // 팀원별 보기: 담당자(팀원) 이름 검색
-  const [quickAddAssigneeSearch, setQuickAddAssigneeSearch] = useState("");
   const [boardSearch, setBoardSearch] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null); // 삭제 확인 창
-  const [adding, setAdding] = useState(false); // 과제 생성 창 열림
-  const [newTitle, setNewTitle] = useState("");
-  const [newAssignees, setNewAssignees] = useState<string[]>(team.members[0] ? [team.members[0].id] : []);
+  const [creating, setCreating] = useState(false); // 과제 만들기 창(화면 가운데)
 
   const locked = project.status === "done";
 
@@ -73,10 +72,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     setLaneMemberSearch("");
     setBoardSearch("");
     setSelectedTaskId(null);
-    setAdding(false);
-    setNewTitle("");
-    setNewAssignees(team.members[0] ? [team.members[0].id] : []);
-    setQuickAddAssigneeSearch("");
+    setCreating(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
@@ -96,11 +92,6 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
   const visibleFilterOptions = assigneeFilterSearchTrimmed
     ? filterOptions.filter((o) => o.id === "all" || o.label.toLowerCase().includes(assigneeFilterSearchTrimmed))
     : filterOptions;
-  const showQuickAddSearch = team.members.length > 8;
-  const quickAddSearchTrimmed = quickAddAssigneeSearch.trim().toLowerCase();
-  const visibleQuickAddMembers = quickAddSearchTrimmed
-    ? team.members.filter((m) => m.name.toLowerCase().includes(quickAddSearchTrimmed))
-    : team.members;
   const showBoardSearch = tasks.length > 8;
   const boardSearchTrimmed = boardSearch.trim().toLowerCase();
   const filtered = tasks.filter(
@@ -115,16 +106,6 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     : team.members;
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
 
-  function startQuickAdd() {
-    setAdding(true);
-    setNewTitle("");
-    setNewAssignees(team.members[0] ? [team.members[0].id] : []);
-    setQuickAddAssigneeSearch("");
-  }
-
-  function toggleNewAssignee(id: string) {
-    setNewAssignees((prev) => (prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id]));
-  }
 
   // 저장 실패를 화면에 알린다(권한이 없거나 서버가 거부해도 예전에는 아무 반응이 없었다). 성공 여부를 돌려준다.
   const [actionError, setActionError] = useState<string | null>(null);
@@ -139,15 +120,14 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
     }
   }
 
-  async function submitQuickAdd() {
-    if (locked || !newTitle.trim() || newAssignees.length === 0) return;
-    const title = newTitle.trim();
-    setAdding(false);
-    setNewTitle("");
-    // 실패하면 입력한 제목을 되돌려 다시 시도할 수 있게 한다.
-    if (!(await run(() => addTask({ title, assigneeIds: newAssignees, status: "todo" }), "과제를 추가하지 못했습니다."))) {
-      setNewTitle((current) => current || title);
-      setAdding(true);
+  // 과제 만들기 창에서 보낸 내용으로 만든다. 실패하면 서버가 준 안내를 돌려줘 창에 보여 준다(창은 그대로).
+  async function createTask(input: NewTaskInput): Promise<string | null> {
+    if (locked) return "종료된 프로젝트에는 과제를 만들 수 없어요.";
+    try {
+      await addTask({ ...input, status: "todo" });
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : (e as { message?: string })?.message ?? "과제를 만들지 못했습니다.";
     }
   }
 
@@ -198,85 +178,15 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
             {/* 과제 생성: 보드 오른쪽 위(완료 칸 위) 버튼 하나. 새 과제는 항상 "할 일"에서 시작한다
                 (검토 중·완료로 바로 만들면 검토 흐름과 완료 수가 어긋난다). */}
             {isManager && !locked && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => (adding ? setAdding(false) : startQuickAdd())}
-                  aria-expanded={adding}
-                  aria-haspopup="dialog"
-                  className="text-xs font-700 px-4 py-2 transition-all"
-                  style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
-                >
-                  + 과제 생성
-                </button>
-                {adding && (
-                  <div
-                    role="dialog"
-                    aria-label="새 과제 만들기"
-                    onKeyDown={(e) => { if (e.key === "Escape") setAdding(false); }}
-                    className="absolute right-0 top-full mt-2 z-30 w-72 max-w-[calc(100vw-2rem)] p-3 flex flex-col gap-2"
-                    style={{ background: "var(--surface-opaque)", border: "1px solid var(--border)", borderRadius: "var(--radius)", boxShadow: "0 12px 32px rgba(15,18,53,0.18)" }}
-                  >
-                    <div className="text-xs font-700">새 과제 <span className="font-500" style={{ color: "var(--muted-foreground)" }}>· “할 일”에 추가돼요</span></div>
-                    <input
-                      autoFocus
-                      value={newTitle}
-                      maxLength={200}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && submitQuickAdd()}
-                      placeholder="과제 제목"
-                      className="text-xs px-2.5 py-2 border outline-none"
-                      style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-                    />
-                    {showQuickAddSearch && (
-                      <input
-                        value={quickAddAssigneeSearch}
-                        onChange={(e) => setQuickAddAssigneeSearch(e.target.value)}
-                        placeholder="담당자 검색"
-                        className="text-xs px-2.5 py-1.5 border outline-none"
-                        style={{ borderColor: "var(--border)", borderRadius: "20px", background: "var(--background)", fontFamily: "var(--font-outfit)" }}
-                      />
-                    )}
-                    <div
-                      className="flex flex-col gap-1 max-h-40 overflow-y-auto px-2.5 py-2 border"
-                      style={{ borderColor: "var(--border)", borderRadius: "var(--radius-sm)", background: "var(--background)" }}
-                    >
-                      {visibleQuickAddMembers.map((m) => (
-                        <label key={m.id} className="flex items-center gap-1.5 text-xs">
-                          <input type="checkbox" checked={newAssignees.includes(m.id)} onChange={() => toggleNewAssignee(m.id)} />
-                          {m.name}
-                        </label>
-                      ))}
-                      {visibleQuickAddMembers.length === 0 && (
-                        <div className="text-xs py-1" style={{ color: "var(--muted-foreground)" }}>검색 결과가 없어요</div>
-                      )}
-                    </div>
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => submitQuickAdd()}
-                        disabled={!newTitle.trim() || newAssignees.length === 0}
-                        className="flex-1 text-xs font-700 py-1.5 transition-all"
-                        style={{
-                          background: newTitle.trim() && newAssignees.length > 0 ? "var(--primary)" : "var(--muted)",
-                          color: newTitle.trim() && newAssignees.length > 0 ? "#fff" : "var(--muted-foreground)",
-                          borderRadius: "20px",
-                        }}
-                      >
-                        추가
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAdding(false)}
-                        className="px-3 text-xs font-600"
-                        style={{ background: "var(--muted)", color: "var(--muted-foreground)", borderRadius: "20px" }}
-                      >
-                        취소
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                aria-haspopup="dialog"
+                className="text-xs font-700 px-4 py-2 transition-all"
+                style={{ background: "var(--primary)", color: "#fff", borderRadius: "20px" }}
+              >
+                + 과제 생성
+              </button>
             )}
           </div>
         </div>
@@ -591,6 +501,7 @@ export default function TaskBoard({ focusTaskId }: { focusTaskId?: number } = {}
           onClose={() => setPendingDelete(null)}
         />
       )}
+      {creating && <TaskCreateModal members={team.members} onSubmit={createTask} onClose={() => setCreating(false)} />}
     </div>
   );
 }

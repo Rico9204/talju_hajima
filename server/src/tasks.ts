@@ -1,7 +1,8 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query as QueryParam, UseGuards } from "@nestjs/common";
 import {
-  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf,
+  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
 import { TODAY_SQL, myMember } from "./actor.js";
 import { AuthGuard, UserId } from "./auth.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
@@ -13,10 +14,20 @@ const EVENT_TYPES = ["deadline", "meeting", "presentation", "other"];
 const EMOJIS = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+class NewSubtaskDto {
+  @IsString() @MaxLength(2000) text!: string;
+  @IsOptional() @ValidateIf((dto: NewSubtaskDto) => dto.assigneeMemberId !== null) @IsUUID() assigneeMemberId?: string | null;
+}
+
+// 과제 만들기 창: 제목·담당자는 꼭, 우선순위·마감일·태그·세부 업무는 골랐을 때만. 한 번에(한 트랜잭션으로) 만든다.
 class CreateTaskDto {
   @IsString() @MaxLength(200) title!: string;
   @IsArray() @ArrayMinSize(1, { message: "담당자를 한 명 이상 선택해주세요." }) @ArrayMaxSize(50) @IsUUID("all", { each: true }) assigneeIds!: string[];
   @IsIn(STATUSES) status!: string;
+  @IsOptional() @IsIn(PRIORITIES) priority?: string;
+  @IsOptional() @Matches(/^(\d{4}-\d{2}-\d{2})?$/, { message: "마감일 형식이 올바르지 않습니다." }) due?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(30, { each: true }) tags?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => NewSubtaskDto) checklist?: NewSubtaskDto[];
 }
 
 class TaskStatusDto {
@@ -120,11 +131,20 @@ export class TasksController {
   createTask(@UserId() userId: string, @Param("projectId") projectId: string, @Body() body: CreateTaskDto) {
     return this.db.asUser(userId, async (query) => {
       const first = await firstAssignee(query, body.assigneeIds[0]);
+      const tags = [...new Set((body.tags ?? []).map((t) => t.trim()).filter(Boolean))];
       const [row] = await query<{ id: number }>(
         `insert into public.tasks(project_id, title, assignee, avatar, priority, due, tags, status, color)
-         values ($1, $2, $3, $4, 'mid', '', '{}', $5, $6) returning id`,
-        [projectId, body.title.trim(), first.name, first.avatar, body.status, first.color]);
-      await query("insert into public.task_assignees(task_id, member_id) select $1, unnest($2::uuid[])", [row.id, body.assigneeIds]);
+         values ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9) returning id`,
+        [projectId, body.title.trim(), first.name, first.avatar, body.priority ?? "mid", body.due ?? "", tags, body.status, first.color]);
+      const assignees = [...new Set(body.assigneeIds)];
+      await query("insert into public.task_assignees(task_id, member_id) select $1, unnest($2::uuid[])", [row.id, assignees]);
+      // 세부 업무 담당자는 이 과제의 담당자 중에서만(아니면 담당자 없음으로). 빈 줄은 건너뛴다.
+      for (const item of body.checklist ?? []) {
+        const text = item.text.trim();
+        if (!text) continue;
+        const who = item.assigneeMemberId && assignees.includes(item.assigneeMemberId) ? item.assigneeMemberId : null;
+        await query("insert into public.task_checklist_items(task_id, text, assignee_member_id) values ($1, $2, $3)", [row.id, text, who]);
+      }
       const task = (await selectJson(query, `select * from (${TASKS_SQL}) all_tasks where id = $2`, [projectId, row.id]))[0];
       return mapTask(task);
     });

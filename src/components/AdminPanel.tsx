@@ -21,14 +21,6 @@ export default function AdminPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
   const [viewingMembers, setViewingMembers] = useState<Project | null>(null);
-  const [cleanupNotice, setCleanupNotice] = useState("");
-
-  async function retryCleanup() {
-    setBusyId("cleanup"); setError(null); setCleanupNotice("");
-    try { await dataRepository.retryFileCleanup(); setCleanupNotice("대기 중인 원본 파일 정리를 완료했습니다."); }
-    catch { setError("원본 파일 정리를 완료하지 못했습니다. 다시 시도해 주세요."); }
-    finally { setBusyId(null); }
-  }
 
   async function refresh() {
     setLoading(true);
@@ -139,10 +131,6 @@ export default function AdminPanel() {
         onError={setError}
       />
 
-      <div className="mb-4 flex items-center gap-3 text-xs">
-        <button disabled={busyId !== null} onClick={retryCleanup} className="rounded-full px-3 py-2" style={{ background: "var(--muted)", color: "var(--primary-text)" }}>원본 파일 정리 재시도</button>
-        {cleanupNotice && <span role="status">{cleanupNotice}</span>}
-      </div>
       <AdminAnnouncements projects={projects} />
       {loading && (
         <div className="text-sm text-center py-8" style={{ color: "var(--muted-foreground)" }}>불러오는 중…</div>
