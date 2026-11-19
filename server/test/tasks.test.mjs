@@ -18,6 +18,10 @@ test('과제 만들기: 팀장만, 첫 담당자의 이름·색이 카드에 들
   assert.equal((await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '자료 조사', assigneeIds: [], status: 'todo' })).status, 400);
   const denied = await call(s.member, 'POST', `/projects/${s.p}/tasks`, { title: '몰래', assigneeIds: [s.member.memberId], status: 'todo' });
   assert.equal(denied.status, 403); // 권한 규칙(RLS)에 걸림
+  // 새 과제는 예정에서만 시작(검토 중·완료로 바로 만들 수 없음)
+  const skipped = await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: '바로 완료', assigneeIds: [s.member.memberId], status: 'done' });
+  assert.equal(skipped.status, 400);
+  assert.match(skipped.body.message, /예정/);
   const res = await call(s.leader, 'POST', `/projects/${s.p}/tasks`, { title: ' 자료 조사 ', assigneeIds: [s.member.memberId, s.leader.memberId], status: 'todo' });
   assert.equal(res.status, 201);
   task = res.body;
