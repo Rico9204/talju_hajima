@@ -577,6 +577,10 @@ function EvaluationPanel({ phase, prototype, active, method, methodPreview, onBu
               </>
             )}
           </div>
+          {/* 공개 범위 안내: 개별 평가는 팀장·팀원에게 보이지 않고, 승인 담당 교수만 성적 반영용으로 본다. */}
+          <p className="text-[11px] mt-2 px-1" style={{ color: "var(--muted-foreground)", lineHeight: 1.6 }}>
+            🔒 누가 몇 점을 줬는지는 팀장·팀원 누구에게도 공개되지 않아요. 단, 이 프로젝트를 승인한 담당 교수는 성적 반영을 위해 개별 평가를 볼 수 있어요.
+          </p>
         </>
       )}
 

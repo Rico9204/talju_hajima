@@ -2,10 +2,15 @@ import StillImg from "./StillImg";
 import { useEffect, useState } from "react";
 import { useProjectManagement } from "../context/ProjectContext";
 import type { Project, TeamData } from "../api/types";
+import { useAuth } from "../context/AuthContext";
+import AdminProjectEvaluations from "./AdminProjectEvaluations";
 
 // The dedicated admin RPC returns the roster without exposing evaluation scores.
 export default function AdminProjectMembers({ project, onClose }: { project: Project; onClose: () => void }) {
   const dataRepository = useProjectManagement();
+  const { user } = useAuth();
+  // 이 프로젝트를 승인한 담당 교수면 동료 평가(개별 점수)도 볼 수 있다(성적 반영용).
+  const isApprover = !!user && project.requestedAdminId === user.id;
   const [team, setTeam] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +69,7 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg max-h-[80vh] overflow-y-auto p-6"
+        className={`w-full ${isApprover ? "max-w-2xl" : "max-w-lg"} max-h-[85vh] overflow-y-auto p-6`}
         style={{ background: "var(--card-glass)", borderRadius: "var(--radius)", boxShadow: "0 24px 64px rgba(15,18,53,0.2)", backdropFilter: "var(--panel-blur)", WebkitBackdropFilter: "var(--panel-blur)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -151,6 +156,9 @@ export default function AdminProjectMembers({ project, onClose }: { project: Pro
               ))}
             </div>
           )
+        )}
+        {isApprover && !loading && !error && team && team.members.length > 0 && (
+          <AdminProjectEvaluations projectId={project.id} members={team.members} />
         )}
       </div>
 

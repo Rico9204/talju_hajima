@@ -87,7 +87,8 @@ export interface DataRepository {
   // Cross-project participation counts for a teammate's profile card (프로젝트
   // 참여 횟수/함께한 동료 수) — only callable for a user who shares a project
   // with the caller; see member_participation_stats in schema.sql.
-  getMemberParticipationStats(userId: string): Promise<{ projectCount: number; collaboratorCount: number }>;
+  getMemberParticipationStats(userId: string): Promise<import("./types").ParticipationStats>;
+  listAdminProjectEvaluations(projectId: string): Promise<import("./types").AdminEvaluationRow[]>; // 승인 담당 교수만
   // 대상 없이: 내 전체 평균의 위치. 대상 지정: 그 프로젝트에서 공개된 그 팀원 점수의 위치.
   getEvaluationPercentiles(target?: { projectId: string; memberId: string }): Promise<import("./types").EvaluationPercentiles>;
   // 웹 푸시(브라우저를 닫아도 알림) 구독: 이 브라우저의 구독을 내 계정에 저장·삭제

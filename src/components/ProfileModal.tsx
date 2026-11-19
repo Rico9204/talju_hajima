@@ -11,7 +11,8 @@ import BrandIcon, { type KnownLinkType } from "./BrandIcon";
 import MyEvaluationSummary from "./MyEvaluationSummary";
 import EvaluationInfoButton from "./EvaluationInfoButton";
 import CcaBadge from "./CcaBadge";
-import type { EvaluationPercentiles } from "../api/types";
+import type { EvaluationPercentiles, ParticipationStats } from "../api/types";
+import EvaluationCollecting from "./EvaluationCollecting";
 import { criteriaChartData, percentileCaption } from "../lib/evaluationSummary";
 import PentagonChart from "./PentagonChart";
 import MedalIcon from "./MedalIcon";
@@ -90,7 +91,7 @@ export default function ProfileModal() {
   // 다른 팀원 프로필에는 "이 프로젝트만" 기준인 평가 점수 옆에, 그 사람이
   // 전체적으로 몇 개 프로젝트에 참여했고 몇 명과 함께했는지도 보여준다 —
   // shares_project_with 기준으로 접근 가능한 경우에만 조회된다.
-  const [otherStats, setOtherStats] = useState<{ projectCount: number; collaboratorCount: number } | null>(null);
+  const [otherStats, setOtherStats] = useState<ParticipationStats | null>(null);
   useEffect(() => {
     setOtherStats(null);
     if (isSelfProfile || !viewedMember?.userId) return;
@@ -627,6 +628,8 @@ export default function ProfileModal() {
                         <PentagonChart size={290} data={criteriaChartData(viewedMember.criteriaScores, otherPercentiles)} />
                       </div>
                     </>
+                  ) : otherStats && !otherStats.scorePublic ? (
+                    <EvaluationCollecting stats={otherStats} />
                   ) : (
                     <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
                       공개 대기

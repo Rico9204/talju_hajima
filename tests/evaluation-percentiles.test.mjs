@@ -107,6 +107,19 @@ await check('내 전체 평균의 위치: 가장 높으면 상위 9%(12명 중 1
   assert.equal(bottom.criteria.deadline, 9); // 마감 준수는 반대로 가장 높다(10점, 12명 중 1등)
 });
 
+await check('다른 팀원: 기준(공개 프로젝트 2개·평가한 동료 4명) 미만이면 남에게는 위치를 내지 않는다', async () => {
+  await login(users[0]);
+  const r = await percentiles('pa', memberOf.get('pa:1')); // 사용자 1: 공개 프로젝트 1개(pa), 평가한 동료 2명
+  assert.equal(r.available, false);
+  await login(users[1]);
+  assert.equal((await percentiles()).available, true); // 본인은 그대로 본다
+});
+
+// 사용자 1이 프로젝트 하나를 더 마친다(pf: 1·3·4) → 공개 프로젝트 2개, 평가한 동료 0·2·3·4 = 4명.
+// 받는 점수는 받는 사람 번호로만 정해져 평균·순위는 그대로다.
+await addProject('pf', [1, 3, 4]);
+await evaluateAll('pf', [1, 3, 4]);
+
 await check('다른 팀원: 그 프로젝트에서 보이는 점수의 위치(점수 1 → 12명 중 11등 → 상위 92%)', async () => {
   await login(users[0]);
   const r = await percentiles('pa', memberOf.get('pa:1'));

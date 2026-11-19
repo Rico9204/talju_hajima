@@ -193,9 +193,25 @@ export class ProjectsController {
   @Get("users/:userId/participation-stats")
   participationStats(@UserId() userId: string, @Param("userId", ParseUUIDPipe) targetUserId: string) {
     return this.db.asUser(userId, async (query) => {
-      const stats = await scalarJson<{ projectCount?: number; collaboratorCount?: number } | null>(query, "public.member_participation_stats($1::uuid)", [targetUserId]);
-      return { projectCount: stats?.projectCount ?? 0, collaboratorCount: stats?.collaboratorCount ?? 0 };
+      const stats = await scalarJson<Record<string, number | boolean> | null>(query, "public.member_participation_stats($1::uuid)", [targetUserId]);
+      return {
+        projectCount: Number(stats?.projectCount ?? 0), collaboratorCount: Number(stats?.collaboratorCount ?? 0),
+        // 남에게 점수를 보여 주는 기준(공개된 종료 평가 프로젝트·평가한 동료 수)과 지금까지의 진행
+        evaluationProjects: Number(stats?.evaluationProjects ?? 0), evaluationEvaluators: Number(stats?.evaluationEvaluators ?? 0),
+        requiredProjects: Number(stats?.requiredProjects ?? 2), requiredEvaluators: Number(stats?.requiredEvaluators ?? 4),
+        scorePublic: Boolean(stats?.scorePublic),
+      };
     });
+  }
+
+  // 승인 담당 교수의 개별 평가 열람(성적 반영용). 권한은 DB 함수 admin_project_evaluations가 검사한다.
+  @Get("projects/:projectId/admin-evaluations")
+  adminEvaluations(@UserId() userId: string, @Param("projectId") projectId: string) {
+    return this.db.asUser(userId, async (query) => (await selectJson(query, "select * from public.admin_project_evaluations($1)", [projectId])).map((r) => ({
+      phase: r.phase, evaluatorId: r.evaluator_id, evaluatorName: r.evaluator_name, recipientId: r.recipient_id, recipientName: r.recipient_name,
+      criteria: { role: r.role, deadline: r.deadline, communication: r.communication, collaboration: r.collaboration, quality: r.quality },
+      comment: r.comment ?? "", createdAt: r.created_at,
+    })));
   }
 
   // ── 프로젝트 ──

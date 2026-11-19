@@ -9,7 +9,8 @@ import EvaluationInfoButton from "./EvaluationInfoButton";
 import CcaBadge from "./CcaBadge";
 import { useAccountBackground } from "../lib/useAccountBackground";
 import WindowPanel from "./WindowPanel";
-import type { Member, MemberPresenceState } from "../api/types";
+import type { Member, MemberPresenceState, ParticipationStats } from "../api/types";
+import EvaluationCollecting from "./EvaluationCollecting";
 
 const TONE = {
   blue: { bg: "rgba(74,116,181,0.12)", fg: "#2f4e80" },
@@ -117,7 +118,7 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
   // "협업 신뢰도" 카드는 이 프로젝트 기준 점수만 보여주므로 별도로 조회한다.
   // early return(팀원 0명) 이전에 둬야 훅 순서가 매 렌더 동일하게 유지된다.
   const selectedUserId = (members.find((m) => m.id === selectedId) ?? members[0])?.userId ?? null;
-  const [participationStats, setParticipationStats] = useState<{ projectCount: number; collaboratorCount: number } | null>(null);
+  const [participationStats, setParticipationStats] = useState<ParticipationStats | null>(null);
   useEffect(() => {
     setParticipationStats(null);
     if (!selectedUserId) return;
@@ -377,6 +378,8 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                     <div className="h-2" style={{ width: `${(sel.score / 10) * 100}%`, background: "var(--primary)", borderRadius: "5px" }} />
                   </div>
                 </>
+              ) : sel.id !== currentMember?.id && participationStats && !participationStats.scorePublic ? (
+                <EvaluationCollecting stats={participationStats} />
               ) : (
                 <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>공개 대기</p>
               )}
@@ -413,6 +416,10 @@ export default function TeamView({ onMessage }: { onMessage?: (memberId: string)
                       { label: "결과물 품질", value: sel.criteriaScores.quality },
                     ]}
                   />
+                </div>
+              ) : sel.id !== currentMember?.id && participationStats && !participationStats.scorePublic ? (
+                <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>
+                  🌱 협업 기록 수집 중이라 항목별 점수는 아직 보이지 않아요.
                 </div>
               ) : (
                 <div className="text-xs p-3" style={{ background: "var(--muted)", borderRadius: "10px", color: "var(--muted-foreground)" }}>

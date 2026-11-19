@@ -499,6 +499,30 @@ export interface AdminAccount {
 
 // 공지: 기간(startDate~endDate, 한국 시간 날짜)과 대상을 정해 보낸다.
 // 시스템 공지(targetAll)는 운영자가 보내 메인 화면에, 프로젝트 공지는 승인 담당 관리자(교수 등)가 보내 그 프로젝트 안에 뜬다.
+// 남의 프로필에 보이는 참여 통계 + 동료 평가 점수 공개 기준의 진행 상황.
+// 결과가 공개된 종료 평가 프로젝트 requiredProjects개 이상, 나를 평가한 서로 다른 동료 requiredEvaluators명 이상이면 scorePublic.
+export interface ParticipationStats {
+  projectCount: number;
+  collaboratorCount: number;
+  evaluationProjects: number;
+  evaluationEvaluators: number;
+  requiredProjects: number;
+  requiredEvaluators: number;
+  scorePublic: boolean;
+}
+
+// 승인 담당 교수가 보는 개별 평가(성적 반영용). 팀장·팀원에게는 공개하지 않는다.
+export interface AdminEvaluationRow {
+  phase: "midterm" | "final";
+  evaluatorId: string;
+  evaluatorName: string;
+  recipientId: string;
+  recipientName: string;
+  criteria: { role: number; deadline: number; communication: number; collaboration: number; quality: number };
+  comment: string;
+  createdAt: string;
+}
+
 export type AnnouncementPriority = "normal" | "important" | "urgent";
 export interface Announcement {
   id: number;

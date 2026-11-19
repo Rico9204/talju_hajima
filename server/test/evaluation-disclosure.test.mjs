@@ -47,6 +47,18 @@ test('2인 팀: 받은 사람에게도, 팀 화면에도 점수·코멘트가 �
     assert.equal(seen.score, 0);
     assert.equal(seen.evalCount, 0);
   }
+  // 승인 담당 교수(s.admin)만 개별 평가를 본다(성적 반영용). 팀장·팀원·다른 교수는 못 본다.
+  const rows = (await call(s.admin, 'GET', `/projects/${s.p}/admin-evaluations`)).body;
+  assert.deepEqual(rows.map((r) => [r.phase, r.evaluatorId, r.recipientId, r.comment]),
+    [['final', s.member.memberId, s.leader.memberId, ''], ['midterm', s.member.memberId, s.leader.memberId, '팀장 역할을 잘 못했음']]);
+  assert.deepEqual(rows[0].criteria, { role: 2, deadline: 3, communication: 4, collaboration: 5, quality: 6 });
+  assert.equal((await call(s.leader, 'GET', `/projects/${s.p}/admin-evaluations`)).status, 400);
+  assert.equal((await call(s.member, 'GET', `/projects/${s.p}/admin-evaluations`)).status, 400);
+  await pg.query('update profiles set is_admin = true where id = $1', [s.outsider.id]); // 이 프로젝트의 승인 담당이 아닌 교수
+  assert.equal((await call(s.outsider, 'GET', `/projects/${s.p}/admin-evaluations`)).status, 400);
+  // 남의 프로필에는 점수 공개 기준의 진행 상황이 온다(기준: 공개 프로젝트 2개·평가한 동료 4명)
+  const stats = (await call(s.leader, 'GET', `/users/${s.member.id}/participation-stats`)).body;
+  assert.deepEqual([stats.evaluationProjects, stats.evaluationEvaluators, stats.requiredProjects, stats.requiredEvaluators, stats.scorePublic], [0, 0, 2, 4, false]);
 });
 
 test('3인 팀: 나를 평가할 동료 일부만 제출하면 가려지고, 그 동료 전원이 제출하면 내 제출 여부와 관계없이 평균이 공개된다', async () => {
