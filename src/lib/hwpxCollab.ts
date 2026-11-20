@@ -78,7 +78,10 @@ export interface HwpxTableBlock {
   pageBreak?: "divide" | "cell_divide" | "no_divide";
   repeatHeader?: boolean;
   treatAsChar?: boolean;
+  limitToPage?: boolean;
+  allowOverlap?: boolean;
   textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  textFlow?: "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY";
   marginLeftMm?: number;
   marginRightMm?: number;
   marginTopMm?: number;
@@ -108,7 +111,10 @@ export interface HwpxImageBlock {
   offsetX?: number;
   offsetY?: number;
   treatAsChar?: boolean;
+  limitToPage?: boolean;
+  allowOverlap?: boolean;
   textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  textFlow?: "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY";
   marginLeftMm?: number;
   marginRightMm?: number;
   marginTopMm?: number;
@@ -122,7 +128,7 @@ export interface HwpxImageBlock {
 export interface HwpxShapeBlock {
   type: "shape";
   id: string;
-  shapeType: "rect" | "roundRect" | "ellipse" | "line";
+  shapeType: "rect" | "roundRect" | "ellipse" | "line" | "arc";
   widthPercent?: number;
   heightPt?: number;
   fillColor?: string;
@@ -139,12 +145,17 @@ export interface HwpxShapeBlock {
   offsetX?: number;
   offsetY?: number;
   treatAsChar?: boolean;
+  limitToPage?: boolean;
+  allowOverlap?: boolean;
   textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  textFlow?: "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY";
   marginLeftMm?: number;
   marginRightMm?: number;
   marginTopMm?: number;
   marginBottomMm?: number;
   hyperlink?: string;
+  lineDir?: "tl-br" | "bl-tr";
+  isTextBox?: boolean;
 }
 
 export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<string, string> {
@@ -188,12 +199,17 @@ export interface HwpxChartBlock {
   offsetX?: number;
   offsetY?: number;
   treatAsChar?: boolean;
+  limitToPage?: boolean;
+  allowOverlap?: boolean;
   textWrap?: "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT";
+  textFlow?: "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY";
   marginLeftMm?: number;
   marginRightMm?: number;
   marginTopMm?: number;
   marginBottomMm?: number;
   hyperlink?: string;
+  lineDir?: "tl-br" | "bl-tr";
+  isTextBox?: boolean;
 }
 
 export type HwpxCollabBlock = HwpxParagraphBlock | HwpxTableBlock | HwpxEquationBlock | HwpxImageBlock | HwpxShapeBlock | HwpxChartBlock;
@@ -459,7 +475,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
   let lastEquationAttrs = "";
   let lastPicBinId = "";
   let lastPicAttrs = "";
-  let lastShapeType: "rect" | "roundRect" | "ellipse" | "line" = "rect";
+  let lastShapeType: "rect" | "roundRect" | "ellipse" | "line" | "arc" = "rect";
   let lastShapeAttrs = "";
   let lastShapeFill = "#EFF6FF";
   let lastShapeStroke = "#2563EB";
@@ -619,11 +635,17 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
           lastPicBinId = binMatch[1];
         }
       }
-      // 도형 (rect, ellipse, line)
-      else if ((localName === "rect" || localName === "ellipse" || localName === "line") && inP) {
+      // 도형 (rect, ellipse, line, arc)
+      else if ((localName === "rect" || localName === "ellipse" || localName === "line" || localName === "arc") && inP) {
         if (!isClosing && !isSelfClosing) {
           pShapeCount++;
-          lastShapeType = localName === "ellipse" ? "ellipse" : localName === "line" ? "line" : (attrs.includes("ROUND") ? "roundRect" : "rect");
+          lastShapeType = localName === "ellipse"
+            ? "ellipse"
+            : localName === "line"
+              ? "line"
+              : localName === "arc"
+                ? "arc"
+                : (attrs.includes("ROUND") ? "roundRect" : "rect");
           lastShapeAttrs = attrs.trim();
         }
       }
@@ -687,29 +709,94 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
               });
             } else if (pPicCount === 1 && !pHasNormalText) {
               const imgSrc = (imageMap && lastPicBinId ? imageMap.get(lastPicBinId) : "") || "";
+              const secContentW = extractSectionContentWidthHw(xmlStr);
+              const picSzTag = rawXml?.match(/<hp:sz\b([^>]*)>/i)?.[1] || "";
+              const picWMatch = picSzTag.match(/\bwidth="(\d+)"/i);
+              const picHMatch = picSzTag.match(/\bheight="(\d+)"/i);
+              const picWidthPct = picWMatch
+                ? Math.max(5, Math.min(100, Number(((parseInt(picWMatch[1], 10) / secContentW) * 100).toFixed(2))))
+                : 75;
+              const picHeightPt = picHMatch ? Math.max(5, Number((parseInt(picHMatch[1], 10) / 100).toFixed(2))) : undefined;
+              const picPosTag = rawXml?.match(/<hp:pos\b([^>]*)>/i)?.[1] || "";
+              const picTreatAsChar = /\btreatAsChar="0"/i.test(picPosTag) ? false : /\btreatAsChar="1"/i.test(picPosTag) ? true : undefined;
+              const picHorzMatch = picPosTag.match(/\bhorzOffset="(-?\d+)"/i);
+              const picVertMatch = picPosTag.match(/\bvertOffset="(-?\d+)"/i);
+              const picOffX = picHorzMatch ? Math.round(parseInt(picHorzMatch[1], 10) / 75) : undefined;
+              const picOffY = picVertMatch ? Math.round(parseInt(picVertMatch[1], 10) / 75) : undefined;
+              const picAllowOverlap = /\ballowOverlap="1"/i.test(picPosTag) ? true : /\ballowOverlap="0"/i.test(picPosTag) ? false : undefined;
+              const picWrapMatch = lastPicAttrs.match(/\btextWrap="(TOP_AND_BOTTOM|SQUARE|IN_FRONT_OF_TEXT|BEHIND_TEXT)"/i);
+              const picTextWrap = picWrapMatch ? (picWrapMatch[1].toUpperCase() as HwpxImageBlock["textWrap"]) : undefined;
+              const picFlowMatch = lastPicAttrs.match(/\btextFlow="(BOTH_SIDES|LEFT_ONLY|RIGHT_ONLY)"/i);
+              const picTextFlow = picFlowMatch ? (picFlowMatch[1].toUpperCase() as HwpxImageBlock["textFlow"]) : undefined;
               blocks.push({
                 type: "image",
                 id: `img_${blockIndex++}`,
                 src: imgSrc,
-                widthPercent: 75,
+                widthPercent: picWidthPct,
+                heightPt: picHeightPt,
                 align: "center",
-                caption: lastPicCaption || "그림",
-                captionPos: lastPicCaptionPos,
+                treatAsChar: picTreatAsChar,
+                offsetX: picOffX,
+                offsetY: picOffY,
+                allowOverlap: picAllowOverlap,
+                textWrap: picTextWrap,
+                textFlow: picTextFlow,
+                caption: lastPicCaption || undefined,
+                captionPos: lastPicCaption ? lastPicCaptionPos : undefined,
                 rawAttrs: lastPicAttrs,
                 rawXml,
               });
             } else if (pShapeCount === 1 && !pHasNormalText) {
+              const secContentW = extractSectionContentWidthHw(xmlStr);
+              const szTag = rawXml?.match(/<hp:sz\b([^>]*)>/i)?.[1] || "";
+              const szWMatch = szTag.match(/\bwidth="(\d+)"/i);
+              const szHMatch = szTag.match(/\bheight="(\d+)"/i);
+              const szWidthHw = szWMatch ? parseInt(szWMatch[1], 10) : undefined;
+              const szHeightHw = szHMatch ? parseInt(szHMatch[1], 10) : undefined;
+              const parsedWidthPct = szWidthHw !== undefined
+                ? Math.max(0.5, Math.min(100, Number(((szWidthHw / secContentW) * 100).toFixed(2))))
+                : 75;
+              const parsedHeightPt = szHeightHw !== undefined
+                ? (lastShapeType === "line" && szHeightHw <= 600 ? 2 : Math.max(2, Number((szHeightHw / 100).toFixed(2))))
+                : (lastShapeType === "line" ? 2 : 60);
+              const posTag = rawXml?.match(/<hp:pos\b([^>]*)>/i)?.[1] || "";
+              const parsedTreatAsChar = /\btreatAsChar="0"/i.test(posTag) ? false : /\btreatAsChar="1"/i.test(posTag) ? true : undefined;
+              const horzOffMatch = posTag.match(/\bhorzOffset="(-?\d+)"/i);
+              const vertOffMatch = posTag.match(/\bvertOffset="(-?\d+)"/i);
+              const parsedOffX = horzOffMatch ? Math.round(parseInt(horzOffMatch[1], 10) / 75) : undefined;
+              const parsedOffY = vertOffMatch ? Math.round(parseInt(vertOffMatch[1], 10) / 75) : undefined;
+              const parsedAllowOverlap = /\ballowOverlap="1"/i.test(posTag) ? true : /\ballowOverlap="0"/i.test(posTag) ? false : undefined;
+              const shapeWrapMatch = lastShapeAttrs.match(/\btextWrap="(TOP_AND_BOTTOM|SQUARE|IN_FRONT_OF_TEXT|BEHIND_TEXT)"/i);
+              const parsedTextWrap = shapeWrapMatch ? (shapeWrapMatch[1].toUpperCase() as HwpxShapeBlock["textWrap"]) : undefined;
+              const shapeFlowMatch = lastShapeAttrs.match(/\btextFlow="(BOTH_SIDES|LEFT_ONLY|RIGHT_ONLY)"/i);
+              const parsedTextFlow = shapeFlowMatch ? (shapeFlowMatch[1].toUpperCase() as HwpxShapeBlock["textFlow"]) : undefined;
+              let parsedLineDir: "tl-br" | "bl-tr" | undefined;
+              if (lastShapeType === "line" && (szHeightHw ?? 0) > 600 && rawXml) {
+                const spY = rawXml.match(/<hc:startPt\b[^>]*\by="(\d+)"/i)?.[1];
+                const epY = rawXml.match(/<hc:endPt\b[^>]*\by="(\d+)"/i)?.[1];
+                if (spY !== undefined && epY !== undefined) {
+                  parsedLineDir = parseInt(spY, 10) > parseInt(epY, 10) ? "bl-tr" : "tl-br";
+                }
+              }
               blocks.push({
                 type: "shape",
                 id: `shape_${blockIndex++}`,
                 shapeType: lastShapeType,
-                widthPercent: 75,
-                heightPt: lastShapeType === "line" ? 2 : 60,
+                widthPercent: parsedWidthPct,
+                heightPt: parsedHeightPt,
                 fillColor: lastShapeFill,
                 strokeColor: lastShapeStroke,
                 strokeWidth: lastShapeStrokeWidth,
                 text: lastShapeText.trim(),
                 align: "center",
+                treatAsChar: parsedTreatAsChar,
+                offsetX: parsedOffX,
+                offsetY: parsedOffY,
+                allowOverlap: parsedAllowOverlap,
+                textWrap: parsedTextWrap,
+                textFlow: parsedTextFlow,
+                lineDir: parsedLineDir,
+                isTextBox: /<hp:drawText\b/i.test(rawXml || "") ? true : undefined,
                 caption: lastShapeCaption || undefined,
                 captionPos: lastShapeCaption ? lastShapeCaptionPos : undefined,
                 rawAttrs: lastShapeAttrs,
@@ -870,11 +957,25 @@ function extractPreambleRuns(xml: string): string {
   return preambleRuns.join("\n");
 }
 
+function extractSectionContentWidthHw(xml: string, fallback = 42520): number {
+  if (!xml) return fallback;
+  const pagePrTag = xml.match(/<hp:pagePr\b([^>]*)>/i)?.[1];
+  const marginTag = xml.match(/<hp:margin\b([^>]*)>/i)?.[1];
+  const pageW = pagePrTag?.match(/\bwidth="(\d+)"/i)?.[1];
+  const mLeft = marginTag?.match(/\bleft="(\d+)"/i)?.[1];
+  const mRight = marginTag?.match(/\bright="(\d+)"/i)?.[1];
+  if (pageW && mLeft && mRight) {
+    return Math.max(10000, parseInt(pageW, 10) - parseInt(mLeft, 10) - parseInt(mRight, 10));
+  }
+  return fallback;
+}
+
 // ── 블록 배열을 OWPML XML 및 Header XML로 복원 직렬화 (글자색·서식·표·수식 구조 100% 보존) ──
 export function serializeBlocksToHwpxPackage(
   blocks: HwpxCollabBlock[],
   originalSectionXml = "",
-  originalHeaderXml = ""
+  originalHeaderXml = "",
+  options?: { pageWidthMm?: number; marginLeftMm?: number; marginRightMm?: number }
 ): { sectionXml: string; headerXml: string } {
   // 1. 기존 header.xml의 스타일 사전 분석 및 보존
   const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
@@ -1082,7 +1183,13 @@ export function serializeBlocksToHwpxPackage(
   };
 
   // ── 표준 A4 용지 규격 (210mm x 297mm = 59528 x 84188 HWPUNIT, 여백 포함) ──
-  const DEFAULT_SECPR = `<hp:run charPrIDRef="0"><hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="59528" height="84188" autoMargin="0"><hp:margin left="8504" right="8504" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr></hp:run>`;
+  const optPageWidthHw = options?.pageWidthMm ? Math.round(options.pageWidthMm * 283.465) : 59528;
+  const optMarginLeftHw = options?.marginLeftMm !== undefined ? Math.round(options.marginLeftMm * 283.465) : 8504;
+  const optMarginRightHw = options?.marginRightMm !== undefined ? Math.round(options.marginRightMm * 283.465) : 8504;
+  const secContentWidthHw = originalSectionXml
+    ? extractSectionContentWidthHw(originalSectionXml, Math.max(10000, optPageWidthHw - optMarginLeftHw - optMarginRightHw))
+    : Math.max(10000, optPageWidthHw - optMarginLeftHw - optMarginRightHw);
+  const DEFAULT_SECPR = `<hp:run charPrIDRef="0"><hp:secPr id="0" textDirection="0" spaceBetweenColumns="0" tabStop="8000" outlineShapeIdRef="0" memoShapeIdRef="0" textVerticalWidthHead="0"><hp:grid lineGrid="0" charGrid="0"/><hp:startNum pageStartsOn="both" page="1" pic="1" tbl="1" equation="1"/><hp:visibility hideHeader="0" hideFooter="0" hideMasterPage="0" border="0" fill="0" hidePageNum="0" hideEmptyLine="0"/><hp:pagePr width="${optPageWidthHw}" height="84188" autoMargin="0"><hp:margin left="${optMarginLeftHw}" right="${optMarginRightHw}" top="5668" bottom="4252" header="4252" footer="4252" gutter="0"/></hp:pagePr></hp:secPr></hp:run>`;
 
   // paragraph 0의 설정 런(secPr, ctrl, footer 등)을 온전하게 보존
   let preambleRuns = extractPreambleRuns(originalSectionXml);
@@ -1163,8 +1270,8 @@ export function serializeBlocksToHwpxPackage(
       }
 
       const isFloatingTbl = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
-      const tblOffX = Math.round((block.offsetX || 0) * 100);
-      const tblOffY = Math.round((block.offsetY || 0) * 100);
+      const tblOffX = Math.round((block.offsetX || 0) * 75);
+      const tblOffY = Math.round((block.offsetY || 0) * 75);
       const tblTreatAsChar = isFloatingTbl ? "0" : "1";
       const tblTextWrap = isFloatingTbl ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM";
       const tblAllowOverlap = isFloatingTbl ? "1" : "0";
@@ -1172,7 +1279,7 @@ export function serializeBlocksToHwpxPackage(
 
       const tblCaptionXml = buildCaptionXml(block.caption, block.captionPos, totalWidthHw, (idx + 1) * 10000 + 9999);
 
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n        <hp:sz width="${totalWidthHw}" widthRelTo="ABSOLUTE" height="${totalHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${tblTreatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${tblAllowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${tblHorzRelTo}" vertAlign="TOP" horzAlign="LEFT" vertOffset="${isFloatingTbl ? tblOffY : 0}" horzOffset="${isFloatingTbl ? tblOffX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${tblCaptionXml ? `${tblCaptionXml}\n` : ""}        <hp:inMargin left="510" right="510" top="141" bottom="141"/>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:tbl${tblAttrs}>\n        <hp:sz width="${totalWidthHw}" widthRelTo="ABSOLUTE" height="${totalHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${tblTreatAsChar}" affectLSpacing="0" flowWithText="${isFloatingTbl ? "0" : "1"}" allowOverlap="${tblAllowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${tblHorzRelTo}" vertAlign="TOP" horzAlign="LEFT" vertOffset="${isFloatingTbl ? tblOffY : 0}" horzOffset="${isFloatingTbl ? tblOffX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${tblCaptionXml ? `${tblCaptionXml}\n` : ""}        <hp:inMargin left="510" right="510" top="141" bottom="141"/>\n${rowsXml}\n      </hp:tbl></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "equation") {
@@ -1208,21 +1315,25 @@ export function serializeBlocksToHwpxPackage(
     }
 
     if (block.type === "shape") {
-      const isFloating = (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
+      const isFloating = block.treatAsChar === false || (block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0);
       const hasCaption = !!(block.caption && block.caption.trim() && block.captionPos !== "none");
       const shapeType = block.shapeType || "rect";
       const align = block.align || "center";
       const widthPct = block.widthPercent || 75;
-      const widthHw = Math.round((42520 * widthPct) / 100);
-      const heightHw = shapeType === "line" ? 0 : Math.round((block.heightPt || 60) * 100);
+      const widthHw = Math.round((secContentWidthHw * widthPct) / 100);
+      const isDiagLine = shapeType === "line" && (block.heightPt || 0) > 4.5;
+      const heightHw = shapeType === "line"
+        ? (isDiagLine ? Math.round((block.heightPt || 60) * 100) : 0)
+        : Math.round((block.heightPt || 60) * 100);
       const strokeColor = colorToHex(block.strokeColor || "#2563EB");
       const fillColor = block.fillColor === "transparent" ? "none" : colorToHex(block.fillColor || "#EFF6FF");
       const strokeWidthHw = Math.max(33, Math.round((block.strokeWidth || 1.5) * 33));
-      const offX = Math.round((block.offsetX || 0) * 100);
-      const offY = Math.round((block.offsetY || 0) * 100);
+      const offX = Math.round((block.offsetX || 0) * 75);
+      const offY = Math.round((block.offsetY || 0) * 75);
       const treatAsChar = isFloating ? "0" : "1";
-      const textWrap = isFloating ? "IN_FRONT_OF_TEXT" : "TOP_AND_BOTTOM";
-      const allowOverlap = isFloating ? "1" : "0";
+      const textWrap = isFloating ? (block.textWrap || "IN_FRONT_OF_TEXT") : "TOP_AND_BOTTOM";
+      const textFlow = block.textFlow || "BOTH_SIDES";
+      const allowOverlap = (isFloating && (block.allowOverlap || textWrap === "IN_FRONT_OF_TEXT" || textWrap === "BEHIND_TEXT")) ? "1" : "0";
       const horzAlign = isFloating ? "LEFT" : (align === "left" ? "LEFT" : align === "right" ? "RIGHT" : "CENTER");
       const horzRelTo = isFloating ? "PARA" : "COLUMN";
       const shapeId = Math.floor(Math.random() * 1000000000) + 1000000000;
@@ -1251,12 +1362,19 @@ export function serializeBlocksToHwpxPackage(
       }
 
       if (shapeType === "line") {
-        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="0"/>\n        <hp:curSz width="${widthHw}" height="0"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="0" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="0"/>\n        <hc:endPt x="${widthHw}" y="0"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="0" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
+        const lineY1 = block.lineDir === "bl-tr" ? heightHw : 0;
+        const lineY2 = block.lineDir === "bl-tr" ? 0 : heightHw;
+        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="${textFlow}" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" isReverseHV="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="${lineY1}"/>\n        <hc:endPt x="${widthHw}" y="${lineY2}"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="${isFloating ? "0" : "1"}" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
       }
 
-      const tagName = shapeType === "ellipse" ? "hp:ellipse" : "hp:rect";
-      const shapeComment = shapeType === "ellipse" ? "타원 입니다." : "사각형 입니다.";
-      const fillBrushXml = fillColor === "none"
+      const tagName = shapeType === "ellipse" ? "hp:ellipse" : shapeType === "arc" ? "hp:arc" : "hp:rect";
+      const extraShapeAttr = shapeType === "arc"
+        ? ` type="NORMAL"`
+        : shapeType === "ellipse"
+          ? ` intervalDirty="0" hasArcPr="0" arcType="NORMAL"`
+          : ` ratio="0"`;
+      const shapeComment = shapeType === "ellipse" ? "타원 입니다." : shapeType === "arc" ? "호 입니다." : "사각형 입니다.";
+      const fillBrushXml = fillColor === "none" || shapeType === "arc"
         ? `<hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>`
         : `<hc:fillBrush><hc:winBrush faceColor="${fillColor}" hatchColor="#000000" alpha="0"/></hc:fillBrush>`;
       const drawTextXml = block.text
@@ -1265,9 +1383,11 @@ export function serializeBlocksToHwpxPackage(
 
       const shapePointsXml = shapeType === "ellipse"
         ? `<hc:center x="${centerX}" y="${centerY}"/><hc:ax1 x="${widthHw}" y="${centerY}"/><hc:ax2 x="${centerX}" y="${heightHw}"/>`
-        : `<hc:pt0 x="0" y="0"/><hc:pt1 x="${widthHw}" y="0"/><hc:pt2 x="${widthHw}" y="${heightHw}"/><hc:pt3 x="0" y="${heightHw}"/>`;
+        : shapeType === "arc"
+          ? `<hc:center x="0" y="${heightHw}"/><hc:ax1 x="${widthHw}" y="${heightHw}"/><hc:ax2 x="0" y="0"/>`
+          : `<hc:pt0 x="0" y="0"/><hc:pt1 x="${widthHw}" y="0"/><hc:pt2 x="${widthHw}" y="${heightHw}"/><hc:pt3 x="0" y="${heightHw}"/>`;
 
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" ratio="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="1" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><${tagName} id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="${textFlow}" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}"${extraShapeAttr}>\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        ${fillBrushXml}\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        ${shapePointsXml}\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="${isFloating ? "0" : "1"}" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>${shapeComment}</hp:shapeComment>${drawTextXml}\n      </${tagName}></hp:run>\n    </hp:p>`;
     }
 
     if (block.type === "chart") {
@@ -1781,7 +1901,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const pageBreak = yBlock.get("pageBreak") as "divide" | "cell_divide" | "no_divide" | undefined;
       const repeatHeader = yBlock.get("repeatHeader") as boolean | undefined;
       const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const limitToPage = yBlock.get("limitToPage") as boolean | undefined;
+      const allowOverlap = yBlock.get("allowOverlap") as boolean | undefined;
       const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const textFlow = yBlock.get("textFlow") as "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY" | undefined;
       const marginLeftMm = yBlock.get("marginLeftMm") as number | undefined;
       const marginRightMm = yBlock.get("marginRightMm") as number | undefined;
       const marginTopMm = yBlock.get("marginTopMm") as number | undefined;
@@ -1812,7 +1935,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         pageBreak,
         repeatHeader,
         treatAsChar,
+        limitToPage,
+        allowOverlap,
         textWrap,
+        textFlow,
         marginLeftMm,
         marginRightMm,
         marginTopMm,
@@ -1841,7 +1967,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const offsetX = yBlock.get("offsetX") as number | undefined;
       const offsetY = yBlock.get("offsetY") as number | undefined;
       const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const limitToPage = yBlock.get("limitToPage") as boolean | undefined;
+      const allowOverlap = yBlock.get("allowOverlap") as boolean | undefined;
       const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const textFlow = yBlock.get("textFlow") as "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY" | undefined;
       const marginLeftMm = yBlock.get("marginLeftMm") as number | undefined;
       const marginRightMm = yBlock.get("marginRightMm") as number | undefined;
       const marginTopMm = yBlock.get("marginTopMm") as number | undefined;
@@ -1850,6 +1979,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const borderThickness = yBlock.get("borderThickness") as string | undefined;
       const borderType = yBlock.get("borderType") as string | undefined;
       const hyperlink = yBlock.get("hyperlink") as string | undefined;
+      const lineDir = yBlock.get("lineDir") as "tl-br" | "bl-tr" | undefined;
+      const isTextBox = yBlock.get("isTextBox") as boolean | undefined;
       blocks.push({
         type: "image",
         id,
@@ -1864,7 +1995,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         offsetX,
         offsetY,
         treatAsChar,
+        limitToPage,
+        allowOverlap,
         textWrap,
+        textFlow,
         marginLeftMm,
         marginRightMm,
         marginTopMm,
@@ -1875,7 +2009,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         hyperlink,
       });
     } else if (type === "shape") {
-      const shapeType = (yBlock.get("shapeType") as "rect" | "roundRect" | "ellipse" | "line") || "rect";
+      const shapeType = (yBlock.get("shapeType") as "rect" | "roundRect" | "ellipse" | "line" | "arc") || "rect";
       const widthPercent = (yBlock.get("widthPercent") as number) || 75;
       const heightPt = (yBlock.get("heightPt") as number) || (shapeType === "line" ? 2 : 60);
       const fillColor = (yBlock.get("fillColor") as string) || "#EFF6FF";
@@ -1891,12 +2025,17 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const offsetX = yBlock.get("offsetX") as number | undefined;
       const offsetY = yBlock.get("offsetY") as number | undefined;
       const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const limitToPage = yBlock.get("limitToPage") as boolean | undefined;
+      const allowOverlap = yBlock.get("allowOverlap") as boolean | undefined;
       const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const textFlow = yBlock.get("textFlow") as "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY" | undefined;
       const marginLeftMm = yBlock.get("marginLeftMm") as number | undefined;
       const marginRightMm = yBlock.get("marginRightMm") as number | undefined;
       const marginTopMm = yBlock.get("marginTopMm") as number | undefined;
       const marginBottomMm = yBlock.get("marginBottomMm") as number | undefined;
       const hyperlink = yBlock.get("hyperlink") as string | undefined;
+      const lineDir = yBlock.get("lineDir") as "tl-br" | "bl-tr" | undefined;
+      const isTextBox = yBlock.get("isTextBox") as boolean | undefined;
       blocks.push({
         type: "shape",
         id,
@@ -1917,12 +2056,17 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         offsetX,
         offsetY,
         treatAsChar,
+        limitToPage,
+        allowOverlap,
         textWrap,
+        textFlow,
         marginLeftMm,
         marginRightMm,
         marginTopMm,
         marginBottomMm,
         hyperlink,
+        lineDir,
+        isTextBox,
       });
     } else if (type === "chart") {
       const chartType = (yBlock.get("chartType") as "column" | "bar" | "line" | "pie") || "column";
@@ -1940,7 +2084,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const offsetX = yBlock.get("offsetX") as number | undefined;
       const offsetY = yBlock.get("offsetY") as number | undefined;
       const treatAsChar = yBlock.get("treatAsChar") as boolean | undefined;
+      const limitToPage = yBlock.get("limitToPage") as boolean | undefined;
+      const allowOverlap = yBlock.get("allowOverlap") as boolean | undefined;
       const textWrap = yBlock.get("textWrap") as "TOP_AND_BOTTOM" | "SQUARE" | "IN_FRONT_OF_TEXT" | "BEHIND_TEXT" | undefined;
+      const textFlow = yBlock.get("textFlow") as "BOTH_SIDES" | "LEFT_ONLY" | "RIGHT_ONLY" | undefined;
       blocks.push({
         type: "chart",
         id,
@@ -1957,7 +2104,10 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         offsetX,
         offsetY,
         treatAsChar,
+        limitToPage,
+        allowOverlap,
         textWrap,
+        textFlow,
       });
     }
   }

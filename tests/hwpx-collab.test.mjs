@@ -472,14 +472,37 @@ test('hwpxCollab: 표 셀의 borderFillIDRef 보정 및 자유 이동(Floating) 
 
   // 1. 표 셀에 borderFillIDRef="1"이 자동 보충되었는지 검증
   assert.ok(pkg.sectionXml.includes('borderFillIDRef="1"'));
-  // 2. 부유 표의 hp:pos treatAsChar="0", allowOverlap="1" 검증
-  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="1"'));
-  assert.ok(pkg.sectionXml.includes('vertOffset="2500" horzOffset="1500"'));
+  // 2. 부유 표의 hp:pos treatAsChar="0", flowWithText="0", allowOverlap="1" 검증 (1px = 75 HWPUNIT)
+  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="1875" horzOffset="1125"'));
 
   // 3. 부유 도형의 textWrap="IN_FRONT_OF_TEXT", treatAsChar="0", allowOverlap="1", zOrder="10" 검증
   assert.ok(pkg.sectionXml.includes('textWrap="IN_FRONT_OF_TEXT"'));
   assert.ok(pkg.sectionXml.includes('zOrder="10"'));
-  assert.ok(pkg.sectionXml.includes('vertOffset="10000" horzOffset="5000"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="7500" horzOffset="3750"'));
+
+  // 4. 자리차지(TOP_AND_BOTTOM) + 음수 오프셋 + allowOverlap=false 왕복(Roundtrip) 검증
+  const tbPkg = serializeBlocksToHwpxPackage([
+    {
+      type: 'shape',
+      id: 'shape_tb',
+      shapeType: 'rect',
+      text: '',
+      treatAsChar: false,
+      textWrap: 'TOP_AND_BOTTOM',
+      allowOverlap: false,
+      offsetX: 120,
+      offsetY: -40,
+    },
+  ], '', '');
+  const reparsedTb = parseHwpxXmlToBlocks(tbPkg.sectionXml);
+  assert.equal(reparsedTb.length, 1);
+  assert.equal(reparsedTb[0].type, 'shape');
+  assert.equal(reparsedTb[0].treatAsChar, false);
+  assert.equal(reparsedTb[0].textWrap, 'TOP_AND_BOTTOM');
+  assert.equal(reparsedTb[0].allowOverlap, false);
+  assert.equal(reparsedTb[0].offsetX, 120);
+  assert.equal(reparsedTb[0].offsetY, -40);
 
   // 4. headerXml의 hh:paraProperties에 신규 정렬 서식이 등록되었는지 검증
   assert.ok(pkg.headerXml.includes('<hh:align horizontal="RIGHT"'));
