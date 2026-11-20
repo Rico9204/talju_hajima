@@ -680,6 +680,71 @@ function HwpxSvgChart({ chart }: { chart: HwpxChartBlock }) {
     );
   }
 
+  if (chartType === "bar") {
+    const leftPad = 70;
+    const rightPad = 35;
+    const topPad = 32;
+    const bottomPad = 28;
+    const chartW = 500 - leftPad - rightPad;
+    const chartH = 230 - topPad - bottomPad;
+    const catHeight = chartH / Math.max(1, categories.length);
+    const barH = Math.max(8, Math.min(22, (catHeight * 0.72) / Math.max(1, series.length)));
+
+    return (
+      <svg viewBox="0 0 500 230" className="w-full h-auto select-none font-sans">
+        <rect width="500" height="230" fill="#fafafa" rx="8" />
+        {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+          const x = leftPad + chartW * p;
+          const valLabel = Math.round(maxVal * p);
+          return (
+            <g key={i}>
+              <line x1={x} y1={topPad} x2={x} y2={230 - bottomPad} stroke="#e2e8f0" strokeDasharray="3 3" />
+              <text x={x} y={230 - bottomPad + 14} textAnchor="middle" fontSize="9" fill="#94a3b8">
+                {valLabel}
+              </text>
+            </g>
+          );
+        })}
+        {categories.map((cat, cIdx) => {
+          const catCenterY = topPad + cIdx * catHeight + catHeight / 2;
+          const totalBarsH = series.length * barH + (series.length - 1) * 3;
+          const startY = catCenterY - totalBarsH / 2;
+          return (
+            <g key={cIdx}>
+              <text x={leftPad - 8} y={catCenterY + 3} textAnchor="end" fontSize="10" fill="#475569" fontWeight="500">
+                {cat}
+              </text>
+              {series.map((s, sIdx) => {
+                const v = s.values[cIdx] || 0;
+                const barW = chartW * Math.min(1, v / maxVal);
+                const by = startY + sIdx * (barH + 3);
+                const sColor = s.color || colors[sIdx % colors.length];
+                return (
+                  <g key={sIdx}>
+                    <rect x={leftPad} y={by} width={Math.max(2, barW)} height={barH} rx="3" fill={sColor} />
+                    <text x={leftPad + barW + 5} y={by + barH / 2 + 3} fontSize="9" fontWeight="bold" fill="#334155">
+                      {v}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+        <g transform="translate(70, 14)">
+          {series.map((s, sIdx) => (
+            <g key={sIdx} transform={`translate(${sIdx * 100}, 0)`}>
+              <rect width="10" height="10" rx="2" fill={s.color || colors[sIdx % colors.length]} />
+              <text x="16" y="9" fontSize="10" fill="#334155" fontWeight="600">
+                {s.name}
+              </text>
+            </g>
+          ))}
+        </g>
+      </svg>
+    );
+  }
+
   if (chartType === "line") {
     const leftPad = 50;
     const rightPad = 40;
@@ -8542,7 +8607,7 @@ function HwpxEditorModalInner({
         {showChartDataModal && chartEditingIdx !== null && blocks[chartEditingIdx] && blocks[chartEditingIdx].type === "chart" && (() => {
           const chart = blocks[chartEditingIdx] as HwpxChartBlock;
           return (
-            <div className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs select-none">
+            <div key={`chart-data-${chart.id}-${chartEditingIdx}`} className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs select-none">
               <div className="bg-white border border-neutral-300 shadow-2xl rounded-sm flex flex-col w-[600px] max-w-[96vw] max-h-[90vh] text-neutral-800 overflow-hidden font-sans">
                 <div className="flex items-center justify-between px-4 py-2.5 bg-[#f0f4f9] border-b border-neutral-200">
                   <span className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
@@ -12336,6 +12401,11 @@ function HwpxEditorModalInner({
                         )}
 
                         {/* 실제 차트 SVG 렌더링 */}
+                        {block.title && (
+                          <div className="w-full text-center text-xs font-bold text-neutral-800 pt-1">
+                            {block.title}
+                          </div>
+                        )}
                         <div className="w-full flex justify-center py-2">
                           <HwpxSvgChart chart={block} />
                         </div>
