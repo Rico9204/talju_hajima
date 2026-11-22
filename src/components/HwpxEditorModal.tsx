@@ -141,10 +141,10 @@ import {
 import { getAllEditorFonts, injectAllWebFonts, type EditorFontItem } from "../lib/editorFonts";
 
 const FONT_FAMILIES = [
-  { label: "바탕체 / 명조", value: "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif" },
+  { label: "바탕체 / 명조", value: "'HCR Batang', '함초롬바탕', 'Batang', 'Nanum Myeongjo', 'Noto Serif KR', serif" },
   { label: "고딕 / 돋움", value: "Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif" },
-  { label: "궁서체", value: "'Gungsuh', 'GungsuhChe', serif" },
-  { label: "굴림체", value: "'Gulim', 'GulimChe', sans-serif" },
+  { label: "궁서체", value: "'GungsuhChe', 'Gungsuh', serif" },
+  { label: "굴림체", value: "'GulimChe', 'Gulim', sans-serif" },
   { label: "Times New Roman", value: "'Times New Roman', serif" },
   { label: "Arial", value: "Arial, sans-serif" },
   { label: "코딩체 (고정폭)", value: "'Courier New', Courier, monospace" },
@@ -881,6 +881,8 @@ function HwpxSvgChart({ chart }: { chart: HwpxChartBlock }) {
 function ContentEditableParagraph({
   block,
   idx,
+  sliceStart,
+  sliceEnd,
   alignClass,
   fontSize,
   showParaMarks,
@@ -898,6 +900,8 @@ function ContentEditableParagraph({
 }: {
   block: HwpxParagraphBlock;
   idx: number;
+  sliceStart?: number;
+  sliceEnd?: number;
   alignClass: string;
   fontSize: string;
   showParaMarks: boolean;
@@ -915,13 +919,17 @@ function ContentEditableParagraph({
 }) {
   const pRef = useRef<HTMLParagraphElement>(null);
   const isComposingRef = useRef(false);
+  const isSliced = sliceStart !== undefined || sliceEnd !== undefined;
+  const displayText = isSliced
+    ? (block.text || "").slice(sliceStart ?? 0, sliceEnd ?? (block.text || "").length)
+    : (block.text || "");
 
   // 외부(Yjs 동기화, 되돌리기(Undo)/다시 실행(Redo), 협업 동기화 등)에서 텍스트가 갱신되었을 때 DOM 동기화
   useLayoutEffect(() => {
     const el = pRef.current;
     if (!el) return;
     const currentDomText = (el.innerText || "").replace(/\r?\n$/, "");
-    const targetText = block.text || "";
+    const targetText = displayText;
     // 이미 DOM 텍스트와 일치하면(예: 본인이 직접 타이핑한 직후) 커서 이동 방지를 위해 무시
     if (currentDomText === targetText) return;
 
@@ -935,12 +943,20 @@ function ContentEditableParagraph({
       }
     } else {
       const curOffset = isFocusedHere ? getCaretOffset(el) : 0;
-      el.innerText = targetText;
+      // 한컴 한글과 동일하게 "단어(괄호)" 및 짧은 "단어/단어" 어절이 중간에서 끊어지지 않도록 영속 텍스트는 유지한 채 해당 토큰만 nowrap 처리
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const nowrapRe = /([^\s()]+\([^()\s]*|[^\s()/:]{1,12}(?:\/[^\s()/:]{1,12})+)/g;
+      if (nowrapRe.test(targetText) && !targetText.includes("\n")) {
+        nowrapRe.lastIndex = 0;
+        el.innerHTML = esc(targetText).replace(nowrapRe, '<span style="white-space:nowrap">$1</span>');
+      } else {
+        el.innerText = targetText;
+      }
       if (isFocusedHere) {
         setCaretOffset(el, Math.min(curOffset, targetText.length));
       }
     }
-  }, [block.text]);
+  }, [displayText]);
 
   const handleInput = () => {
     const el = pRef.current;
@@ -1023,7 +1039,7 @@ function ContentEditableParagraph({
   };
 
   return (
-    <div className={inlineFlow ? "inline relative group" : "w-full my-0.5 relative group"}>
+    <div className={inlineFlow ? "inline relative group" : "w-full relative group"}>
       {/* 문단 좌측 드래그 핸들 (호버 시 표시, 드래그하여 문단 순서 이동) */}
       <button
         type="button"
@@ -1076,8 +1092,8 @@ function ContentEditableParagraph({
             [block.underline ? "underline" : "", block.strikethrough ? "line-through" : ""].filter(Boolean).join(" ") || "none",
           color: block.color || "#111827",
           backgroundColor: block.paraBgColor || block.shadingColor || undefined,
-          fontFamily: block.fontFamily || "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif",
-          lineHeight: block.lineSpacingPct ? block.lineSpacingPct / 100 : 1.65,
+          fontFamily: block.fontFamily || "'HCR Batang', '함초롬바탕', 'Batang', 'Nanum Myeongjo', 'Noto Serif KR', serif",
+          lineHeight: block.lineSpacingPct ? block.lineSpacingPct / 100 : 1.6,
           paddingLeft:
             (block.marginLeftPt || 0) + (block.firstLineType === "outdent" ? block.firstLinePt || 0 : 0) > 0
               ? `${(block.marginLeftPt || 0) + (block.firstLineType === "outdent" ? block.firstLinePt || 0 : 0)}pt`
@@ -1093,11 +1109,17 @@ function ContentEditableParagraph({
           marginBottom: block.spaceAfterPt ? `${block.spaceAfterPt}pt` : undefined,
           border:
             block.paraBorderType && block.paraBorderType !== "없음"
-              ? `max(1px, ${block.paraBorderWidth || "0.1mm"}) ${
-                  block.paraBorderType === "점선" ? "dotted" : block.paraBorderType === "파선" ? "dashed" : "solid"
-                } ${block.paraBorderColor || "#000000"}`
+              ? `max(1px, ${block.paraBorderWidth || "0.1mm"}) ${block.paraBorderType === "점선" ? "dotted" : block.paraBorderType === "파선" ? "dashed" : "solid"
+              } ${block.paraBorderColor || "#000000"}`
               : undefined,
-          letterSpacing: block.letterSpacingPct ? `${block.letterSpacingPct * 0.01}em` : undefined,
+          letterSpacing: block.letterSpacingPct
+            ? `${block.letterSpacingPct * 0.01}em`
+            : (!block.fontFamily || /HCR Batang|함초롬바탕/i.test(block.fontFamily)
+              ? "0.02em"
+              : (/Gulim|굴림/i.test(block.fontFamily) ? "-0.026em" : undefined)),
+          wordSpacing: !block.fontFamily || /HCR Batang|함초롬바탕/i.test(block.fontFamily)
+            ? "0.07em"
+            : undefined,
           width: block.charWidthPct && block.charWidthPct !== 100 ? `${10000 / block.charWidthPct}%` : undefined,
           transform: block.charWidthPct && block.charWidthPct !== 100 ? `scaleX(${block.charWidthPct / 100})` : undefined,
           transformOrigin: block.charWidthPct && block.charWidthPct !== 100 ? "left top" : undefined,
@@ -1505,9 +1527,15 @@ function HwpxEditorModalInner({
   const [showTransparentLines, setShowTransparentLines] = useState(true);
   const [pageViewColumns, setPageViewColumns] = useState<1 | 2 | 3>(1);
   const [pageBreakIndices, setPageBreakIndices] = useState<number[]>([0]);
+  const [pageSlices, setPageSlices] = useState<Array<Array<{ idx: number; sliceStart?: number; sliceEnd?: number }>>>([]);
+  const [zoomPercent, setZoomPercent] = useState<number>(100);
+  const [lineSpacingDraft, setLineSpacingDraft] = useState<string>("160");
+  const [lineSpacingMenuPos, setLineSpacingMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [rulerGuide, setRulerGuide] = useState<{ label: string; leftPx: number; screenLeftPx: number; screenTopPx: number } | null>(null);
   const [canvasUnscaledSize, setCanvasUnscaledSize] = useState<{ w: number; h: number } | null>(null);
   const [isCrossSelecting, setIsCrossSelecting] = useState(false);
   const crossDragRef = useRef<{ startIdx: number; startOffset: number; crossed: boolean } | null>(null);
+  const pendingSelectAllRef = useRef(false);
   const justFinishedCrossDragRef = useRef(false);
   const lastPointerActionAtRef = useRef(0);
   const lastKnownScrollTopRef = useRef(0);
@@ -1715,6 +1743,7 @@ function HwpxEditorModalInner({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasScrollRef = useRef<HTMLElement>(null);
+  const rulerScrollRef = useRef<HTMLDivElement>(null);
   const applyZoomFit = (mode: "page" | "width") => {
     const container = canvasScrollRef.current;
     const pagePxW = Math.max(200, Math.round(pageWidthMm * 3.78));
@@ -2465,15 +2494,15 @@ function HwpxEditorModalInner({
           const rawCandidates =
             movingWrap === "TOP_AND_BOTTOM" || obs.wrap === "TOP_AND_BOTTOM"
               ? [
-                  { x: curX, y: upY },
-                  { x: curX, y: downY },
-                ]
+                { x: curX, y: upY },
+                { x: curX, y: downY },
+              ]
               : [
-                  { x: leftX, y: curY },
-                  { x: rightX, y: curY },
-                  { x: curX, y: upY },
-                  { x: curX, y: downY },
-                ];
+                { x: leftX, y: curY },
+                { x: rightX, y: curY },
+                { x: curX, y: upY },
+                { x: curX, y: downY },
+              ];
 
           const validCandidates = rawCandidates.filter((c) => !overlapsRect(c.x, c.y, obs.rect));
           const pool = validCandidates.length > 0 ? validCandidates : rawCandidates;
@@ -2904,8 +2933,8 @@ function HwpxEditorModalInner({
     const marginAttrs = originalXml?.match(/<hp:margin\b([^>]*)>/i)?.[1] || "";
     const wMm = toMm(pagePrAttrs.match(/\bwidth="(\d+)"/i)?.[1], 210.0);
     const hMm = toMm(pagePrAttrs.match(/\bheight="(\d+)"/i)?.[1], 297.0);
-    const mLeft = toMm(marginAttrs.match(/\bleft="(\d+)"/i)?.[1], 25.0);
-    const mRight = toMm(marginAttrs.match(/\bright="(\d+)"/i)?.[1], 25.0);
+    const mLeft = toMm(marginAttrs.match(/\bleft="(\d+)"/i)?.[1], 30.0);
+    const mRight = toMm(marginAttrs.match(/\bright="(\d+)"/i)?.[1], 30.0);
     const mTop = toMm(marginAttrs.match(/\btop="(\d+)"/i)?.[1], 20.0);
     const mBottom = toMm(marginAttrs.match(/\bbottom="(\d+)"/i)?.[1], 20.0);
     const mHeader = toMm(marginAttrs.match(/\bheader="(\d+)"/i)?.[1], 15.0);
@@ -2926,14 +2955,28 @@ function HwpxEditorModalInner({
   const [pageHeaderMm, setPageHeaderMm] = useState<number>(() => parsedPageSetup.mHeader);
   const [pageFooterMm, setPageFooterMm] = useState<number>(() => parsedPageSetup.mFooter);
   const [pageGutterMm, setPageGutterMm] = useState<number>(() => parsedPageSetup.mGutter);
+
+  useEffect(() => {
+    setPageWidthMm(parsedPageSetup.wMm);
+    setPageHeightMm(parsedPageSetup.hMm);
+    setPageOrientation(parsedPageSetup.wMm > parsedPageSetup.hMm ? "landscape" : "portrait");
+    setPageMarginTopMm(parsedPageSetup.mTop);
+    setPageMarginBottomMm(parsedPageSetup.mBottom);
+    setPageMarginLeftMm(parsedPageSetup.mLeft);
+    setPageMarginRightMm(parsedPageSetup.mRight);
+    setPageHeaderMm(parsedPageSetup.mHeader);
+    setPageFooterMm(parsedPageSetup.mFooter);
+    setPageGutterMm(parsedPageSetup.mGutter);
+  }, [parsedPageSetup]);
   const [pageApplyScope, setPageApplyScope] = useState<string>("문서 전체");
   const [showPageSetupToast, setShowPageSetupToast] = useState(false);
   const [pagePulse, setPagePulse] = useState(false);
 
-  // 자동 페이지 나누기: 블록 실측 높이와 수동 쪽 나누기(pageBreak)를 기준으로 페이지별 블록 인덱스 계산
+  // 자동 페이지 나누기: 블록 실측 높이와 수동 쪽 나누기(pageBreak)를 기준으로 페이지별 블록/줄 분할 계산
   const recomputePagination = useCallback(() => {
     if (blocks.length === 0) {
       setPageBreakIndices((prev) => (prev.length === 1 && prev[0] === 0 ? prev : [0]));
+      setPageSlices((prev) => (prev.length === 1 && prev[0].length === 0 ? prev : [[]]));
       return;
     }
     const root = canvasRef.current;
@@ -2946,34 +2989,206 @@ function HwpxEditorModalInner({
     }
 
     const pagePxH = Math.round(pageHeightMm * 3.78);
-    const padTop = Math.max(16, Math.round(pageMarginTopMm * 3.78));
-    const padBottom = Math.max(16, Math.round(pageMarginBottomMm * 3.78));
-    const usableH = Math.max(160, pagePxH - padTop - padBottom);
+    const padTop = Math.max(16, Math.round((pageMarginTopMm + pageHeaderMm) * 3.78));
+    const padBottom = Math.max(16, Math.round((pageMarginBottomMm + pageFooterMm) * 3.78));
+    // 한컴 조판 엔진은 마지막 줄의 아래쪽 행간 여백(half-leading)이 여백 경계를 넘지 않으면 현재 쪽에 수용함
+    const usableH = Math.max(160, pagePxH - padTop - padBottom) + 7;
 
+    type SliceItem = { idx: number; sliceStart?: number; sliceEnd?: number };
     const breaks: number[] = [0];
+    const nextPages: SliceItem[][] = [[]];
     let accH = 0;
+
+    const scale = showPageOutline ? Math.max(0.1, zoomPercent / 100) : 1;
+
+    const findSplitOffset = (pEl: HTMLElement, fullText: string, startOff: number, maxH: number): { endOff: number; partH: number } | null => {
+      const subText = fullText.slice(startOff);
+      if (!subText || maxH < 16) return null;
+      const clone = pEl.cloneNode(false) as HTMLElement;
+      clone.style.position = "absolute";
+      clone.style.visibility = "hidden";
+      clone.style.pointerEvents = "none";
+      clone.style.left = "-99999px";
+      clone.style.top = "0";
+      clone.style.width = `${pEl.getBoundingClientRect().width / scale}px`;
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      if (/[^\s()]+\([^()\s]*/.test(subText) && !subText.includes("\n")) {
+        clone.innerHTML = esc(subText).replace(/([^\s()]+\([^()\s]*)/g, '<span style="white-space:nowrap">$1</span>');
+      } else {
+        clone.innerText = subText;
+      }
+      pEl.parentElement?.appendChild(clone);
+      try {
+        const cloneRect = clone.getBoundingClientRect();
+        const totalH = cloneRect.height / scale;
+        if (totalH <= maxH + 0.5) return null;
+
+        // Collect all text nodes in clone
+        const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+        const tNodes: Array<{ node: Text; start: number; end: number }> = [];
+        let accLen = 0;
+        let cur: Node | null;
+        while ((cur = walker.nextNode())) {
+          const len = (cur as Text).nodeValue?.length || 0;
+          tNodes.push({ node: cur as Text, start: accLen, end: accLen + len });
+          accLen += len;
+        }
+        if (accLen < 2) return null;
+
+        const measurePrefix = (charCount: number): number => {
+          const range = document.createRange();
+          const first = tNodes[0];
+          range.setStart(first.node, 0);
+          let targetNode = tNodes[tNodes.length - 1];
+          let targetOff = targetNode.end - targetNode.start;
+          for (const tn of tNodes) {
+            if (charCount <= tn.end) {
+              targetNode = tn;
+              targetOff = Math.max(0, charCount - tn.start);
+              break;
+            }
+          }
+          range.setEnd(targetNode.node, targetOff);
+          const rects = range.getClientRects();
+          if (rects.length === 0) return 0;
+          let maxBottom = cloneRect.top;
+          for (let r = 0; r < rects.length; r++) {
+            if (rects[r].width > 0 && rects[r].bottom > maxBottom) {
+              maxBottom = rects[r].bottom;
+            }
+          }
+          return (maxBottom - cloneRect.top) / scale;
+        };
+
+        let lo = 1;
+        let hi = accLen - 1;
+        let best = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          const h = measurePrefix(mid);
+          if (h <= maxH + 0.5) {
+            best = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        if (best <= 0 || best >= accLen) return null;
+        // Snap back to a whitespace/newline boundary if `best` landed mid-word or right before punctuation
+        if (best < subText.length && !/\s/.test(subText[best]) && !/\s/.test(subText[best - 1])) {
+          let snapped = best;
+          while (snapped > 0 && !/\s/.test(subText[snapped - 1])) {
+            snapped--;
+          }
+          if (snapped > 0) best = snapped;
+        }
+        const partH = measurePrefix(best);
+        return { endOff: startOff + best, partH };
+      } finally {
+        clone.remove();
+      }
+    };
 
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-      const el = root.querySelector<HTMLElement>(`[data-block-idx="${i}"]`);
+      const els = Array.from(root.querySelectorAll<HTMLElement>(`[data-block-idx="${i}"]`)).filter(
+        (node) => node.tagName !== "P"
+      );
+      const el = els[0] || root.querySelector<HTMLElement>(`[data-block-idx="${i}"]`);
       const style = el ? window.getComputedStyle(el) : null;
       const mb = style ? parseFloat(style.marginBottom || "0") || 0 : 0;
       const mt = style ? parseFloat(style.marginTop || "0") || 0 : 0;
-      const h = el ? Math.max(16, el.offsetHeight + mt + mb) : 28;
+      const elH = els.length > 0
+        ? els.reduce((sum, node) => sum + node.getBoundingClientRect().height / scale, 0)
+        : (el ? el.getBoundingClientRect().height / scale : 28);
+      const h = el ? Math.max(16, elH + mt + mb) : 28;
 
       if (i === 0) {
+        nextPages[0].push({ idx: 0 });
         accH = h;
         continue;
       }
 
       const forced = b.type === "paragraph" && Boolean(b.pageBreak);
-      if (forced || (accH + h > usableH && i > breaks[breaks.length - 1])) {
+      if (forced) {
         breaks.push(i);
+        nextPages.push([{ idx: i }]);
+        accH = h;
+        continue;
+      }
+
+      if (accH + h <= usableH + 0.5) {
+        nextPages[nextPages.length - 1].push({ idx: i });
+        accH += h;
+        continue;
+      }
+
+      // If this is a plain paragraph and at least 1 line fits on the current page, split it line-by-line
+      const pEl = el?.querySelector("p") as HTMLElement | null;
+      if (b.type === "paragraph" && pEl && b.text.length > 1 && usableH - accH >= 18) {
+        let curStart = 0;
+        let splitWorked = false;
+        while (curStart < b.text.length) {
+          const remH = usableH - accH;
+          const split = findSplitOffset(pEl, b.text, curStart, remH);
+          if (!split || split.endOff <= curStart) {
+            if (!splitWorked) break;
+            // Remainder fits on a fresh page
+            breaks.push(i);
+            nextPages.push([{ idx: i, sliceStart: curStart, sliceEnd: b.text.length }]);
+            const remMeasure = findSplitOffset(pEl, b.text, curStart, 99999);
+            accH = remMeasure ? remMeasure.partH : Math.max(21, h);
+            curStart = b.text.length;
+            break;
+          }
+          splitWorked = true;
+          nextPages[nextPages.length - 1].push({ idx: i, sliceStart: curStart, sliceEnd: split.endOff });
+          let nextStart = split.endOff;
+          while (nextStart < b.text.length && b.text[nextStart] === " ") nextStart++;
+          curStart = nextStart;
+          if (curStart >= b.text.length) break;
+          // Start next page for the remaining text
+          breaks.push(i);
+          nextPages.push([]);
+          accH = 0;
+          // Check if remaining text fits on the new page
+          const checkRest = findSplitOffset(pEl, b.text, curStart, usableH);
+          if (!checkRest) {
+            nextPages[nextPages.length - 1].push({ idx: i, sliceStart: curStart, sliceEnd: b.text.length });
+            const lineCountEst = Math.max(1, Math.round((h - split.partH) * 10) / 10);
+            accH = Math.max(21, lineCountEst);
+            curStart = b.text.length;
+            break;
+          }
+        }
+        if (splitWorked) continue;
+      }
+
+      if (nextPages[nextPages.length - 1].length > 0) {
+        breaks.push(i);
+        nextPages.push([{ idx: i }]);
         accH = h;
       } else {
+        nextPages[nextPages.length - 1].push({ idx: i });
         accH += h;
       }
     }
+
+    setPageSlices((prev) => {
+      const same =
+        prev.length === nextPages.length &&
+        prev.every(
+          (pg, pIdx) =>
+            pg.length === nextPages[pIdx].length &&
+            pg.every(
+              (s, sIdx) =>
+                s.idx === nextPages[pIdx][sIdx].idx &&
+                s.sliceStart === nextPages[pIdx][sIdx].sliceStart &&
+                s.sliceEnd === nextPages[pIdx][sIdx].sliceEnd
+            )
+        );
+      return same ? prev : nextPages;
+    });
 
     setPageBreakIndices((prev) => {
       if (prev.length === breaks.length && prev.every((v, idx) => v === breaks[idx])) {
@@ -2995,7 +3210,7 @@ function HwpxEditorModalInner({
       }
       return breaks;
     });
-  }, [blocks, pageHeightMm, pageMarginTopMm, pageMarginBottomMm, pageViewColumns, showPageOutline]);
+  }, [blocks, pageWidthMm, pageHeightMm, pageMarginTopMm, pageMarginBottomMm, pageMarginLeftMm, pageMarginRightMm, pageHeaderMm, pageFooterMm, pageGutterMm, pageBindingType, pageViewColumns, showPageOutline, zoomPercent]);
 
   useLayoutEffect(() => {
     recomputePagination();
@@ -3017,23 +3232,20 @@ function HwpxEditorModalInner({
     };
   }, [recomputePagination]);
 
-  const pages = useMemo(() => {
+  const pages = useMemo<Array<Array<{ idx: number; sliceStart?: number; sliceEnd?: number }>>>(() => {
     if (blocks.length === 0) return [[]];
-    const validBreaks = pageBreakIndices.filter((idx) => idx >= 0 && idx < blocks.length);
-    if (validBreaks.length === 0 || validBreaks[0] !== 0) {
-      validBreaks.unshift(0);
+    if (pageSlices.length > 0) {
+      const valid = pageSlices
+        .map((pg) => pg.filter((s) => s.idx >= 0 && s.idx < blocks.length))
+        .filter((pg) => pg.length > 0);
+      if (valid.length > 0) return valid;
     }
-    return validBreaks.map((start, pIdx) => {
-      const end = validBreaks[pIdx + 1] ?? blocks.length;
-      const indices: number[] = [];
-      for (let i = start; i < end; i++) indices.push(i);
-      return indices;
-    });
-  }, [blocks.length, pageBreakIndices]);
+    return [blocks.map((_, idx) => ({ idx }))];
+  }, [blocks, pageSlices]);
 
   const totalPages = Math.max(1, pages.length);
   const currentPageNum = useMemo(() => {
-    const found = pages.findIndex((indices) => indices.includes(selectedIdx));
+    const found = pages.findIndex((items) => items.some((s) => s.idx === selectedIdx));
     return found >= 0 ? found + 1 : 1;
   }, [pages, selectedIdx]);
 
@@ -3132,7 +3344,6 @@ function HwpxEditorModalInner({
     setShowPageSetupToast(true);
     setTimeout(() => setShowPageSetupToast(false), 3500);
   };
-  const [zoomPercent, setZoomPercent] = useState<number>(100);
 
   // 2D 어울림(SQUARE) 동적 줄바꿈: 부유 개체의 실제 위치/크기에 맞춰 겹치는 문단 줄의 좌·우·양쪽 텍스트를 실시간 감쌈
   useLayoutEffect(() => {
@@ -4001,7 +4212,7 @@ function HwpxEditorModalInner({
     };
 
     const onSelectionChange = () => {
-      if (!isCrossSelecting || crossDragRef.current?.crossed) return;
+      if (!isCrossSelecting || crossDragRef.current?.crossed || pendingSelectAllRef.current) return;
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) {
         setIsCrossSelecting(false);
@@ -4063,6 +4274,17 @@ function HwpxEditorModalInner({
         return;
       }
 
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a") {
+        const activeEl = document.activeElement;
+        const isFormInput =
+          activeEl instanceof HTMLElement &&
+          (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.tagName === "SELECT");
+        if (!isFormInput) {
+          e.preventDefault();
+          handleSelectAll();
+          return;
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void runSave();
@@ -5383,17 +5605,43 @@ function HwpxEditorModalInner({
     }
   };
 
-  // 모두 선택 (Ctrl+A)
+  // 모두 선택 (Ctrl+A): 문서 내 모든 문단 선택
+  const applySelectAllRange = () => {
+    const root = canvasRef.current;
+    if (!root) return;
+    const ps = Array.from(root.querySelectorAll<HTMLElement>('[data-block-type="paragraph"] p'));
+    if (ps.length === 0) return;
+    const firstP = ps[0];
+    const lastP = ps[ps.length - 1];
+    const range = document.createRange();
+    range.setStart(firstP, 0);
+    range.setEnd(lastP, lastP.childNodes.length);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
+
+  useEffect(() => {
+    if (!isCrossSelecting || !pendingSelectAllRef.current) return;
+    applySelectAllRange();
+    const timer = setTimeout(() => {
+      pendingSelectAllRef.current = false;
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [isCrossSelecting]);
+
   const handleSelectAll = () => {
-    const activeEl = document.activeElement;
-    if (activeEl && activeEl.getAttribute("contenteditable") === "true") {
-      document.execCommand("selectAll");
+    if (!canvasRef.current) return;
+    pendingSelectAllRef.current = true;
+    if (isCrossSelecting) {
+      applySelectAllRange();
+      setTimeout(() => {
+        pendingSelectAllRef.current = false;
+      }, 50);
     } else {
-      const firstEl = document.querySelector('[contenteditable="true"]') as HTMLElement | null;
-      if (firstEl) {
-        firstEl.focus({ preventScroll: true });
-        document.execCommand("selectAll");
-      }
+      setIsCrossSelecting(true);
     }
   };
 
@@ -6125,6 +6373,10 @@ function HwpxEditorModalInner({
   const currentBlock = blocks[selectedIdx];
   const isParagraph = currentBlock?.type === "paragraph";
   const currentPara = isParagraph ? (currentBlock as HwpxParagraphBlock) : null;
+
+  useEffect(() => {
+    setLineSpacingDraft(String(currentPara?.lineSpacingPct ?? 160));
+  }, [selectedIdx, currentPara?.lineSpacingPct]);
 
   return (
     <div
@@ -8172,23 +8424,85 @@ function HwpxEditorModalInner({
 
               <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
 
-              {/* 줄 간격 (160%) */}
-              <div className="flex items-center gap-1 text-xs text-neutral-700">
+              {/* 줄 간격 (직접 입력 + 드롭다운 프리셋) */}
+              <div className="relative flex items-center gap-1 text-xs text-neutral-700">
                 <span title="줄 간격">
                   <LineSpacingIcon className="w-3.5 h-3.5" />
                 </span>
-                <select
-                  defaultValue="160"
-                  className="bg-neutral-50 text-neutral-800 border border-neutral-300 rounded px-1 py-0.5 text-xs outline-none cursor-pointer"
-                  title="줄 간격 설정"
-                >
-                  <option value="100">100%</option>
-                  <option value="130">130%</option>
-                  <option value="150">150%</option>
-                  <option value="160">160%</option>
-                  <option value="180">180%</option>
-                  <option value="200">200%</option>
-                </select>
+                <div className={`flex items-center bg-neutral-50 border border-neutral-300 rounded overflow-hidden ${!isParagraph ? "opacity-40" : ""}`}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    disabled={!isParagraph}
+                    value={lineSpacingDraft}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => setLineSpacingDraft(e.target.value.replace(/[^0-9.]/g, ""))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const raw = parseFloat(lineSpacingDraft);
+                        const pct = Number.isFinite(raw) ? Math.min(500, Math.max(50, Math.round(raw))) : (currentPara?.lineSpacingPct ?? 160);
+                        setLineSpacingDraft(String(pct));
+                        if (isParagraph && selectedIdx >= 0) updateParagraphStyle(selectedIdx, { lineSpacingPct: pct });
+                        e.currentTarget.blur();
+                      } else if (e.key === "Escape") {
+                        setLineSpacingDraft(String(currentPara?.lineSpacingPct ?? 160));
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => {
+                      const raw = parseFloat(lineSpacingDraft);
+                      const pct = Number.isFinite(raw) ? Math.min(500, Math.max(50, Math.round(raw))) : (currentPara?.lineSpacingPct ?? 160);
+                      setLineSpacingDraft(String(pct));
+                      if (isParagraph && selectedIdx >= 0 && pct !== (currentPara?.lineSpacingPct ?? 160)) {
+                        updateParagraphStyle(selectedIdx, { lineSpacingPct: pct });
+                      }
+                    }}
+                    className="w-9 bg-transparent text-neutral-800 px-1 py-0.5 text-xs text-right outline-none"
+                    title="줄 간격 직접 입력 (%)"
+                  />
+                  <span className="text-[11px] text-neutral-500 pr-0.5 select-none">%</span>
+                  <button
+                    type="button"
+                    disabled={!isParagraph}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      if (lineSpacingMenuPos) {
+                        setLineSpacingMenuPos(null);
+                      } else {
+                        const rc = e.currentTarget.parentElement?.getBoundingClientRect();
+                        if (rc) setLineSpacingMenuPos({ top: rc.bottom + 2, left: rc.left });
+                      }
+                    }}
+                    className="px-1 py-0.5 border-l border-neutral-300 hover:bg-neutral-200 text-neutral-600 cursor-pointer disabled:cursor-default"
+                    title="줄 간격 목록"
+                  >
+                    ▾
+                  </button>
+                </div>
+                {lineSpacingMenuPos && isParagraph && (
+                  <div
+                    style={{ top: `${lineSpacingMenuPos.top}px`, left: `${lineSpacingMenuPos.left}px` }}
+                    onMouseLeave={() => setLineSpacingMenuPos(null)}
+                    className="fixed w-20 bg-white border border-neutral-300 rounded shadow-lg py-0.5 z-[9999] flex flex-col"
+                  >
+                    {[100, 130, 160, 180, 200, 300].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setLineSpacingDraft(String(pct));
+                          setLineSpacingMenuPos(null);
+                          if (selectedIdx >= 0) updateParagraphStyle(selectedIdx, { lineSpacingPct: pct });
+                        }}
+                        className={`w-full text-left px-2.5 py-1 text-xs hover:bg-blue-50 cursor-pointer ${(currentPara?.lineSpacingPct ?? 160) === pct ? "bg-blue-50 text-[#0066cc] font-semibold" : "text-neutral-800"}`}
+                      >
+                        {pct}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="w-[1px] h-4 bg-neutral-300 mx-1" />
@@ -8237,58 +8551,211 @@ function HwpxEditorModalInner({
             </div>
           )}
 
-          {/* 5열: 한컴독스 표준 가로 눈금자 (Ruler, Image 4 매칭) */}
-          {showRuler && (
-            <div className="w-full bg-[#f3f4f6] border-b border-neutral-300 py-0.5 px-4 sm:px-8 select-none overflow-x-auto shrink-0">
+          {/* 5열: 한컴독스 표준 가로 눈금자 (Ruler) */}
+          {showRuler && (() => {
+            const rulerScale = showPageOutline ? Math.max(0.1, zoomPercent / 100) : 1;
+            const pxPerMm = 3.78 * rulerScale;
+            const pxPerPt = (96 / 72) * rulerScale;
+            const rulerW = Math.round(pageWidthMm * pxPerMm);
+            const leftMarginPx = Math.max(16 * rulerScale, pageMarginLeftMm * pxPerMm);
+            const rightMarginPx = Math.max(16 * rulerScale, pageMarginRightMm * pxPerMm);
+            const paraMarginLeftPt = currentPara?.marginLeftPt || 0;
+            const paraFirstLinePt = currentPara?.firstLinePt || 0;
+            const paraFirstLineOffsetPt =
+              currentPara?.firstLineType === "indent"
+                ? paraFirstLinePt
+                : currentPara?.firstLineType === "outdent"
+                  ? -paraFirstLinePt
+                  : 0;
+            const firstLinePx = leftMarginPx + (paraMarginLeftPt + paraFirstLineOffsetPt) * pxPerPt;
+            const paraLeftPx = leftMarginPx + paraMarginLeftPt * pxPerPt;
+            const paraRightPx = rightMarginPx + (currentPara?.marginRightPt || 0) * pxPerPt;
+
+            const startDrag = (
+              e: React.MouseEvent,
+              mode: "pageLeft" | "pageRight" | "firstLine" | "paraLeft"
+            ) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const startX = e.clientX;
+              const rulerRect = e.currentTarget.parentElement?.getBoundingClientRect();
+              const rulerLeft = rulerRect?.left ?? 0;
+              const rulerBottom = rulerRect?.bottom ?? 0;
+              const initPageLeft = pageMarginLeftMm;
+              const initPageRight = pageMarginRightMm;
+              const initParaLeftPt = paraMarginLeftPt;
+              const initFirstLineOffsetPt = paraFirstLineOffsetPt;
+
+              const setGuide = (label: string, leftPx: number) => {
+                setRulerGuide({
+                  label,
+                  leftPx,
+                  screenLeftPx: rulerLeft + leftPx,
+                  screenTopPx: rulerBottom,
+                });
+              };
+
+              if (mode === "pageLeft") setGuide(`왼쪽 여백: ${initPageLeft.toFixed(1)} mm`, 1 + Math.round(leftMarginPx));
+              else if (mode === "pageRight") setGuide(`오른쪽 여백: ${initPageRight.toFixed(1)} mm`, rulerW - 1 - Math.round(rightMarginPx));
+              else if (mode === "paraLeft") setGuide(`왼쪽 문단 여백: ${initParaLeftPt} pt`, 1 + Math.round(paraLeftPx));
+              else if (mode === "firstLine") {
+                const lbl = initFirstLineOffsetPt > 0 ? `들여쓰기: ${initFirstLineOffsetPt} pt` : initFirstLineOffsetPt < 0 ? `내어쓰기: ${Math.abs(initFirstLineOffsetPt)} pt` : "첫 줄: 보통";
+                setGuide(lbl, 1 + Math.round(firstLinePx));
+              }
+
+              const onMove = (ev: MouseEvent) => {
+                const dx = ev.clientX - startX;
+                if (mode === "pageLeft") {
+                  const nextMm = Math.min(80, Math.max(5, Number((initPageLeft + dx / pxPerMm).toFixed(1))));
+                  setPageMarginLeftMm(nextMm);
+                  setGuide(`왼쪽 여백: ${nextMm.toFixed(1)} mm`, 1 + Math.round(nextMm * pxPerMm));
+                } else if (mode === "pageRight") {
+                  const nextMm = Math.min(80, Math.max(5, Number((initPageRight - dx / pxPerMm).toFixed(1))));
+                  setPageMarginRightMm(nextMm);
+                  setGuide(`오른쪽 여백: ${nextMm.toFixed(1)} mm`, rulerW - 1 - Math.round(nextMm * pxPerMm));
+                } else if (mode === "paraLeft" && isParagraph && selectedIdx >= 0) {
+                  const nextPt = Math.min(120, Math.max(0, Math.round(initParaLeftPt + dx / pxPerPt)));
+                  updateParagraphStyle(selectedIdx, { marginLeftPt: nextPt });
+                  setGuide(`왼쪽 문단 여백: ${nextPt} pt`, 1 + Math.round(leftMarginPx + nextPt * pxPerPt));
+                } else if (mode === "firstLine" && isParagraph && selectedIdx >= 0) {
+                  const nextOffset = Math.min(80, Math.max(-40, Math.round(initFirstLineOffsetPt + dx / pxPerPt)));
+                  updateParagraphStyle(selectedIdx, {
+                    firstLineType: nextOffset > 0 ? "indent" : nextOffset < 0 ? "outdent" : "none",
+                    firstLinePt: Math.abs(nextOffset),
+                  });
+                  const lbl = nextOffset > 0 ? `들여쓰기: ${nextOffset} pt` : nextOffset < 0 ? `내어쓰기: ${Math.abs(nextOffset)} pt` : "첫 줄: 보통";
+                  setGuide(lbl, 1 + Math.round(leftMarginPx + (initParaLeftPt + nextOffset) * pxPerPt));
+                }
+              };
+
+              const onUp = () => {
+                window.removeEventListener("mousemove", onMove);
+                window.removeEventListener("mouseup", onUp);
+                setRulerGuide(null);
+              };
+
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
+            };
+
+            const minCm = -Math.floor(pageMarginLeftMm / 10);
+            const maxCm = Math.floor((pageWidthMm - pageMarginLeftMm) / 10);
+            const cmValues: number[] = [];
+            for (let c = minCm; c <= maxCm; c++) cmValues.push(c);
+
+            const minorTicksMm: number[] = [];
+            for (let mm = Math.ceil((2 - pageMarginLeftMm) / 2) * 2; mm <= pageWidthMm - pageMarginLeftMm - 2; mm += 2) {
+              if (mm % 10 !== 0) minorTicksMm.push(mm);
+            }
+
+            const sbW = canvasScrollRef.current ? Math.max(0, canvasScrollRef.current.offsetWidth - canvasScrollRef.current.clientWidth) : 0;
+
+            return (
               <div
-                style={{ width: `${Math.round(pageWidthMm * 3.78)}px` }}
-                className="mx-auto h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-mono shadow-2xs transition-all duration-200"
+                style={sbW > 0 ? { paddingRight: `${sbW}px` } : undefined}
+                className="w-full bg-[#f3f4f6] border-b border-neutral-300 select-none shrink-0"
               >
-                {/* 왼쪽 여백 영역 회색 음영 */}
                 <div
-                  style={{ width: `${Math.max(16, Math.round(pageMarginLeftMm * 3.78))}px` }}
-                  className="absolute left-0 top-0 bottom-0 bg-[#e5e7eb] border-r border-neutral-300 pointer-events-none"
-                />
-                {/* 오른쪽 여백 영역 회색 음영 */}
-                <div
-                  style={{ width: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px` }}
-                  className="absolute right-0 top-0 bottom-0 bg-[#e5e7eb] border-l border-neutral-300 pointer-events-none"
-                />
-                <div className="absolute inset-0 flex items-center justify-between px-6 pointer-events-none">
-                  {[-2, -1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((n, i) => (
-                    <div key={i} className="flex flex-col items-center h-full justify-between py-0.5 z-1">
-                      <span className="text-[8px] text-neutral-400 select-none font-mono">{Math.abs(n)}</span>
-                      <div className="w-[1px] h-1.5 bg-neutral-300" />
+                  ref={rulerScrollRef}
+                  className="w-full py-0.5 px-4 sm:px-8 overflow-x-hidden"
+                >
+                  <div
+                    style={{ width: `${rulerW}px` }}
+                    className="mx-auto h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-sans shadow-2xs"
+                  >
+                    {/* 왼쪽 여백 영역 회색 음영 */}
+                    <div
+                      style={{ width: `${Math.round(leftMarginPx)}px` }}
+                      className="absolute left-0 top-0 bottom-0 bg-[#e5e7eb] border-r border-neutral-300 pointer-events-none"
+                    />
+                    {/* 오른쪽 여백 영역 회색 음영 */}
+                    <div
+                      style={{ width: `${Math.round(rightMarginPx)}px` }}
+                      className="absolute right-0 top-0 bottom-0 bg-[#e5e7eb] border-l border-neutral-300 pointer-events-none"
+                    />
+                    {/* cm 숫자 및 눈금 */}
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                      {minorTicksMm.map((mm) => {
+                        const posPx = Math.round((pageMarginLeftMm + mm) * pxPerMm);
+                        const isHalf = Math.abs(mm % 10) === 5;
+                        return (
+                          <div
+                            key={`t-${mm}`}
+                            style={{ left: `${posPx}px` }}
+                            className={`absolute top-1/2 -translate-y-1/2 w-[1px] ${isHalf ? "h-2 bg-neutral-400" : "h-1 bg-neutral-300"}`}
+                          />
+                        );
+                      })}
+                      {cmValues.map((cm) => {
+                        const posMm = pageMarginLeftMm + cm * 10;
+                        const posPx = Math.round(posMm * pxPerMm);
+                        if (posPx < 6 || posPx > rulerW - 6) return null;
+                        return (
+                          <div
+                            key={cm}
+                            style={{ left: `${posPx}px` }}
+                            className="absolute inset-y-0 -translate-x-1/2 flex items-center justify-center z-1"
+                          >
+                            {cm !== 0 && (
+                              <span className="text-[9px] text-neutral-500 bg-transparent px-0.5 leading-none">
+                                {Math.abs(cm)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
-                {/* 첫 줄 들여쓰기 마커 (역삼각형) */}
-                <div
-                  style={{ left: `${Math.max(16, Math.round(pageMarginLeftMm * 3.78))}px` }}
-                  className="absolute top-0 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-transparent border-t-neutral-700 cursor-ew-resize z-10 transition-all duration-200"
-                  title="첫 줄 들여쓰기 마커"
-                />
-                {/* 왼쪽 여백 / 내어쓰기 마커 (모래시계형태) */}
-                <div
-                  style={{ left: `${Math.max(16, Math.round(pageMarginLeftMm * 3.78))}px` }}
-                  className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center cursor-ew-resize z-10 transition-all duration-200"
-                  title="왼쪽 여백 / 들여쓰기 마커"
-                >
-                  <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-transparent border-b-neutral-700" />
-                  <div className="w-2 h-1 bg-neutral-700 rounded-2xs mt-0.5" />
-                </div>
-                {/* 오른쪽 여백 마커 */}
-                <div
-                  style={{ right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px` }}
-                  className="absolute bottom-0 translate-x-1/2 flex flex-col items-center cursor-ew-resize z-10 transition-all duration-200"
-                  title="오른쪽 여백 마커"
-                >
-                  <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-transparent border-b-neutral-700" />
-                  <div className="w-2 h-1 bg-neutral-700 rounded-2xs mt-0.5" />
+                    {/* 첫 줄 들여쓰기 마커 (역삼각형) */}
+                    <div
+                      onMouseDown={(e) => startDrag(e, "firstLine")}
+                      style={{ left: `${Math.round(firstLinePx)}px` }}
+                      className="absolute top-0 -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[5px] border-transparent border-t-neutral-700 hover:border-t-[#0066cc] cursor-ew-resize z-10"
+                      title="첫 줄 들여쓰기/내어쓰기 조절 (드래그)"
+                    />
+                    {/* 왼쪽 문단 여백 마커 (삼각형) */}
+                    <div
+                      onMouseDown={(e) => startDrag(e, "paraLeft")}
+                      style={{ left: `${Math.round(paraLeftPx)}px` }}
+                      className="absolute bottom-[4px] -translate-x-1/2 w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-transparent border-b-neutral-700 hover:border-b-[#0066cc] cursor-ew-resize z-10"
+                      title="왼쪽 문단 여백 조절 (드래그)"
+                    />
+                    {/* 왼쪽 페이지 여백 마커 (사각형) */}
+                    <div
+                      onMouseDown={(e) => startDrag(e, "pageLeft")}
+                      style={{ left: `${Math.round(leftMarginPx)}px` }}
+                      className="absolute bottom-0 -translate-x-1/2 w-2.5 h-1.5 bg-neutral-700 hover:bg-[#0066cc] rounded-2xs cursor-ew-resize z-10"
+                      title={`왼쪽 용지 여백: ${pageMarginLeftMm.toFixed(1)}mm (드래그)`}
+                    />
+                    {/* 오른쪽 용지 여백 마커 (삼각형 + 사각형) */}
+                    <div
+                      onMouseDown={(e) => startDrag(e, "pageRight")}
+                      style={{ right: `${Math.round(paraRightPx)}px` }}
+                      className="absolute bottom-0 translate-x-1/2 flex flex-col items-center cursor-ew-resize z-10 group"
+                      title={`오른쪽 용지 여백: ${pageMarginRightMm.toFixed(1)}mm (드래그)`}
+                    >
+                      <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[5px] border-transparent border-b-neutral-700 group-hover:border-b-[#0066cc]" />
+                      <div className="w-2.5 h-1.5 bg-neutral-700 group-hover:bg-[#0066cc] rounded-2xs mt-0.5" />
+                    </div>
+                    {/* 드래그 안내 점선 및 툴팁 */}
+                    {rulerGuide && (
+                      <>
+                        <div
+                          style={{ left: `${Math.round(rulerGuide.screenLeftPx)}px`, top: `${Math.round(rulerGuide.screenTopPx)}px` }}
+                          className="fixed bottom-0 w-0 border-l border-dashed border-[#0066cc]/80 pointer-events-none z-[9998]"
+                        />
+                        <div
+                          style={{ left: `${Math.round(rulerGuide.screenLeftPx)}px`, top: `${Math.round(rulerGuide.screenTopPx + 4)}px` }}
+                          className="fixed -translate-x-1/2 px-1.5 py-0.5 rounded bg-neutral-900 text-white text-[10px] whitespace-nowrap shadow-md z-[9999] pointer-events-none"
+                        >
+                          {rulerGuide.label}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </header>
 
         {/* 한컴독스 스타일 표 만들기 모달 */}
@@ -11034,6 +11501,9 @@ function HwpxEditorModalInner({
           ref={canvasScrollRef}
           onScroll={(e) => {
             lastKnownScrollTopRef.current = e.currentTarget.scrollTop;
+            if (rulerScrollRef.current && Math.abs(rulerScrollRef.current.scrollLeft - e.currentTarget.scrollLeft) > 1) {
+              rulerScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            }
           }}
           className={`flex-1 overflow-auto ${showPageOutline ? "p-4 sm:p-8 bg-[#edf0f5]" : "p-0 bg-white"} ${pendingDrawShape ? "cursor-crosshair" : ""}`}
         >
@@ -11170,7 +11640,7 @@ function HwpxEditorModalInner({
                   onClick={(e) => {
                     if (justFinishedCrossDragRef.current || Date.now() - lastPointerActionAtRef.current < 250) return;
                     if (e.target === e.currentTarget && pageIndices.length > 0) {
-                      const lastIdx = pageIndices[pageIndices.length - 1];
+                      const lastIdx = pageIndices[pageIndices.length - 1].idx;
                       setSelectedIdx(lastIdx);
                       const lastBlock = blocks[lastIdx];
                       if (lastBlock?.type === "paragraph") {
@@ -11191,8 +11661,8 @@ function HwpxEditorModalInner({
                           boxShadow: "0 4px 24px rgba(0,0,0,0.14)",
                           width: `${Math.round(pageWidthMm * 3.78)}px`,
                           minHeight: `${Math.round(pageHeightMm * 3.78)}px`,
-                          paddingTop: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
-                          paddingBottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          paddingTop: `${Math.max(16, Math.round((pageMarginTopMm + pageHeaderMm) * 3.78))}px`,
+                          paddingBottom: `${Math.max(16, Math.round((pageMarginBottomMm + pageFooterMm) * 3.78))}px`,
                           paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
                           paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
                         }
@@ -11208,7 +11678,7 @@ function HwpxEditorModalInner({
                       <div
                         className="absolute pointer-events-none border-t border-l border-neutral-400/80"
                         style={{
-                          top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                          top: `${Math.max(16, Math.round((pageMarginTopMm + pageHeaderMm) * 3.78))}px`,
                           left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
                           width: "12px",
                           height: "12px",
@@ -11217,7 +11687,7 @@ function HwpxEditorModalInner({
                       <div
                         className="absolute pointer-events-none border-t border-r border-neutral-400/80"
                         style={{
-                          top: `${Math.max(16, Math.round(pageMarginTopMm * 3.78))}px`,
+                          top: `${Math.max(16, Math.round((pageMarginTopMm + pageHeaderMm) * 3.78))}px`,
                           right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
                           width: "12px",
                           height: "12px",
@@ -11226,7 +11696,7 @@ function HwpxEditorModalInner({
                       <div
                         className="absolute pointer-events-none border-b border-l border-neutral-400/80"
                         style={{
-                          bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          bottom: `${Math.max(16, Math.round((pageMarginBottomMm + pageFooterMm) * 3.78))}px`,
                           left: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
                           width: "12px",
                           height: "12px",
@@ -11235,7 +11705,7 @@ function HwpxEditorModalInner({
                       <div
                         className="absolute pointer-events-none border-b border-r border-neutral-400/80"
                         style={{
-                          bottom: `${Math.max(16, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          bottom: `${Math.max(16, Math.round((pageMarginBottomMm + pageFooterMm) * 3.78))}px`,
                           right: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
                           width: "12px",
                           height: "12px",
@@ -11248,7 +11718,7 @@ function HwpxEditorModalInner({
                     const isInlineObjBlock = (b?: HwpxCollabBlock) =>
                       !!b && ((b.type === "image" && b.treatAsChar !== false) || (b.type === "shape" && b.treatAsChar === true));
 
-                    return pageIndices.map((idx) => {
+                    return pageIndices.map(({ idx, sliceStart, sliceEnd }) => {
                       const block = blocks[idx];
                       if (!block) return null;
                       const isInlinePara = block.type === "paragraph" && (isInlineObjBlock(blocks[idx - 1]) || isInlineObjBlock(blocks[idx + 1]));
@@ -11313,7 +11783,7 @@ function HwpxEditorModalInner({
 
                         return (
                           <div
-                            key={block.id}
+                            key={`${block.id}-${sliceStart ?? 0}`}
                             data-block-id={block.id}
                             data-block-idx={idx}
                             data-block-type="paragraph"
@@ -11380,6 +11850,8 @@ function HwpxEditorModalInner({
                                   <ContentEditableParagraph
                                     block={block}
                                     idx={idx}
+                                    sliceStart={sliceStart}
+                                    sliceEnd={sliceEnd}
                                     alignClass={alignClass}
                                     fontSize={fontSize}
                                     showParaMarks={showParaMarks}
@@ -11495,7 +11967,7 @@ function HwpxEditorModalInner({
 
                         return (
                           <div
-                            key={block.id}
+                            key={`${block.id}-${sliceStart ?? 0}`}
                             data-block-id={block.id}
                             data-block-idx={idx}
                             data-block-type="table"
@@ -11787,7 +12259,7 @@ function HwpxEditorModalInner({
 
                         return (
                           <div
-                            key={block.id}
+                            key={`${block.id}-${sliceStart ?? 0}`}
                             data-block-id={block.id}
                             data-block-idx={idx}
                             data-block-type="image"
@@ -11949,7 +12421,7 @@ function HwpxEditorModalInner({
 
                         return (
                           <div
-                            key={block.id}
+                            key={`${block.id}-${sliceStart ?? 0}`}
                             data-block-id={block.id}
                             data-block-idx={idx}
                             data-block-type="shape"
@@ -12201,7 +12673,7 @@ function HwpxEditorModalInner({
 
                   return (
                     <div
-                      key={block.id}
+                      key={`${block.id}-${sliceStart ?? 0}`}
                       data-block-id={block.id}
                       data-block-idx={idx}
                       data-block-type="equation"
@@ -12281,7 +12753,7 @@ function HwpxEditorModalInner({
 
                   return (
                     <div
-                      key={block.id}
+                      key={`${block.id}-${sliceStart ?? 0}`}
                       data-block-id={block.id}
                       data-block-idx={idx}
                       data-block-type="chart"

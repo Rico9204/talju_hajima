@@ -252,7 +252,7 @@ export interface ParsedTextRun {
 
 // ── 글꼴: 편집기의 CSS font-family 값 <-> HWPX 글꼴 이름(face) ──
 // 원본 문서의 명조·고딕 계열 글꼴은 화면에서 아래 두 값으로 보여 주고, 저장할 때는 원본 글자 모양을 그대로 다시 쓴다.
-export const HWPX_SERIF_CSS = "'Nanum Myeongjo', 'Batang', 'Noto Serif KR', serif";
+export const HWPX_SERIF_CSS = "'HCR Batang', '함초롬바탕', 'Batang', 'Nanum Myeongjo', 'Noto Serif KR', serif";
 export const HWPX_SANS_CSS = "Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif";
 const FONT_LANGS = ["HANGUL", "LATIN", "HANJA", "JAPANESE", "OTHER", "SYMBOL", "USER"] as const;
 const FACE_ALIASES: Record<string, string> = {
@@ -281,6 +281,8 @@ const normalizeFontCss = (css?: string) => (css ?? "").toLowerCase().replace(/["
 
 export function cssFontForHwpxFace(face: string): string | undefined {
   if (!face) return undefined;
+  if (/굴림|gulim/i.test(face)) return "'GulimChe', 'Gulim', sans-serif";
+  if (/궁서|gungsuh/i.test(face)) return "'GungsuhChe', 'Gungsuh', serif";
   // 한컴 기본 명조·고딕 계열만 묶는다("GmarketSans"처럼 이름에 sans가 든 글꼴은 그 이름 그대로).
   if (/명조|바탕|batang|myeongjo/i.test(face)) return HWPX_SERIF_CSS;
   if (/돋움|고딕|gothic|dotum/i.test(face)) return HWPX_SANS_CSS;

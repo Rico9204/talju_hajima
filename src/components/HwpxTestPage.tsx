@@ -50,7 +50,7 @@ export default function HwpxTestPage() {
           "[테스트 문단 13] 한 쪽, 두 쪽, 세 쪽 보기 전환 시 모든 페이지가 화면 안에 잘림 없이 배치되는지 확인하세요.\n\n" +
           "[테스트 문단 14] 마지막 문단까지 입력 및 스크롤이 원활하게 동작하는지 확인한 뒤, 수정된 문서를 .hwpx 또는 .pdf로 내보내어 한컴 뷰어에서 동일하게 열리는지 검증할 수 있습니다.";
 
-        const bytes = await newHwpxBytes(sampleText);
+        const bytes = await newHwpxBytes(sampleText, "굴림체");
         if (active) {
           setHwpxBytes(bytes);
           setLoading(false);
