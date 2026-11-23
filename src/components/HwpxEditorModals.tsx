@@ -501,6 +501,567 @@ export function BookmarkModal({
   );
 }
 
+// 3-3. 글머리표 및 문단 번호 모달 ([서식] 메뉴 — 한컴오피스/한컴독스 통합 2탭 대화상자)
+export function BulletAndNumberModal({
+  isOpen,
+  initialTab = "bullet",
+  onClose,
+  onApplyBullet,
+  onApplyNumber,
+}: {
+  isOpen: boolean;
+  initialTab?: "bullet" | "number";
+  onClose: () => void;
+  onApplyBullet: (prefix: string | null) => void;
+  onApplyNumber: (prefix: string | null) => void;
+}) {
+  const [tab, setTab] = useState<"bullet" | "number">(initialTab);
+  const [selectedBullet, setSelectedBullet] = useState<string | null>("● ");
+  const [selectedNumberIdx, setSelectedNumberIdx] = useState<number>(0); // 0 = 없음, 1..10 = 프리셋
+  const [startMode, setStartMode] = useState<"continue_prev" | "continue_recent" | "new">("new");
+  const [startNum, setStartNum] = useState<number>(1);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
+  if (!isOpen) return null;
+
+  const bulletPresets: Array<{ id: string; char: string; value: string; sizeClass?: string }> = [
+    { id: "b1", char: "●", value: "● ", sizeClass: "text-[11px]" },
+    { id: "b2", char: "•", value: "• ", sizeClass: "text-[10px]" },
+    { id: "b3", char: "■", value: "■ ", sizeClass: "text-[10px]" },
+    { id: "b4", char: "▪", value: "▪ ", sizeClass: "text-[8px]" },
+    { id: "b5", char: "◆", value: "◆ ", sizeClass: "text-[10px]" },
+    { id: "b6", char: "♦", value: "♦ ", sizeClass: "text-[9px]" },
+    { id: "b7", char: "▶", value: "▶ ", sizeClass: "text-[9px]" },
+    { id: "b8", char: "○", value: "○ ", sizeClass: "text-[11px]" },
+    { id: "b9", char: "□", value: "□ ", sizeClass: "text-[11px]" },
+    { id: "b10", char: "◇", value: "◇ ", sizeClass: "text-[11px]" },
+    { id: "b11", char: "▷", value: "▷ ", sizeClass: "text-[10px]" },
+    { id: "b12", char: "◎", value: "◎ ", sizeClass: "text-[11px]" },
+    { id: "b13", char: "☑", value: "☑ ", sizeClass: "text-[11px]" },
+    { id: "b14", char: "✓", value: "✓ ", sizeClass: "text-[11px]" },
+    { id: "b15", char: "★", value: "★ ", sizeClass: "text-[11px]" },
+    { id: "b16", char: "❖", value: "❖ ", sizeClass: "text-[11px]" },
+    { id: "b17", char: "☞", value: "☞ ", sizeClass: "text-[11px]" },
+  ];
+
+  const numberPresets: Array<{ levels: [string, string, string, string]; makePrefix: (n: number) => string }> = [
+    { levels: ["1.", "가.", "1)", "가)"], makePrefix: (n) => `${n}. ` },
+    { levels: ["(1)", "(가)", "(a)", "1)"], makePrefix: (n) => `(${n}) ` },
+    { levels: ["1)", "가)", "a)", "(1)"], makePrefix: (n) => `${n}) ` },
+    {
+      levels: ["①", "(ㄱ)", "(a)", "1)"],
+      makePrefix: (n) => {
+        const circled = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮";
+        return `${circled[Math.max(0, Math.min(circled.length - 1, n - 1))] || `(${n})`} `;
+      },
+    },
+    {
+      levels: ["가)", "a)", "(1)", "(가)"],
+      makePrefix: (n) => {
+        const ko = "가나다라마바사아자차카타파하";
+        return `${ko[Math.max(0, Math.min(ko.length - 1, n - 1))] || n}) `;
+      },
+    },
+    {
+      levels: ["(ㄱ)", "(1)", "(a)", "1)"],
+      makePrefix: (n) => {
+        const jamo = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ";
+        return `(${jamo[Math.max(0, Math.min(jamo.length - 1, n - 1))] || n}) `;
+      },
+    },
+    {
+      levels: ["I.", "A.", "1.", "i)"],
+      makePrefix: (n) => {
+        const roman = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+        return `${roman[Math.max(0, Math.min(roman.length - 1, n - 1))] || n}. `;
+      },
+    },
+    {
+      levels: ["i.", "a.", "(i)", "(a)"],
+      makePrefix: (n) => {
+        const romanLower = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+        return `${romanLower[Math.max(0, Math.min(romanLower.length - 1, n - 1))] || n}. `;
+      },
+    },
+    {
+      levels: ["A.", "1.", "가.", "(a)"],
+      makePrefix: (n) => `${String.fromCharCode(64 + Math.max(1, Math.min(26, n)))}. `,
+    },
+    { levels: ["1.", "1.1.", "1.1.1.", "1.1.1.1."], makePrefix: (n) => `${n}. ` },
+  ];
+
+  const handleConfirm = () => {
+    if (tab === "bullet") {
+      onApplyBullet(selectedBullet);
+    } else {
+      if (selectedNumberIdx === 0) {
+        onApplyNumber(null);
+      } else {
+        const preset = numberPresets[selectedNumberIdx - 1];
+        onApplyNumber(preset ? preset.makePrefix(Math.max(1, startNum)) : "1. ");
+      }
+    }
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          handleConfirm();
+        }
+      }}
+    >
+      <div className="w-[460px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">글머리표 및 문단 번호</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 본문 */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1">
+            {/* 탭 헤더 */}
+            <div className="flex items-end gap-1 mb-0">
+              <button
+                type="button"
+                onClick={() => setTab("bullet")}
+                className={`px-3 py-1 text-xs cursor-pointer ${
+                  tab === "bullet"
+                    ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
+                    : "text-neutral-700 hover:text-neutral-900"
+                }`}
+              >
+                글머리표
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("number")}
+                className={`px-3 py-1 text-xs cursor-pointer ${
+                  tab === "number"
+                    ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
+                    : "text-neutral-700 hover:text-neutral-900"
+                }`}
+              >
+                문단 번호
+              </button>
+            </div>
+
+            {/* 탭 내용 카드 */}
+            <div className="bg-white border border-neutral-300 p-3.5">
+              {tab === "bullet" ? (
+                <>
+                  <div className="text-xs font-bold text-[#1d4ed8] mb-2">글머리표 모양</div>
+                  <div className="border border-neutral-300 p-2 grid grid-cols-4 gap-1.5 bg-white">
+                    {/* 없음 셀 (대각선) */}
+                    <button
+                      type="button"
+                      title="없음"
+                      onClick={() => setSelectedBullet(null)}
+                      onDoubleClick={() => { onApplyBullet(null); onClose(); }}
+                      className={`h-14 flex items-center justify-center border cursor-pointer ${
+                        selectedBullet === null ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
+                      }`}
+                    >
+                      <div className="w-8 h-8 border border-neutral-600 relative overflow-hidden bg-neutral-200/70">
+                        <svg viewBox="0 0 32 32" className="w-full h-full">
+                          <line x1="0" y1="32" x2="32" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {bulletPresets.map((bp) => {
+                      const isSel = selectedBullet === bp.value;
+                      return (
+                        <button
+                          key={bp.id}
+                          type="button"
+                          onClick={() => setSelectedBullet(bp.value)}
+                          onDoubleClick={() => { onApplyBullet(bp.value); onClose(); }}
+                          className={`h-14 px-2 py-1.5 flex flex-col justify-center gap-1.5 border cursor-pointer ${
+                            isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-3 text-center leading-none text-neutral-700 ${bp.sizeClass || "text-[10px]"}`}>{bp.char}</span>
+                            <div className="flex-1 flex flex-col gap-1">
+                              <span className="block h-[1.5px] bg-neutral-500 w-full" />
+                              <span className="block h-[1.5px] bg-neutral-500 w-4/5" />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-3 text-center leading-none text-neutral-700 ${bp.sizeClass || "text-[10px]"}`}>{bp.char}</span>
+                            <div className="flex-1 flex flex-col gap-1">
+                              <span className="block h-[1.5px] bg-neutral-500 w-full" />
+                              <span className="block h-[1.5px] bg-neutral-500 w-3/4" />
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-xs font-bold text-[#1d4ed8] mb-2">문단 번호 모양</div>
+                  <div className="border border-neutral-300 p-2 grid grid-cols-4 gap-1.5 bg-white">
+                    {/* 없음 셀 (대각선) */}
+                    <button
+                      type="button"
+                      title="없음"
+                      onClick={() => setSelectedNumberIdx(0)}
+                      onDoubleClick={() => { onApplyNumber(null); onClose(); }}
+                      className={`h-16 flex items-center justify-center border cursor-pointer ${
+                        selectedNumberIdx === 0 ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
+                      }`}
+                    >
+                      <div className="w-8 h-8 border border-neutral-600 relative overflow-hidden bg-neutral-200/70">
+                        <svg viewBox="0 0 32 32" className="w-full h-full">
+                          <line x1="0" y1="32" x2="32" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {numberPresets.map((np, i) => {
+                      const idx = i + 1;
+                      const isSel = selectedNumberIdx === idx;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setSelectedNumberIdx(idx)}
+                          onDoubleClick={() => { onApplyNumber(np.makePrefix(Math.max(1, startNum))); onClose(); }}
+                          className={`h-16 px-1.5 py-1 flex flex-col justify-center gap-0.5 border text-[9px] leading-tight cursor-pointer ${
+                            isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
+                          }`}
+                        >
+                          {np.levels.map((lv, lIdx) => (
+                            <div key={lIdx} className="flex items-center gap-1">
+                              <span className="text-neutral-700 font-medium whitespace-nowrap">{lv}</span>
+                              <span className="flex-1 h-[1px] bg-neutral-400" />
+                            </div>
+                          ))}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* 시작 번호 방식 */}
+                  <div className="mt-3.5">
+                    <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">시작 번호 방식</div>
+                    <div className="flex flex-col gap-1.5 text-xs">
+                      <label className="inline-flex items-center gap-2 text-neutral-400 cursor-not-allowed">
+                        <input type="radio" name="hwpx-num-start" disabled checked={startMode === "continue_prev"} onChange={() => setStartMode("continue_prev")} />
+                        <span>앞 번호 목록에 이어</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-neutral-400 cursor-not-allowed">
+                        <input type="radio" name="hwpx-num-start" disabled checked={startMode === "continue_recent"} onChange={() => setStartMode("continue_recent")} />
+                        <span>이전 번호 목록에 이어</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-neutral-900 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="hwpx-num-start"
+                          checked={startMode === "new"}
+                          onChange={() => setStartMode("new")}
+                          className="accent-[#0066cc] cursor-pointer"
+                        />
+                        <span>새 번호 목록 시작</span>
+                      </label>
+                      <div className="pl-5 flex items-center gap-2 mt-0.5">
+                        <span className="text-neutral-800">1수준 시작 번호</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={999}
+                          value={startNum}
+                          onChange={(e) => setStartNum(Math.max(1, parseInt(e.target.value || "1", 10)))}
+                          className="w-24 bg-white border border-neutral-400 px-2 py-0.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 우측 버튼 열 */}
+          <div className="w-20 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleConfirm}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              확인
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function StyleModal({
+  isOpen,
+  onClose,
+  onApply,
+  currentStyleInfo,
+  onOpenParaShape,
+  onOpenCharShape,
+  onOpenBulletNumber,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onApply: (preset: string) => void;
+  currentStyleInfo?: {
+    marginLeftPt?: number;
+    marginRightPt?: number;
+    firstLineType?: string;
+    align?: string;
+    lineSpacingPct?: number;
+    fontFamily?: string;
+    sizePt?: number;
+    charWidthPct?: number;
+    letterSpacingPct?: number;
+    listKind?: string;
+  };
+  onOpenParaShape?: () => void;
+  onOpenCharShape?: () => void;
+  onOpenBulletNumber?: () => void;
+}) {
+  const [styles, setStyles] = useState([
+    { id: "body", name: "Normal", fontFamily: "굴림체", sizePt: 10, align: "왼쪽", lineSpacingPct: 160, nextStyle: "Normal", builtIn: true },
+  ]);
+  const [selectedId, setSelectedId] = useState("body");
+  if (!isOpen) return null;
+
+  const activeStyle = styles.find((s) => s.id === selectedId) || styles[0];
+  const mapFontDisplayName = (raw?: string) => {
+    const first = (raw || "").split(",")[0].replace(/['"]/g, "").trim();
+    if (!first || /^gulimche$/i.test(first)) return "굴림체";
+    if (/^gulim$/i.test(first)) return "굴림";
+    if (/^batangche$/i.test(first)) return "바탕체";
+    if (/^batang$/i.test(first)) return "바탕";
+    if (/^dotumche$/i.test(first)) return "돋움체";
+    if (/^dotum$/i.test(first)) return "돋움";
+    if (/^malgun gothic$/i.test(first)) return "맑은 고딕";
+    return first;
+  };
+  const alignLabel = activeStyle.align;
+  const fontLabel = mapFontDisplayName(currentStyleInfo?.fontFamily || activeStyle.fontFamily);
+  const sizeLabel = activeStyle.sizePt;
+  const leftMarginLabel = 0;
+  const rightMarginLabel = 0;
+  const firstLineLabel = "보통";
+  const lineSpacingLabel = activeStyle.lineSpacingPct;
+  const charWidthLabel = 100;
+  const letterSpacingLabel = 0;
+  const listKindLabel = "없음";
+
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          onApply(selectedId);
+          onClose();
+        }
+      }}
+    >
+      <div className="w-[740px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">스타일</span>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer">✕</button>
+        </div>
+
+        {/* 본문 */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 bg-white border border-neutral-300 p-4 flex gap-5">
+            {/* 좌측 스타일 목록 */}
+            <div className="w-44 flex flex-col shrink-0">
+              <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">스타일 목록</div>
+              <div className="flex-1 min-h-[290px] border border-neutral-400 bg-white overflow-y-auto text-xs">
+                {styles.map((s) => {
+                  const isSel = selectedId === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedId(s.id)}
+                      onDoubleClick={() => { onApply(s.id); onClose(); }}
+                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer ${
+                        isSel ? "bg-[#d4d4d4] text-neutral-900" : "text-neutral-800 hover:bg-neutral-100"
+                      }`}
+                    >
+                      {s.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="스타일 추가"
+                  onClick={() => {
+                    const nextNum = styles.length;
+                    const newId = `custom_${Date.now()}`;
+                    setStyles((prev) => [...prev, { id: newId, name: `새 스타일 ${nextNum}`, fontFamily: "굴림체", sizePt: 10, align: "왼쪽", lineSpacingPct: 160, nextStyle: "Normal", builtIn: false }]);
+                    setSelectedId(newId);
+                  }}
+                  className="w-7 h-7 bg-white border border-neutral-300 hover:bg-neutral-100 text-[#1d4ed8] text-base leading-none flex items-center justify-center cursor-pointer"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  title="스타일 편집"
+                  onClick={() => { onOpenParaShape?.(); }}
+                  className="w-7 h-7 bg-white border border-neutral-300 hover:bg-neutral-100 text-neutral-600 text-xs flex items-center justify-center cursor-pointer"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  title="스타일 삭제"
+                  disabled={activeStyle.builtIn}
+                  onClick={() => {
+                    if (activeStyle.builtIn) return;
+                    setStyles((prev) => prev.filter((s) => s.id !== activeStyle.id));
+                    setSelectedId("body");
+                  }}
+                  className={`w-7 h-7 bg-white border border-neutral-300 text-xs flex items-center justify-center ${
+                    activeStyle.builtIn ? "text-red-200 cursor-not-allowed" : "text-red-500 hover:bg-neutral-100 cursor-pointer"
+                  }`}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* 우측 상세 정보 */}
+            <div className="flex-1 flex flex-col gap-3 text-xs">
+              {/* 문단 모양 정보 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#1d4ed8]">문단 모양 정보</span>
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenParaShape?.(); }}
+                    className="px-3 py-0.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-[11px] text-neutral-800 cursor-pointer"
+                  >
+                    설정...
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 pl-2 text-neutral-800">
+                  <div className="flex"><span className="w-24 text-neutral-600">왼쪽 여백</span><span>: {leftMarginLabel} pt</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">첫 줄</span><span>: {firstLineLabel}</span></div>
+                  <div className="flex"><span className="w-24 text-neutral-600">오른쪽 여백</span><span>: {rightMarginLabel} pt</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">정렬 방식</span><span>: {alignLabel}</span></div>
+                  <div className="flex col-span-2"><span className="w-24 text-neutral-600">줄 간격</span><span>: {lineSpacingLabel}%</span></div>
+                  <div className="flex col-span-2"><span className="w-24 text-neutral-600">다음 스타일</span><span>: {activeStyle.nextStyle}</span></div>
+                </div>
+              </div>
+
+              <div className="border-t border-neutral-200" />
+
+              {/* 글자 모양 정보 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#1d4ed8]">글자 모양 정보</span>
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenCharShape?.(); }}
+                    className="px-3 py-0.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-[11px] text-neutral-800 cursor-pointer"
+                  >
+                    설정...
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 pl-2 text-neutral-800">
+                  <div className="flex"><span className="w-24 text-neutral-600">글꼴</span><span>: {fontLabel}</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">장평</span><span>: {charWidthLabel} %</span></div>
+                  <div className="flex"><span className="w-24 text-neutral-600">크기</span><span>: {sizeLabel} pt</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">자간</span><span>: {letterSpacingLabel} %</span></div>
+                </div>
+              </div>
+
+              <div className="border-t border-neutral-200" />
+
+              {/* 글머리표/문단 번호 정보 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#1d4ed8]">글머리표/문단 번호 정보</span>
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenBulletNumber?.(); }}
+                    className="px-3 py-0.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-[11px] text-neutral-800 cursor-pointer"
+                  >
+                    설정...
+                  </button>
+                </div>
+                <div className="pl-2 text-neutral-800 flex">
+                  <span className="w-24 text-neutral-600">종류</span><span>: {listKindLabel}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-neutral-200" />
+
+              {/* 현재 커서 위치 스타일 */}
+              <div>
+                <div className="font-bold text-[#1d4ed8] mb-1.5">현재 커서 위치 스타일</div>
+                <div className="pl-2 text-neutral-800 flex">
+                  <span className="w-24 text-neutral-600">스타일</span><span>: {activeStyle.name}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 우측 확인 버튼 */}
+          <div className="w-20 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => { onApply(selectedId); onClose(); }}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 4. 날짜 / 시간 삽입 모달
 export function InsertDateModal({
   isOpen,

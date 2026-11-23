@@ -406,7 +406,7 @@ export function parseHtmlRuns(html: string, baseStyle: Partial<HwpxParagraphBloc
 
 export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: Map<string, string>): HwpxCollabBlock[] {
   // 1. header.xml 스타일 정보(정렬, 글자 크기, 볼드, 글꼴) 사전 추출
-  const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
+  const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify"; marginLeftPt?: number }>();
   const charStyles = new Map<string, { sizePt: number; bold: boolean; fontFamily?: string }>();
 
   if (headerXml) {
@@ -420,8 +420,11 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
       const id = idMatch[1];
       const alignMatch = pm[0].match(/horizontal="([^"]+)"/i);
       const alignVal = alignMatch ? alignMatch[1].toLowerCase() : "left";
+      const leftMarginMatch = pm[0].match(/<hc:left\b[^>]*\bvalue="(\d+)"/i);
+      const leftMarginPt = leftMarginMatch ? Math.round(parseInt(leftMarginMatch[1], 10) / 100) : 0;
       paraStyles.set(id, {
         align: alignVal === "center" || alignVal === "right" || alignVal === "justify" ? alignVal : "left",
+        marginLeftPt: leftMarginPt > 0 ? leftMarginPt : undefined,
       });
     }
 
@@ -920,6 +923,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 id: `p_${blockIndex++}`,
                 text: fullText,
                 align: pStyle?.align ?? "left",
+                marginLeftPt: pStyle?.marginLeftPt,
                 sizePt: cStyle?.sizePt,
                 bold: cStyle?.bold,
                 fontFamily: cStyle?.fontFamily,
@@ -1173,7 +1177,7 @@ export function serializeBlocksToHwpxPackage(
   options?: { pageWidthMm?: number; marginLeftMm?: number; marginRightMm?: number; memos?: HwpxMemoItem[] }
 ): { sectionXml: string; headerXml: string; chartFiles?: Map<string, string>; binDataFiles?: Map<string, Uint8Array> } {
   // 1. 기존 header.xml의 스타일 사전 분석 및 보존
-  const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
+  const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify"; marginLeftPt?: number }>();
   const existingCharIds: number[] = [];
   const existingParaIds: number[] = [];
   let chartCounter = 0;
@@ -1196,6 +1200,7 @@ export function serializeBlocksToHwpxPackage(
   interface NewParaDef {
     id: string;
     align: "left" | "center" | "right" | "justify";
+    marginLeftPt?: number;
   }
   const newParaDefs: NewParaDef[] = [];
 
@@ -1209,8 +1214,11 @@ export function serializeBlocksToHwpxPackage(
       existingParaIds.push(id);
       const alignMatch = pm[0].match(/horizontal="([^"]+)"/i) || pm[0].match(/align="([^"]+)"/i);
       const alignVal = alignMatch ? alignMatch[1].toLowerCase() : "left";
+      const leftMarginMatch = pm[0].match(/<hc:left\b[^>]*\bvalue="(\d+)"/i);
+      const leftMarginPt = leftMarginMatch ? Math.round(parseInt(leftMarginMatch[1], 10) / 100) : 0;
       paraStyles.set(String(id), {
         align: alignVal === "center" || alignVal === "right" || alignVal === "justify" ? alignVal : "left",
+        marginLeftPt: leftMarginPt > 0 ? leftMarginPt : undefined,
       });
     }
 
@@ -1350,34 +1358,36 @@ export function serializeBlocksToHwpxPackage(
   // 한컴 OWPML 표준 규격의 paraPr XML 생성 (신규 발급 정렬 서식 등록)
   const renderParaPrXml = (def: NewParaDef): string => {
     const alignVal = def.align === "center" ? "CENTER" : def.align === "right" ? "RIGHT" : def.align === "justify" ? "JUSTIFY" : "LEFT";
+    const leftMarginHw = Math.round((def.marginLeftPt || 0) * 100);
     return `      <hh:paraPr id="${def.id}" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">\n` +
       `        <hh:align horizontal="${alignVal}" vertical="BASELINE"/>\n` +
       `        <hh:heading type="NONE" idRef="0" level="0"/>\n` +
       `        <hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="BREAK_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>\n` +
-      `        <hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="0" unit="HWPUNIT"/><hc:next value="0" unit="HWPUNIT"/></hh:margin>\n` +
+      `        <hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="${leftMarginHw}" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="0" unit="HWPUNIT"/><hc:next value="0" unit="HWPUNIT"/></hh:margin>\n` +
       `        <hh:lineSpacing type="PERCENT" value="160" unit="HWPUNIT"/>\n` +
       `        <hh:border borderFillIDRef="2" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>\n` +
       `      </hh:paraPr>`;
   };
 
   // 문단 정렬(paraPr) 매핑: 원본의 paraPrIDRef를 최대한 유지하여 문서 고유 여백/줄간격 손실 방지
-  const getParaPrForAlign = (targetAlign: "left" | "center" | "right" | "justify", rawAttrs?: string): string => {
+  const getParaPrForAlign = (targetAlign: "left" | "center" | "right" | "justify", rawAttrs?: string, marginLeftPt = 0): string => {
+    const targetLeft = marginLeftPt > 0 ? Math.round(marginLeftPt) : 0;
     if (rawAttrs) {
       const match = rawAttrs.match(/paraPrIDRef="(\d+)"/);
       if (match) {
         const origId = match[1];
         const origStyle = paraStyles.get(origId);
-        if (origStyle && origStyle.align === targetAlign) {
+        if (origStyle && origStyle.align === targetAlign && (origStyle.marginLeftPt || 0) === targetLeft) {
           return origId;
         }
       }
     }
     for (const [id, s] of paraStyles.entries()) {
-      if (s.align === targetAlign) return id;
+      if (s.align === targetAlign && (s.marginLeftPt || 0) === targetLeft) return id;
     }
     const newId = String(++maxParaId);
-    paraStyles.set(newId, { align: targetAlign });
-    newParaDefs.push({ id: newId, align: targetAlign });
+    paraStyles.set(newId, { align: targetAlign, marginLeftPt: targetLeft > 0 ? targetLeft : undefined });
+    newParaDefs.push({ id: newId, align: targetAlign, marginLeftPt: targetLeft > 0 ? targetLeft : undefined });
     return newId;
   };
 
@@ -1455,7 +1465,8 @@ export function serializeBlocksToHwpxPackage(
   const paragraphsXml = bodyBlocks.map((block, idx) => {
     const lead = (idx === 0 && preambleRuns) ? preambleRuns : "";
     const align = block.type === "paragraph" ? (block.align || "left") : "left";
-    const paraPr = getParaPrForAlign(align, block.rawAttrs);
+    const marginLeftPt = block.type === "paragraph" ? (block.marginLeftPt || 0) : 0;
+    const paraPr = getParaPrForAlign(align, block.rawAttrs, marginLeftPt);
 
     if (block.type === "table") {
       const rowCount = block.rows.length;
@@ -1664,7 +1675,7 @@ export function serializeBlocksToHwpxPackage(
     // 일반 문단
     const blockMemos = memosByBlockId.get(block.id) || [];
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
-    if (block.rawXml && block.origText !== undefined && block.text === block.origText && blockMemos.length === 0) {
+    if (block.rawXml && block.origText !== undefined && block.text === block.origText && blockMemos.length === 0 && !(block.marginLeftPt && block.marginLeftPt > 0)) {
       let rawXml = block.fontEdited && block.fontFamily
         ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")([\s\S]*?<\/hp:run>)/g, (whole, a: string, id: string, b: string, rest: string) => {
           // secPr 또는 텍스트가 없는 순수 ctrl 런은 기본 서식 ID(charPrIDRef="0") 유지

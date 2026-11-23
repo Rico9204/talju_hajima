@@ -51,6 +51,11 @@ export default function HwpxTestPage() {
           "4. 결론 및 향후 점검 사항\n" +
           "[테스트 문단 13] 한 쪽, 두 쪽, 세 쪽 보기 전환 시 모든 페이지가 화면 안에 잘림 없이 배치되는지 확인하세요.\n\n" +
           "[입력 메뉴 전체 기능 테스트] 문자표(※ ★ ☆ ○ ● ① ② ③ ㈜ ℃ ㎜ → ∑), 필드 입력(작성일: 2026-11-23), 하이퍼링크(https://www.hancomdocs.com), 책갈피([책갈피: 테스트_기준점]) 샘플이 포함되어 있습니다.\n\n" +
+          "[서식 메뉴 기능 테스트]\n" +
+          "● 글머리표 모양 샘플 문단입니다.\n" +
+          "1. 문단 번호 모양 샘플 문단입니다.\n" +
+          "가. 한 수준 증가(들여쓰기 +10pt) 적용 샘플 문단입니다.\n" +
+          "2. 한 수준 감소(상위 수준 복귀) 적용 샘플 문단입니다.\n\n" +
           "[테스트 문단 14] 마지막 문단까지 입력 및 스크롤이 원활하게 동작하는지 확인한 뒤, 수정된 문서를 .hwpx 또는 .pdf로 내보내어 한컴 뷰어에서 동일하게 열리는지 검증할 수 있습니다.";
 
         const baseBytes = await newHwpxBytes(sampleText, "굴림체");
@@ -76,6 +81,9 @@ export default function HwpxTestPage() {
                 "[책갈피: 테스트_기준점]",
                 '<span data-bookmark-name="테스트_기준점"></span>[책갈피: 테스트_기준점]'
               );
+            }
+            if (b.type === "paragraph" && b.text.includes("한 수준 증가(들여쓰기 +10pt)")) {
+              b.marginLeftPt = 10;
             }
           }
 

@@ -130,6 +130,8 @@ import {
   TextConvertModal,
   HyperlinkModal,
   BookmarkModal,
+  BulletAndNumberModal,
+  StyleModal,
   InsertDateModal,
   AutoTextModal,
   PageNumberModal,
@@ -1762,6 +1764,8 @@ function HwpxEditorModalInner({
   const [showHyperlinkModal, setShowHyperlinkModal] = useState(false);
   const [hyperlinkInitialText, setHyperlinkInitialText] = useState("");
   const [showBookmarkModal, setShowBookmarkModal] = useState(false);
+  const [bulletNumberModalTab, setBulletNumberModalTab] = useState<"bullet" | "number" | null>(null);
+  const [showStyleModal, setShowStyleModal] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [showAutoTextModal, setShowAutoTextModal] = useState(false);
   const [showPageNumberModal, setShowPageNumberModal] = useState(false);
@@ -4724,6 +4728,23 @@ function HwpxEditorModalInner({
         setShowParaShapeModal(true);
         return;
       }
+      // F6: 스타일 모달
+      if (e.key === "F6") {
+        e.preventDefault();
+        setShowStyleModal(true);
+        return;
+      }
+      // Ctrl+Num - / +: 한 수준 증가/감소
+      if ((e.ctrlKey || e.metaKey) && e.code === "NumpadSubtract") {
+        e.preventDefault();
+        handleLevelIndent(1);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.code === "NumpadAdd") {
+        e.preventDefault();
+        handleLevelIndent(-1);
+        return;
+      }
       // Alt+N: 쪽 번호 모달
       if (e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -6392,6 +6413,27 @@ function HwpxEditorModalInner({
     }
   };
 
+  const applyBulletPrefix = (prefix: string | null) => {
+    const block = blocks[selectedIdx];
+    if (!block || block.type !== "paragraph") return;
+    const stripped = block.text.replace(/^(?:[●•■▪◆♦▶○□◇▷◎☑✓★❖☞▸]\s+)/, "");
+    updateParagraph(selectedIdx, prefix ? prefix + stripped : stripped);
+  };
+
+  const applyNumberPrefix = (prefix: string | null) => {
+    const block = blocks[selectedIdx];
+    if (!block || block.type !== "paragraph") return;
+    const stripped = block.text.replace(/^(?:\(\d+\)\s+|\([가-힣a-zA-Zㄱ-ㅎ]\)\s+|\d+[.)]\s+|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]\s+|[가-힣A-Za-zIVXivx]+[.)]\s+)/, "");
+    updateParagraph(selectedIdx, prefix ? prefix + stripped : stripped);
+  };
+
+  const handleLevelIndent = (delta: 1 | -1) => {
+    const block = blocks[selectedIdx];
+    if (!block || block.type !== "paragraph") return;
+    const nextMargin = Math.max(0, (block.marginLeftPt || 0) + delta * 10);
+    updateParagraphStyle(selectedIdx, { marginLeftPt: nextMargin });
+  };
+
   const toggleBulletList = () => {
     if (selectedIdx === null) return;
     const block = blocks[selectedIdx];
@@ -8023,10 +8065,13 @@ function HwpxEditorModalInner({
                   )}
 
                   {/* [서식] 드롭다운 메뉴 */}
-                  {isDropdownOpen && menu.id === "format" && (
+                  {isDropdownOpen && menu.id === "format" && (() => {
+                    const selObj = selectedIdx >= 0 ? blocks[selectedIdx] : null;
+                    const canObjProp = Boolean(selObj && ["table", "image", "shape", "chart", "equation"].includes(selObj.type));
+                    return (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[230px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       <button
@@ -8051,70 +8096,83 @@ function HwpxEditorModalInner({
                         </span>
                         <span className="text-[11px] text-neutral-400 font-mono">Alt+T</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowFormatCopyModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <FormatPainterIcon className="w-4 h-4 text-blue-600" />
-                          <span>모양 복사...</span>
-                        </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Alt+C</span>
-                      </button>
                       <div className="my-1 border-t border-neutral-200" />
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); applySuperscript(); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <SuperscriptIcon className="w-4 h-4" />
-                          <span>위 첨자 (x²)</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); applySubscript(); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <SubscriptIcon className="w-4 h-4" />
-                          <span>아래 첨자 (x₁)</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); toggleBulletList(); }}
+                        onClick={() => { setOpenDropdown(null); setBulletNumberModalTab("bullet"); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
                           <BulletListIcon className="w-4 h-4" />
-                          <span>글머리표</span>
+                          <span>글머리표 모양...</span>
                         </span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); toggleNumberList(); }}
+                        onClick={() => { setOpenDropdown(null); setBulletNumberModalTab("number"); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
                           <NumberListIcon className="w-4 h-4" />
-                          <span>번호 목록</span>
+                          <span>문단 번호 모양...</span>
                         </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+K+N</span>
                       </button>
+                      <div className="my-1 border-t border-neutral-200" />
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); setShowTextConvertModal(true); }}
+                        onClick={() => { setOpenDropdown(null); handleLevelIndent(1); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
-                          <TextConvertIcon className="w-4 h-4 text-indigo-600" />
-                          <span>글자 바꾸기...</span>
+                          <IndentIncIcon className="w-4 h-4 text-blue-600" />
+                          <span>한 수준 증가</span>
                         </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Num -</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); handleLevelIndent(-1); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <IndentDecIcon className="w-4 h-4 text-blue-600" />
+                          <span>한 수준 감소</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Num +</span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        onClick={() => { setOpenDropdown(null); setShowStyleModal(true); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ParaShapeIcon className="w-4 h-4 text-blue-600" />
+                          <span>스타일...</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">F6</span>
+                      </button>
+                      <div className="my-1 border-t border-neutral-200" />
+                      <button
+                        type="button"
+                        disabled={!canObjProp}
+                        onClick={() => {
+                          if (!canObjProp) return;
+                          setOpenDropdown(null);
+                          openPropertyModal(selectedIdx);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 text-left ${canObjProp ? "hover:bg-neutral-100 text-neutral-800 cursor-pointer" : "text-neutral-300 cursor-not-allowed"}`}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span className="w-4 h-4 inline-flex items-center justify-center text-[11px]">◩</span>
+                          <span>개체 속성...</span>
+                        </span>
+                        <span className={`text-[11px] font-mono ${canObjProp ? "text-neutral-400" : "text-neutral-300"}`}>P</span>
                       </button>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* [쪽] 드롭다운 메뉴 */}
                   {isDropdownOpen && menu.id === "page" && (
@@ -14992,6 +15050,43 @@ function HwpxEditorModalInner({
           onInsert={handleInsertBookmark}
           onGoto={handleGotoBookmark}
           bookmarks={documentBookmarks}
+        />
+        <BulletAndNumberModal
+          isOpen={bulletNumberModalTab !== null}
+          initialTab={bulletNumberModalTab ?? "bullet"}
+          onClose={() => setBulletNumberModalTab(null)}
+          onApplyBullet={applyBulletPrefix}
+          onApplyNumber={applyNumberPrefix}
+        />
+        <StyleModal
+          isOpen={showStyleModal}
+          onClose={() => setShowStyleModal(false)}
+          onApply={applyStylePreset}
+          currentStyleInfo={(() => {
+            const cur = blocks[selectedIdx];
+            if (!cur || cur.type !== "paragraph") return undefined;
+            const txt = cur.text || "";
+            const listKind = /^[●•■▪◆♦▶○□◇▷◎☑✓★❖☞▸]\s+/.test(txt)
+              ? "글머리표"
+              : /^(?:\(\d+\)|\([가-힣a-zA-Zㄱ-ㅎ]\)|\d+[.)]|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮]|[가-힣A-Za-zIVXivx]+[.)])\s+/.test(txt)
+                ? "문단 번호"
+                : "없음";
+            return {
+              marginLeftPt: cur.marginLeftPt,
+              marginRightPt: cur.marginRightPt,
+              firstLineType: cur.firstLineType,
+              align: cur.align,
+              lineSpacingPct: cur.lineSpacingPct,
+              fontFamily: cur.fontFamily,
+              sizePt: cur.sizePt,
+              charWidthPct: cur.charWidthPct,
+              letterSpacingPct: cur.letterSpacingPct,
+              listKind,
+            };
+          })()}
+          onOpenParaShape={() => setShowParaShapeModal(true)}
+          onOpenCharShape={() => setShowCharShapeModal(true)}
+          onOpenBulletNumber={() => setBulletNumberModalTab("bullet")}
         />
         <InsertDateModal
           isOpen={showDateModal}
