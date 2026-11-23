@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   CharShapeIcon,
   ParaShapeIcon,
@@ -199,72 +199,302 @@ export function TextConvertModal({
   );
 }
 
-// 3. 하이퍼링크 모달 (Ctrl+K)
+// 3. 하이퍼링크 모달 (Ctrl+K) — 한컴오피스/한컴독스 스타일
 export function HyperlinkModal({
   isOpen,
   onClose,
   onInsert,
+  initialText = "",
 }: {
   isOpen: boolean;
   onClose: () => void;
   onInsert: (text: string, url: string) => void;
+  initialText?: string;
 }) {
-  const [text, setText] = useState("");
-  const [url, setUrl] = useState("https://");
+  const [text, setText] = useState(initialText);
+  const [linkType, setLinkType] = useState<"web" | "email">("web");
+  const [url, setUrl] = useState("http://");
+
+  useEffect(() => {
+    if (isOpen) {
+      setText(initialText);
+      setLinkType("web");
+      setUrl("http://");
+    }
+  }, [isOpen, initialText]);
+
   if (!isOpen) return null;
 
+  const handleSubmit = () => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl || trimmedUrl === "http://" || trimmedUrl === "https://" || trimmedUrl === "mailto:") {
+      return;
+    }
+    const finalUrl =
+      linkType === "email"
+        ? (/^mailto:/i.test(trimmedUrl) ? trimmedUrl : `mailto:${trimmedUrl}`)
+        : (/^(https?:\/\/|mailto:|tel:|\/)/i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`);
+    onInsert(text.trim() || finalUrl, finalUrl);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-      <div className="w-88 bg-white rounded-xl shadow-2xl border border-neutral-300 p-4 text-neutral-800 flex flex-col gap-3">
-        <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-          <span className="flex items-center gap-1.5">
-            <HyperlinkIcon className="w-4 h-4 text-blue-600" />
-            <span>하이퍼링크 삽입 (Ctrl+K)</span>
-          </span>
-          <button type="button" onClick={onClose} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-        </h4>
-        <div className="flex flex-col gap-2.5 text-xs">
-          <div>
-            <label className="block text-[11px] font-bold text-neutral-700 mb-1">표시할 텍스트</label>
-            <input
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="예: 과제 참고 링크"
-              className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold text-neutral-700 mb-1">연결할 웹 주소 (URL)</label>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          handleSubmit();
+        }
+      }}
+    >
+      <div className="w-[460px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">하이퍼링크</span>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 rounded text-xs border border-neutral-300 hover:bg-neutral-100 text-neutral-700 font-medium"
+            className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer"
+            aria-label="닫기"
           >
-            취소
+            ✕
           </button>
+        </div>
+
+        {/* 본문 2단 레이아웃 (좌측 입력 카드 + 우측 넣기/취소 버튼) */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 bg-white border border-neutral-300 p-4 flex flex-col gap-4">
+            <div>
+              <label className="block text-xs font-bold text-[#1d4ed8] mb-1.5">
+                표시할 문자열
+              </label>
+              <input
+                type="text"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                autoFocus={!initialText}
+                className="w-full bg-white border border-neutral-400 px-2.5 py-1.5 text-[13px] text-neutral-900 outline-none focus:border-[#0066cc]"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">연결 대상</div>
+              <div className="flex flex-col gap-1.5 text-[13px] text-neutral-800">
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="hwpx-hyperlink-type"
+                    checked={linkType === "web"}
+                    onChange={() => {
+                      setLinkType("web");
+                      if (!url.trim() || url.trim() === "mailto:") setUrl("http://");
+                    }}
+                    className="accent-[#0066cc] cursor-pointer"
+                  />
+                  <span>웹 주소</span>
+                </label>
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="hwpx-hyperlink-type"
+                    checked={linkType === "email"}
+                    onChange={() => {
+                      setLinkType("email");
+                      if (url.trim() === "http://" || url.trim() === "https://") setUrl("mailto:");
+                    }}
+                    className="accent-[#0066cc] cursor-pointer"
+                  />
+                  <span>전자 우편 주소</span>
+                </label>
+              </div>
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                autoFocus={Boolean(initialText)}
+                placeholder={linkType === "email" ? "mailto:example@domain.com" : "http://"}
+                className="mt-2 w-full bg-white border border-neutral-400 px-2.5 py-1.5 text-[13px] text-neutral-900 outline-none focus:border-[#0066cc]"
+              />
+            </div>
+          </div>
+
+          {/* 우측 버튼 열 */}
+          <div className="w-22 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              넣기
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 3-2. 책갈피 모달 (한컴오피스/한컴독스 스타일)
+export function BookmarkModal({
+  isOpen,
+  onClose,
+  onInsert,
+  onGoto,
+  bookmarks = [],
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onInsert: (name: string) => void;
+  onGoto: (name: string) => void;
+  bookmarks?: Array<{ name: string; blockIdx: number }>;
+}) {
+  const [name, setName] = useState("");
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName("");
+      setSelectedName(null);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const canInsert = name.trim().length > 0;
+  const gotoTarget = selectedName || (bookmarks.some((b) => b.name === name.trim()) ? name.trim() : null);
+
+  const handleInsert = () => {
+    if (!canInsert) return;
+    onInsert(name.trim());
+    onClose();
+  };
+
+  const handleGoto = () => {
+    if (!gotoTarget) return;
+    onGoto(gotoTarget);
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter" && canInsert) {
+          e.preventDefault();
+          handleInsert();
+        }
+      }}
+    >
+      <div className="w-[460px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">책갈피</span>
           <button
             type="button"
-            onClick={() => {
-              if (url) {
-                onInsert(text || url, url);
-                onClose();
-              }
-            }}
-            className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer"
+            aria-label="닫기"
           >
-            삽입
+            ✕
           </button>
+        </div>
+
+        {/* 본문 2단 레이아웃 */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 bg-white border border-neutral-300 p-4 flex flex-col gap-3.5">
+            <div>
+              <label className="block text-xs font-bold text-[#1d4ed8] mb-1.5">
+                책갈피 이름
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="책갈피 이름 입력"
+                autoFocus
+                className="w-full bg-white border border-neutral-400 px-2.5 py-1.5 text-[13px] text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-[#0066cc]"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">책갈피 목록</div>
+              <div className="w-full h-56 bg-white border border-neutral-400 overflow-y-auto text-[13px]">
+                {bookmarks.map((bm) => {
+                  const isSel = selectedName === bm.name;
+                  return (
+                    <button
+                      key={bm.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedName(bm.name);
+                        setName(bm.name);
+                      }}
+                      onDoubleClick={() => {
+                        onGoto(bm.name);
+                        onClose();
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer transition-colors ${
+                        isSel
+                          ? "bg-[#e8f0fe] text-[#1d4ed8] font-medium"
+                          : "text-neutral-800 hover:bg-neutral-100"
+                      }`}
+                    >
+                      {bm.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* 우측 버튼 열 */}
+          <div className="w-22 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleInsert}
+              disabled={!canInsert}
+              className={`w-full py-1.5 bg-white border text-xs font-medium ${
+                canInsert
+                  ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                  : "border-neutral-200 text-neutral-300 cursor-default"
+              }`}
+            >
+              넣기
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={handleGoto}
+              disabled={!gotoTarget}
+              className={`mt-3 w-full py-1.5 bg-white border text-xs font-medium ${
+                gotoTarget
+                  ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                  : "border-neutral-200 text-neutral-300 cursor-default"
+              }`}
+            >
+              이동
+            </button>
+          </div>
         </div>
       </div>
     </div>

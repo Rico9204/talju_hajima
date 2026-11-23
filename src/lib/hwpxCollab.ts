@@ -452,7 +452,17 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
   const tokenRegex = /<(\/)?([a-zA-Z0-9_:]+)((?:\s+[^>]*)?)(\/?)>|([^<]+)/g;
   let match: RegExpExecArray | null;
 
-  let ctrlDepth = 0; // 머리말, 꼬리말, 각주, 미주 등 제어 태그 깊이 (본문 문단과 분리)
+  let ctrlDepth = 0; // 머리말, 꼬리말 등 제어 태그 깊이 (본문 문단과 분리)
+  let inNoteKind: "footnote" | "endnote" | null = null;
+  let inNoteText: string[] = [];
+  let inNoteT = false;
+  let parsedFootnoteNum = 0;
+  let parsedEndnoteNum = 0;
+  const parsedNoteBlocks: HwpxParagraphBlock[] = [];
+  let inHyperlinkField = false;
+  let inHyperlinkCommand = false;
+  let currentHyperlinkUrl = "";
+  let hyperlinkTextParts: string[] = [];
   let inTable = false;
   let currentTable: HwpxTableBlock | null = null;
   let currentRow: HwpxTableCell[] | null = null;
@@ -508,12 +518,95 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
     if (tagName) {
       const localName = tagName.split(":").pop()!;
 
-      // 머리말 / 꼬리말 / 각주 / 미주 분리 격리
-      if (localName === "header" || localName === "footer" || localName === "footnote" || localName === "endnote") {
+      // 머리말 / 꼬리말 분리 격리
+      if (localName === "header" || localName === "footer") {
         if (!isClosing && !isSelfClosing) {
           ctrlDepth++;
         } else if (isClosing) {
           ctrlDepth = Math.max(0, ctrlDepth - 1);
+        }
+        continue;
+      }
+
+      // 책갈피 (<hp:bookmark name="..."/>)
+      if (localName === "bookmark") {
+        if (!isClosing) {
+          const bmNameMatch = attrs.match(/\bname="([^"]+)"/i);
+          if (bmNameMatch && inP) {
+            currentPText.push(`<span data-bookmark-name="${escapeXml(decodeXmlEntities(bmNameMatch[1]))}"></span>`);
+            pHasNormalText = true;
+          }
+        }
+        continue;
+      }
+
+      // 하이퍼링크 필드 (<hp:fieldBegin type="HYPERLINK"> ... <hp:fieldEnd/>)
+      if (localName === "fieldbegin") {
+        if (!isClosing && !isSelfClosing && /\btype="HYPERLINK"/i.test(attrs)) {
+          inHyperlinkField = true;
+          inHyperlinkCommand = false;
+          currentHyperlinkUrl = "";
+          hyperlinkTextParts = [];
+        }
+        continue;
+      }
+      if (inHyperlinkField && localName === "stringparam") {
+        if (!isClosing && !isSelfClosing && /\bname="Command"/i.test(attrs)) {
+          inHyperlinkCommand = true;
+        } else if (isClosing) {
+          inHyperlinkCommand = false;
+        }
+        continue;
+      }
+      if (inHyperlinkField && localName === "fieldend") {
+        if (!isClosing) {
+          const href = currentHyperlinkUrl.split(";")[0].trim();
+          const label = hyperlinkTextParts.join("") || href;
+          if (inP && href) {
+            currentPText.push(`<a href="${escapeXml(href)}">${label}</a>`);
+            pHasNormalText = true;
+          } else if (inP && label) {
+            currentPText.push(label);
+            pHasNormalText = true;
+          }
+          inHyperlinkField = false;
+          inHyperlinkCommand = false;
+          currentHyperlinkUrl = "";
+          hyperlinkTextParts = [];
+        }
+        continue;
+      }
+
+      // 각주 / 미주 파싱 (<hp:footNote>, <hp:endNote>) -> 본문 <sup> 토큰 + 별도 note 블록
+      if (localName === "footnote" || localName === "endnote") {
+        if (!isClosing && !isSelfClosing) {
+          inNoteKind = localName === "endnote" ? "endnote" : "footnote";
+          inNoteText = [];
+          inNoteT = false;
+        } else if (isClosing && inNoteKind) {
+          const num = inNoteKind === "endnote" ? ++parsedEndnoteNum : ++parsedFootnoteNum;
+          const noteId = `${inNoteKind}-parsed-${num}`;
+          if (inP) {
+            currentPText.push(`<sup data-note-id="${noteId}" data-note-type="${inNoteKind}">${num})</sup>`);
+            pHasNormalText = true;
+          }
+          const noteBody = inNoteText.join("").trim();
+          parsedNoteBlocks.push({
+            type: "paragraph",
+            id: noteId,
+            text: noteBody,
+            origText: noteBody,
+          });
+          inNoteKind = null;
+          inNoteText = [];
+          inNoteT = false;
+        }
+        continue;
+      }
+
+      if (inNoteKind) {
+        if (localName === "t") {
+          inNoteT = !isClosing && !isSelfClosing;
         }
         continue;
       }
@@ -651,6 +744,20 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
           lastShapeAttrs = attrs.trim();
         }
       }
+      // 웹 동영상 (video)
+      else if (localName === "video" && inP) {
+        if (!isClosing) {
+          const tagMatch = attrs.match(/\btag="([^"]+)"/i);
+          const vTypeMatch = attrs.match(/\bvideotype="([^"]+)"/i);
+          if (tagMatch && (!vTypeMatch || vTypeMatch[1].toLowerCase() === "web")) {
+            pShapeCount++;
+            lastShapeType = "rect";
+            lastShapeAttrs = attrs.trim();
+            lastShapeFill = "#000000";
+            lastShapeText = `__WEB_VIDEO__:${decodeXmlEntities(tagMatch[1])}`;
+          }
+        }
+      }
       // 도형 채우기 (winBrush)
       else if ((localName === "winbrush" || localName === "winBrush") && inP && pShapeCount > 0) {
         const faceMatch = attrs.match(/faceColor="([^"]+)"/i);
@@ -736,7 +843,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 src: imgSrc,
                 widthPercent: picWidthPct,
                 heightPt: picHeightPt,
-                align: "center",
+                align: "left",
                 treatAsChar: picTreatAsChar,
                 offsetX: picOffX,
                 offsetY: picOffY,
@@ -790,7 +897,7 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
                 strokeColor: lastShapeStroke,
                 strokeWidth: lastShapeStrokeWidth,
                 text: lastShapeText.trim(),
-                align: "center",
+                align: "left",
                 treatAsChar: parsedTreatAsChar,
                 offsetX: parsedOffX,
                 offsetY: parsedOffY,
@@ -869,6 +976,14 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
         if (inTable && currentCell) currentCell.push("\n");
         else if (inP) currentPText.push("\n");
       }
+    } else if (textContent && inNoteKind) {
+      if (inNoteT) {
+        inNoteText.push(decodeXmlEntities(textContent));
+      }
+      continue;
+    } else if (textContent && inHyperlinkCommand) {
+      currentHyperlinkUrl += decodeXmlEntities(textContent);
+      continue;
     } else if (textContent && ctrlDepth === 0) {
       if (inScript) {
         currentEquationScript += decodeXmlEntities(textContent);
@@ -879,7 +994,9 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
         } else if (inTable && currentCell) {
           currentCell.push(decoded);
         } else if (inP) {
-          if (pShapeCount > 0) {
+          if (inHyperlinkField) {
+            hyperlinkTextParts.push(decoded);
+          } else if (pShapeCount > 0) {
             lastShapeText += decoded;
           } else {
             currentPText.push(decoded);
@@ -890,6 +1007,9 @@ export function parseHwpxXmlToBlocks(xmlStr: string, headerXml = "", imageMap?: 
     }
   }
 
+  if (parsedNoteBlocks.length > 0) {
+    blocks.push(...parsedNoteBlocks);
+  }
   return blocks;
 }
 
@@ -973,16 +1093,93 @@ function extractSectionContentWidthHw(xml: string, fallback = 42520): number {
 }
 
 // ── 블록 배열을 OWPML XML 및 Header XML로 복원 직렬화 (글자색·서식·표·수식 구조 100% 보존) ──
+export function buildOoxmlChartXml(block: HwpxChartBlock): string {
+  const title = escapeXml(block.title || "차트");
+  const categories = block.categories?.length ? block.categories : ["항목 1", "항목 2"];
+  const series = block.series?.length ? block.series : [{ name: "계열 1", values: [10, 20] }];
+
+  const catPts = categories
+    .map((c, i) => `<c:pt idx="${i}"><c:v>${escapeXml(c)}</c:v></c:pt>`)
+    .join("");
+
+  const serXml = series
+    .map((s, sIdx) => {
+      const valPts = categories
+        .map((_, i) => `<c:pt idx="${i}"><c:v>${Number(s.values?.[i] ?? 0)}</c:v></c:pt>`)
+        .join("");
+      return `<c:ser><c:idx val="${sIdx}"/><c:order val="${sIdx}"/><c:tx><c:v>${escapeXml(s.name || `계열 ${sIdx + 1}`)}</c:v></c:tx><c:cat><c:strLit><c:ptCount val="${categories.length}"/>${catPts}</c:strLit></c:cat><c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${categories.length}"/>${valPts}</c:numLit></c:val></c:ser>`;
+    })
+    .join("");
+
+  const chartType = block.chartType || "column";
+  let plotBody = "";
+  if (chartType === "pie") {
+    plotBody = `<c:pieChart><c:varyColors val="1"/>${serXml}</c:pieChart>`;
+  } else if (chartType === "line") {
+    plotBody = `<c:lineChart><c:grouping val="standard"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:lineChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
+  } else {
+    const barDir = chartType === "bar" ? "bar" : "col";
+    plotBody = `<c:barChart><c:barDir val="${barDir}"/><c:grouping val="clustered"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${title}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:plotArea><c:layout/>${plotBody}</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/></c:chart></c:chartSpace>`;
+}
+
+export interface HwpxMemoItem {
+  id: string;
+  blockId: string;
+  author: string;
+  createdAt: string;
+  text: string;
+  anchorText?: string;
+}
+
+export function extractMemosFromHwpxXml(xmlStr: string): HwpxMemoItem[] {
+  const memos: HwpxMemoItem[] = [];
+  if (!xmlStr || !xmlStr.includes("MEMO")) return memos;
+  const blocks = parseHwpxXmlToBlocks(xmlStr);
+  const pIds = blocks.filter((b) => b.type === "paragraph" && !b.id.startsWith("footnote-") && !b.id.startsWith("endnote-")).map((b) => b.id);
+  const pRe = /<hp:p\b[^>]*>([\s\S]*?)<\/hp:p>/gi;
+  // Match top-level <hp:p> indices roughly by scanning fieldBegin type="MEMO"
+  const memoRe = /<hp:fieldBegin\b[^>]*type="MEMO"[^>]*>([\s\S]*?)<\/hp:fieldBegin>/gi;
+  let m: RegExpExecArray | null;
+  let idx = 0;
+  while ((m = memoRe.exec(xmlStr)) !== null) {
+    const inner = m[1] || "";
+    const author = decodeXmlEntities(inner.match(/<hp:stringParam\b[^>]*name="Author"[^>]*>([\s\S]*?)<\/hp:stringParam>/i)?.[1] || "작성자");
+    const createdAt = decodeXmlEntities(inner.match(/<hp:stringParam\b[^>]*name="CreateDateTime"[^>]*>([\s\S]*?)<\/hp:stringParam>/i)?.[1] || "");
+    const tMatches = Array.from(inner.matchAll(/<hp:t>([\s\S]*?)<\/hp:t>/gi)).map((tm) => decodeXmlEntities(tm[1] || ""));
+    const text = tMatches.join("");
+    // Find preceding top-level paragraph index
+    const before = xmlStr.slice(0, m.index);
+    const pCount = (before.match(/^\s*<hp:p\b/gm) || []).length;
+    const blockId = pIds[Math.max(0, pCount - 1)] || pIds[0] || "p_0";
+    memos.push({
+      id: `memo_parsed_${++idx}`,
+      blockId,
+      author,
+      createdAt,
+      text,
+    });
+  }
+  void pRe;
+  return memos;
+}
+
 export function serializeBlocksToHwpxPackage(
   blocks: HwpxCollabBlock[],
   originalSectionXml = "",
   originalHeaderXml = "",
-  options?: { pageWidthMm?: number; marginLeftMm?: number; marginRightMm?: number }
-): { sectionXml: string; headerXml: string } {
+  options?: { pageWidthMm?: number; marginLeftMm?: number; marginRightMm?: number; memos?: HwpxMemoItem[] }
+): { sectionXml: string; headerXml: string; chartFiles?: Map<string, string>; binDataFiles?: Map<string, Uint8Array> } {
   // 1. 기존 header.xml의 스타일 사전 분석 및 보존
   const paraStyles = new Map<string, { align: "left" | "center" | "right" | "justify" }>();
   const existingCharIds: number[] = [];
   const existingParaIds: number[] = [];
+  let chartCounter = 0;
+  const chartFiles = new Map<string, string>();
+  let imageCounter = 0;
+  const binDataFiles = new Map<string, Uint8Array>();
 
   interface ExistingCharStyle {
     colorHex: string;
@@ -1156,9 +1353,9 @@ export function serializeBlocksToHwpxPackage(
     return `      <hh:paraPr id="${def.id}" tabPrIDRef="0" condense="0" fontLineHeight="0" snapToGrid="1" suppressLineNumbers="0" checked="0">\n` +
       `        <hh:align horizontal="${alignVal}" vertical="BASELINE"/>\n` +
       `        <hh:heading type="NONE" idRef="0" level="0"/>\n` +
-      `        <hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="BREAK_WORD"/>\n` +
-      `        <hh:margin intent="0" left="0" right="0" prev="0" next="0"/>\n` +
-      `        <hh:lineSpacing type="PERCENT" value="160" unit="PERCENT"/>\n` +
+      `        <hh:breakSetting breakLatinWord="KEEP_WORD" breakNonLatinWord="BREAK_WORD" widowOrphan="0" keepWithNext="0" keepLines="0" pageBreakBefore="0" lineWrap="BREAK"/>\n` +
+      `        <hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/><hc:right value="0" unit="HWPUNIT"/><hc:prev value="0" unit="HWPUNIT"/><hc:next value="0" unit="HWPUNIT"/></hh:margin>\n` +
+      `        <hh:lineSpacing type="PERCENT" value="160" unit="HWPUNIT"/>\n` +
       `        <hh:border borderFillIDRef="2" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>\n` +
       `      </hh:paraPr>`;
   };
@@ -1223,7 +1420,7 @@ export function serializeBlocksToHwpxPackage(
         ? "right"
         : "center";
     const capParaPr = getParaPrForAlign(capAlign);
-    return `        <hp:caption side="${capSide}" fullSize="0" width="${widthHw}" gap="850">\n` +
+    return `        <hp:caption side="${capSide}" fullSz="0" width="${widthHw}" gap="850">\n` +
       `          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="${widthHw}" textHeight="2834" hasTextRef="0" hasNumRef="0">\n` +
       `            <hp:p id="${capParaId}" paraPrIDRef="${capParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n` +
       `              <hp:run charPrIDRef="0"><hp:t>${escapeXml(capTrim)}</hp:t></hp:run>\n` +
@@ -1232,7 +1429,30 @@ export function serializeBlocksToHwpxPackage(
       `        </hp:caption>`;
   };
 
-  const paragraphsXml = blocks.map((block, idx) => {
+  const noteBlockMap = new Map<string, HwpxParagraphBlock>();
+  const bodyBlocks: HwpxCollabBlock[] = [];
+  for (const b of blocks) {
+    if (b.type === "paragraph" && (b.id.startsWith("footnote-") || b.id.startsWith("endnote-"))) {
+      noteBlockMap.set(b.id, b);
+    } else {
+      bodyBlocks.push(b);
+    }
+  }
+  const memosByBlockId = new Map<string, HwpxMemoItem[]>();
+  if (options?.memos) {
+    for (const memo of options.memos) {
+      if (!memo.blockId) continue;
+      const arr = memosByBlockId.get(memo.blockId) || [];
+      arr.push(memo);
+      memosByBlockId.set(memo.blockId, arr);
+    }
+  }
+
+  let footnoteCounter = 0;
+  let endnoteCounter = 0;
+  let noteInstCounter = 0;
+
+  const paragraphsXml = bodyBlocks.map((block, idx) => {
     const lead = (idx === 0 && preambleRuns) ? preambleRuns : "";
     const align = block.type === "paragraph" ? (block.align || "left") : "left";
     const paraPr = getParaPrForAlign(align, block.rawAttrs);
@@ -1287,8 +1507,8 @@ export function serializeBlocksToHwpxPackage(
     if (block.type === "equation") {
       const eqId = 2000000000 + (idx + 1);
       const scriptText = block.script || "";
-      const width = Math.max(4000, Math.min(42520, Math.round((scriptText.length || 1) * 800)));
-      const height = 2400;
+      const width = Math.max(3000, Math.min(42520, Math.round((scriptText.length || 1) * 550)));
+      const height = 1400;
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:equation id="${eqId}" zOrder="0" numberingType="EQUATION" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" version="Equation Version 60" baseLine="85" textColor="#000000" baseUnit="1000" lineMode="CHAR" font="HYhwpEQ">\n        <hp:sz width="${width}" widthRelTo="ABSOLUTE" height="${height}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="56" right="56" top="0" bottom="0"/>\n        <hp:shapeComment>수식입니다.</hp:shapeComment>\n        <hp:script>${escapeXml(scriptText)}</hp:script>\n      </hp:equation></hp:run>\n    </hp:p>`;
     }
 
@@ -1313,6 +1533,33 @@ export function serializeBlocksToHwpxPackage(
           return raw;
         }
       }
+      const dataUrlMatch = block.src?.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,([A-Za-z0-9+/=]+)$/i);
+      if (dataUrlMatch) {
+        const rawExt = dataUrlMatch[1].toLowerCase();
+        const ext = rawExt === "jpeg" ? "jpg" : rawExt;
+        const binStr = atob(dataUrlMatch[2]);
+        const binBytes = new Uint8Array(binStr.length);
+        for (let bi = 0; bi < binStr.length; bi++) binBytes[bi] = binStr.charCodeAt(bi);
+        imageCounter++;
+        const imgId = `image${imageCounter}`;
+        binDataFiles.set(`BinData/${imgId}.${ext}`, binBytes);
+        const picObjId = Math.floor(Math.random() * 1000000000) + 1000000000;
+        const instId = Math.floor(Math.random() * 1000000000) + 100000000;
+        const pWidthHw = Math.round((secContentWidthHw * (block.widthPercent || 50)) / 100);
+        let pHeightHw = block.heightPt ? Math.round(block.heightPt * 100) : pWidthHw;
+        if (!block.heightPt && ext === "png" && binBytes.length >= 24 && binBytes[12] === 0x49 && binBytes[13] === 0x48 && binBytes[14] === 0x44 && binBytes[15] === 0x52) {
+          const natW = ((binBytes[16] << 24) | (binBytes[17] << 16) | (binBytes[18] << 8) | binBytes[19]) >>> 0;
+          const natH = ((binBytes[20] << 24) | (binBytes[21] << 16) | (binBytes[22] << 8) | binBytes[23]) >>> 0;
+          if (natW > 0 && natH > 0) {
+            pHeightHw = Math.round(pWidthHw * (natH / natW));
+          }
+        }
+        const pCenterX = Math.round(pWidthHw / 2);
+        const pCenterY = Math.round(pHeightHw / 2);
+        const picAlign = block.align === "center" ? "CENTER" : block.align === "right" ? "RIGHT" : "LEFT";
+        const picCaptionXml = buildCaptionXml(block.caption, block.captionPos, pWidthHw, (idx + 1) * 10000 + 5000);
+        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:pic id="${picObjId}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" reverse="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${pWidthHw}" height="${pHeightHw}"/>\n        <hp:curSz width="${pWidthHw}" height="${pHeightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${pCenterX}" centerY="${pCenterY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="${pWidthHw}" y="0"/><hc:pt2 x="${pWidthHw}" y="${pHeightHw}"/><hc:pt3 x="0" y="${pHeightHw}"/></hp:imgRect>\n        <hp:imgClip left="0" right="${pWidthHw}" top="0" bottom="${pHeightHw}"/>\n        <hp:inMargin left="0" right="0" top="0" bottom="0"/>\n        <hc:img binaryItemIDRef="${imgId}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/>\n        <hp:sz width="${pWidthHw}" widthRelTo="ABSOLUTE" height="${pHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${picAlign}" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${picCaptionXml ? `${picCaptionXml}\n` : ""}        <hp:shapeComment>그림 입니다.</hp:shapeComment>\n      </hp:pic></hp:run>\n    </hp:p>`;
+      }
       return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:t>[그림: ${escapeXml(block.caption || "이미지")}]</hp:t></hp:run>\n    </hp:p>`;
     }
 
@@ -1325,7 +1572,7 @@ export function serializeBlocksToHwpxPackage(
       const widthHw = Math.round((secContentWidthHw * widthPct) / 100);
       const isDiagLine = shapeType === "line" && (block.heightPt || 0) > 4.5;
       const heightHw = shapeType === "line"
-        ? (isDiagLine ? Math.round((block.heightPt || 60) * 100) : 0)
+        ? (isDiagLine ? Math.round((block.heightPt || 60) * 100) : 100)
         : Math.round((block.heightPt || 60) * 100);
       const strokeColor = colorToHex(block.strokeColor || "#2563EB");
       const fillColor = block.fillColor === "transparent" ? "none" : colorToHex(block.fillColor || "#EFF6FF");
@@ -1363,9 +1610,16 @@ export function serializeBlocksToHwpxPackage(
         }
       }
 
+      if (block.text?.startsWith("__WEB_VIDEO__:")) {
+        const videoUrl = block.text.slice("__WEB_VIDEO__:".length);
+        const vWidthHw = Math.round((secContentWidthHw * (block.widthPercent || 65)) / 100);
+        const vHeightHw = Math.round((block.heightPt || 180) * 100);
+        return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:video id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="${textFlow}" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" videotype="Web" fileIDRef="" imageIDRef="" tag="${escapeXml(videoUrl)}">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${vWidthHw}" height="${vHeightHw}"/>\n        <hp:curSz width="0" height="0"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="0" centerY="0" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:sz width="${vWidthHw}" widthRelTo="ABSOLUTE" height="${vHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="${isFloating ? "0" : "1"}" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n        <hp:shapeComment>동영상 입니다.</hp:shapeComment>\n      </hp:video></hp:run>\n    </hp:p>`;
+      }
+
       if (shapeType === "line") {
-        const lineY1 = block.lineDir === "bl-tr" ? heightHw : 0;
-        const lineY2 = block.lineDir === "bl-tr" ? 0 : heightHw;
+        const lineY1 = isDiagLine && block.lineDir === "bl-tr" ? heightHw : 0;
+        const lineY2 = isDiagLine ? (block.lineDir === "bl-tr" ? 0 : heightHw) : 0;
         return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:line id="${shapeId}" zOrder="${zOrder}" numberingType="PICTURE" textWrap="${textWrap}" textFlow="${textFlow}" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" isReverseHV="0">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${widthHw}" height="${heightHw}"/>\n        <hp:curSz width="${widthHw}" height="${heightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${centerX}" centerY="${centerY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:lineShape color="${strokeColor}" width="${strokeWidthHw}" style="SOLID" endCap="FLAT" headStyle="NORMAL" tailStyle="NORMAL" headfill="1" tailfill="1" headSz="SMALL_SMALL" tailSz="SMALL_SMALL" outlineStyle="NORMAL" alpha="0"/>\n        <hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>\n        <hp:shadow type="NONE" color="#B2B2B2" offsetX="0" offsetY="0" alpha="0"/>\n        <hc:startPt x="0" y="${lineY1}"/>\n        <hc:endPt x="${widthHw}" y="${lineY2}"/>\n        <hp:sz width="${widthHw}" widthRelTo="ABSOLUTE" height="${heightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="${treatAsChar}" affectLSpacing="0" flowWithText="${isFloating ? "0" : "1"}" allowOverlap="${allowOverlap}" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="${horzRelTo}" vertAlign="TOP" horzAlign="${horzAlign}" vertOffset="${isFloating ? offY : 0}" horzOffset="${isFloating ? offX : 0}"/>\n        <hp:outMargin left="0" right="0" top="283" bottom="283"/>\n${shapeCaptionXml ? `${shapeCaptionXml}\n` : ""}        <hp:shapeComment>선 입니다.</hp:shapeComment>\n      </hp:line></hp:run>\n    </hp:p>`;
       }
 
@@ -1393,18 +1647,24 @@ export function serializeBlocksToHwpxPackage(
     }
 
     if (block.type === "chart") {
-      const chartTitle = block.title || "차트";
-      const chartType = block.chartType || "column";
-      const typeLabel = chartType === "column" ? "세로 막대형" : chartType === "bar" ? "가로 막대형" : chartType === "line" ? "꺾은선형" : "원형";
-      const catList = (block.categories || []).join(", ");
-      const seriesList = (block.series || []).map(s => `${s.name}: [${s.values.join(",")}]`).join(" | ");
-      const chartCaptionXml = block.caption ? `      <hp:caption side="${(block.captionPos || 'bottom_center').startsWith('top') ? 'TOP' : 'BOTTOM'}" fullSz="0" width="42520">\n        <hp:p id="${idx}_cap" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(block.caption)}</hp:t></hp:run></hp:p>\n      </hp:caption>` : "";
-      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n${chartCaptionXml ? `${chartCaptionXml}\n` : ""}      ${lead}<hp:run charPrIDRef="0"><hp:t>[차트: ${chartType}] ${escapeXml(chartTitle)} (${typeLabel}) - 항목: ${escapeXml(catList)} / 데이터: ${escapeXml(seriesList)}</hp:t></hp:run>\n    </hp:p>`;
+      chartCounter++;
+      const chartRelPath = `Chart/chart${chartCounter}.xml`;
+      chartFiles.set(chartRelPath, buildOoxmlChartXml(block));
+      const chartObjId = Math.floor(Math.random() * 1000000000) + 1000000000;
+      const instId = Math.floor(Math.random() * 1000000000) + 100000000;
+      const cWidthHw = Math.round((secContentWidthHw * (block.widthPercent || 70)) / 100);
+      const cHeightHw = Math.round((block.heightPt || 180) * 100);
+      const cCenterX = Math.round(cWidthHw / 2);
+      const cCenterY = Math.round(cHeightHw / 2);
+      const chartCaptionXml = buildCaptionXml(block.caption, block.captionPos, cWidthHw, (idx + 1) * 10000 + 5000);
+      const chartAlign = block.align === "center" ? "CENTER" : block.align === "right" ? "RIGHT" : "LEFT";
+      return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n      ${lead}<hp:run charPrIDRef="0"><hp:chart id="${chartObjId}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" href="" groupLevel="0" instid="${instId}" chartIDRef="${chartRelPath}" version="1.2">\n        <hp:offset x="0" y="0"/>\n        <hp:orgSz width="${cWidthHw}" height="${cHeightHw}"/>\n        <hp:curSz width="${cWidthHw}" height="${cHeightHw}"/>\n        <hp:flip horizontal="0" vertical="0"/>\n        <hp:rotationInfo angle="0" centerX="${cCenterX}" centerY="${cCenterY}" rotateimage="1"/>\n        <hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:scaMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/><hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>\n        <hp:sz width="${cWidthHw}" widthRelTo="ABSOLUTE" height="${cHeightHw}" heightRelTo="ABSOLUTE" protect="0"/>\n        <hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="${chartAlign}" vertOffset="0" horzOffset="0"/>\n        <hp:outMargin left="0" right="0" top="0" bottom="0"/>\n${chartCaptionXml ? `${chartCaptionXml}\n` : ""}        <hp:shapeComment>차트 입니다.</hp:shapeComment>\n      </hp:chart></hp:run>\n    </hp:p>`;
     }
 
     // 일반 문단
+    const blockMemos = memosByBlockId.get(block.id) || [];
     // 1. 사용자가 텍스트를 편집하지 않았고 rawXml이 있는 경우: 원본 XML 100% 무손실 출력! (수식, 이미지, 복합 서식 완전 보존)
-    if (block.rawXml && block.origText !== undefined && block.text === block.origText) {
+    if (block.rawXml && block.origText !== undefined && block.text === block.origText && blockMemos.length === 0) {
       let rawXml = block.fontEdited && block.fontFamily
         ? block.rawXml.replace(/(<hp:run\b[^>]*\bcharPrIDRef=")(\d+)(")([\s\S]*?<\/hp:run>)/g, (whole, a: string, id: string, b: string, rest: string) => {
           // secPr 또는 텍스트가 없는 순수 ctrl 런은 기본 서식 ID(charPrIDRef="0") 유지
@@ -1437,36 +1697,100 @@ export function serializeBlocksToHwpxPackage(
       return rawXml;
     }
 
-    // 2. 사용자가 텍스트를 편집했거나 새로 작성된 문단 (인라인 HTML 서식을 개별 hp:run으로 정밀 직렬화)
-    const runs = parseHtmlRuns(block.text, {
-      color: block.color,
-      sizePt: block.sizePt,
-      bold: block.bold,
-      italic: block.italic,
-      underline: block.underline,
-      fontFamily: block.fontFamily,
-    });
-
-    const runsXml = runs.map((run) => {
-      let charPrId: number;
-      if (runs.length === 1 && block.charPrId && existingCharStyleMap.has(block.charPrId)) {
-        const orig = existingCharStyleMap.get(block.charPrId)!;
-        const rColor = colorToHex(run.color);
-        const rSize = run.sizePt ? Math.round(run.sizePt) : 10;
-        const rBold = !!run.bold;
-        const rItalic = !!run.italic;
-        const rUnderline = !!run.underline;
-        const sameFont = !run.fontFamily || normalizeFontCss(run.fontFamily) === normalizeFontCss(orig.fontCss);
-        if (orig.colorHex === rColor && orig.sizePt === rSize && orig.bold === rBold && orig.italic === rItalic && orig.underline === rUnderline && sameFont) {
-          charPrId = parseInt(block.charPrId, 10);
+    // 2. 사용자가 텍스트를 편집했거나 새로 작성된 문단 (인라인 HTML 서식 및 각주/미주 <sup data-note-id>를 개별 hp:run으로 정밀 직렬화)
+    const serializeHtmlTextToRuns = (htmlSegment: string): string => {
+      if (!htmlSegment) return "";
+      const runs = parseHtmlRuns(htmlSegment, {
+        color: block.color,
+        sizePt: block.sizePt,
+        bold: block.bold,
+        italic: block.italic,
+        underline: block.underline,
+        fontFamily: block.fontFamily,
+      });
+      return runs.map((run) => {
+        let charPrId: number;
+        if (runs.length === 1 && block.charPrId && existingCharStyleMap.has(block.charPrId)) {
+          const orig = existingCharStyleMap.get(block.charPrId)!;
+          const rColor = colorToHex(run.color);
+          const rSize = run.sizePt ? Math.round(run.sizePt) : 10;
+          const rBold = !!run.bold;
+          const rItalic = !!run.italic;
+          const rUnderline = !!run.underline;
+          const sameFont = !run.fontFamily || normalizeFontCss(run.fontFamily) === normalizeFontCss(orig.fontCss);
+          if (orig.colorHex === rColor && orig.sizePt === rSize && orig.bold === rBold && orig.italic === rItalic && orig.underline === rUnderline && sameFont) {
+            charPrId = parseInt(block.charPrId, 10);
+          } else {
+            charPrId = getOrCreateCharPr(run);
+          }
         } else {
           charPrId = getOrCreateCharPr(run);
         }
-      } else {
-        charPrId = getOrCreateCharPr(run);
+        return `<hp:run charPrIDRef="${charPrId}"><hp:t>${escapeXml(run.text)}</hp:t></hp:run>`;
+      }).join("");
+    };
+
+    const inlineTokenRe = /<sup\b([^>]*)>([\s\S]*?)<\/sup>|<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>|<span\b[^>]*data-bookmark-name=["']([^"']+)["'][^>]*>[\s\S]*?<\/span>/gi;
+    let runsXml = "";
+    let lastPos = 0;
+    let supMatch: RegExpExecArray | null;
+    while ((supMatch = inlineTokenRe.exec(block.text)) !== null) {
+      if (supMatch[5]) {
+        if (supMatch.index > lastPos) {
+          runsXml += serializeHtmlTextToRuns(block.text.slice(lastPos, supMatch.index));
+        }
+        runsXml += `<hp:run charPrIDRef="0"><hp:ctrl><hp:bookmark name="${escapeXml(supMatch[5])}"/></hp:ctrl></hp:run>`;
+        lastPos = supMatch.index + supMatch[0].length;
+        continue;
       }
-      return `<hp:run charPrIDRef="${charPrId}"><hp:t>${escapeXml(run.text)}</hp:t></hp:run>`;
-    }).join("");
+      if (supMatch[3]) {
+        if (supMatch.index > lastPos) {
+          runsXml += serializeHtmlTextToRuns(block.text.slice(lastPos, supMatch.index));
+        }
+        const href = supMatch[3];
+        const linkText = supMatch[4] || href;
+        const fieldId = String(3000000000 + (++noteInstCounter));
+        const linkCharPrId = getOrCreateCharPr({
+          color: "#0000FF",
+          sizePt: block.sizePt,
+          bold: block.bold,
+          italic: block.italic,
+          underline: true,
+          fontFamily: block.fontFamily,
+        });
+        const linkInnerRuns = serializeHtmlTextToRuns(linkText).replace(/charPrIDRef="\d+"/g, `charPrIDRef="${linkCharPrId}"`)
+          || `<hp:run charPrIDRef="${linkCharPrId}"><hp:t>${escapeXml(linkText)}</hp:t></hp:run>`;
+        runsXml += `<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldBegin id="${fieldId}" type="HYPERLINK" name="" editable="0" dirty="1" zorder="-1" fieldid="${fieldId}" metaTag=""><hp:parameters cnt="2" name=""><hp:integerParam name="Prop">0</hp:integerParam><hp:stringParam name="Command">${escapeXml(href)};1;0;0;</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl></hp:run>${linkInnerRuns}<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldEnd beginIDRef="${fieldId}" fieldid="${fieldId}"/></hp:ctrl></hp:run>`;
+        lastPos = supMatch.index + supMatch[0].length;
+        continue;
+      }
+      const attrs = supMatch[1] || "";
+      const noteIdMatch = attrs.match(/data-note-id=["']([^"']+)["']/i);
+      if (!noteIdMatch) continue;
+      if (supMatch.index > lastPos) {
+        runsXml += serializeHtmlTextToRuns(block.text.slice(lastPos, supMatch.index));
+      }
+      const noteId = noteIdMatch[1];
+      const isEndnote = /data-note-type=["']endnote["']/i.test(attrs) || noteId.startsWith("endnote-");
+      const num = isEndnote ? ++endnoteCounter : ++footnoteCounter;
+      const instId = 2000000000 + (++noteInstCounter);
+      const noteBlock = noteBlockMap.get(noteId);
+      const noteInnerRuns = serializeHtmlTextToRuns(noteBlock?.text || "") || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>';
+      const noteTag = isEndnote ? "hp:endNote" : "hp:footNote";
+      const numType = isEndnote ? "ENDNOTE" : "FOOTNOTE";
+      const noteParaId = (idx + 1) * 10000 + noteInstCounter;
+      runsXml += `<hp:run charPrIDRef="0"><hp:ctrl><${noteTag} number="${num}" suffixChar=")" instId="${instId}"><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0"><hp:p id="${noteParaId}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:ctrl><hp:autoNum num="${num}" numType="${numType}"><hp:autoNumFormat type="DIGIT" userChar="" prefixChar="" suffixChar=")" supscript="0"/></hp:autoNum></hp:ctrl></hp:run>${noteInnerRuns}</hp:p></hp:subList></${noteTag}></hp:ctrl></hp:run>`;
+      lastPos = supMatch.index + supMatch[0].length;
+    }
+    if (lastPos < block.text.length) {
+      runsXml += serializeHtmlTextToRuns(block.text.slice(lastPos));
+    }
+
+    for (const memo of blockMemos) {
+      const memoFieldId = String(4000000000 + (++noteInstCounter));
+      const memoParaId = (idx + 1) * 10000 + 5000 + noteInstCounter;
+      runsXml += `<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldBegin id="${memoFieldId}" type="MEMO" name="" editable="1" dirty="1" zorder="-1" fieldid="${memoFieldId}" metaTag=""><hp:parameters cnt="3" name=""><hp:stringParam name="Author">${escapeXml(memo.author || "작성자")}</hp:stringParam><hp:stringParam name="CreateDateTime">${escapeXml(memo.createdAt || "")}</hp:stringParam><hp:stringParam name="MemoShapeID">0</hp:stringParam></hp:parameters><hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0"><hp:p id="${memoParaId}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>${escapeXml(memo.text || "")}</hp:t></hp:run></hp:p></hp:subList></hp:fieldBegin></hp:ctrl></hp:run><hp:run charPrIDRef="0"><hp:ctrl><hp:fieldEnd beginIDRef="${memoFieldId}" fieldid="${memoFieldId}"/></hp:ctrl></hp:run>`;
+    }
 
     const pageBreakStr = block.pageBreak ? "1" : "0";
     return `    <hp:p id="${idx}" paraPrIDRef="${paraPr}" styleIDRef="0" pageBreak="${pageBreakStr}" columnBreak="0" merged="0">\n      ${lead}${runsXml || '<hp:run charPrIDRef="0"><hp:t></hp:t></hp:run>'}\n    </hp:p>`;
@@ -1576,6 +1900,10 @@ export function serializeBlocksToHwpxPackage(
         headerXml = headerXml.replace(/<\/hh:refList>/, `${defaultBorderFillsXml}\n  </hh:refList>`);
       }
     }
+    if (options?.memos && options.memos.length > 0 && !headerXml.includes("<hh:memoProperties")) {
+      const memoPropsXml = `    <hh:memoProperties itemCnt="1">\n      <hh:memoPr id="0" width="12755" lineWidth="0.12mm" lineType="SOLID" lineColor="#FFC000" fillColor="#FFF9C4" activeColor="#FFE082" memoType="NORMAL"/>\n    </hh:memoProperties>`;
+      headerXml = headerXml.replace(/<\/hh:refList>/, `${memoPropsXml}\n  </hh:refList>`);
+    }
   } else {
     // 원본 헤더가 없는 경우에만 완전한 표준 OWPML 기본 헤더 생성
     const defaultChar0 = `      <hh:charPr id="0" height="1000" textColor="#000000" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="2">\n` +
@@ -1620,6 +1948,9 @@ export function serializeBlocksToHwpxPackage(
       `    <hh:styles itemCnt="1">\n` +
       `      <hh:style id="0" type="para" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>\n` +
       `    </hh:styles>\n` +
+      (options?.memos && options.memos.length > 0
+        ? `    <hh:memoProperties itemCnt="1">\n      <hh:memoPr id="0" width="12755" lineWidth="0.12mm" lineType="SOLID" lineColor="#FFC000" fillColor="#FFF9C4" activeColor="#FFE082" memoType="NORMAL"/>\n    </hh:memoProperties>\n`
+        : "") +
       `  </hh:refList>\n` +
       `  <hh:compatibleDocument targetProgram="HWP2018"><hh:layoutCompatibility/></hh:compatibleDocument>\n` +
       `</hh:head>`;
@@ -1630,7 +1961,12 @@ export function serializeBlocksToHwpxPackage(
     headerXml = headerXml.replace(/<hh:head\b([^>]*)>/, '<hh:head$1 secCnt="1">');
   }
 
-  return { sectionXml, headerXml };
+  return {
+    sectionXml,
+    headerXml,
+    chartFiles: chartFiles.size > 0 ? chartFiles : undefined,
+    binDataFiles: binDataFiles.size > 0 ? binDataFiles : undefined,
+  };
 }
 
 export function serializeBlocksToHwpxXml(blocks: HwpxCollabBlock[], originalXml = ""): string {
@@ -1962,7 +2298,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const src = (yBlock.get("src") as string) || "";
       const widthPercent = (yBlock.get("widthPercent") as number) || 100;
       const heightPt = yBlock.get("heightPt") as number | undefined;
-      const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const align = (yBlock.get("align") as "left" | "center" | "right") || "left";
       const caption = (yBlock.get("caption") as string) || "";
       const captionPos = yBlock.get("captionPos") as string | undefined;
       const rawXml = yBlock.get("rawXml") as string | undefined;
@@ -2020,7 +2356,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const strokeWidth = (yBlock.get("strokeWidth") as number) || 1.5;
       const strokeType = yBlock.get("strokeType") as string | undefined;
       const yText = yBlock.get("text") as Y.Text | undefined;
-      const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const align = (yBlock.get("align") as "left" | "center" | "right") || "left";
       const caption = yBlock.get("caption") as string | undefined;
       const captionPos = yBlock.get("captionPos") as string | undefined;
       const rawXml = yBlock.get("rawXml") as string | undefined;
@@ -2080,7 +2416,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       ];
       const widthPercent = (yBlock.get("widthPercent") as number) || 85;
       const heightPt = (yBlock.get("heightPt") as number) || 180;
-      const align = (yBlock.get("align") as "left" | "center" | "right") || "center";
+      const align = (yBlock.get("align") as "left" | "center" | "right") || "left";
       const caption = yBlock.get("caption") as string | undefined;
       const captionPos = yBlock.get("captionPos") as string | undefined;
       const offsetX = yBlock.get("offsetX") as number | undefined;
@@ -2156,7 +2492,9 @@ export function hwpxCollabKey(doc: Y.Doc): string {
 export function prepareHwpxPackageEntries(
   baseEntries: Map<string, Uint8Array>,
   sectionXml: string,
-  headerXml: string
+  headerXml: string,
+  chartFiles?: Map<string, string>,
+  binDataFiles?: Map<string, Uint8Array>
 ): Map<string, Uint8Array> {
   const newEntries = new Map(baseEntries);
 
@@ -2165,6 +2503,18 @@ export function prepareHwpxPackageEntries(
 
   const headerKey = Array.from(newEntries.keys()).find((k) => /^Contents\/header\.xml$/i.test(k)) ?? "Contents/header.xml";
   newEntries.set(headerKey, new TextEncoder().encode(headerXml));
+
+  if (chartFiles && chartFiles.size > 0) {
+    for (const [relPath, xml] of chartFiles.entries()) {
+      newEntries.set(relPath, new TextEncoder().encode(xml));
+    }
+  }
+
+  if (binDataFiles && binDataFiles.size > 0) {
+    for (const [relPath, bytes] of binDataFiles.entries()) {
+      newEntries.set(relPath, bytes);
+    }
+  }
 
   // ── 표준 OCF 및 HWPX 필수 컨테이너 엔트리 보장 ──
   // 원본 문서에 이미 해당 파일이 존재하는 경우 원본의 온전한 구조/메타데이터를 100% 보존합니다.
@@ -2197,6 +2547,47 @@ export function prepareHwpxPackageEntries(
       hpfChanged = true;
     }
     if (hpfChanged) {
+      newEntries.set(hpfKey, new TextEncoder().encode(hpfStr));
+    }
+  }
+
+  if (chartFiles && chartFiles.size > 0 && newEntries.has(hpfKey)) {
+    let hpfStr = new TextDecoder().decode(newEntries.get(hpfKey)!);
+    let added = false;
+    let cIdx = 1;
+    for (const relPath of chartFiles.keys()) {
+      if (!hpfStr.includes(relPath)) {
+        const itemId = `chart${cIdx}`;
+        hpfStr = hpfStr.replace(
+          /<\/opf:manifest>/,
+          `    <opf:item id="${itemId}" href="${relPath}" media-type="application/xml"/>\n  </opf:manifest>`
+        );
+        added = true;
+      }
+      cIdx++;
+    }
+    if (added) {
+      newEntries.set(hpfKey, new TextEncoder().encode(hpfStr));
+    }
+  }
+
+  if (binDataFiles && binDataFiles.size > 0 && newEntries.has(hpfKey)) {
+    let hpfStr = new TextDecoder().decode(newEntries.get(hpfKey)!);
+    let added = false;
+    for (const relPath of binDataFiles.keys()) {
+      if (!hpfStr.includes(relPath)) {
+        const base = relPath.split("/").pop() || "image1.png";
+        const itemId = base.replace(/\.[^.]+$/, "");
+        const ext = base.split(".").pop()?.toLowerCase() || "png";
+        const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "gif" ? "image/gif" : "image/png";
+        hpfStr = hpfStr.replace(
+          /<\/opf:manifest>/,
+          `    <opf:item id="${itemId}" href="${relPath}" media-type="${mime}" isEmbeded="1"/>\n  </opf:manifest>`
+        );
+        added = true;
+      }
+    }
+    if (added) {
       newEntries.set(hpfKey, new TextEncoder().encode(hpfStr));
     }
   }

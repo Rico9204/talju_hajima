@@ -6,8 +6,8 @@
 math.hwpx-rendered-equation,
 .hwpx-rendered-equation-wrapper math {
   font-family: 'Cambria Math', 'KaTeX_Math', 'STIX Two Math', 'Latin Modern Math', 'Times New Roman', serif;
-  font-size: 1.16em;
-  line-height: 1.4;
+  font-size: 9.5pt;
+  line-height: 1.15;
   color: #111827;
 }
 
