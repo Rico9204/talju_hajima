@@ -27,6 +27,7 @@ import {
   extractBlocksFromYDoc,
   extractHwpxImageMap,
   HwpxCollabBlock,
+  HwpxTableCell,
   HwpxImageBlock,
   HwpxChartBlock,
   HwpxParagraphBlock,
@@ -132,6 +133,8 @@ import {
   BookmarkModal,
   BulletAndNumberModal,
   StyleModal,
+  SplitCellModal,
+  DeleteTableCellsModal,
   InsertDateModal,
   AutoTextModal,
   PageNumberModal,
@@ -1358,6 +1361,184 @@ function parseWebVideoSource(raw: string): { kind: "iframe" | "video"; embedUrl:
   return { kind: "iframe", embedUrl: url, originalUrl: url };
 }
 
+interface PageMemoItem {
+  id: string;
+  blockId: string;
+  author: string;
+  createdAt: string;
+  text: string;
+}
+
+function PageMemoLane({
+  pageIdx,
+  pageMemos,
+  allMemos,
+  showPageOutline,
+  showMemoGuides,
+  activeMemoId,
+  setActiveMemoId,
+  updateMemoText,
+  deleteMemo,
+  zoomPercent,
+  columnLayout,
+  blocksLength,
+}: {
+  pageIdx: number;
+  pageMemos: PageMemoItem[];
+  allMemos: PageMemoItem[];
+  showPageOutline: boolean;
+  showMemoGuides: boolean;
+  activeMemoId: string | null;
+  setActiveMemoId: (id: string | null) => void;
+  updateMemoText: (id: string, text: string) => void;
+  deleteMemo: (id: string) => void;
+  zoomPercent: number;
+  columnLayout: string;
+  blocksLength: number;
+}) {
+  const laneRef = useRef<HTMLDivElement | null>(null);
+  const [tops, setTops] = useState<Record<string, number>>({});
+
+  useLayoutEffect(() => {
+    if (!showPageOutline || pageMemos.length === 0) return;
+    const lane = laneRef.current;
+    const pageEl = lane?.closest(`[data-page-idx="${pageIdx}"]`) as HTMLElement | null;
+    if (!pageEl) return;
+    const pageR = pageEl.getBoundingClientRect();
+    const scale = Math.max(0.1, zoomPercent / 100);
+
+    const measured = pageMemos.map((m, i) => {
+      const blkEl = pageEl.querySelector(`[data-block-id="${m.blockId}"]`) as HTMLElement | null;
+      const desiredTop = blkEl ? Math.max(0, Math.round((blkEl.getBoundingClientRect().top - pageR.top) / scale)) : i * 96;
+      return { id: m.id, desiredTop };
+    });
+    measured.sort((a, b) => a.desiredTop - b.desiredTop);
+
+    const nextTops: Record<string, number> = {};
+    let minNextTop = 0;
+    for (const item of measured) {
+      const cardEl = lane?.querySelector(`[data-memo-card="${item.id}"]`) as HTMLElement | null;
+      const cardH = cardEl ? cardEl.offsetHeight : 84;
+      const placedTop = Math.max(item.desiredTop, minNextTop);
+      nextTops[item.id] = placedTop;
+      minNextTop = placedTop + cardH + 8;
+    }
+    setTops(nextTops);
+  }, [pageIdx, pageMemos, showPageOutline, zoomPercent, columnLayout, blocksLength]);
+
+  if (pageMemos.length === 0) return null;
+
+  if (!showPageOutline) {
+    return (
+      <div
+        contentEditable={false}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        className="mt-3 ml-auto flex flex-col gap-2 w-[210px] select-none"
+      >
+        {pageMemos.map((memo) => {
+          const memoNumber = allMemos.findIndex((m) => m.id === memo.id) + 1;
+          return (
+            <div
+              key={memo.id}
+              data-memo-card={memo.id}
+              className="border border-neutral-800 shadow-md rounded-[1px] overflow-hidden text-[11px] font-sans"
+            >
+              <div className="bg-[#a6c8e8] border-b border-neutral-800 px-1.5 py-0.5 flex items-center justify-between gap-1 text-[10px] text-neutral-900">
+                <span className="font-semibold truncate">[메모:{memoNumber}] {memo.author}</span>
+                <span className="flex items-center gap-1 shrink-0 text-[9px] text-neutral-800">
+                  <span>{memo.createdAt}</span>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => deleteMemo(memo.id)}
+                    title="메모 지우기"
+                    className="hover:text-red-700 font-bold leading-none px-0.5 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </span>
+              </div>
+              <div className="bg-[#ffffa5] p-1.5">
+                <textarea
+                  autoFocus={activeMemoId === memo.id}
+                  value={memo.text}
+                  onChange={(e) => updateMemoText(memo.id, e.target.value)}
+                  onFocus={() => setActiveMemoId(memo.id)}
+                  placeholder="메모 내용을 입력하세요..."
+                  rows={Math.max(2, memo.text.split("\n").length)}
+                  className="w-full bg-transparent border-none outline-none resize-none text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-500"
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={laneRef}
+      data-page-memo-lane={pageIdx}
+      contentEditable={false}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute top-0 left-[calc(100%+18px)] z-40 select-none pointer-events-auto"
+      style={{ width: "210px" }}
+    >
+      {pageMemos.map((memo, i) => {
+        const memoNumber = allMemos.findIndex((m) => m.id === memo.id) + 1;
+        const topPx = tops[memo.id] ?? i * 96;
+        return (
+          <div
+            key={memo.id}
+            data-memo-card={memo.id}
+            className="absolute left-0 right-0 border border-neutral-800 shadow-md rounded-[1px] text-[11px] font-sans bg-[#ffffa5]"
+            style={{ top: `${topPx}px` }}
+          >
+            {showMemoGuides && (
+              <div
+                aria-hidden="true"
+                className="absolute right-full top-3 h-[1px] bg-neutral-700 pointer-events-none"
+                style={{ width: "18px" }}
+              />
+            )}
+            <div className="bg-[#a6c8e8] border-b border-neutral-800 px-1.5 py-0.5 flex items-center justify-between gap-1 text-[10px] text-neutral-900">
+              <span className="font-semibold truncate">
+                [메모:{memoNumber}] {memo.author}
+              </span>
+              <span className="flex items-center gap-1 shrink-0 text-[9px] text-neutral-800">
+                <span>{memo.createdAt}</span>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => deleteMemo(memo.id)}
+                  title="메모 지우기"
+                  className="hover:text-red-700 font-bold leading-none px-0.5 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+            <div className="bg-[#ffffa5] p-1.5">
+              <textarea
+                autoFocus={activeMemoId === memo.id}
+                value={memo.text}
+                onChange={(e) => updateMemoText(memo.id, e.target.value)}
+                onFocus={() => setActiveMemoId(memo.id)}
+                placeholder="메모 내용을 입력하세요..."
+                rows={Math.max(2, memo.text.split("\n").length)}
+                className="w-full bg-transparent border-none outline-none resize-none text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-500"
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function HwpxEditorModal({
   projectId,
   file,
@@ -1775,9 +1956,21 @@ function HwpxEditorModalInner({
   const [showSpellCheckModal, setShowSpellCheckModal] = useState(false);
 
   // 쪽 및 조판 상태
-  const [pageNumberPos, setPageNumberPos] = useState<"bottom-center" | "bottom-left" | "bottom-right" | "top-center" | "none">("bottom-center");
+  const [pageNumberPos, setPageNumberPos] = useState<"bottom-center" | "bottom-left" | "bottom-right" | "top-center" | "none">("none");
+  const [headerPos, setHeaderPos] = useState<"none" | "left" | "center" | "right">("none");
+  const [footerPos, setFooterPos] = useState<"none" | "left" | "center" | "right">("none");
   const [watermarkText, setWatermarkText] = useState("");
   const [columnCount, setColumnCount] = useState<1 | 2 | 3>(1);
+  const [columnSectionLayouts, setColumnSectionLayouts] = useState<Record<number, "1" | "2" | "3" | "left" | "right">>({});
+  const [activeColIdx, setActiveColIdx] = useState<number>(0);
+  const [pageNumberStartOverrides, setPageNumberStartOverrides] = useState<Record<number, number>>({});
+  const [hiddenPageElements, setHiddenPageElements] = useState<Record<number, { header?: boolean; footer?: boolean; pageNumber?: boolean; border?: boolean; background?: boolean }>>({});
+  const [showNewPageNumModal, setShowNewPageNumModal] = useState(false);
+  const [draftNewPageNum, setDraftNewPageNum] = useState("1");
+  const [showHidePageModal, setShowHidePageModal] = useState(false);
+  const [draftHidePageOpts, setDraftHidePageOpts] = useState({ header: false, footer: false, pageNumber: false, border: false, background: false });
+  const [columnBreakBlockIds, setColumnBreakBlockIds] = useState<Record<string, boolean>>({});
+  const [columnSectionBreakBlockIds, setColumnSectionBreakBlockIds] = useState<Record<string, boolean>>({});
   const [showLineNumbers, setShowLineNumbers] = useState(false);
 
   // ── 한컴독스 상단 메뉴바 풀다운 드롭다운 및 상단 UI 상태 ──
@@ -1811,6 +2004,31 @@ function HwpxEditorModalInner({
     endCol: number;
   } | null>(null);
   const tableDragRef = useRef<{ blockIdx: number; startRow: number; startCol: number; active: boolean } | null>(null);
+  const [activeTableCell, setActiveTableCell] = useState<{ blockIdx: number; row: number; col: number } | null>(null);
+  const [deleteTableCellsPrompt, setDeleteTableCellsPrompt] = useState<{
+    blockIdx: number;
+    startRow: number;
+    startCol: number;
+    endRow: number;
+    endCol: number;
+  } | null>(null);
+  const [tableCellResizeDraft, setTableCellResizeDraft] = useState<{
+    blockIdx: number;
+    colWidths?: number[];
+    rowHeights?: number[];
+    cellWidths?: Record<string, number>;
+    cellHeights?: Record<string, number>;
+  } | null>(null);
+  const [splitCellModal, setSplitCellModal] = useState<{
+    blockIdx: number;
+    row: number;
+    col: number;
+    endRow: number;
+    endCol: number;
+    canMergeBeforeSplit: boolean;
+    initialRows: number;
+    initialCols: number;
+  } | null>(null);
   useEffect(() => {
     const clearDrag = () => {
       if (tableDragRef.current) tableDragRef.current = null;
@@ -1822,7 +2040,10 @@ function HwpxEditorModalInner({
     if (tableCellSelection && selectedIdx !== tableCellSelection.blockIdx) {
       setTableCellSelection(null);
     }
-  }, [selectedIdx, tableCellSelection]);
+    if (activeTableCell && selectedIdx !== activeTableCell.blockIdx) {
+      setActiveTableCell(null);
+    }
+  }, [selectedIdx, tableCellSelection, activeTableCell]);
   const [zoomFitMode, setZoomFitMode] = useState<"custom" | "page" | "width">("custom");
   const [showFormatToolbar, setShowFormatToolbar] = useState(true);
   const [showAllMemos, setShowAllMemos] = useState(true);
@@ -1986,29 +2207,97 @@ function HwpxEditorModalInner({
   };
 
   // 선택 영역 삭제 (Ctrl+E)
+  const executeTableCellDelete = (
+    sel: { blockIdx: number; startRow: number; startCol: number; endRow: number; endCol: number },
+    keepShape: boolean
+  ) => {
+    const { blockIdx, startRow, startCol, endRow, endCol } = sel;
+    const tbl = blocks[blockIdx];
+    const rMin = Math.min(startRow, endRow);
+    const rMax = Math.max(startRow, endRow);
+    const cMin = Math.min(startCol, endCol);
+    const cMax = Math.max(startCol, endCol);
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(blockIdx);
+    const yRows = yBlock?.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
+    if (!yRows) return;
+
+    if (keepShape) {
+      doc.transact(() => {
+        for (let r = rMin; r <= rMax; r++) {
+          const yRow = yRows.get(r);
+          if (!yRow) continue;
+          for (let c = cMin; c <= cMax; c++) {
+            const yCell = yRow.get(c);
+            const yText = yCell?.get("text") as Y.Text | undefined;
+            if (yText && yText.length > 0) yText.delete(0, yText.length);
+          }
+        }
+      });
+      return;
+    }
+
+    const rowCount = yRows.length;
+    const colCount = yRows.get(0)?.length || 1;
+    if (rMin === 0 && rMax >= rowCount - 1 && cMin === 0 && cMax >= colCount - 1) {
+      setTableCellSelection(null);
+      deleteBlock(blockIdx);
+      return;
+    }
+    if (cMin === 0 && cMax >= colCount - 1) {
+      doc.transact(() => {
+        yRows.delete(rMin, Math.min(rowCount - rMin, rMax - rMin + 1));
+        if (tbl && tbl.type === "table" && Array.isArray(tbl.rowHeights)) {
+          const nextH = [...tbl.rowHeights];
+          nextH.splice(rMin, rMax - rMin + 1);
+          yBlock?.set("rowHeights", nextH);
+        }
+      });
+      setTableCellSelection(null);
+      return;
+    }
+    if (rMin === 0 && rMax >= rowCount - 1) {
+      const delCount = Math.min(colCount - cMin, cMax - cMin + 1);
+      doc.transact(() => {
+        for (let r = 0; r < yRows.length; r++) {
+          const yRow = yRows.get(r);
+          if (yRow.length > cMin) {
+            yRow.delete(cMin, Math.min(yRow.length - cMin, delCount));
+          }
+        }
+        if (tbl && tbl.type === "table" && Array.isArray(tbl.colWidths)) {
+          const nextW = [...tbl.colWidths];
+          nextW.splice(cMin, delCount);
+          const sum = nextW.reduce((a, b) => a + b, 0) || 100;
+          yBlock?.set("colWidths", nextW.map((w) => Number(((w / sum) * 100).toFixed(2))));
+        }
+      });
+      setTableCellSelection(null);
+      return;
+    }
+    doc.transact(() => {
+      for (let r = rMax; r >= rMin; r--) {
+        const yRow = yRows.get(r);
+        if (!yRow) continue;
+        const delCount = Math.min(yRow.length - cMin, cMax - cMin + 1);
+        if (delCount > 0) yRow.delete(cMin, delCount);
+        if (yRow.length === 0) yRows.delete(r, 1);
+      }
+    });
+    setTableCellSelection(null);
+  };
+
   const deleteSelected = () => {
     if (tableCellSelection) {
-      const { blockIdx, startRow, startCol, endRow, endCol } = tableCellSelection;
-      const rMin = Math.min(startRow, endRow);
-      const rMax = Math.max(startRow, endRow);
-      const cMin = Math.min(startCol, endCol);
-      const cMax = Math.max(startCol, endCol);
-      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-      const yBlock = yBlocks.get(blockIdx);
-      const yRows = yBlock?.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
-      if (yRows) {
-        doc.transact(() => {
-          for (let r = rMin; r <= rMax; r++) {
-            const yRow = yRows.get(r);
-            if (!yRow) continue;
-            for (let c = cMin; c <= cMax; c++) {
-              const yCell = yRow.get(c);
-              const yText = yCell?.get("text") as Y.Text | undefined;
-              if (yText && yText.length > 0) yText.delete(0, yText.length);
-            }
-          }
-        });
+      const rMin = Math.min(tableCellSelection.startRow, tableCellSelection.endRow);
+      const rMax = Math.max(tableCellSelection.startRow, tableCellSelection.endRow);
+      const cMin = Math.min(tableCellSelection.startCol, tableCellSelection.endCol);
+      const cMax = Math.max(tableCellSelection.startCol, tableCellSelection.endCol);
+      if (rMax > rMin || cMax > cMin) {
+        setDeleteTableCellsPrompt({ ...tableCellSelection });
+        return;
       }
+      executeTableCellDelete(tableCellSelection, true);
       return;
     }
     restoreSelection();
@@ -2051,6 +2340,20 @@ function HwpxEditorModalInner({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasScrollRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = canvasScrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      if (e.deltaY === 0) return;
+      const step = e.deltaY < 0 ? 10 : -10;
+      setZoomFitMode("custom");
+      setZoomPercent((prev) => Math.max(30, Math.min(300, prev + step)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   const rulerScrollRef = useRef<HTMLDivElement>(null);
   const applyZoomFit = (mode: "page" | "width") => {
     const container = canvasScrollRef.current;
@@ -2580,7 +2883,21 @@ function HwpxEditorModalInner({
     const initialWidthPct = blockWidthPct ?? (block.type === "table" ? 100 : 75);
     const startWidthPx = startRect ? (startRect.width / zoom) : (contentWidth * (initialWidthPct / 100));
     const isShapeBlock = block.type === "shape";
+    const isTableBlock = block.type === "table";
     const startHeightPt = blockHeightPt ?? (startRect ? ((startRect.height / zoom) * (isShapeBlock ? 0.75 : 1)) : 60);
+    const startTableEl = isTableBlock ? (resizableBox?.querySelector("[data-hwpx-table]") as HTMLElement | null) : null;
+    const startTableRowHeights: number[] | null = isTableBlock
+      ? block.rows.map((_, ri) => {
+          const existing = block.rowHeights?.[ri];
+          if (existing && existing > 0) return existing;
+          const cellEl =
+            startTableEl?.querySelector(`[data-hwpx-cell][data-row-idx="${ri}"][data-row-span="1"]`) ||
+            startTableEl?.querySelector(`[data-hwpx-cell][data-row-idx="${ri}"]`);
+          return Math.max(24, Math.round((cellEl?.getBoundingClientRect().height || 34) / zoom));
+        })
+      : null;
+    const startTableTotalH = startTableRowHeights ? startTableRowHeights.reduce((a, b) => a + b, 0) : startHeightPt;
+    let latestTableRowHeights: number[] | null = startTableRowHeights ? [...startTableRowHeights] : null;
 
     const isFloatingObj =
       "treatAsChar" in block && block.treatAsChar !== undefined
@@ -2589,14 +2906,25 @@ function HwpxEditorModalInner({
     const startOffX = "offsetX" in block ? ((block as { offsetX?: number }).offsetX ?? 0) : 0;
     const startOffY = "offsetY" in block ? ((block as { offsetY?: number }).offsetY ?? 0) : 0;
 
-    const align = ("align" in block ? (block as { align?: string }).align : undefined) || (block.type === "table" ? "left" : "center");
-    const factorX = isFloatingObj ? 1 : (align === "center" ? 2 : 1);
+    const align = ("align" in block ? (block as { align?: string }).align : undefined) || (block.type === "table" || block.type === "chart" ? "left" : "center");
+    const effectiveHorizMode: "left" | "center" | "right" = isFloatingObj
+      ? "left"
+      : align === "center"
+        ? "center"
+        : align === "right"
+          ? "right"
+          : "left";
 
     let currentWidthPct = initialWidthPct;
     let currentHeightPt = startHeightPt;
     let currentOffX = startOffX;
     let currentOffY = startOffY;
-    const needsOffsetShift = isFloatingObj && (dir.includes("w") || dir.includes("n"));
+    const needsHorizOffsetShift =
+      (effectiveHorizMode === "left" && dir.includes("w")) ||
+      (effectiveHorizMode === "center" && (dir.includes("w") || dir.includes("e"))) ||
+      (effectiveHorizMode === "right" && dir.includes("e"));
+    const needsVertOffsetShift = isFloatingObj && dir.includes("n");
+    const needsOffsetShift = needsHorizOffsetShift || needsVertOffsetShift;
 
     const onPointerMove = (moveEvt: PointerEvent) => {
       const dx = (moveEvt.clientX - startX) / zoom;
@@ -2604,9 +2932,9 @@ function HwpxEditorModalInner({
 
       let deltaW = 0;
       if (dir.includes("e")) {
-        deltaW = dx * factorX;
+        deltaW = dx;
       } else if (dir.includes("w")) {
-        deltaW = -dx * factorX;
+        deltaW = -dx;
       }
 
       let deltaH = 0;
@@ -2621,15 +2949,34 @@ function HwpxEditorModalInner({
         const minWPx = Math.max(8, (contentWidth * minWPct) / 100);
         const clampedWidthPx = Math.max(minWPx, Math.min(contentWidth, startWidthPx + deltaW));
         currentWidthPct = Math.max(minWPct, Math.min(100, Number(((clampedWidthPx / contentWidth) * 100).toFixed(2))));
-        if (isFloatingObj && dir.includes("w")) {
-          const actualDeltaW = clampedWidthPx - startWidthPx;
+        const actualDeltaW = clampedWidthPx - startWidthPx;
+        if (effectiveHorizMode === "left" && dir.includes("w")) {
           currentOffX = Math.round(startOffX - actualDeltaW);
+        } else if (effectiveHorizMode === "center") {
+          if (dir.includes("w")) {
+            currentOffX = Math.round(startOffX - actualDeltaW / 2);
+          } else if (dir.includes("e")) {
+            currentOffX = Math.round(startOffX + actualDeltaW / 2);
+          }
+        } else if (effectiveHorizMode === "right" && dir.includes("e")) {
+          currentOffX = Math.round(startOffX + actualDeltaW);
         }
       }
 
       if (dir.includes("n") || dir.includes("s")) {
         if (block.type === "shape" && (block as { shapeType?: string }).shapeType === "line") {
           currentHeightPt = 2;
+        } else if (isTableBlock && startTableRowHeights) {
+          const minTotalH = Math.max(24, startTableRowHeights.length * 24);
+          const nextTotalH = Math.max(minTotalH, Math.min(2400, startTableTotalH + deltaH));
+          const scale = nextTotalH / Math.max(24, startTableTotalH);
+          latestTableRowHeights = startTableRowHeights.map((h) => Math.max(24, Math.min(600, Math.round(h * scale))));
+          const actualTotalH = latestTableRowHeights.reduce((a, b) => a + b, 0);
+          currentHeightPt = actualTotalH;
+          if (isFloatingObj && dir.includes("n")) {
+            currentOffY = Math.round(startOffY - (actualTotalH - startTableTotalH));
+          }
+          setTableCellResizeDraft({ blockIdx, rowHeights: latestTableRowHeights });
         } else {
           currentHeightPt = isShapeBlock
             ? Math.max(6, Math.min(900, Number((startHeightPt + deltaH * 0.75).toFixed(2))))
@@ -2665,6 +3012,24 @@ function HwpxEditorModalInner({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
 
+      lastPointerActionAtRef.current = Date.now();
+      const savedScrollTop = canvasScrollRef.current?.scrollTop ?? null;
+      const isShape = block.type === "shape";
+      commitObjectResize(blockIdx, currentWidthPct, isShape ? currentHeightPt : undefined);
+      if (isTableBlock && (dir.includes("n") || dir.includes("s")) && latestTableRowHeights) {
+        const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+        const yBlock = yBlocks.get(blockIdx);
+        if (yBlock) {
+          doc.transact(() => {
+            yBlock.set("rowHeights", latestTableRowHeights);
+          });
+        }
+        setTableCellResizeDraft(null);
+      }
+      if (needsOffsetShift) {
+        commitObjectOffset(blockIdx, currentOffX, currentOffY);
+      }
+
       setDragResize((prev) => {
         const next = { ...prev };
         delete next[blockIdx];
@@ -2676,14 +3041,6 @@ function HwpxEditorModalInner({
           delete next[blockIdx];
           return next;
         });
-      }
-
-      lastPointerActionAtRef.current = Date.now();
-      const savedScrollTop = canvasScrollRef.current?.scrollTop ?? null;
-      const isShape = block.type === "shape";
-      commitObjectResize(blockIdx, currentWidthPct, isShape ? currentHeightPt : undefined);
-      if (needsOffsetShift) {
-        commitObjectOffset(blockIdx, currentOffX, currentOffY);
       }
       requestAnimationFrame(() => {
         if (savedScrollTop !== null && canvasScrollRef.current) {
@@ -3308,6 +3665,7 @@ function HwpxEditorModalInner({
     const breaks: number[] = [0];
     const nextPages: SliceItem[][] = [[]];
     let accH = 0;
+    let prevMb = 0;
 
     const scale = showPageOutline ? Math.max(0.1, zoomPercent / 100) : 1;
 
@@ -3411,11 +3769,14 @@ function HwpxEditorModalInner({
       const elH = els.length > 0
         ? els.reduce((sum, node) => sum + node.getBoundingClientRect().height / scale, 0)
         : (el ? el.getBoundingClientRect().height / scale : 28);
-      const h = el ? Math.max(16, elH + mt + mb) : 28;
+      const isFirstOnPage = nextPages[nextPages.length - 1].length === 0;
+      const collapsedOverlap = isFirstOnPage ? 0 : Math.min(prevMb, mt);
+      const h = el ? Math.max(16, elH + mt + mb - collapsedOverlap) : 28;
 
       if (i === 0) {
         nextPages[0].push({ idx: 0 });
-        accH = h;
+        accH = el ? Math.max(16, elH + mt + mb) : 28;
+        prevMb = mb;
         continue;
       }
 
@@ -3423,13 +3784,15 @@ function HwpxEditorModalInner({
       if (forced) {
         breaks.push(i);
         nextPages.push([{ idx: i }]);
-        accH = h;
+        accH = el ? Math.max(16, elH + mt + mb) : 28;
+        prevMb = mb;
         continue;
       }
 
       if (accH + h <= usableH + 0.5) {
         nextPages[nextPages.length - 1].push({ idx: i });
         accH += h;
+        prevMb = mb;
         continue;
       }
 
@@ -3477,10 +3840,12 @@ function HwpxEditorModalInner({
       if (nextPages[nextPages.length - 1].length > 0) {
         breaks.push(i);
         nextPages.push([{ idx: i }]);
-        accH = h;
+        accH = el ? Math.max(16, elH + mt + mb) : 28;
+        prevMb = mb;
       } else {
         nextPages[nextPages.length - 1].push({ idx: i });
         accH += h;
+        prevMb = mb;
       }
     }
 
@@ -4064,6 +4429,7 @@ function HwpxEditorModalInner({
   const [propertyTargetIdx, setPropertyTargetIdx] = useState<number | null>(null);
   const propInitialSizeRef = useRef<{ wMm: number; hMm: number }>({ wMm: 0, hMm: 0 });
   const [propActiveTab, setPropActiveTab] = useState<"basic" | "margin" | "border" | "background" | "table" | "cell">("basic");
+  const [propCellBorderScope, setPropCellBorderScope] = useState<"each" | "merged">("each");
   const [showCellBorderBgModal, setShowCellBorderBgModal] = useState(false);
   const [cellBorderBgTab, setCellBorderBgTab] = useState<"border" | "background" | "diagonal">("border");
   const [cellBorderApplyMode, setCellBorderApplyMode] = useState<"each" | "single">("each");
@@ -4212,12 +4578,17 @@ function HwpxEditorModalInner({
     setShowChartDataModal(true);
   };
 
-  const openPropertyModal = (idx: number) => {
+  const openPropertyModal = (
+    idx: number,
+    initialTab: "basic" | "margin" | "border" | "background" | "table" | "cell" = "basic",
+    borderScope: "each" | "merged" = "each"
+  ) => {
     const block = blocks[idx];
     if (!block || (block.type !== "table" && block.type !== "image" && block.type !== "shape" && block.type !== "chart")) return;
 
     setPropertyTargetIdx(idx);
-    setPropActiveTab("basic");
+    setPropActiveTab(initialTab);
+    setPropCellBorderScope(borderScope);
 
     const isFloating = block.treatAsChar !== undefined ? !block.treatAsChar : ((block.offsetX !== undefined && block.offsetX !== 0) || (block.offsetY !== undefined && block.offsetY !== 0));
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
@@ -4769,6 +5140,24 @@ function HwpxEditorModalInner({
         openPageSetupModal();
         return;
       }
+      // Ctrl+Enter: 쪽 나누기 / Ctrl+Shift+Enter: 단 나누기 / Ctrl+Alt+Enter: 다단 설정 나누기
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        if (e.altKey && !e.shiftKey) {
+          e.preventDefault();
+          handleInsertColumnSectionBreak();
+          return;
+        }
+        if (e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          handleInsertColumnBreak();
+          return;
+        }
+        if (!e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          handleInsertPageBreak();
+          return;
+        }
+      }
       // Alt+G: 찾아가기 모달
       if (e.altKey && e.key.toLowerCase() === "g") {
         e.preventDefault();
@@ -4822,6 +5211,19 @@ function HwpxEditorModalInner({
         }
       }
       if ((e.key === "Delete" || e.key === "Backspace") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (tableCellSelection && selectedIdx === tableCellSelection.blockIdx) {
+          e.preventDefault();
+          const rMin = Math.min(tableCellSelection.startRow, tableCellSelection.endRow);
+          const rMax = Math.max(tableCellSelection.startRow, tableCellSelection.endRow);
+          const cMin = Math.min(tableCellSelection.startCol, tableCellSelection.endCol);
+          const cMax = Math.max(tableCellSelection.startCol, tableCellSelection.endCol);
+          if (rMax > rMin || cMax > cMin) {
+            setDeleteTableCellsPrompt({ ...tableCellSelection });
+          } else {
+            executeTableCellDelete(tableCellSelection, true);
+          }
+          return;
+        }
         const activeEl = document.activeElement;
         const isEditing = activeEl instanceof HTMLElement && (
           activeEl.tagName === "INPUT" ||
@@ -5558,7 +5960,7 @@ function HwpxEditorModalInner({
   };
 
   // 표 계산식 및 자릿점
-  const handleTableCalc = (type: "sum" | "avg" | "comma-add" | "comma-remove") => {
+  const handleTableCalc = (type: "sum" | "avg" | "prod" | "comma-add" | "comma-remove") => {
     const cur = blocks[selectedIdx];
     if (!cur || cur.type !== "table") {
       showToast("계산식을 적용할 표를 먼저 선택해 주세요.");
@@ -5569,58 +5971,151 @@ function HwpxEditorModalInner({
     if (!yBlock) return;
     const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>>;
 
+    const hasSel = tableCellSelection && tableCellSelection.blockIdx === selectedIdx;
+    const rMin = hasSel ? Math.min(tableCellSelection.startRow, tableCellSelection.endRow) : 0;
+    const rMax = hasSel ? Math.max(tableCellSelection.startRow, tableCellSelection.endRow) : cur.rows.length - 1;
+    const cMin = hasSel ? Math.min(tableCellSelection.startCol, tableCellSelection.endCol) : 0;
+    const cMax = hasSel ? Math.max(tableCellSelection.startCol, tableCellSelection.endCol) : (cur.rows[0]?.length || 1) - 1;
+    const isSingleFocusedCell = !hasSel && activeTableCell?.blockIdx === selectedIdx;
+
     doc.transact(() => {
-      if (type === "sum" || type === "avg") {
+      if (type === "sum" || type === "avg" || type === "prod") {
         let sum = 0;
+        let prod = 1;
         let count = 0;
-        cur.rows.forEach((row) => {
-          row.forEach((cell) => {
+        for (let r = rMin; r <= rMax; r++) {
+          const row = cur.rows[r];
+          if (!row) continue;
+          for (let c = cMin; c <= cMax; c++) {
+            const cell = row[c];
+            if (!cell || cell.mergedHidden) continue;
             const num = parseFloat(cell.text.replace(/,/g, "").trim());
             if (!isNaN(num)) {
               sum += num;
+              prod *= num;
               count++;
             }
-          });
-        });
-        const valStr = type === "sum" ? String(sum.toLocaleString()) : (count > 0 ? (sum / count).toFixed(2) : "0");
-        const lastRow = yRows.get(yRows.length - 1);
-        const lastCell = lastRow?.get((lastRow?.length || 1) - 1);
-        const yCellText = lastCell?.get("text") as Y.Text;
+          }
+        }
+        const valStr =
+          type === "sum"
+            ? String(sum.toLocaleString())
+            : type === "prod"
+              ? (count > 0 ? String(prod.toLocaleString()) : "0")
+              : (count > 0 ? (sum / count).toFixed(2) : "0");
+        const targetRowIdx = Math.min(yRows.length - 1, rMax);
+        const targetRow = yRows.get(targetRowIdx);
+        const targetColIdx = Math.min((targetRow?.length || 1) - 1, cMax);
+        const targetCell = targetRow?.get(targetColIdx);
+        const yCellText = targetCell?.get("text") as Y.Text;
         if (yCellText) {
           yCellText.delete(0, yCellText.length);
           yCellText.insert(0, valStr);
         }
       } else if (type === "comma-add" || type === "comma-remove") {
-        cur.rows.forEach((row, rIdx) => {
+        const startR = isSingleFocusedCell ? activeTableCell.row : rMin;
+        const endR = isSingleFocusedCell ? activeTableCell.row : rMax;
+        const startC = isSingleFocusedCell ? activeTableCell.col : cMin;
+        const endC = isSingleFocusedCell ? activeTableCell.col : cMax;
+        for (let rIdx = startR; rIdx <= endR; rIdx++) {
+          const row = cur.rows[rIdx];
           const yRow = yRows.get(rIdx);
-          row.forEach((cell, cIdx) => {
-            const yCell = yRow?.get(cIdx);
+          if (!row || !yRow) continue;
+          for (let cIdx = startC; cIdx <= endC; cIdx++) {
+            const cell = row[cIdx];
+            const yCell = yRow.get(cIdx);
             const yCellText = yCell?.get("text") as Y.Text;
-            if (!yCellText) return;
-            const raw = cell.text.trim();
+            if (!cell || !yCellText || cell.mergedHidden) continue;
+            const raw = cell.text;
+            let nextText = raw;
             if (type === "comma-add") {
-              const num = Number(raw.replace(/,/g, ""));
-              if (!isNaN(num) && raw.length > 0) {
-                yCellText.delete(0, yCellText.length);
-                yCellText.insert(0, num.toLocaleString());
-              }
+              nextText = raw.replace(/(^|[^0-9.,-])(-?\d[\d,]*(?:\.\d+)?)(?=$|[^0-9.,])/g, (_m, prefix: string, numToken: string) => {
+                const clean = numToken.replace(/,/g, "");
+                if (!/^-?\d+(?:\.\d+)?$/.test(clean)) return _m;
+                const [intPart, decPart] = clean.split(".");
+                const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                return prefix + (decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt);
+              });
             } else {
-              yCellText.delete(0, yCellText.length);
-              yCellText.insert(0, raw.replace(/,/g, ""));
+              nextText = raw.replace(/(\d),(?=\d{3}(?:\b|[.,]))/g, "$1");
+              while (/(\d),(?=\d{3}(?:\b|[.,]))/.test(nextText)) {
+                nextText = nextText.replace(/(\d),(?=\d{3}(?:\b|[.,]))/g, "$1");
+              }
             }
-          });
-        });
+            if (nextText !== raw) {
+              yCellText.delete(0, yCellText.length);
+              yCellText.insert(0, nextText);
+            }
+          }
+        }
       }
     });
   };
 
-  // 표 셀 합치기 (첫 행의 두 셀 병합)
+  // 병합된 셀을 포함하도록 셀 선택 영역을 직사각형으로 확장
+  const expandCellSelection = (
+    rows: HwpxTableCell[][],
+    startRow: number,
+    startCol: number,
+    endRow: number,
+    endCol: number
+  ) => {
+    let r1 = Math.max(0, Math.min(startRow, endRow));
+    let r2 = Math.min(rows.length - 1, Math.max(startRow, endRow));
+    let c1 = Math.max(0, Math.min(startCol, endCol));
+    let c2 = Math.min((rows[0]?.length || 1) - 1, Math.max(startCol, endCol));
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let r = 0; r < rows.length; r++) {
+        for (let c = 0; c < rows[r].length; c++) {
+          const cell = rows[r][c];
+          if (!cell || cell.mergedHidden) continue;
+          const cr2 = r + Math.max(1, cell.rowSpan || 1) - 1;
+          const cc2 = c + Math.max(1, cell.colSpan || 1) - 1;
+          const overlaps = !(cr2 < r1 || r > r2 || cc2 < c1 || c > c2);
+          if (overlaps) {
+            if (r < r1) { r1 = r; changed = true; }
+            if (cr2 > r2) { r2 = cr2; changed = true; }
+            if (c < c1) { c1 = c; changed = true; }
+            if (cc2 > c2) { c2 = cc2; changed = true; }
+          }
+        }
+      }
+    }
+    return { r1, r2, c1, c2 };
+  };
+
+  // 표 셀 합치기 (선택 영역 병합)
   const handleMergeTableCells = () => {
     const cur = blocks[selectedIdx];
     if (!cur || cur.type !== "table") {
       showToast("셀을 합칠 표를 먼저 선택해 주세요.");
       return;
     }
+    if (!tableCellSelection || tableCellSelection.blockIdx !== selectedIdx) {
+      showToast("합칠 셀을 2개 이상 드래그하거나 Shift+클릭으로 선택해 주세요.");
+      return;
+    }
+    const { r1, r2, c1, c2 } = expandCellSelection(
+      cur.rows,
+      tableCellSelection.startRow,
+      tableCellSelection.startCol,
+      tableCellSelection.endRow,
+      tableCellSelection.endCol
+    );
+    let visibleCount = 0;
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        if (!cur.rows[r]?.[c]?.mergedHidden) visibleCount++;
+      }
+    }
+    if (visibleCount < 2) {
+      showToast("합칠 셀을 2개 이상 선택해 주세요.");
+      return;
+    }
+
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
     const yBlock = yBlocks.get(selectedIdx);
     if (!yBlock) return;
@@ -5628,45 +6123,297 @@ function HwpxEditorModalInner({
     if (!yRows || yRows.length < 1) return;
 
     doc.transact(() => {
-      const row0 = yRows.get(0);
-      if (row0 && row0.length > 1) {
-        const cell0 = row0.get(0);
-        const cell1 = row0.get(1);
-        const text0 = (cell0?.get("text") as Y.Text)?.toString() || "";
-        const text1 = (cell1?.get("text") as Y.Text)?.toString() || "";
-        const combined = text0 + (text1 ? " " + text1 : "");
-        const yText0 = cell0?.get("text") as Y.Text;
-        if (yText0) {
-          yText0.delete(0, yText0.length);
-          yText0.insert(0, combined);
+      const texts: string[] = [];
+      for (let r = r1; r <= r2; r++) {
+        const yRow = yRows.get(r);
+        if (!yRow) continue;
+        for (let c = c1; c <= c2; c++) {
+          const yCell = yRow.get(c);
+          if (!yCell || yCell.get("mergedHidden")) continue;
+          const t = ((yCell.get("text") as Y.Text)?.toString() || "").trim();
+          if (t) texts.push(t);
         }
-        cell0?.set("colSpan", ((cell0.get("colSpan") as number) || 1) + 1);
-        row0.delete(1, 1);
+      }
+      const anchorCell = yRows.get(r1)?.get(c1);
+      if (!anchorCell) return;
+      const anchorText = anchorCell.get("text") as Y.Text | undefined;
+      const combined = texts.join(" ");
+      if (anchorText) {
+        anchorText.delete(0, anchorText.length);
+        anchorText.insert(0, combined);
+      }
+      anchorCell.set("colSpan", c2 - c1 + 1);
+      anchorCell.set("rowSpan", r2 - r1 + 1);
+      anchorCell.delete("mergedHidden");
+
+      for (let r = r1; r <= r2; r++) {
+        const yRow = yRows.get(r);
+        if (!yRow) continue;
+        for (let c = c1; c <= c2; c++) {
+          if (r === r1 && c === c1) continue;
+          const yCell = yRow.get(c);
+          if (!yCell) continue;
+          yCell.set("mergedHidden", true);
+          yCell.set("colSpan", 1);
+          yCell.set("rowSpan", 1);
+          const yt = yCell.get("text") as Y.Text | undefined;
+          if (yt && yt.length > 0) yt.delete(0, yt.length);
+        }
       }
     });
+
+    setTableCellSelection({ blockIdx: selectedIdx, startRow: r1, startCol: c1, endRow: r1, endCol: c1 });
+    setActiveTableCell({ blockIdx: selectedIdx, row: r1, col: c1 });
+    showToast("선택한 셀을 합쳤습니다.");
   };
 
-  // 표 셀 나누기 (선택 행에 셀 추가)
+  // 표 셀 나누기 모달 열기
   const handleSplitTableCell = () => {
     const cur = blocks[selectedIdx];
     if (!cur || cur.type !== "table") {
       showToast("셀을 나눌 표를 먼저 선택해 주세요.");
       return;
     }
+    let targetRow = 0;
+    let targetCol = 0;
+    let endRow = 0;
+    let endCol = 0;
+    let canMergeBeforeSplit = false;
+    if (tableCellSelection && tableCellSelection.blockIdx === selectedIdx) {
+      const { r1, r2, c1, c2 } = expandCellSelection(
+        cur.rows,
+        tableCellSelection.startRow,
+        tableCellSelection.startCol,
+        tableCellSelection.endRow,
+        tableCellSelection.endCol
+      );
+      targetRow = r1;
+      targetCol = c1;
+      endRow = r2;
+      endCol = c2;
+      let visibleCount = 0;
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          if (!cur.rows[r]?.[c]?.mergedHidden) visibleCount++;
+        }
+      }
+      canMergeBeforeSplit = visibleCount >= 2;
+    } else if (activeTableCell && activeTableCell.blockIdx === selectedIdx) {
+      targetRow = activeTableCell.row;
+      targetCol = activeTableCell.col;
+      endRow = targetRow;
+      endCol = targetCol;
+    }
+    const targetCell = cur.rows[targetRow]?.[targetCol];
+    if (!targetCell || targetCell.mergedHidden) {
+      showToast("나눌 셀을 먼저 선택해 주세요.");
+      return;
+    }
+    const curR = Math.max(1, targetCell.rowSpan || 1);
+    const curC = Math.max(1, targetCell.colSpan || 1);
+    setSplitCellModal({
+      blockIdx: selectedIdx,
+      row: targetRow,
+      col: targetCol,
+      endRow,
+      endCol,
+      canMergeBeforeSplit,
+      initialRows: curR > 1 ? curR : 1,
+      initialCols: curC > 1 ? curC : 1,
+    });
+  };
+
+  // 표 셀 나누기 실행 (표 전체 격자 정렬 유지)
+  const applySplitTableCell = (
+    blockIdx: number,
+    targetRow: number,
+    targetCol: number,
+    splitRows: number,
+    splitCols: number,
+    opts?: { endRow?: number; endCol?: number; mergeBeforeSplit?: boolean }
+  ) => {
     const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
-    const yBlock = yBlocks.get(selectedIdx);
+    const yBlock = yBlocks.get(blockIdx);
     if (!yBlock) return;
     const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>>;
-    if (!yRows || yRows.length < 1) return;
+    if (!yRows || targetRow >= yRows.length) return;
+    const targetYRow = yRows.get(targetRow);
+    if (!targetYRow || targetCol >= targetYRow.length) return;
+    const anchor = targetYRow.get(targetCol);
+    if (!anchor) return;
+
+    const shouldMergeFirst =
+      Boolean(opts?.mergeBeforeSplit) &&
+      opts?.endRow !== undefined &&
+      opts?.endCol !== undefined &&
+      (opts.endRow > targetRow || opts.endCol > targetCol);
+
+    const curRowSpan = shouldMergeFirst
+      ? opts!.endRow! - targetRow + 1
+      : Math.max(1, (anchor.get("rowSpan") as number) || 1);
+    const curColSpan = shouldMergeFirst
+      ? opts!.endCol! - targetCol + 1
+      : Math.max(1, (anchor.get("colSpan") as number) || 1);
+
+    if (!shouldMergeFirst && splitRows === 1 && splitCols === 1 && curRowSpan === 1 && curColSpan === 1) {
+      return;
+    }
+
+    const makeEmptyCell = (hidden = false) => {
+      const m = new Y.Map<unknown>();
+      m.set("text", new Y.Text(""));
+      if (hidden) m.set("mergedHidden", true);
+      return m;
+    };
+
+    const findHorizCoveringCell = (yRow: Y.Array<Y.Map<unknown>>, colIdx: number) => {
+      for (let c = colIdx; c >= 0; c--) {
+        const cell = yRow.get(c);
+        if (cell && !cell.get("mergedHidden")) {
+          return { cell, startCol: c };
+        }
+      }
+      return null;
+    };
+
+    const findVertCoveringCell = (rowIdx: number, colIdx: number) => {
+      for (let r = rowIdx; r >= 0; r--) {
+        const yRow = yRows.get(r);
+        const cell = yRow?.get(colIdx);
+        if (cell && !cell.get("mergedHidden")) {
+          return { cell, startRow: r };
+        }
+      }
+      return null;
+    };
 
     doc.transact(() => {
-      const row0 = yRows.get(0);
-      if (row0) {
-        const newCell = new Y.Map<unknown>();
-        newCell.set("text", new Y.Text(""));
-        row0.push([newCell]);
+      if (shouldMergeFirst && opts?.endRow !== undefined && opts?.endCol !== undefined) {
+        const texts: string[] = [];
+        for (let r = targetRow; r <= opts.endRow; r++) {
+          const yRow = yRows.get(r);
+          if (!yRow) continue;
+          for (let c = targetCol; c <= opts.endCol; c++) {
+            const cell = yRow.get(c);
+            if (!cell || cell.get("mergedHidden")) continue;
+            const t = ((cell.get("text") as Y.Text)?.toString() || "").trim();
+            if (t) texts.push(t);
+          }
+        }
+        const anchorText = anchor.get("text") as Y.Text | undefined;
+        if (anchorText) {
+          anchorText.delete(0, anchorText.length);
+          anchorText.insert(0, texts.join(" "));
+        }
+        anchor.set("colSpan", curColSpan);
+        anchor.set("rowSpan", curRowSpan);
+        anchor.delete("mergedHidden");
+        for (let r = targetRow; r <= opts.endRow; r++) {
+          const yRow = yRows.get(r);
+          if (!yRow) continue;
+          for (let c = targetCol; c <= opts.endCol; c++) {
+            if (r === targetRow && c === targetCol) continue;
+            const cell = yRow.get(c);
+            if (!cell) continue;
+            cell.set("mergedHidden", true);
+            cell.set("colSpan", 1);
+            cell.set("rowSpan", 1);
+            const yt = cell.get("text") as Y.Text | undefined;
+            if (yt && yt.length > 0) yt.delete(0, yt.length);
+          }
+        }
+      }
+
+      // 1) 열 방향 분할: 필요한 만큼 그리드 열 추가 후 다른 행은 colSpan 보정
+      const extraCols = Math.max(0, splitCols - curColSpan);
+      const insertColAt = targetCol + curColSpan;
+      if (extraCols > 0) {
+        for (let r = 0; r < yRows.length; r++) {
+          const yRow = yRows.get(r);
+          const inTargetRowSpan = r >= targetRow && r < targetRow + curRowSpan;
+          if (!inTargetRowSpan) {
+            const cov = findHorizCoveringCell(yRow, targetCol);
+            if (cov) {
+              const prevSpan = Math.max(1, (cov.cell.get("colSpan") as number) || 1);
+              cov.cell.set("colSpan", prevSpan + extraCols);
+            }
+          }
+          const newCells: Y.Map<unknown>[] = [];
+          for (let k = 0; k < extraCols; k++) {
+            newCells.push(makeEmptyCell(!inTargetRowSpan));
+          }
+          yRow.insert(insertColAt, newCells);
+        }
+      }
+
+      const finalSpanCols = Math.max(curColSpan, splitCols);
+
+      // 2) 행 방향 분할: 필요한 만큼 그리드 행 추가 후 다른 열은 rowSpan 보정
+      const extraRows = Math.max(0, splitRows - curRowSpan);
+      const insertRowAt = targetRow + curRowSpan;
+      if (extraRows > 0) {
+        const totalCols = yRows.get(0)?.length || 1;
+        // 먼저 타겟 열 범위 밖의 기존 셀들의 rowSpan 증가
+        const bumped = new Set<Y.Map<unknown>>();
+        for (let c = 0; c < totalCols; c++) {
+          if (c >= targetCol && c < targetCol + finalSpanCols) continue;
+          const cov = findVertCoveringCell(targetRow, c);
+          if (cov && !bumped.has(cov.cell)) {
+            bumped.add(cov.cell);
+            const prevR = Math.max(1, (cov.cell.get("rowSpan") as number) || 1);
+            cov.cell.set("rowSpan", prevR + extraRows);
+          }
+        }
+        const insertedRows: Y.Array<Y.Map<unknown>>[] = [];
+        for (let k = 0; k < extraRows; k++) {
+          const newRow = new Y.Array<Y.Map<unknown>>();
+          for (let c = 0; c < totalCols; c++) {
+            const inTargetCols = c >= targetCol && c < targetCol + finalSpanCols;
+            newRow.push([makeEmptyCell(!inTargetCols)]);
+          }
+          insertedRows.push(newRow);
+        }
+        yRows.insert(insertRowAt, insertedRows);
+      }
+
+      const finalSpanRows = Math.max(curRowSpan, splitRows);
+
+      // 3) 타겟 영역 [targetRow..targetRow+finalSpanRows-1][targetCol..targetCol+finalSpanCols-1] 정리
+      const eachRowSpan = splitRows === 1 && curRowSpan > 1 ? curRowSpan : 1;
+      const eachColSpan = splitCols === 1 && curColSpan > 1 ? curColSpan : 1;
+
+      for (let r = targetRow; r < targetRow + finalSpanRows; r++) {
+        const yRow = yRows.get(r);
+        if (!yRow) continue;
+        for (let c = targetCol; c < targetCol + finalSpanCols; c++) {
+          const cell = yRow.get(c);
+          if (!cell) continue;
+          const isRowAnchor = splitRows === 1 ? r === targetRow : true;
+          const isColAnchor = splitCols === 1 ? c === targetCol : true;
+          if (isRowAnchor && isColAnchor) {
+            cell.delete("mergedHidden");
+            if (eachColSpan > 1) cell.set("colSpan", eachColSpan);
+            else cell.delete("colSpan");
+            if (eachRowSpan > 1) cell.set("rowSpan", eachRowSpan);
+            else cell.delete("rowSpan");
+          } else {
+            cell.set("mergedHidden", true);
+            cell.delete("colSpan");
+            cell.delete("rowSpan");
+          }
+        }
       }
     });
+
+    setTableCellSelection({
+      blockIdx,
+      startRow: targetRow,
+      startCol: targetCol,
+      endRow: targetRow,
+      endCol: targetCol,
+    });
+    setActiveTableCell({ blockIdx, row: targetRow, col: targetCol });
+    showToast(`셀을 ${splitRows}줄 × ${splitCols}칸으로 나누었습니다.`);
   };
 
   // 표 너비/높이 맞춤
@@ -5682,6 +6429,366 @@ function HwpxEditorModalInner({
     doc.transact(() => {
       yBlock.set("widthPercent", 100);
     });
+  };
+
+  // 셀 너비를 같게
+  const handleEqualizeTableCellWidths = (targetBlockIdx = selectedIdx) => {
+    const cur = blocks[targetBlockIdx];
+    if (!cur || cur.type !== "table") {
+      showToast("표를 먼저 선택해 주세요.");
+      return;
+    }
+    const colCount = cur.rows[0]?.length || 1;
+    const equalWidths = Array.from({ length: colCount }, () => Number((100 / colCount).toFixed(2)));
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(targetBlockIdx);
+    if (!yBlock) return;
+    const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
+    doc.transact(() => {
+      yBlock.set("colWidths", equalWidths);
+      if (yRows) {
+        for (let r = 0; r < yRows.length; r++) {
+          const yRow = yRows.get(r);
+          for (let c = 0; c < yRow.length; c++) {
+            yRow.get(c)?.delete("widthPercent");
+          }
+        }
+      }
+    });
+    showToast("셀 너비를 같게 적용했습니다.");
+  };
+
+  // 개별 셀 너비 드래그 조절 (선택된 행들의 두 인접 셀만 조절하고 해당 행 나머지 셀 너비도 스냅샷 고정)
+  const startSingleCellWidthResize = (
+    e: React.MouseEvent<HTMLDivElement>,
+    blockIdx: number,
+    targetRows: Array<{
+      rowIdx: number;
+      colIdx: number;
+      nextColIdx: number;
+      curWidthPct: number;
+      nextWidthPct: number;
+      rowSnapshot: Array<{ colIdx: number; widthPct: number }>;
+    }>
+  ) => {
+    if (targetRows.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const tableEl = e.currentTarget.closest("[data-hwpx-table]") as HTMLElement | null;
+    const tableWidthPx = tableEl?.getBoundingClientRect().width || 600;
+    const startX = e.clientX;
+    const primary = targetRows[0];
+    const pairSum = primary.curWidthPct + primary.nextWidthPct;
+    const minPct = Math.min(6, pairSum / 2);
+    let dxPctLatest = 0;
+    document.body.style.cursor = "col-resize";
+
+    const computeRowPair = (tr: (typeof targetRows)[number], dxPct: number) => {
+      const pSum = tr.curWidthPct + tr.nextWidthPct;
+      const mPct = Math.min(6, pSum / 2);
+      const l = Number(Math.max(mPct, Math.min(pSum - mPct, tr.curWidthPct + dxPct)).toFixed(2));
+      const r = Number((pSum - l).toFixed(2));
+      return { l, r };
+    };
+
+    const buildMap = (dxPct: number) => {
+      const m: Record<string, number> = {};
+      for (const tr of targetRows) {
+        const { l, r } = computeRowPair(tr, dxPct);
+        for (const item of tr.rowSnapshot) {
+          m[`${tr.rowIdx}:${item.colIdx}`] = item.widthPct;
+        }
+        m[`${tr.rowIdx}:${tr.colIdx}`] = l;
+        m[`${tr.rowIdx}:${tr.nextColIdx}`] = r;
+      }
+      return m;
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const rawDxPct = ((ev.clientX - startX) / Math.max(100, tableWidthPx)) * 100;
+      const clampedLeft = Math.max(minPct, Math.min(pairSum - minPct, primary.curWidthPct + rawDxPct));
+      dxPctLatest = clampedLeft - primary.curWidthPct;
+      setTableCellResizeDraft({
+        blockIdx,
+        cellWidths: buildMap(dxPctLatest),
+      });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(blockIdx);
+      const yRows = yBlock?.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
+      if (yRows) {
+        doc.transact(() => {
+          for (const tr of targetRows) {
+            const yRow = yRows.get(tr.rowIdx);
+            if (!yRow) continue;
+            const { l, r } = computeRowPair(tr, dxPctLatest);
+            for (const item of tr.rowSnapshot) {
+              const w = item.colIdx === tr.colIdx ? l : item.colIdx === tr.nextColIdx ? r : item.widthPct;
+              yRow.get(item.colIdx)?.set("widthPercent", w);
+            }
+          }
+        });
+      }
+      setTableCellResizeDraft(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // 셀 높이를 같게
+  const handleEqualizeTableCellHeights = (targetBlockIdx = selectedIdx) => {
+    const cur = blocks[targetBlockIdx];
+    if (!cur || cur.type !== "table") {
+      showToast("표를 먼저 선택해 주세요.");
+      return;
+    }
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const yBlock = yBlocks.get(targetBlockIdx);
+    if (!yBlock) return;
+    const yRows = yBlock.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
+    doc.transact(() => {
+      yBlock.delete("rowHeights");
+      if (yRows) {
+        for (let r = 0; r < yRows.length; r++) {
+          const yRow = yRows.get(r);
+          for (let c = 0; c < yRow.length; c++) {
+            yRow.get(c)?.delete("heightPx");
+          }
+        }
+      }
+    });
+    showToast("셀 높이를 같게 적용했습니다.");
+  };
+
+  // 개별 셀 세로 높이 드래그 조절 (선택된 열들의 위/아래 인접 셀만 조절하고 해당 열 나머지 셀 높이도 스냅샷 고정)
+  const startSingleCellHeightResize = (
+    e: React.MouseEvent<HTMLDivElement>,
+    blockIdx: number,
+    targetCols: Array<{
+      colIdx: number;
+      rowIdx: number;
+      nextRowIdx: number;
+      curHeightPx: number;
+      nextHeightPx: number;
+      colSnapshot: Array<{ rowIdx: number; heightPx: number }>;
+    }>
+  ) => {
+    if (targetCols.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const zoom = Math.max(0.2, zoomPercent / 100);
+    const startY = e.clientY;
+    const primary = targetCols[0];
+    const pairSum = primary.curHeightPx + primary.nextHeightPx;
+    const minPx = Math.min(18, pairSum / 2);
+    let dyLatest = 0;
+    document.body.style.cursor = "row-resize";
+
+    const computeColPair = (tc: (typeof targetCols)[number], dyPx: number) => {
+      const pSum = tc.curHeightPx + tc.nextHeightPx;
+      const mPx = Math.min(18, pSum / 2);
+      const t = Math.round(Math.max(mPx, Math.min(pSum - mPx, tc.curHeightPx + dyPx)));
+      const b = Math.round(pSum - t);
+      return { t, b };
+    };
+
+    const buildMap = (dyPx: number) => {
+      const m: Record<string, number> = {};
+      for (const tc of targetCols) {
+        const { t, b } = computeColPair(tc, dyPx);
+        for (const item of tc.colSnapshot) {
+          m[`${item.rowIdx}:${tc.colIdx}`] = item.heightPx;
+        }
+        m[`${tc.rowIdx}:${tc.colIdx}`] = t;
+        m[`${tc.nextRowIdx}:${tc.colIdx}`] = b;
+      }
+      return m;
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const rawDy = (ev.clientY - startY) / zoom;
+      const clampedTop = Math.max(minPx, Math.min(pairSum - minPx, primary.curHeightPx + rawDy));
+      dyLatest = clampedTop - primary.curHeightPx;
+      setTableCellResizeDraft({
+        blockIdx,
+        cellHeights: buildMap(dyLatest),
+      });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(blockIdx);
+      const yRows = yBlock?.get("rows") as Y.Array<Y.Array<Y.Map<unknown>>> | undefined;
+      if (yRows) {
+        doc.transact(() => {
+          for (const tc of targetCols) {
+            const { t, b } = computeColPair(tc, dyLatest);
+            for (const item of tc.colSnapshot) {
+              const h = item.rowIdx === tc.rowIdx ? t : item.rowIdx === tc.nextRowIdx ? b : item.heightPx;
+              yRows.get(item.rowIdx)?.get(tc.colIdx)?.set("heightPx", h);
+            }
+          }
+        });
+      }
+      setTableCellResizeDraft(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // 표 열 너비 드래그 조절
+  const startTableColResize = (
+    e: React.MouseEvent<HTMLDivElement>,
+    blockIdx: number,
+    colIdx: number,
+    initialColWidths: number[]
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const tableEl = e.currentTarget.closest("[data-hwpx-table]");
+    const tableWidthPx = tableEl?.getBoundingClientRect().width || 600;
+    const startX = e.clientX;
+    const base = [...initialColWidths];
+    if (colIdx < 0 || colIdx >= base.length - 1) return;
+    const pairSum = base[colIdx] + base[colIdx + 1];
+    const minPct = Math.min(6, pairSum / 2);
+    let latest = [...base];
+
+    document.body.style.cursor = "col-resize";
+
+    const onMove = (ev: MouseEvent) => {
+      const dxPct = ((ev.clientX - startX) / Math.max(100, tableWidthPx)) * 100;
+      const nextLeft = Math.max(minPct, Math.min(pairSum - minPct, base[colIdx] + dxPct));
+      const nextRight = pairSum - nextLeft;
+      latest = [...base];
+      latest[colIdx] = Number(nextLeft.toFixed(2));
+      latest[colIdx + 1] = Number(nextRight.toFixed(2));
+      setTableCellResizeDraft({ blockIdx, colWidths: latest });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(blockIdx);
+      if (yBlock) {
+        doc.transact(() => {
+          yBlock.set("colWidths", latest);
+        });
+      }
+      setTableCellResizeDraft(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // 표 우측 끝 테두리 드래그로 전체 너비 조절
+  const startTableWidthResize = (
+    e: React.MouseEvent<HTMLDivElement>,
+    blockIdx: number,
+    initialWidthPct: number
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const tableEl = e.currentTarget.closest("[data-hwpx-table]");
+    const pageEl = tableEl?.closest(".hwpx-page-sheet") as HTMLElement | null;
+    const containerW = pageEl?.getBoundingClientRect().width ? pageEl.getBoundingClientRect().width * 0.78 : 600;
+    const startX = e.clientX;
+    let latestW = Math.max(20, Math.min(100, initialWidthPct || 100));
+    document.body.style.cursor = "col-resize";
+
+    const onMove = (ev: MouseEvent) => {
+      const dxPct = ((ev.clientX - startX) / Math.max(200, containerW)) * 100;
+      latestW = Math.round(Math.max(20, Math.min(100, (initialWidthPct || 100) + dxPct)));
+      setDragResize((prev) => ({ ...prev, [blockIdx]: { ...(prev[blockIdx] || {}), widthPercent: latestW } }));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      setDragResize((prev) => {
+        const next = { ...prev };
+        delete next[blockIdx];
+        return next;
+      });
+      commitObjectResize(blockIdx, latestW, undefined);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // 표 행 높이 드래그 조절
+  const startTableRowResize = (
+    e: React.MouseEvent<HTMLDivElement>,
+    blockIdx: number,
+    rowIdx: number,
+    initialRowHeights: number[] | undefined,
+    rowCount: number
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const zoom = Math.max(0.2, zoomPercent / 100);
+    const tableEl = e.currentTarget.closest("[data-hwpx-table]");
+    const base = Array.from({ length: rowCount }, (_, ri) => {
+      const existing = initialRowHeights?.[ri];
+      if (existing && existing > 0) return existing;
+      const cellEl = tableEl?.querySelector(`[data-hwpx-cell][data-row-idx="${ri}"][data-row-span="1"]`)
+        || tableEl?.querySelector(`[data-hwpx-cell][data-row-idx="${ri}"]`);
+      return Math.max(24, Math.round((cellEl?.getBoundingClientRect().height || 34) / zoom));
+    });
+    const startY = e.clientY;
+    let latest = [...base];
+
+    document.body.style.cursor = "row-resize";
+
+    const keepTotalHeight = rowIdx < rowCount - 1 && !e.shiftKey;
+    const pairSum = keepTotalHeight ? base[rowIdx] + base[rowIdx + 1] : 0;
+    const minPairH = keepTotalHeight ? Math.min(18, pairSum / 2) : 18;
+
+    const onMove = (ev: MouseEvent) => {
+      const dy = (ev.clientY - startY) / zoom;
+      latest = [...base];
+      if (keepTotalHeight) {
+        const nextTop = Math.max(minPairH, Math.min(pairSum - minPairH, Math.round(base[rowIdx] + dy)));
+        const nextBottom = Math.round(pairSum - nextTop);
+        latest[rowIdx] = nextTop;
+        latest[rowIdx + 1] = nextBottom;
+      } else {
+        latest[rowIdx] = Math.max(18, Math.min(600, Math.round(base[rowIdx] + dy)));
+      }
+      setTableCellResizeDraft({ blockIdx, rowHeights: latest });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(blockIdx);
+      if (yBlock) {
+        doc.transact(() => {
+          yBlock.set("rowHeights", latest);
+        });
+      }
+      setTableCellResizeDraft(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   };
 
   // 맞춤법 일괄 교정
@@ -6205,6 +7312,19 @@ function HwpxEditorModalInner({
     window.print();
   };
 
+  // 쪽 번호 계산 (새 번호로 시작 반영)
+  const getDisplayPageNumber = (pIdx: number): number => {
+    let num = 1;
+    for (let i = 0; i <= pIdx; i++) {
+      if (pageNumberStartOverrides[i] !== undefined) {
+        num = pageNumberStartOverrides[i];
+      } else if (i > 0) {
+        num += 1;
+      }
+    }
+    return num;
+  };
+
   // 쪽 나누기 (Ctrl+Enter)
   const handleTogglePageBreak = () => {
     const block = blocks[selectedIdx];
@@ -6218,6 +7338,147 @@ function HwpxEditorModalInner({
         });
       }
     }
+  };
+
+  const handleInsertPageBreak = () => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const targetIdx = selectedIdx >= 0 && selectedIdx < blocks.length ? selectedIdx : blocks.length - 1;
+    const cur = blocks[targetIdx];
+    if (cur && cur.type === "paragraph" && cur.text.trim() === "" && targetIdx > 0 && !cur.pageBreak) {
+      const yBlock = yBlocks.get(targetIdx);
+      if (yBlock) {
+        doc.transact(() => { yBlock.set("pageBreak", true); });
+        showToast("쪽 나누기가 적용되었습니다.");
+        return;
+      }
+    }
+    const newId = `p-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const yNew = new Y.Map<unknown>();
+    yNew.set("id", newId);
+    yNew.set("type", "paragraph");
+    yNew.set("text", new Y.Text(""));
+    yNew.set("pageBreak", true);
+    const insertAt = Math.max(0, Math.min(targetIdx + 1, yBlocks.length));
+    doc.transact(() => {
+      yBlocks.insert(insertAt, [yNew]);
+    });
+    setSelectedIdx(insertAt);
+    pendingCaretRef.current = { mode: "offset", blockId: newId, offset: 0 };
+    showToast("쪽 나누기가 삽입되었습니다.");
+  };
+
+  const handleInsertColumnBreak = () => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const targetIdx = selectedIdx >= 0 && selectedIdx < blocks.length ? selectedIdx : blocks.length - 1;
+    const newId = `p-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const yNew = new Y.Map<unknown>();
+    yNew.set("id", newId);
+    yNew.set("type", "paragraph");
+    yNew.set("text", new Y.Text(""));
+    const insertAt = Math.max(0, Math.min(targetIdx + 1, yBlocks.length));
+    doc.transact(() => {
+      yBlocks.insert(insertAt, [yNew]);
+    });
+    setColumnBreakBlockIds((prev) => ({ ...prev, [newId]: true }));
+    setSelectedIdx(insertAt);
+    pendingCaretRef.current = { mode: "offset", blockId: newId, offset: 0 };
+    showToast("단 나누기가 삽입되었습니다.");
+  };
+
+  const getBlockSectionIdx = (bIdx: number): number => {
+    let sec = 0;
+    const limit = Math.min(Math.max(0, bIdx), blocks.length - 1);
+    for (let i = 0; i <= limit; i++) {
+      const b = blocks[i];
+      if (b && columnSectionBreakBlockIds[b.id]) sec += 1;
+    }
+    return sec;
+  };
+  const activeSectionIdx = getBlockSectionIdx(selectedIdx >= 0 ? selectedIdx : 0);
+  const columnLayout: "1" | "2" | "3" | "left" | "right" = columnSectionLayouts[activeSectionIdx] ?? "1";
+
+  const handleInsertColumnSectionBreak = () => {
+    const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+    const targetIdx = selectedIdx >= 0 && selectedIdx < blocks.length ? selectedIdx : blocks.length - 1;
+    const prevSecIdx = getBlockSectionIdx(targetIdx);
+    const newId = `p-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const yNew = new Y.Map<unknown>();
+    yNew.set("id", newId);
+    yNew.set("type", "paragraph");
+    yNew.set("text", new Y.Text(""));
+    const insertAt = Math.max(0, Math.min(targetIdx + 1, yBlocks.length));
+    doc.transact(() => {
+      yBlocks.insert(insertAt, [yNew]);
+    });
+    setColumnSectionBreakBlockIds((prev) => ({ ...prev, [newId]: true }));
+    setColumnSectionLayouts((prev) => ({
+      ...prev,
+      [prevSecIdx + 1]: prev[prevSecIdx + 1] ?? "1",
+    }));
+    setSelectedIdx(insertAt);
+    pendingCaretRef.current = { mode: "offset", blockId: newId, offset: 0 };
+    showToast("다단 설정 나누기가 삽입되었습니다.");
+  };
+
+  useEffect(() => {
+    if (columnLayout === "1") {
+      setActiveColIdx(0);
+      return;
+    }
+    const raf = requestAnimationFrame(() => {
+      if (selectedIdx < 0) return;
+      const el = document.querySelector(`[data-block-idx="${selectedIdx}"]`) as HTMLElement | null;
+      if (!el) return;
+      const pane = el.closest("[data-col-pane]") as HTMLElement | null;
+      if (pane) {
+        setActiveColIdx(pane.getAttribute("data-col-pane") === "right" ? 1 : 0);
+        return;
+      }
+      const container = el.closest("[data-column-layout]") as HTMLElement | null;
+      if (container) {
+        const cRect = container.getBoundingClientRect();
+        const eRect = el.getBoundingClientRect();
+        const colCnt = columnLayout === "3" ? 3 : 2;
+        if (cRect.width > 0) {
+          const relX = (eRect.left + 4 - cRect.left) / cRect.width;
+          setActiveColIdx(Math.min(colCnt - 1, Math.max(0, Math.floor(relX * colCnt))));
+        }
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [selectedIdx, columnLayout, blocks.length]);
+
+  const applyColumnLayout = (layout: "1" | "2" | "3" | "left" | "right") => {
+    setColumnSectionLayouts((prev) => ({ ...prev, [activeSectionIdx]: layout }));
+    setColumnCount(layout === "1" ? 1 : layout === "3" ? 3 : 2);
+    const labelMap: Record<typeof layout, string> = {
+      "1": "1단(하나)",
+      "2": "2단(둘)",
+      "3": "3단(셋)",
+      "left": "왼쪽 다단",
+      "right": "오른쪽 다단",
+    };
+    showToast(`단 설정이 '${labelMap[layout]}'(으)로 변경되었습니다.`);
+  };
+
+  const openNewPageNumModal = () => {
+    const pIdx = Math.max(0, currentPageNum - 1);
+    const curVal = pageNumberStartOverrides[pIdx] ?? getDisplayPageNumber(pIdx);
+    setDraftNewPageNum(String(curVal));
+    setShowNewPageNumModal(true);
+  };
+
+  const openHidePageModal = () => {
+    const pIdx = Math.max(0, currentPageNum - 1);
+    const cur = hiddenPageElements[pIdx] || {};
+    setDraftHidePageOpts({
+      header: Boolean(cur.header),
+      footer: Boolean(cur.footer),
+      pageNumber: Boolean(cur.pageNumber),
+      border: Boolean(cur.border),
+      background: Boolean(cur.background),
+    });
+    setShowHidePageModal(true);
   };
 
   // 모두 바꾸기 (Replace All)
@@ -7392,7 +8653,7 @@ function HwpxEditorModalInner({
 
                         {hoverSubmenu === "search" && (
                           <div
-                            className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                            className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100 flex flex-col"
                             style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                           >
                             <button
@@ -7458,7 +8719,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-400">▶</span>
                         </button>
                         {hoverSubmenu === "view-zoom" && (
-                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[150px] text-[12px] text-neutral-800">
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[150px] text-[12px] text-neutral-800 flex flex-col">
                             {[50, 75, 100, 125, 150, 200, 300].map((pct) => (
                               <button
                                 key={pct}
@@ -7528,7 +8789,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-400">▶</span>
                         </button>
                         {hoverSubmenu === "view-page-shape" && (
-                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800">
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800 flex flex-col">
                             {([
                               { count: 1 as const, label: "한 쪽" },
                               { count: 2 as const, label: "두 쪽" },
@@ -7587,7 +8848,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-400">▶</span>
                         </button>
                         {hoverSubmenu === "view-show-hide" && (
-                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[200px] text-[12px] text-neutral-800">
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[200px] text-[12px] text-neutral-800 flex flex-col">
                             <button
                               type="button"
                               onClick={() => {
@@ -7669,7 +8930,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-400">▶</span>
                         </button>
                         {hoverSubmenu === "view-toolbars" && (
-                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800">
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800 flex flex-col">
                             <button
                               type="button"
                               onClick={() => {
@@ -7716,7 +8977,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-400">▶</span>
                         </button>
                         {hoverSubmenu === "view-doc-window" && (
-                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800">
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[140px] text-[12px] text-neutral-800 flex flex-col">
                             <button
                               type="button"
                               onClick={() => {
@@ -7753,7 +9014,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-400">▶</span>
                         </button>
                         {hoverSubmenu === "view-memo" && (
-                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[165px] text-[12px] text-neutral-800">
+                          <div className="absolute left-full top-0 ml-0 z-70 bg-white border border-neutral-300 shadow-lg rounded-[2px] py-1 min-w-[165px] text-[12px] text-neutral-800 flex flex-col">
                             <button
                               type="button"
                               onClick={() => {
@@ -7788,7 +9049,7 @@ function HwpxEditorModalInner({
                   {isDropdownOpen && menu.id === "insert" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[225px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[225px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       {/* 도형 ▶ */}
@@ -7809,7 +9070,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-500">▸</span>
                         </button>
                         {hoverSubmenu === "insert-shape" && (
-                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-md p-2 min-w-[180px]">
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] p-2 min-w-[180px] flex flex-col">
                             {renderDrawingShapePalette((kind) => {
                               setOpenDropdown(null);
                               setHoverSubmenu(null);
@@ -7954,7 +9215,7 @@ function HwpxEditorModalInner({
                           <span className="text-[10px] text-neutral-500">▸</span>
                         </button>
                         {hoverSubmenu === "insert-note" && (
-                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-md py-1 min-w-[130px]">
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[130px] flex flex-col">
                             <button
                               type="button"
                               onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); addFootnote(); }}
@@ -8003,7 +9264,7 @@ function HwpxEditorModalInner({
                               <span className="text-[10px]">▸</span>
                             </button>
                             {canCaption && hoverSubmenu === "insert-caption" && (
-                              <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-md py-1 min-w-[120px]">
+                              <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[120px] flex flex-col">
                                 {(["위", "아래", "왼쪽", "오른쪽"] as const).map((pos) => (
                                   <button
                                     key={pos}
@@ -8071,7 +9332,7 @@ function HwpxEditorModalInner({
                     return (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[230px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[230px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       <button
@@ -8178,11 +9439,12 @@ function HwpxEditorModalInner({
                   {isDropdownOpen && menu.id === "page" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[235px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       <button
                         type="button"
+                        onMouseEnter={() => setHoverSubmenu(null)}
                         onClick={() => { setOpenDropdown(null); openPageSetupModal(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
@@ -8192,50 +9454,131 @@ function HwpxEditorModalInner({
                         </span>
                         <span className="text-[11px] text-neutral-400 font-mono">F7</span>
                       </button>
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      {/* 머리말 (서브메뉴) */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("page-header")}
+                        onMouseLeave={() => setHoverSubmenu((prev) => (prev === "page-header" ? null : prev))}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu((prev) => (prev === "page-header" ? null : "page-header"))}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverSubmenu === "page-header" ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <HeaderIcon className="w-4 h-4 text-amber-600" />
+                            <span>머리말</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▸</span>
+                        </button>
+                        {hoverSubmenu === "page-header" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[165px] flex flex-col">
+                            {(
+                              [
+                                { id: "none", label: "(모양 없음)" },
+                                { id: "left", label: "왼쪽 쪽 번호" },
+                                { id: "center", label: "가운데 쪽 번호" },
+                                { id: "right", label: "오른쪽 쪽 번호" },
+                              ] as const
+                            ).map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setHeaderPos(item.id);
+                                  setOpenDropdown(null);
+                                  setHoverSubmenu(null);
+                                  showToast(item.id === "none" ? "머리말을 제거했습니다." : `머리말(${item.label})이 적용되었습니다.`);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer ${headerPos === item.id ? "text-[#0066cc] font-semibold" : "text-neutral-800"}`}
+                              >
+                                <span>{item.label}</span>
+                                {headerPos === item.id && <span className="text-[#e11d48] text-xs">✓</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 꼬리말 (서브메뉴) */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("page-footer")}
+                        onMouseLeave={() => setHoverSubmenu((prev) => (prev === "page-footer" ? null : prev))}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu((prev) => (prev === "page-footer" ? null : "page-footer"))}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverSubmenu === "page-footer" ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <FooterIcon className="w-4 h-4 text-amber-600" />
+                            <span>꼬리말</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▸</span>
+                        </button>
+                        {hoverSubmenu === "page-footer" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[165px] flex flex-col">
+                            {(
+                              [
+                                { id: "none", label: "(모양 없음)" },
+                                { id: "left", label: "왼쪽 쪽 번호" },
+                                { id: "center", label: "가운데 쪽 번호" },
+                                { id: "right", label: "오른쪽 쪽 번호" },
+                              ] as const
+                            ).map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setFooterPos(item.id);
+                                  setOpenDropdown(null);
+                                  setHoverSubmenu(null);
+                                  showToast(item.id === "none" ? "꼬리말을 제거했습니다." : `꼬리말(${item.label})이 적용되었습니다.`);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer ${footerPos === item.id ? "text-[#0066cc] font-semibold" : "text-neutral-800"}`}
+                              >
+                                <span>{item.label}</span>
+                                {footerPos === item.id && <span className="text-[#e11d48] text-xs">✓</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); setShowPageNumberModal(true); }}
+                        onMouseEnter={() => setHoverSubmenu(null)}
+                        onClick={() => { setOpenDropdown(null); openNewPageNumModal(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
-                          <PageNumberIcon className="w-4 h-4 text-blue-600" />
-                          <span>쪽 번호 매기기...</span>
+                          <span className="w-4 h-4 inline-block shrink-0" />
+                          <span>새 번호로 시작...</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Alt+N</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); insertHeaderFooter("header"); }}
+                        onMouseEnter={() => setHoverSubmenu(null)}
+                        onClick={() => { setOpenDropdown(null); openHidePageModal(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
-                          <HeaderIcon className="w-4 h-4 text-amber-600" />
-                          <span>머리말/꼬리말...</span>
+                          <span className="w-4 h-4 inline-block shrink-0" />
+                          <span>현재 쪽만 감추기...</span>
                         </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Alt+N+S</span>
                       </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); setShowWatermarkModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <WatermarkIcon className="w-4 h-4 text-neutral-600" />
-                          <span>바탕쪽 워터마크...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setColumnCount((c) => (c === 1 ? 2 : c === 2 ? 3 : 1)); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <ColumnsIcon className="w-4 h-4 text-neutral-600" />
-                          <span>다단 설정...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); addParagraph(selectedIdx ?? blocks.length - 1); }}
+                        onMouseEnter={() => setHoverSubmenu(null)}
+                        onClick={() => { setOpenDropdown(null); handleInsertPageBreak(); }}
                         className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
                       >
                         <span className="flex items-center gap-2.5">
@@ -8244,85 +9587,338 @@ function HwpxEditorModalInner({
                         </span>
                         <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Enter</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onMouseEnter={() => setHoverSubmenu(null)}
+                        onClick={() => { setOpenDropdown(null); handleInsertColumnBreak(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ColumnsIcon className="w-4 h-4 text-neutral-600" />
+                          <span>단 나누기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Shift+Enter</span>
+                      </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      {/* 단 (서브메뉴) */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("page-columns")}
+                        onMouseLeave={() => setHoverSubmenu((prev) => (prev === "page-columns" ? null : prev))}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu((prev) => (prev === "page-columns" ? null : "page-columns"))}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverSubmenu === "page-columns" ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <ColumnsIcon className="w-4 h-4 text-neutral-600" />
+                            <span>단</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▸</span>
+                        </button>
+                        {hoverSubmenu === "page-columns" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[140px] flex flex-col">
+                            {(
+                              [
+                                { id: "1", label: "하나" },
+                                { id: "2", label: "둘" },
+                                { id: "3", label: "셋" },
+                                { id: "left", label: "왼쪽" },
+                                { id: "right", label: "오른쪽" },
+                              ] as const
+                            ).map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  applyColumnLayout(item.id);
+                                  setOpenDropdown(null);
+                                  setHoverSubmenu(null);
+                                }}
+                                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer text-neutral-800"
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span className="w-3.5 text-[#e11d48] font-bold text-xs">
+                                    {columnLayout === item.id ? "✓" : ""}
+                                  </span>
+                                  <span>{item.label}</span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onMouseEnter={() => setHoverSubmenu(null)}
+                        onClick={() => { setOpenDropdown(null); handleInsertColumnSectionBreak(); }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <ColumnsIcon className="w-4 h-4 text-neutral-600" />
+                          <span>다단 설정 나누기</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Alt+Enter</span>
+                      </button>
                     </div>
                   )}
 
                   {/* [표] 드롭다운 메뉴 */}
-                  {isDropdownOpen && menu.id === "table" && (
+                  {isDropdownOpen && menu.id === "table" && (() => {
+                    const isTableSel = selectedIdx >= 0 && blocks[selectedIdx]?.type === "table";
+                    const curTable = isTableSel ? (blocks[selectedIdx] as HwpxTableBlock) : null;
+                    const activeRowIdx = tableCellSelection?.blockIdx === selectedIdx
+                      ? tableCellSelection.endRow
+                      : activeTableCell?.blockIdx === selectedIdx
+                        ? activeTableCell.row
+                        : Math.max(0, (curTable?.rows.length || 1) - 1);
+                    const activeColIdx = tableCellSelection?.blockIdx === selectedIdx
+                      ? tableCellSelection.endCol
+                      : activeTableCell?.blockIdx === selectedIdx
+                        ? activeTableCell.col
+                        : Math.max(0, ((curTable?.rows[0]?.length) || 1) - 1);
+                    const hasCellBlockSel =
+                      isTableSel && tableCellSelection !== null && tableCellSelection.blockIdx === selectedIdx;
+                    const hasActiveCellFocus =
+                      isTableSel && activeTableCell !== null && activeTableCell.blockIdx === selectedIdx;
+                    const hasAnyCell = hasCellBlockSel || hasActiveCellFocus;
+                    const isMultiCellSel =
+                      hasCellBlockSel &&
+                      (Math.abs(tableCellSelection.endRow - tableCellSelection.startRow) > 0 ||
+                        Math.abs(tableCellSelection.endCol - tableCellSelection.startCol) > 0);
+                    const isSingleCellSel = hasAnyCell && !isMultiCellSel;
+                    const itemCls = (enabled: boolean, activeSub = false) =>
+                      `w-full flex items-center justify-between px-3 py-1.5 text-left ${enabled ? "hover:bg-neutral-100 text-neutral-800 cursor-pointer" : "text-neutral-300 cursor-not-allowed"} ${activeSub ? "bg-neutral-100" : ""}`;
+                    return (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[230px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       <button
                         type="button"
                         onClick={() => { setOpenDropdown(null); setShowTableModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        className={itemCls(true)}
                       >
                         <span className="flex items-center gap-2.5">
-                          <TableIcon className="w-4 h-4 text-blue-600" />
+                          <TableIcon className="w-4 h-4 text-neutral-700" />
                           <span>표 만들기...</span>
                         </span>
+                        <span className="text-[11px] text-neutral-500 font-mono">Alt+N+T</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setOpenDropdown(null); handleMergeTableCells(); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        disabled={!isTableSel}
+                        onClick={() => { if (!isTableSel) return; setOpenDropdown(null); openPropertyModal(selectedIdx); }}
+                        className={itemCls(isTableSel)}
                       >
                         <span className="flex items-center gap-2.5">
-                          <MergeCellIcon className="w-4 h-4 text-blue-600" />
-                          <span>셀 합치기</span>
-                        </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">M</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); handleSplitTableCell(); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <SplitCellIcon className="w-4 h-4 text-blue-600" />
-                          <span>셀 나누기...</span>
-                        </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">S</span>
-                      </button>
-                      <div className="my-1 border-t border-neutral-200" />
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowTableCalcModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <CalcIcon className="w-4 h-4 text-emerald-600" />
-                          <span>계산식 / 쉼표...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenDropdown(null);
-                          if (selectedIdx !== null && blocks[selectedIdx]?.type === "table") {
-                            openPropertyModal(selectedIdx);
-                          } else {
-                            showToast("표를 먼저 선택하세요.");
-                          }
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <PageSetupIcon className="w-4 h-4 text-neutral-600" />
+                          <PageSetupIcon className={`w-4 h-4 ${isTableSel ? "text-blue-600" : "text-neutral-300"}`} />
                           <span>표/셀 속성...</span>
                         </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">P</span>
                       </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      {/* 셀 테두리/배경 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => { if (hasAnyCell) setHoverSubmenu("tbl-border"); }}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button type="button" disabled={!hasAnyCell} className={itemCls(hasAnyCell, hoverSubmenu === "tbl-border")}>
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-4" />
+                            <span>셀 테두리/배경</span>
+                          </span>
+                          <span className="text-[10px]">▸</span>
+                        </button>
+                        {hasAnyCell && hoverSubmenu === "tbl-border" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[155px] flex flex-col">
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); openCellBorderBgModal(selectedIdx, "border", "each"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 text-left whitespace-nowrap cursor-pointer">각 셀마다 적용...</button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); openCellBorderBgModal(selectedIdx, "border", "single"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 text-left whitespace-nowrap cursor-pointer">하나의 셀처럼 적용...</button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 줄/칸 추가하기 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => { if (isSingleCellSel) setHoverSubmenu("tbl-add"); }}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button type="button" disabled={!isSingleCellSel} className={itemCls(isSingleCellSel, hoverSubmenu === "tbl-add")}>
+                          <span className="flex items-center gap-2.5">
+                            <span className={`w-4 text-center text-[11px] ${isSingleCellSel ? "text-blue-600" : "text-neutral-300"}`}>⊞</span>
+                            <span>줄/칸 추가하기</span>
+                          </span>
+                          <span className="text-[10px]">▸</span>
+                        </button>
+                        {isSingleCellSel && hoverSubmenu === "tbl-add" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[215px] flex flex-col">
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); addTableRow(selectedIdx, Math.max(-1, activeRowIdx - 1)); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>위쪽에 줄 추가하기</span>
+                            </button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); addTableRow(selectedIdx, activeRowIdx); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>아래쪽에 줄 추가하기</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Enter</span>
+                            </button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); addTableCol(selectedIdx, Math.max(-1, activeColIdx - 1)); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>왼쪽에 칸 추가하기</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Alt+Insert</span>
+                            </button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); addTableCol(selectedIdx, activeColIdx); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>오른쪽에 칸 추가하기</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 줄/칸 지우기 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => { if (isSingleCellSel) setHoverSubmenu("tbl-del"); }}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button type="button" disabled={!isSingleCellSel} className={itemCls(isSingleCellSel, hoverSubmenu === "tbl-del")}>
+                          <span className="flex items-center gap-2.5">
+                            <span className={`w-4 text-center text-[11px] ${isSingleCellSel ? "text-red-500" : "text-neutral-300"}`}>⊟</span>
+                            <span>줄/칸 지우기</span>
+                          </span>
+                          <span className="text-[10px]">▸</span>
+                        </button>
+                        {isSingleCellSel && hoverSubmenu === "tbl-del" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[205px] flex flex-col">
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); deleteTableRow(selectedIdx, activeRowIdx); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>줄 지우기</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+BackSpace</span>
+                            </button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); deleteTableCol(selectedIdx, activeColIdx); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>칸 지우기</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Alt+Delete</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      <button
+                        type="button"
+                        disabled={!hasAnyCell}
+                        onClick={() => { if (!hasAnyCell) return; setOpenDropdown(null); handleSplitTableCell(); }}
+                        className={itemCls(hasAnyCell)}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <SplitCellIcon className={`w-4 h-4 ${hasAnyCell ? "text-blue-600" : "text-neutral-300"}`} />
+                          <span>셀 나누기...</span>
+                        </span>
+                        <span className={`text-[11px] font-mono ${hasAnyCell ? "text-neutral-400" : "text-neutral-300"}`}>S</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!isMultiCellSel}
+                        onClick={() => { if (!isMultiCellSel) return; setOpenDropdown(null); handleMergeTableCells(); }}
+                        className={itemCls(isMultiCellSel)}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <MergeCellIcon className={`w-4 h-4 ${isMultiCellSel ? "text-blue-600" : "text-neutral-300"}`} />
+                          <span>셀 합치기</span>
+                        </span>
+                        <span className={`text-[11px] font-mono ${isMultiCellSel ? "text-neutral-400" : "text-neutral-300"}`}>M</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!isMultiCellSel}
+                        onClick={() => { if (!isMultiCellSel) return; setOpenDropdown(null); handleEqualizeTableCellHeights(); }}
+                        className={itemCls(isMultiCellSel)}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span className="w-4 text-center text-[11px]">⇕</span>
+                          <span>셀 높이를 같게</span>
+                        </span>
+                        <span className={`text-[11px] font-mono ${isMultiCellSel ? "text-neutral-400" : "text-neutral-300"}`}>H</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!isMultiCellSel}
+                        onClick={() => { if (!isMultiCellSel) return; setOpenDropdown(null); handleEqualizeTableCellWidths(); }}
+                        className={itemCls(isMultiCellSel)}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <span className="w-4 text-center text-[11px]">⇔</span>
+                          <span>셀 너비를 같게</span>
+                        </span>
+                        <span className={`text-[11px] font-mono ${isMultiCellSel ? "text-neutral-400" : "text-neutral-300"}`}>W</span>
+                      </button>
+
+                      <div className="my-1 border-t border-neutral-200" />
+
+                      {/* 블록 계산식 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => { if (hasAnyCell) setHoverSubmenu("tbl-calc"); }}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button type="button" disabled={!hasAnyCell} className={itemCls(hasAnyCell, hoverSubmenu === "tbl-calc")}>
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-4" />
+                            <span>블록 계산식</span>
+                          </span>
+                          <span className="text-[10px]">▸</span>
+                        </button>
+                        {hasAnyCell && hoverSubmenu === "tbl-calc" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[185px] flex flex-col">
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); handleTableCalc("sum"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>블록 합계</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Shift+S</span>
+                            </button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); handleTableCalc("avg"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>블록 평균</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Shift+A</span>
+                            </button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); handleTableCalc("prod"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 flex items-center justify-between text-left cursor-pointer">
+                              <span>블록 곱</span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Shift+P</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 1,000 단위 구분 쉼표 ▶ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => { if (isTableSel) setHoverSubmenu("tbl-comma"); }}
+                        onMouseLeave={() => setHoverSubmenu(null)}
+                      >
+                        <button type="button" disabled={!isTableSel} className={itemCls(isTableSel, hoverSubmenu === "tbl-comma")}>
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-4" />
+                            <span>1,000 단위 구분 쉼표</span>
+                          </span>
+                          <span className="text-[10px]">▸</span>
+                        </button>
+                        {isTableSel && hoverSubmenu === "tbl-comma" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[120px] flex flex-col">
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); handleTableCalc("comma-add"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer">자릿점 넣기</button>
+                            <button type="button" onClick={() => { setOpenDropdown(null); setHoverSubmenu(null); handleTableCalc("comma-remove"); }} className="w-full px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer">자릿점 빼기</button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* [검토] 드롭다운 메뉴 */}
                   {isDropdownOpen && menu.id === "review" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       <button
@@ -8384,7 +9980,7 @@ function HwpxEditorModalInner({
                   {isDropdownOpen && menu.id === "tools" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-md py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
                       <button
@@ -9181,8 +10777,27 @@ function HwpxEditorModalInner({
             const pxPerMm = 3.78 * rulerScale;
             const pxPerPt = (96 / 72) * rulerScale;
             const rulerW = Math.round(pageWidthMm * pxPerMm);
-            const leftMarginPx = Math.max(16 * rulerScale, pageMarginLeftMm * pxPerMm);
-            const rightMarginPx = Math.max(16 * rulerScale, pageMarginRightMm * pxPerMm);
+            const contentMm = Math.max(20, pageWidthMm - pageMarginLeftMm - pageMarginRightMm);
+            const colGapMm = (columnLayout === "3" ? 20 : 28) / 3.78;
+            const colWidthsMm: number[] =
+              columnLayout === "1"
+                ? [contentMm]
+                : columnLayout === "2"
+                  ? [(contentMm - colGapMm) / 2, (contentMm - colGapMm) / 2]
+                  : columnLayout === "3"
+                    ? [(contentMm - colGapMm * 2) / 3, (contentMm - colGapMm * 2) / 3, (contentMm - colGapMm * 2) / 3]
+                    : columnLayout === "left"
+                      ? [(contentMm - colGapMm) * 0.35, (contentMm - colGapMm) * 0.65]
+                      : [(contentMm - colGapMm) * 0.65, (contentMm - colGapMm) * 0.35];
+            const safeColIdx = Math.min(colWidthsMm.length - 1, Math.max(0, activeColIdx));
+            let activeColStartMm = pageMarginLeftMm;
+            for (let ci = 0; ci < safeColIdx; ci++) {
+              activeColStartMm += colWidthsMm[ci] + colGapMm;
+            }
+            const activeColEndMm = activeColStartMm + colWidthsMm[safeColIdx];
+            const rulerOriginMm = activeColStartMm;
+            const leftMarginPx = Math.max(16 * rulerScale, activeColStartMm * pxPerMm);
+            const rightMarginPx = Math.max(16 * rulerScale, (pageWidthMm - activeColEndMm) * pxPerMm);
             const paraMarginLeftPt = currentPara?.marginLeftPt || 0;
             const paraFirstLinePt = currentPara?.firstLinePt || 0;
             const paraFirstLineOffsetPt =
@@ -9262,13 +10877,13 @@ function HwpxEditorModalInner({
               window.addEventListener("mouseup", onUp);
             };
 
-            const minCm = -Math.floor(pageMarginLeftMm / 10);
-            const maxCm = Math.floor((pageWidthMm - pageMarginLeftMm) / 10);
+            const minCm = -Math.floor(rulerOriginMm / 10);
+            const maxCm = Math.floor((pageWidthMm - rulerOriginMm) / 10);
             const cmValues: number[] = [];
             for (let c = minCm; c <= maxCm; c++) cmValues.push(c);
 
             const minorTicksMm: number[] = [];
-            for (let mm = Math.ceil((2 - pageMarginLeftMm) / 2) * 2; mm <= pageWidthMm - pageMarginLeftMm - 2; mm += 2) {
+            for (let mm = Math.ceil((2 - rulerOriginMm) / 2) * 2; mm <= pageWidthMm - rulerOriginMm - 2; mm += 2) {
               if (mm % 10 !== 0) minorTicksMm.push(mm);
             }
 
@@ -9284,23 +10899,34 @@ function HwpxEditorModalInner({
                   className="w-full py-0.5 px-4 sm:px-8 overflow-x-hidden"
                 >
                   <div
-                    style={{ width: `${rulerW}px` }}
-                    className="mx-auto h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-sans shadow-2xs"
+                    className="w-max mx-auto"
+                    style={
+                      showPageOutline && pageViewColumns === 1 && memos.length > 0 && showAllMemos
+                        ? { paddingRight: `${Math.round(240 * rulerScale)}px` }
+                        : undefined
+                    }
                   >
-                    {/* 왼쪽 여백 영역 회색 음영 */}
+                  <div
+                    data-ruler-bar="true"
+                    style={{ width: `${rulerW}px` }}
+                    className="h-5 bg-white border border-neutral-300 rounded-xs relative flex items-center text-[9px] text-neutral-500 font-sans shadow-2xs"
+                  >
+                    {/* 왼쪽 여백/비활성 단 영역 회색 음영 */}
                     <div
+                      data-ruler-left-shade="true"
                       style={{ width: `${Math.round(leftMarginPx)}px` }}
                       className="absolute left-0 top-0 bottom-0 bg-[#e5e7eb] border-r border-neutral-300 pointer-events-none"
                     />
-                    {/* 오른쪽 여백 영역 회색 음영 */}
+                    {/* 오른쪽 여백/비활성 단 영역 회색 음영 */}
                     <div
+                      data-ruler-right-shade="true"
                       style={{ width: `${Math.round(rightMarginPx)}px` }}
                       className="absolute right-0 top-0 bottom-0 bg-[#e5e7eb] border-l border-neutral-300 pointer-events-none"
                     />
                     {/* cm 숫자 및 눈금 */}
                     <div className="absolute inset-0 pointer-events-none overflow-hidden">
                       {minorTicksMm.map((mm) => {
-                        const posPx = Math.round((pageMarginLeftMm + mm) * pxPerMm);
+                        const posPx = Math.round((rulerOriginMm + mm) * pxPerMm);
                         const isHalf = Math.abs(mm % 10) === 5;
                         return (
                           <div
@@ -9311,7 +10937,7 @@ function HwpxEditorModalInner({
                         );
                       })}
                       {cmValues.map((cm) => {
-                        const posMm = pageMarginLeftMm + cm * 10;
+                        const posMm = rulerOriginMm + cm * 10;
                         const posPx = Math.round(posMm * pxPerMm);
                         if (posPx < 6 || posPx > rulerW - 6) return null;
                         return (
@@ -9375,6 +11001,7 @@ function HwpxEditorModalInner({
                         </div>
                       </>
                     )}
+                  </div>
                   </div>
                 </div>
               </div>
@@ -11236,7 +12863,7 @@ function HwpxEditorModalInner({
 
                 <button
                   type="button"
-                  onClick={() => { setContextMenu(null); showToast("선택한 셀의 높이를 같게 맞췄습니다."); }}
+                  onClick={() => { handleEqualizeTableCellHeights(contextMenu.blockIdx); setContextMenu(null); }}
                   className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
                 >
                   <span className="flex items-center gap-2.5">
@@ -11247,7 +12874,7 @@ function HwpxEditorModalInner({
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setContextMenu(null); showToast("선택한 셀의 너비를 같게 맞췄습니다."); }}
+                  onClick={() => { handleEqualizeTableCellWidths(contextMenu.blockIdx); setContextMenu(null); }}
                   className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-neutral-100 text-neutral-800 cursor-pointer text-left"
                 >
                   <span className="flex items-center gap-2.5">
@@ -12091,6 +13718,16 @@ function HwpxEditorModalInner({
 
                     {/* [3. 테두리 탭 - 첨부 4번 이미지 100% 매칭] */}
                     {propActiveTab === "border" && (
+                      <>
+                        {blocks[propertyTargetIdx]?.type === "table" && (
+                          <div className="mb-2 px-2.5 py-1.5 rounded bg-blue-50 border border-blue-200 text-[11px] text-blue-800 flex items-center justify-between">
+                            <span>적용 범위: <strong>{propCellBorderScope === "merged" ? "하나의 셀처럼 적용" : "각 셀마다 적용"}</strong></span>
+                            <div className="flex items-center gap-1">
+                              <button type="button" onClick={() => setPropCellBorderScope("each")} className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${propCellBorderScope === "each" ? "bg-blue-600 text-white" : "bg-white border border-blue-200 text-blue-700"}`}>각 셀</button>
+                              <button type="button" onClick={() => setPropCellBorderScope("merged")} className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer ${propCellBorderScope === "merged" ? "bg-blue-600 text-white" : "bg-white border border-blue-200 text-blue-700"}`}>하나의 셀</button>
+                            </div>
+                          </div>
+                        )}
                       <div className="flex flex-col gap-3.5">
                         <div className="border border-neutral-200 rounded p-3 bg-white flex flex-col gap-2.5">
                           <span className="font-bold text-[#0066cc] block">테두리</span>
@@ -12199,6 +13836,7 @@ function HwpxEditorModalInner({
                           </p>
                         </div>
                       </div>
+                      </>
                     )}
 
                     {/* [4. 배경 탭 - 첨부 5번 이미지 100% 매칭] */}
@@ -12911,7 +14549,7 @@ function HwpxEditorModalInner({
                     ? "grid grid-cols-[repeat(3,max-content)] gap-6 justify-items-center"
                     : pageViewColumns === 2
                       ? "grid grid-cols-[repeat(2,max-content)] gap-6 justify-items-center"
-                      : `flex flex-col items-center gap-6 ${memos.length > 0 && showAllMemos ? "pr-[170px]" : ""}`
+                      : `flex flex-col items-center gap-6 ${memos.length > 0 && showAllMemos ? "pr-[240px]" : ""}`
                     }`
               }`}
             >
@@ -12923,15 +14561,17 @@ function HwpxEditorModalInner({
                     if (justFinishedCrossDragRef.current || Date.now() - lastPointerActionAtRef.current < 250) return;
                     if (e.target === e.currentTarget && pageIndices.length > 0) {
                       const lastIdx = pageIndices[pageIndices.length - 1].idx;
-                      setSelectedIdx(lastIdx);
                       const lastBlock = blocks[lastIdx];
                       if (lastBlock?.type === "paragraph") {
+                        setSelectedIdx(lastIdx);
                         pendingCaretRef.current = { mode: "offset", blockId: lastBlock.id, offset: lastBlock.text.length };
+                      } else {
+                        setSelectedIdx(-1);
                       }
                     }
                   }}
                   className={`h-auto flex flex-col bg-white text-neutral-900 shrink-0 transition-shadow duration-150 outline-none cursor-text relative ${
-                    showPageOutline
+                    showPageOutline && !hiddenPageElements[pageIdx]?.border
                       ? "shadow-xl rounded-xs border border-neutral-300"
                       : `w-full ${pageIdx > 0 ? "border-t border-dashed border-neutral-300" : ""}`
                   } ${showGrid ? "bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px]" : ""
@@ -12995,12 +14635,35 @@ function HwpxEditorModalInner({
                       />
                     </>
                   )}
-                  <div className="flex-1">
+                  {/* 머리말 / 상단 쪽 번호 */}
+                  {(() => {
+                    const hidden = hiddenPageElements[pageIdx] || {};
+                    const showHeaderNum = headerPos !== "none" && !hidden.header && !hidden.pageNumber;
+                    const showTopCenterNum = pageNumberPos === "top-center" && !hidden.header && !hidden.pageNumber;
+                    if (!showHeaderNum && !showTopCenterNum) return null;
+                    const align = showHeaderNum ? headerPos : "center";
+                    return (
+                      <div
+                        data-page-header={pageIdx}
+                        className={`absolute left-0 right-0 pointer-events-none select-none text-[9.5pt] text-neutral-600 flex ${
+                          align === "left" ? "justify-start" : align === "right" ? "justify-end" : "justify-center"
+                        }`}
+                        style={{
+                          top: `${Math.max(10, Math.round(pageMarginTopMm * 3.78))}px`,
+                          paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                          paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                        }}
+                      >
+                        <span>- {getDisplayPageNumber(pageIdx)} -</span>
+                      </div>
+                    );
+                  })()}
+                  <div className="flex-1 flex flex-col gap-1">
                   {(() => {
                     let pageCounter = pageIdx;
                     const isInlineObjBlock = (_b?: HwpxCollabBlock) => false;
 
-                    return pageIndices.map(({ idx, sliceStart, sliceEnd }) => {
+                    const renderPageItem = ({ idx, sliceStart, sliceEnd }: (typeof pageIndices)[number]) => {
                       const block = blocks[idx];
                       if (!block || isNoteBlock(block)) return null;
                       const isInlinePara = block.type === "paragraph" && (isInlineObjBlock(blocks[idx - 1]) || isInlineObjBlock(blocks[idx + 1]));
@@ -13121,6 +14784,16 @@ function HwpxEditorModalInner({
                                           [쪽 나누기]
                                         </span>
                                       )}
+                                      {columnBreakBlockIds[block.id] && (
+                                        <span data-control-mark="columnBreak" className="text-[10px] font-mono text-amber-700 bg-amber-50/90 border border-amber-200 px-1 rounded-[2px]">
+                                          [단 나누기]
+                                        </span>
+                                      )}
+                                      {columnSectionBreakBlockIds[block.id] && (
+                                        <span data-control-mark="columnSectionBreak" className="text-[10px] font-mono text-emerald-700 bg-emerald-50/90 border border-emerald-200 px-1 rounded-[2px]">
+                                          [다단 설정 나누기]
+                                        </span>
+                                      )}
                                       {hasMemos && (
                                         <span data-control-mark="memoStart" className="text-[10px] font-mono text-[#c02626] bg-red-50/90 border border-red-200 px-1 rounded-[2px]">
                                           [메모 시작]
@@ -13161,64 +14834,7 @@ function HwpxEditorModalInner({
                                     </span>
                                   )}
 
-                                  {hasMemos && showAllMemos && (
-                                    <div
-                                      contentEditable={false}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className={`absolute top-0 z-40 flex flex-col gap-1.5 select-none ${
-                                        showPageOutline ? "left-[calc(100%+18px)]" : "right-2"
-                                      }`}
-                                      style={{ width: "200px" }}
-                                    >
-                                      {showMemoGuides && showPageOutline && (
-                                        <div
-                                          aria-hidden="true"
-                                          className="absolute right-full top-3 h-[1px] bg-neutral-700 pointer-events-none"
-                                          style={{ width: "18px" }}
-                                        />
-                                      )}
-                                      {blockMemos.map((memo) => {
-                                        const memoNumber = memos.findIndex((m) => m.id === memo.id) + 1;
-                                        return (
-                                          <div
-                                            key={memo.id}
-                                            data-memo-card={memo.id}
-                                            className="border border-neutral-800 shadow-md rounded-[1px] overflow-hidden text-[11px] font-sans"
-                                          >
-                                            <div className="bg-[#a6c8e8] border-b border-neutral-800 px-1.5 py-0.5 flex items-center justify-between gap-1 text-[10px] text-neutral-900">
-                                              <span className="font-semibold truncate">
-                                                [메모:{memoNumber}] {memo.author}
-                                              </span>
-                                              <span className="flex items-center gap-1 shrink-0 text-[9px] text-neutral-800">
-                                                <span>{memo.createdAt}</span>
-                                                <button
-                                                  type="button"
-                                                  onMouseDown={(e) => e.preventDefault()}
-                                                  onClick={() => deleteMemo(memo.id)}
-                                                  title="메모 지우기"
-                                                  className="hover:text-red-700 font-bold leading-none px-0.5 cursor-pointer"
-                                                >
-                                                  ✕
-                                                </button>
-                                              </span>
-                                            </div>
-                                            <div className="bg-[#ffffa5] p-1.5">
-                                              <textarea
-                                                autoFocus={activeMemoId === memo.id}
-                                                value={memo.text}
-                                                onChange={(e) => updateMemoText(memo.id, e.target.value)}
-                                                onFocus={() => setActiveMemoId(memo.id)}
-                                                placeholder="메모 내용을 입력하세요..."
-                                                rows={Math.max(2, memo.text.split("\n").length)}
-                                                className="w-full bg-transparent border-none outline-none resize-none text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-500"
-                                              />
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
+
                                 </div>
                               );
                             })()}
@@ -13257,7 +14873,13 @@ function HwpxEditorModalInner({
                             onDragOver={handleBlockDragOver}
                             onDragLeave={handleBlockDragLeave}
                             onDrop={handleBlockDrop}
-                            onClick={() => setSelectedIdx(idx)}
+                            onClick={(e) => {
+                              setSelectedIdx(idx);
+                              if (!(e.target as HTMLElement | null)?.closest("[data-hwpx-cell]")) {
+                                setActiveTableCell(null);
+                                setTableCellSelection(null);
+                              }
+                            }}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -13277,7 +14899,9 @@ function HwpxEditorModalInner({
                                 targetEl.tagName === "TEXTAREA" ||
                                 targetEl.tagName === "BUTTON" ||
                                 targetEl.closest("button") ||
-                                targetEl.closest(".table-remote-control")
+                                targetEl.closest(".table-remote-control") ||
+                                targetEl.closest("[data-col-resize-handle]") ||
+                                targetEl.closest("[data-row-resize-handle]")
                               ) {
                                 return;
                               }
@@ -13383,115 +15007,505 @@ function HwpxEditorModalInner({
                                   : showTransparentLines
                                     ? "1px dashed rgba(220, 38, 38, 0.35)"
                                     : "none";
+                                const colCount = block.rows[0]?.length || 1;
+                                const activeColWidths =
+                                  tableCellResizeDraft?.blockIdx === idx &&
+                                  tableCellResizeDraft.colWidths?.length === colCount
+                                    ? tableCellResizeDraft.colWidths
+                                    : block.colWidths?.length === colCount
+                                      ? block.colWidths
+                                      : Array.from({ length: colCount }, () => 100 / colCount);
+                                const activeRowHeights =
+                                  tableCellResizeDraft?.blockIdx === idx &&
+                                  tableCellResizeDraft.rowHeights?.length === block.rows.length
+                                    ? tableCellResizeDraft.rowHeights
+                                    : block.rowHeights;
+                                const draftCellWidths =
+                                  tableCellResizeDraft?.blockIdx === idx ? tableCellResizeDraft.cellWidths : undefined;
+
+                                // 행별 독립 셀 너비(1000단위 그리드) 계산 — rowSpan 포함
+                                const cellPlacements: Array<
+                                  Array<{ startUnit: number; spanUnits: number; widthPct: number; nextColIdx: number | null }>
+                                > = Array.from({ length: block.rows.length }, () => []);
+                                const occupiedRanges: Array<Array<{ colStart: number; colEnd: number; startUnit: number; endUnit: number }>> =
+                                  Array.from({ length: block.rows.length }, () => []);
+
+                                for (let r = 0; r < block.rows.length; r++) {
+                                  const rowArr = block.rows[r];
+                                  const rowOcc = [...occupiedRanges[r]].sort((a, b) => a.colStart - b.colStart);
+                                  let cursorUnit = 0;
+                                  let c = 0;
+                                  let occIdx = 0;
+                                  while (c < rowArr.length) {
+                                    if (occIdx < rowOcc.length && c === rowOcc[occIdx].colStart) {
+                                      cursorUnit = rowOcc[occIdx].endUnit;
+                                      c = rowOcc[occIdx].colEnd + 1;
+                                      occIdx++;
+                                      continue;
+                                    }
+                                    const segColEnd = occIdx < rowOcc.length ? rowOcc[occIdx].colStart - 1 : rowArr.length - 1;
+                                    const segUnitEnd = occIdx < rowOcc.length ? rowOcc[occIdx].startUnit : 1000;
+                                    const segUnits = Math.max(10, segUnitEnd - cursorUnit);
+
+                                    const segCells: Array<{ cIdx: number; cSpan: number; rSpan: number; rawW: number }> = [];
+                                    let cc = c;
+                                    while (cc <= segColEnd) {
+                                      const cell = rowArr[cc];
+                                      const cSpan = Math.max(1, cell?.colSpan || 1);
+                                      const rSpan = Math.max(1, cell?.rowSpan || 1);
+                                      if (!cell?.mergedHidden) {
+                                        const draftW = draftCellWidths?.[`${r}:${cc}`];
+                                        let fallbackW = 0;
+                                        for (let k = 0; k < cSpan; k++) {
+                                          fallbackW += activeColWidths[cc + k] ?? 100 / colCount;
+                                        }
+                                        const rawW = draftW ?? (cell.widthPercent && cell.widthPercent > 0 ? cell.widthPercent : fallbackW);
+                                        segCells.push({ cIdx: cc, cSpan, rSpan, rawW });
+                                      }
+                                      cc += cSpan;
+                                    }
+
+                                    const rawSum = segCells.reduce((acc, item) => acc + item.rawW, 0) || 100;
+                                    let segCursor = cursorUnit;
+                                    segCells.forEach((item, idxInSeg) => {
+                                      const isLastInSeg = idxInSeg === segCells.length - 1;
+                                      const u = isLastInSeg
+                                        ? segUnitEnd - segCursor
+                                        : Math.max(20, Math.round((item.rawW / rawSum) * segUnits));
+                                      const pct = Number(((u / 1000) * 100).toFixed(2));
+                                      const nextColIdx = idxInSeg < segCells.length - 1 ? segCells[idxInSeg + 1].cIdx : null;
+                                      cellPlacements[r][item.cIdx] = {
+                                        startUnit: segCursor,
+                                        spanUnits: u,
+                                        widthPct: pct,
+                                        nextColIdx,
+                                      };
+                                      if (item.rSpan > 1) {
+                                        for (let rr = r + 1; rr < Math.min(block.rows.length, r + item.rSpan); rr++) {
+                                          occupiedRanges[rr].push({
+                                            colStart: item.cIdx,
+                                            colEnd: item.cIdx + item.cSpan - 1,
+                                            startUnit: segCursor,
+                                            endUnit: segCursor + u,
+                                          });
+                                        }
+                                      }
+                                      segCursor += u;
+                                    });
+                                    cursorUnit = segUnitEnd;
+                                    c = segColEnd + 1;
+                                  }
+                                }
+
+                                const draftCellHeights =
+                                  tableCellResizeDraft?.blockIdx === idx ? tableCellResizeDraft.cellHeights : undefined;
+                                const baseRowHeightsPx = block.rows.map((_, ri) => {
+                                  const rh = activeRowHeights?.[ri];
+                                  return rh && rh > 0 ? rh : 30;
+                                });
+                                const totalTableHeightPx = baseRowHeightsPx.reduce((a, b) => a + b, 0);
+
+                                // 열별 독립 셀 높이(1000단위 세로 그리드) 계산 — colSpan 포함
+                                const cellYPlacements: Array<
+                                  Array<{ startYUnit: number; spanYUnits: number; heightPx: number; nextRowIdx: number | null }>
+                                > = Array.from({ length: block.rows.length }, () => []);
+                                const occupiedYRanges: Array<Array<{ rowStart: number; rowEnd: number; startYUnit: number; endYUnit: number }>> =
+                                  Array.from({ length: colCount }, () => []);
+
+                                for (let c = 0; c < colCount; c++) {
+                                  const colOcc = [...occupiedYRanges[c]].sort((a, b) => a.rowStart - b.rowStart);
+                                  let cursorYUnit = 0;
+                                  let r = 0;
+                                  let occIdx = 0;
+                                  while (r < block.rows.length) {
+                                    if (occIdx < colOcc.length && r === colOcc[occIdx].rowStart) {
+                                      cursorYUnit = colOcc[occIdx].endYUnit;
+                                      r = colOcc[occIdx].rowEnd + 1;
+                                      occIdx++;
+                                      continue;
+                                    }
+                                    const segRowEnd = occIdx < colOcc.length ? colOcc[occIdx].rowStart - 1 : block.rows.length - 1;
+                                    const segYEnd = occIdx < colOcc.length ? colOcc[occIdx].startYUnit : 1000;
+                                    const segYUnits = Math.max(10, segYEnd - cursorYUnit);
+
+                                    const segCells: Array<{ rIdx: number; cSpan: number; rSpan: number; rawH: number }> = [];
+                                    let rr = r;
+                                    while (rr <= segRowEnd) {
+                                      const cell = block.rows[rr]?.[c];
+                                      const cSpan = Math.max(1, cell?.colSpan || 1);
+                                      const rSpan = Math.max(1, cell?.rowSpan || 1);
+                                      if (!cell?.mergedHidden) {
+                                        const draftH = draftCellHeights?.[`${rr}:${c}`];
+                                        let fallbackH = 0;
+                                        for (let k = 0; k < rSpan; k++) {
+                                          fallbackH += baseRowHeightsPx[rr + k] ?? 30;
+                                        }
+                                        const rawH = draftH ?? (cell.heightPx && cell.heightPx > 0 ? cell.heightPx : fallbackH);
+                                        segCells.push({ rIdx: rr, cSpan, rSpan, rawH });
+                                      }
+                                      rr += rSpan;
+                                    }
+
+                                    const rawHSum = segCells.reduce((acc, item) => acc + item.rawH, 0) || totalTableHeightPx;
+                                    let segYCursor = cursorYUnit;
+                                    segCells.forEach((item, idxInSeg) => {
+                                      const isLastInSeg = idxInSeg === segCells.length - 1;
+                                      const u = isLastInSeg
+                                        ? segYEnd - segYCursor
+                                        : Math.max(20, Math.round((item.rawH / rawHSum) * segYUnits));
+                                      const hPx = Math.max(18, Math.round((u / 1000) * totalTableHeightPx));
+                                      const nextRowIdx = idxInSeg < segCells.length - 1 ? segCells[idxInSeg + 1].rIdx : null;
+                                      cellYPlacements[item.rIdx][c] = {
+                                        startYUnit: segYCursor,
+                                        spanYUnits: u,
+                                        heightPx: hPx,
+                                        nextRowIdx,
+                                      };
+                                      if (item.cSpan > 1) {
+                                        for (let cc = c + 1; cc < Math.min(colCount, c + item.cSpan); cc++) {
+                                          occupiedYRanges[cc].push({
+                                            rowStart: item.rIdx,
+                                            rowEnd: item.rIdx + item.rSpan - 1,
+                                            startYUnit: segYCursor,
+                                            endYUnit: segYCursor + u,
+                                          });
+                                        }
+                                      }
+                                      segYCursor += u;
+                                    });
+                                    cursorYUnit = segYEnd;
+                                    r = segRowEnd + 1;
+                                  }
+                                }
+
                                 return (
-                                  <table
+                                  <div
+                                    data-hwpx-table="true"
                                     data-transparent-border={!hasOuterBorder && showTransparentLines ? "true" : "false"}
                                     style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(1000, minmax(0, 1fr))",
+                                      gridTemplateRows: "repeat(1000, minmax(0, 1fr))",
+                                      height: `${totalTableHeightPx}px`,
+                                      minHeight: `${totalTableHeightPx}px`,
                                       backgroundColor: tblBg,
-                                      borderCollapse: hasCellSpacing ? "separate" : "collapse",
-                                      borderSpacing: cellSpacingPx,
                                       border: effectiveBorder,
+                                      gap: hasCellSpacing ? cellSpacingPx : undefined,
                                     }}
-                                    className="w-full table-fixed text-xs text-neutral-900"
+                                    className="w-full text-xs text-neutral-900"
                                   >
-                                    <tbody>
-                                      {block.rows.map((row, rIdx) => {
-                                        const isHeaderRow = rIdx === 0;
+                                    {block.rows.map((row, rIdx) => {
+                                      const isHeaderRow = rIdx === 0;
+                                      return row.map((cell, cIdx) => {
+                                        if (cell.mergedHidden) return null;
+                                        const cSpan = Math.max(1, cell.colSpan || 1);
+                                        const rSpan = Math.max(1, cell.rowSpan || 1);
+                                        const placement = cellPlacements[rIdx]?.[cIdx] || {
+                                          startUnit: Math.round((cIdx / colCount) * 1000),
+                                          spanUnits: Math.round((cSpan / colCount) * 1000),
+                                          widthPct: (cSpan / colCount) * 100,
+                                          nextColIdx: cIdx + cSpan < colCount ? cIdx + cSpan : null,
+                                        };
+                                        const isAtRightEdge = placement.startUnit + placement.spanUnits >= 999;
+                                        const isAtBottomEdge = rIdx + rSpan >= block.rows.length;
+                                        const isCellSelected =
+                                          tableCellSelection !== null &&
+                                          tableCellSelection.blockIdx === idx &&
+                                          !(
+                                            rIdx + rSpan - 1 < Math.min(tableCellSelection.startRow, tableCellSelection.endRow) ||
+                                            rIdx > Math.max(tableCellSelection.startRow, tableCellSelection.endRow) ||
+                                            cIdx + cSpan - 1 < Math.min(tableCellSelection.startCol, tableCellSelection.endCol) ||
+                                            cIdx > Math.max(tableCellSelection.startCol, tableCellSelection.endCol)
+                                          );
+                                        const isActiveEndCell =
+                                          isCellSelected &&
+                                          tableCellSelection.endRow >= rIdx &&
+                                          tableCellSelection.endRow <= rIdx + rSpan - 1 &&
+                                          tableCellSelection.endCol >= cIdx &&
+                                          tableCellSelection.endCol <= cIdx + cSpan - 1;
+                                        const nextPlacement =
+                                          placement.nextColIdx !== null
+                                            ? cellPlacements[rIdx]?.[placement.nextColIdx]
+                                            : undefined;
+                                        const yPlacement = cellYPlacements[rIdx]?.[cIdx] || {
+                                          startYUnit: Math.round((rIdx / Math.max(1, block.rows.length)) * 1000),
+                                          spanYUnits: Math.round((rSpan / Math.max(1, block.rows.length)) * 1000),
+                                          heightPx: baseRowHeightsPx[rIdx] ?? 30,
+                                          nextRowIdx: rIdx + rSpan < block.rows.length ? rIdx + rSpan : null,
+                                        };
+                                        const nextYPlacement =
+                                          yPlacement.nextRowIdx !== null
+                                            ? cellYPlacements[yPlacement.nextRowIdx]?.[cIdx]
+                                            : undefined;
+
                                         return (
-                                          <tr
-                                            key={rIdx}
-                                            style={{
-                                              borderBottom: effectiveBorder,
+                                          <div
+                                            key={`${rIdx}-${cIdx}`}
+                                            data-hwpx-cell="true"
+                                            data-row-idx={rIdx}
+                                            data-col-idx={cIdx}
+                                            data-col-span={cSpan}
+                                            data-row-span={rSpan}
+                                            data-width-pct={placement.widthPct}
+                                            data-height-px={yPlacement.heightPx}
+                                            onContextMenu={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              setSelectedIdx(idx);
+                                              if (!isCellSelected) {
+                                                setTableCellSelection({ blockIdx: idx, startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
+                                              }
+                                              setContextMenu({ x: e.clientX, y: e.clientY, blockIdx: idx, blockType: "table" });
                                             }}
-                                            className={isHeaderRow && !tblBg ? "bg-neutral-50/60 font-semibold" : ""}
+                                            onMouseDown={(e) => {
+                                              if (e.button !== 0) return;
+                                              setSelectedIdx(idx);
+                                              if (e.ctrlKey || e.metaKey) {
+                                                e.preventDefault();
+                                                window.getSelection()?.removeAllRanges();
+                                                if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === "INPUT") {
+                                                  document.activeElement.blur();
+                                                }
+                                                setActiveTableCell({ blockIdx: idx, row: rIdx, col: cIdx });
+                                                setTableCellSelection({
+                                                  blockIdx: idx,
+                                                  startRow: rIdx,
+                                                  startCol: cIdx,
+                                                  endRow: rIdx,
+                                                  endCol: cIdx,
+                                                });
+                                                return;
+                                              }
+                                              if (e.shiftKey) {
+                                                if (tableCellSelection && tableCellSelection.blockIdx === idx) {
+                                                  e.preventDefault();
+                                                  window.getSelection()?.removeAllRanges();
+                                                  setTableCellSelection({ ...tableCellSelection, endRow: rIdx, endCol: cIdx });
+                                                  return;
+                                                }
+                                                if (activeTableCell && activeTableCell.blockIdx === idx) {
+                                                  e.preventDefault();
+                                                  window.getSelection()?.removeAllRanges();
+                                                  setTableCellSelection({
+                                                    blockIdx: idx,
+                                                    startRow: activeTableCell.row,
+                                                    startCol: activeTableCell.col,
+                                                    endRow: rIdx,
+                                                    endCol: cIdx,
+                                                  });
+                                                  return;
+                                                }
+                                              }
+                                              setActiveTableCell({ blockIdx: idx, row: rIdx, col: cIdx });
+                                              tableDragRef.current = { blockIdx: idx, startRow: rIdx, startCol: cIdx, active: true };
+                                              if (tableCellSelection) setTableCellSelection(null);
+                                            }}
+                                            onMouseEnter={() => {
+                                              const drag = tableDragRef.current;
+                                              if (!drag || !drag.active || drag.blockIdx !== idx) return;
+                                              if (drag.startRow !== rIdx || drag.startCol !== cIdx || tableCellSelection?.blockIdx === idx) {
+                                                window.getSelection()?.removeAllRanges();
+                                                if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === "INPUT") {
+                                                  document.activeElement.blur();
+                                                }
+                                                setTableCellSelection({ blockIdx: idx, startRow: drag.startRow, startCol: drag.startCol, endRow: rIdx, endCol: cIdx });
+                                              }
+                                            }}
+                                            style={{
+                                              gridColumn: `${placement.startUnit + 1} / span ${placement.spanUnits}`,
+                                              gridRow: `${yPlacement.startYUnit + 1} / span ${yPlacement.spanYUnits}`,
+                                              paddingTop: yPlacement.heightPx < 26 ? "1px" : padTop,
+                                              paddingBottom: yPlacement.heightPx < 26 ? "1px" : padBottom,
+                                              paddingLeft: padLeft,
+                                              paddingRight: padRight,
+                                              borderRight: hasCellSpacing ? effectiveBorder : isAtRightEdge ? "none" : effectiveBorder,
+                                              borderBottom: hasCellSpacing ? effectiveBorder : isAtBottomEdge ? "none" : effectiveBorder,
+                                              borderLeft: hasCellSpacing ? effectiveBorder : undefined,
+                                              borderTop: hasCellSpacing ? effectiveBorder : undefined,
+                                              backgroundColor: cell.bgColor || undefined,
+                                            }}
+                                            className={`relative flex items-center cursor-cell min-w-0 min-h-0 overflow-hidden ${isHeaderRow && !tblBg && !cell.bgColor ? "bg-neutral-50/60 font-semibold" : ""} ${isCellSelected ? "select-none" : ""}`}
                                           >
-                                            {row.map((cell, cIdx) => {
-                                              const isCellSelected =
-                                                tableCellSelection !== null &&
-                                                tableCellSelection.blockIdx === idx &&
-                                                rIdx >= Math.min(tableCellSelection.startRow, tableCellSelection.endRow) &&
-                                                rIdx <= Math.max(tableCellSelection.startRow, tableCellSelection.endRow) &&
-                                                cIdx >= Math.min(tableCellSelection.startCol, tableCellSelection.endCol) &&
-                                                cIdx <= Math.max(tableCellSelection.startCol, tableCellSelection.endCol);
-                                              const isActiveEndCell =
-                                                isCellSelected &&
-                                                rIdx === tableCellSelection.endRow &&
-                                                cIdx === tableCellSelection.endCol;
-                                              return (
-                                                <td
-                                                  key={cIdx}
-                                                  onContextMenu={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    setSelectedIdx(idx);
-                                                    if (!isCellSelected) {
-                                                      setTableCellSelection({ blockIdx: idx, startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx });
-                                                    }
-                                                    setContextMenu({ x: e.clientX, y: e.clientY, blockIdx: idx, blockType: "table" });
-                                                  }}
-                                                  onMouseDown={(e) => {
-                                                    if (e.button !== 0) return;
-                                                    setSelectedIdx(idx);
-                                                    if (e.shiftKey && tableCellSelection && tableCellSelection.blockIdx === idx) {
-                                                      e.preventDefault();
-                                                      window.getSelection()?.removeAllRanges();
-                                                      setTableCellSelection({ ...tableCellSelection, endRow: rIdx, endCol: cIdx });
-                                                      return;
-                                                    }
-                                                    tableDragRef.current = { blockIdx: idx, startRow: rIdx, startCol: cIdx, active: true };
-                                                    if (tableCellSelection) setTableCellSelection(null);
-                                                  }}
-                                                  onMouseEnter={() => {
-                                                    const drag = tableDragRef.current;
-                                                    if (!drag || !drag.active || drag.blockIdx !== idx) return;
-                                                    if (drag.startRow !== rIdx || drag.startCol !== cIdx || tableCellSelection?.blockIdx === idx) {
-                                                      window.getSelection()?.removeAllRanges();
-                                                      if (document.activeElement instanceof HTMLElement && document.activeElement.tagName === "INPUT") {
-                                                        document.activeElement.blur();
-                                                      }
-                                                      setTableCellSelection({ blockIdx: idx, startRow: drag.startRow, startCol: drag.startCol, endRow: rIdx, endCol: cIdx });
-                                                    }
-                                                  }}
-                                                  style={{
-                                                    paddingTop: padTop,
-                                                    paddingBottom: padBottom,
-                                                    paddingLeft: padLeft,
-                                                    paddingRight: padRight,
-                                                    borderRight: effectiveBorder,
-                                                    backgroundColor: cell.bgColor || undefined,
-                                                  }}
-                                                  className={`relative last:border-r-0 cursor-cell ${isCellSelected ? "select-none" : ""}`}
-                                                >
-                                                  {isCellSelected && (
-                                                    <span aria-hidden="true" className="pointer-events-none absolute inset-[2px] bg-neutral-400/55 z-[1] flex items-center justify-center">
-                                                      {isActiveEndCell && <span className="w-1.5 h-1.5 rounded-full bg-red-600 ring-1 ring-white shadow-xs" />}
-                                                    </span>
-                                                  )}
-                                                  <input
-                                                    type="text"
-                                                    value={cell.text}
-                                                    onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
-                                                    onFocus={() => setSelectedIdx(idx)}
-                                                    onKeyDown={(e) => {
-                                                      if (e.key === "Escape" && tableCellSelection) { e.preventDefault(); setTableCellSelection(null); return; }
-                                                      if (e.key === "F5") { e.preventDefault(); setTableCellSelection({ blockIdx: idx, startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx }); return; }
-                                                      if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-                                                        e.preventDefault();
-                                                        const base = tableCellSelection && tableCellSelection.blockIdx === idx ? tableCellSelection : { blockIdx: idx, startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx };
-                                                        const nextRow = Math.max(0, Math.min(block.rows.length - 1, base.endRow + (e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0)));
-                                                        const nextCol = Math.max(0, Math.min((block.rows[nextRow]?.length ?? row.length) - 1, base.endCol + (e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0)));
-                                                        setTableCellSelection({ ...base, endRow: nextRow, endCol: nextCol });
-                                                        return;
-                                                      }
-                                                      if ((e.key === "Delete" || e.key === "Backspace") && tableCellSelection && tableCellSelection.blockIdx === idx) { e.preventDefault(); deleteSelected(); return; }
-                                                      if (e.key === "ArrowUp") {
+                                            {isCellSelected && (
+                                              <span aria-hidden="true" className="pointer-events-none absolute inset-[2px] bg-neutral-400/55 z-[1] flex items-center justify-center">
+                                                {isActiveEndCell && <span className="w-1.5 h-1.5 rounded-full bg-red-600 ring-1 ring-white shadow-xs" />}
+                                              </span>
+                                            )}
+                                            <div
+                                              data-col-resize-handle={cIdx + cSpan - 1}
+                                              onPointerDown={(e) => e.stopPropagation()}
+                                              onMouseDown={(e) => {
+                                                const nextCellObj = placement.nextColIdx !== null ? row[placement.nextColIdx] : undefined;
+                                                const isNextCellSelected =
+                                                  placement.nextColIdx !== null &&
+                                                  tableCellSelection !== null &&
+                                                  tableCellSelection.blockIdx === idx &&
+                                                  (() => {
+                                                    const ncSpan = Math.max(1, nextCellObj?.colSpan || 1);
+                                                    const nrSpan = Math.max(1, nextCellObj?.rowSpan || 1);
+                                                    return !(
+                                                      rIdx + nrSpan - 1 < Math.min(tableCellSelection.startRow, tableCellSelection.endRow) ||
+                                                      rIdx > Math.max(tableCellSelection.startRow, tableCellSelection.endRow) ||
+                                                      placement.nextColIdx + ncSpan - 1 < Math.min(tableCellSelection.startCol, tableCellSelection.endCol) ||
+                                                      placement.nextColIdx > Math.max(tableCellSelection.startCol, tableCellSelection.endCol)
+                                                    );
+                                                  })();
+                                                const isBoundaryInSelection = isCellSelected || isNextCellSelected;
+                                                const isAlreadyStaggered =
+                                                  (cell.widthPercent !== undefined && cell.widthPercent > 0) ||
+                                                  (nextCellObj?.widthPercent !== undefined && nextCellObj.widthPercent > 0);
+                                                if (
+                                                  !e.shiftKey &&
+                                                  (isBoundaryInSelection || e.ctrlKey || e.altKey || isAlreadyStaggered) &&
+                                                  placement.nextColIdx !== null &&
+                                                  nextPlacement
+                                                ) {
+                                                  const targetRowIndices: number[] = [];
+                                                  if (isBoundaryInSelection && tableCellSelection && tableCellSelection.blockIdx === idx) {
+                                                    const selR1 = Math.min(tableCellSelection.startRow, tableCellSelection.endRow);
+                                                    const selR2 = Math.max(tableCellSelection.startRow, tableCellSelection.endRow);
+                                                    for (let rr = selR1; rr <= selR2; rr++) targetRowIndices.push(rr);
+                                                  } else {
+                                                    targetRowIndices.push(rIdx);
+                                                  }
+                                                  const targetRows = targetRowIndices
+                                                    .map((rr) => {
+                                                      const pl = cellPlacements[rr]?.[cIdx];
+                                                      const nCol = pl?.nextColIdx ?? null;
+                                                      const nPl = nCol !== null ? cellPlacements[rr]?.[nCol] : undefined;
+                                                      if (!pl || nCol === null || !nPl) return null;
+                                                      const snap = (cellPlacements[rr] || [])
+                                                        .map((x, colI) => (x ? { colIdx: colI, widthPct: x.widthPct } : null))
+                                                        .filter((x): x is { colIdx: number; widthPct: number } => x !== null);
+                                                      return {
+                                                        rowIdx: rr,
+                                                        colIdx: cIdx,
+                                                        nextColIdx: nCol,
+                                                        curWidthPct: pl.widthPct,
+                                                        nextWidthPct: nPl.widthPct,
+                                                        rowSnapshot: snap,
+                                                      };
+                                                    })
+                                                    .filter((x): x is NonNullable<typeof x> => x !== null);
+                                                  if (targetRows.length > 0) {
+                                                    startSingleCellWidthResize(e, idx, targetRows);
+                                                    return;
+                                                  }
+                                                }
+                                                const endCol = cIdx + cSpan - 1;
+                                                if (endCol < colCount - 1) {
+                                                  startTableColResize(e, idx, endCol, activeColWidths);
+                                                } else {
+                                                  startTableWidthResize(e, idx, dragResize[idx]?.widthPercent ?? block.widthPercent ?? 100);
+                                                }
+                                              }}
+                                              className="absolute top-0 bottom-0 -right-[5px] w-[10px] z-30 cursor-col-resize flex justify-center group/colres select-none"
+                                              title="열 너비 조절 (셀 블록 선택 또는 Ctrl+드래그: 선택 셀만 조절, Shift+드래그: 열 전체 조절)"
+                                            >
+                                              <div className="w-[2px] h-full bg-transparent group-hover/colres:bg-blue-500/80 transition-colors" />
+                                            </div>
+                                            <div
+                                              data-row-resize-handle={rIdx + rSpan - 1}
+                                              onPointerDown={(e) => e.stopPropagation()}
+                                              onMouseDown={(e) => {
+                                                const nextRowCellObj = yPlacement.nextRowIdx !== null ? block.rows[yPlacement.nextRowIdx]?.[cIdx] : undefined;
+                                                const isNextRowCellSelected =
+                                                  yPlacement.nextRowIdx !== null &&
+                                                  tableCellSelection !== null &&
+                                                  tableCellSelection.blockIdx === idx &&
+                                                  (() => {
+                                                    const ncSpan = Math.max(1, nextRowCellObj?.colSpan || 1);
+                                                    const nrSpan = Math.max(1, nextRowCellObj?.rowSpan || 1);
+                                                    return !(
+                                                      yPlacement.nextRowIdx + nrSpan - 1 < Math.min(tableCellSelection.startRow, tableCellSelection.endRow) ||
+                                                      yPlacement.nextRowIdx > Math.max(tableCellSelection.startRow, tableCellSelection.endRow) ||
+                                                      cIdx + ncSpan - 1 < Math.min(tableCellSelection.startCol, tableCellSelection.endCol) ||
+                                                      cIdx > Math.max(tableCellSelection.startCol, tableCellSelection.endCol)
+                                                    );
+                                                  })();
+                                                const isVertBoundaryInSelection = isCellSelected || isNextRowCellSelected;
+                                                const isAlreadyStaggeredVert =
+                                                  (cell.heightPx !== undefined && cell.heightPx > 0) ||
+                                                  (nextRowCellObj?.heightPx !== undefined && nextRowCellObj.heightPx > 0);
+                                                if (
+                                                  !e.shiftKey &&
+                                                  (isVertBoundaryInSelection || e.ctrlKey || e.altKey || isAlreadyStaggeredVert) &&
+                                                  yPlacement.nextRowIdx !== null &&
+                                                  nextYPlacement
+                                                ) {
+                                                  const targetColIndices: number[] = [];
+                                                  if (isVertBoundaryInSelection && tableCellSelection && tableCellSelection.blockIdx === idx) {
+                                                    const selC1 = Math.min(tableCellSelection.startCol, tableCellSelection.endCol);
+                                                    const selC2 = Math.max(tableCellSelection.startCol, tableCellSelection.endCol);
+                                                    for (let cc = selC1; cc <= selC2; cc++) targetColIndices.push(cc);
+                                                  } else {
+                                                    targetColIndices.push(cIdx);
+                                                  }
+                                                  const targetCols = targetColIndices
+                                                    .map((cc) => {
+                                                      const yp = cellYPlacements[rIdx]?.[cc];
+                                                      const nRow = yp?.nextRowIdx ?? null;
+                                                      const nYp = nRow !== null ? cellYPlacements[nRow]?.[cc] : undefined;
+                                                      if (!yp || nRow === null || !nYp) return null;
+                                                      const snap = cellYPlacements
+                                                        .map((rowArr, rowI) => (rowArr?.[cc] ? { rowIdx: rowI, heightPx: rowArr[cc].heightPx } : null))
+                                                        .filter((x): x is { rowIdx: number; heightPx: number } => x !== null);
+                                                      return {
+                                                        colIdx: cc,
+                                                        rowIdx: rIdx,
+                                                        nextRowIdx: nRow,
+                                                        curHeightPx: yp.heightPx,
+                                                        nextHeightPx: nYp.heightPx,
+                                                        colSnapshot: snap,
+                                                      };
+                                                    })
+                                                    .filter((x): x is NonNullable<typeof x> => x !== null);
+                                                  if (targetCols.length > 0) {
+                                                    startSingleCellHeightResize(e, idx, targetCols);
+                                                    return;
+                                                  }
+                                                }
+                                                startTableRowResize(e, idx, rIdx + rSpan - 1, activeRowHeights, block.rows.length);
+                                              }}
+                                              className="absolute left-0 right-0 -bottom-[5px] h-[10px] z-30 cursor-row-resize flex items-center group/rowres select-none"
+                                              title="행 높이 조절 (셀 블록 선택 또는 Ctrl+드래그: 이 셀만 조절, Shift+드래그: 행 전체 조절)"
+                                            >
+                                              <div className="h-[2px] w-full bg-transparent group-hover/rowres:bg-blue-500/80 transition-colors" />
+                                            </div>
+                                            <input
+                                              type="text"
+                                              value={cell.text}
+                                              onChange={(e) => updateTableCell(idx, rIdx, cIdx, e.target.value)}
+                                              onFocus={() => {
+                                                setSelectedIdx(idx);
+                                                setActiveTableCell({ blockIdx: idx, row: rIdx, col: cIdx });
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Escape" && tableCellSelection) { e.preventDefault(); setTableCellSelection(null); return; }
+                                                if (e.key === "F5") { e.preventDefault(); setTableCellSelection({ blockIdx: idx, startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx }); return; }
+                                                if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+                                                  e.preventDefault();
+                                                  setTableCellSelection((prev) => {
+                                                    const base = prev && prev.blockIdx === idx ? prev : { blockIdx: idx, startRow: rIdx, startCol: cIdx, endRow: rIdx, endCol: cIdx };
+                                                    let nextRow = base.endRow;
+                                                    let nextCol = base.endCol;
+                                                    if (e.key === "ArrowUp") nextRow = Math.max(0, nextRow - 1);
+                                                    if (e.key === "ArrowDown") nextRow = Math.min(block.rows.length - 1, nextRow + 1);
+                                                    if (e.key === "ArrowLeft") nextCol = Math.max(0, nextCol - 1);
+                                                    if (e.key === "ArrowRight") nextCol = Math.min(row.length - 1, nextCol + 1);
+                                                    return { ...base, endRow: nextRow, endCol: nextCol };
+                                                  });
+                                                  return;
+                                                }
+                                                if ((e.key === "Delete" || e.key === "Backspace") && tableCellSelection && tableCellSelection.blockIdx === idx) { e.preventDefault(); deleteSelected(); return; }
+                                                if (e.key === "ArrowUp") {
                                                   if (rIdx === 0) {
                                                     e.preventDefault();
                                                     const rect = (e.target as HTMLElement).getBoundingClientRect();
                                                     navigateToPrevParagraph(idx, rect.left);
                                                   } else {
-                                                    const tableEl = (e.target as HTMLElement).closest("table");
-                                                    const targetInput = tableEl?.querySelectorAll("tr")[rIdx - 1]?.querySelectorAll("input")[cIdx];
+                                                    const tableEl = (e.target as HTMLElement).closest("[data-hwpx-table]");
+                                                    const targetInput = tableEl?.querySelector(`[data-row-idx="${rIdx - 1}"][data-col-idx="${cIdx}"] input`) as HTMLInputElement | null;
                                                     if (targetInput) {
                                                       e.preventDefault();
                                                       targetInput.focus();
@@ -13503,8 +15517,8 @@ function HwpxEditorModalInner({
                                                     const rect = (e.target as HTMLElement).getBoundingClientRect();
                                                     navigateToNextParagraph(idx, rect.left);
                                                   } else {
-                                                    const tableEl = (e.target as HTMLElement).closest("table");
-                                                    const targetInput = tableEl?.querySelectorAll("tr")[rIdx + 1]?.querySelectorAll("input")[cIdx];
+                                                    const tableEl = (e.target as HTMLElement).closest("[data-hwpx-table]");
+                                                    const targetInput = tableEl?.querySelector(`[data-row-idx="${rIdx + 1}"][data-col-idx="${cIdx}"] input`) as HTMLInputElement | null;
                                                     if (targetInput) {
                                                       e.preventDefault();
                                                       targetInput.focus();
@@ -13517,8 +15531,8 @@ function HwpxEditorModalInner({
                                                       e.preventDefault();
                                                       navigateToPrevParagraph(idx, 999999);
                                                     } else if (cIdx > 0) {
-                                                      const tableEl = inputEl.closest("table");
-                                                      const prevInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx - 1];
+                                                      const tableEl = inputEl.closest("[data-hwpx-table]");
+                                                      const prevInput = tableEl?.querySelector(`[data-row-idx="${rIdx}"][data-col-idx="${cIdx - 1}"] input`) as HTMLInputElement | null;
                                                       if (prevInput) {
                                                         e.preventDefault();
                                                         prevInput.focus();
@@ -13534,8 +15548,8 @@ function HwpxEditorModalInner({
                                                       e.preventDefault();
                                                       navigateToNextParagraph(idx, 0);
                                                     } else if (cIdx < row.length - 1) {
-                                                      const tableEl = inputEl.closest("table");
-                                                      const nextInput = tableEl?.querySelectorAll("tr")[rIdx]?.querySelectorAll("input")[cIdx + 1];
+                                                      const tableEl = inputEl.closest("[data-hwpx-table]");
+                                                      const nextInput = tableEl?.querySelector(`[data-row-idx="${rIdx}"][data-col-idx="${cIdx + 1}"] input`) as HTMLInputElement | null;
                                                       if (nextInput) {
                                                         e.preventDefault();
                                                         nextInput.focus();
@@ -13543,18 +15557,15 @@ function HwpxEditorModalInner({
                                                       }
                                                     }
                                                   }
-                                                    }
-                                                  }}
-                                                  className="relative z-[2] w-full min-w-0 bg-transparent border-none outline-none px-1 py-0.5 rounded focus:bg-blue-50 text-center font-sans text-xs cursor-text"
-                                                />
-                                              </td>
-                                              );
-                                            })}
-                                      </tr>
-                                    );
-                                      })}
-                                    </tbody>
-                                  </table>
+                                                }
+                                              }}
+                                              className={`relative z-[2] w-full min-w-0 bg-transparent border-none outline-none px-1 ${yPlacement.heightPx < 26 ? "py-0 leading-none" : "py-0.5"} rounded focus:bg-blue-50 text-center font-sans text-xs cursor-text`}
+                                            />
+                                          </div>
+                                        );
+                                      });
+                                    })}
+                                  </div>
                                 );
                               })()}
                             </div>
@@ -14070,8 +16081,7 @@ function HwpxEditorModalInner({
                       onDragOver={handleBlockDragOver}
                       onDragLeave={handleBlockDragLeave}
                       onDrop={handleBlockDrop}
-                      onClick={() => setSelectedIdx(idx)}
-                      onDoubleClick={() => openEditEquation(idx)}
+                      onClick={(e) => { if (e.target === e.currentTarget) setSelectedIdx(-1); }}
                       style={{
                         transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
                         zIndex: isSelected ? 30 : 1,
@@ -14085,6 +16095,8 @@ function HwpxEditorModalInner({
                         </span>
                       )}
                       <div
+                        onClick={(e) => { e.stopPropagation(); setSelectedIdx(idx); }}
+                        onDoubleClick={(e) => { e.stopPropagation(); openEditEquation(idx); }}
                         onPointerDown={(e) => handleObjectDragStart(e, idx, currentOffset.x, currentOffset.y)}
                         className={`relative inline-flex items-center justify-start px-0.5 py-0 rounded-xs transition-all cursor-move ${
                           isSelected
@@ -14282,6 +16294,88 @@ function HwpxEditorModalInner({
                 }
 
                 return null;
+              };
+
+              const sectionGroups: Array<{
+                secIdx: number;
+                secLayout: "1" | "2" | "3" | "left" | "right";
+                items: typeof pageIndices;
+              }> = [];
+              for (const item of pageIndices) {
+                const secIdx = getBlockSectionIdx(item.idx);
+                const secLayout = columnSectionLayouts[secIdx] ?? "1";
+                const lastGroup = sectionGroups[sectionGroups.length - 1];
+                if (!lastGroup || lastGroup.secIdx !== secIdx) {
+                  sectionGroups.push({ secIdx, secLayout, items: [item] });
+                } else {
+                  lastGroup.items.push(item);
+                }
+              }
+
+              return sectionGroups.map((group, gIdx) => {
+                const secStyle: React.CSSProperties | undefined =
+                  group.secLayout === "left" || group.secLayout === "right"
+                    ? {
+                        display: "grid",
+                        gridTemplateColumns: group.secLayout === "left" ? "35fr 65fr" : "65fr 35fr",
+                        columnGap: "28px",
+                        alignItems: "start",
+                      }
+                    : group.secLayout !== "1"
+                      ? {
+                          columnCount: group.secLayout === "3" ? 3 : 2,
+                          columnGap: group.secLayout === "3" ? "20px" : "28px",
+                        }
+                      : undefined;
+
+                let content: React.ReactNode;
+                if (group.secLayout === "left" || group.secLayout === "right") {
+                  const breakPos = group.items.findIndex(({ idx }, i) => i > 0 && blocks[idx] && columnBreakBlockIds[blocks[idx].id]);
+                  let splitAt = breakPos !== -1 ? breakPos : -1;
+                  if (splitAt === -1) {
+                    const weights = group.items.map(({ idx, sliceStart, sliceEnd }) => {
+                      const b = blocks[idx];
+                      if (!b) return 1;
+                      if (b.type === "paragraph") {
+                        const len = (sliceEnd ?? b.text.length) - (sliceStart ?? 0);
+                        return Math.max(1, Math.ceil(len / 32));
+                      }
+                      return 5;
+                    });
+                    const totalW = weights.reduce((a, b) => a + b, 0);
+                    const targetW = totalW * (group.secLayout === "left" ? 0.35 : 0.65);
+                    let acc = 0;
+                    splitAt = Math.max(1, Math.floor(group.items.length * (group.secLayout === "left" ? 0.35 : 0.65)));
+                    for (let i = 0; i < weights.length - 1; i++) {
+                      acc += weights[i];
+                      if (acc >= targetW) {
+                        splitAt = i + 1;
+                        break;
+                      }
+                    }
+                  }
+                  const leftItems = group.items.slice(0, splitAt);
+                  const rightItems = group.items.slice(splitAt);
+                  content = (
+                    <>
+                      <div data-col-pane="left" className="min-w-0">{leftItems.map(renderPageItem)}</div>
+                      <div data-col-pane="right" className="min-w-0">{rightItems.map(renderPageItem)}</div>
+                    </>
+                  );
+                } else {
+                  content = group.items.map(renderPageItem);
+                }
+
+                return (
+                  <div
+                    key={`col-sec-${group.secIdx}-${gIdx}`}
+                    data-column-section={group.secIdx}
+                    data-column-layout={group.secLayout}
+                    style={secStyle}
+                  >
+                    {content}
+                  </div>
+                );
               });
             })()}
               <div className="clear-both" />
@@ -14423,6 +16517,55 @@ function HwpxEditorModalInner({
                             ))}
                           </div>
                         )}
+                      </div>
+                    );
+                  })()}
+                  {showAllMemos && (() => {
+                    const pageBlockIdSet = new Set(pageIndices.map((p) => blocks[p.idx]?.id).filter(Boolean));
+                    const pageMemos = memos.filter((m) => pageBlockIdSet.has(m.blockId));
+                    return (
+                      <PageMemoLane
+                        pageIdx={pageIdx}
+                        pageMemos={pageMemos}
+                        allMemos={memos}
+                        showPageOutline={showPageOutline}
+                        showMemoGuides={showMemoGuides}
+                        activeMemoId={activeMemoId}
+                        setActiveMemoId={setActiveMemoId}
+                        updateMemoText={updateMemoText}
+                        deleteMemo={deleteMemo}
+                        zoomPercent={zoomPercent}
+                        columnLayout={columnLayout}
+                        blocksLength={blocks.length}
+                      />
+                    );
+                  })()}
+                  {/* 꼬리말 / 하단 쪽 번호 */}
+                  {(() => {
+                    const hidden = hiddenPageElements[pageIdx] || {};
+                    const activeFooter = footerPos !== "none"
+                      ? footerPos
+                      : pageNumberPos === "bottom-left"
+                        ? "left"
+                        : pageNumberPos === "bottom-center"
+                          ? "center"
+                          : pageNumberPos === "bottom-right"
+                            ? "right"
+                            : "none";
+                    if (activeFooter === "none" || hidden.footer || hidden.pageNumber) return null;
+                    return (
+                      <div
+                        data-page-footer={pageIdx}
+                        className={`absolute left-0 right-0 pointer-events-none select-none text-[9.5pt] text-neutral-600 flex ${
+                          activeFooter === "left" ? "justify-start" : activeFooter === "right" ? "justify-end" : "justify-center"
+                        }`}
+                        style={{
+                          bottom: `${Math.max(10, Math.round(pageMarginBottomMm * 3.78))}px`,
+                          paddingLeft: `${Math.max(16, Math.round((pageMarginLeftMm + (pageBindingType === "left" ? pageGutterMm : 0)) * 3.78))}px`,
+                          paddingRight: `${Math.max(16, Math.round(pageMarginRightMm * 3.78))}px`,
+                        }}
+                      >
+                        <span>- {getDisplayPageNumber(pageIdx)} -</span>
                       </div>
                     );
                   })()}
@@ -15088,6 +17231,33 @@ function HwpxEditorModalInner({
           onOpenCharShape={() => setShowCharShapeModal(true)}
           onOpenBulletNumber={() => setBulletNumberModalTab("bullet")}
         />
+        <DeleteTableCellsModal
+          isOpen={deleteTableCellsPrompt !== null}
+          onKeepShape={() => {
+            if (deleteTableCellsPrompt) executeTableCellDelete(deleteTableCellsPrompt, true);
+            setDeleteTableCellsPrompt(null);
+          }}
+          onDeleteCells={() => {
+            if (deleteTableCellsPrompt) executeTableCellDelete(deleteTableCellsPrompt, false);
+            setDeleteTableCellsPrompt(null);
+          }}
+          onClose={() => setDeleteTableCellsPrompt(null)}
+        />
+        <SplitCellModal
+          isOpen={splitCellModal !== null}
+          initialRows={splitCellModal?.initialRows ?? 1}
+          initialCols={splitCellModal?.initialCols ?? 1}
+          canMergeBeforeSplit={splitCellModal?.canMergeBeforeSplit ?? false}
+          onClose={() => setSplitCellModal(null)}
+          onConfirm={({ rows, cols, mergeBeforeSplit }) => {
+            if (!splitCellModal) return;
+            applySplitTableCell(splitCellModal.blockIdx, splitCellModal.row, splitCellModal.col, rows, cols, {
+              endRow: splitCellModal.endRow,
+              endCol: splitCellModal.endCol,
+              mergeBeforeSplit,
+            });
+          }}
+        />
         <InsertDateModal
           isOpen={showDateModal}
           onClose={() => setShowDateModal(false)}
@@ -15156,6 +17326,124 @@ function HwpxEditorModalInner({
             showToast(fixed > 0 ? `맞춤법 교정 ${fixed}건 적용 완료` : "교정할 맞춤법 오류가 없습니다.");
           }}
         />
+        {/* 새 번호로 시작 모달 */}
+        {showNewPageNumModal && (
+          <div className="fixed inset-0 z-80 flex items-center justify-center bg-black/35" onClick={() => setShowNewPageNumModal(false)}>
+            <div className="bg-white rounded-[4px] border border-neutral-300 shadow-2xl w-[320px] p-4 text-xs text-neutral-800" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-2 mb-3 border-b border-neutral-200">
+                <span className="font-bold text-[13px]">새 번호로 시작</span>
+                <button type="button" onClick={() => setShowNewPageNumModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+              </div>
+              <div className="mb-3 text-neutral-600">
+                현재 쪽(<span className="font-semibold text-neutral-900">{currentPageNum}쪽</span>)부터 적용할 시작 번호를 입력하세요.
+              </div>
+              <div className="flex items-center gap-2 mb-4">
+                <label className="w-20 text-neutral-700 font-medium">시작 번호</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={draftNewPageNum}
+                  onChange={(e) => setDraftNewPageNum(e.target.value)}
+                  className="flex-1 border border-neutral-300 rounded-[4px] px-2 py-1 text-xs outline-none focus:border-[#0066cc]"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pIdx = Math.max(0, currentPageNum - 1);
+                    setPageNumberStartOverrides((prev) => {
+                      const next = { ...prev };
+                      delete next[pIdx];
+                      return next;
+                    });
+                    setShowNewPageNumModal(false);
+                    showToast("기본 쪽 번호 순서로 복원했습니다.");
+                  }}
+                  className="px-3 py-1.5 rounded-[4px] border border-neutral-300 hover:bg-neutral-100 cursor-pointer"
+                >
+                  초기화
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNewPageNumModal(false)}
+                  className="px-3 py-1.5 rounded-[4px] border border-neutral-300 hover:bg-neutral-100 cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = Math.max(1, parseInt(draftNewPageNum, 10) || 1);
+                    const pIdx = Math.max(0, currentPageNum - 1);
+                    setPageNumberStartOverrides((prev) => ({ ...prev, [pIdx]: val }));
+                    if (headerPos === "none" && footerPos === "none" && pageNumberPos === "none") {
+                      setFooterPos("center");
+                    }
+                    setShowNewPageNumModal(false);
+                    showToast(`${currentPageNum}쪽부터 쪽 번호를 ${val}(으)로 시작합니다.`);
+                  }}
+                  className="px-3 py-1.5 rounded-[4px] bg-[#0066cc] text-white hover:bg-[#0052a3] font-medium cursor-pointer"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 현재 쪽만 감추기 모달 */}
+        {showHidePageModal && (
+          <div className="fixed inset-0 z-80 flex items-center justify-center bg-black/35" onClick={() => setShowHidePageModal(false)}>
+            <div className="bg-white rounded-[4px] border border-neutral-300 shadow-2xl w-[320px] p-4 text-xs text-neutral-800" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-2 mb-3 border-b border-neutral-200">
+                <span className="font-bold text-[13px]">현재 쪽만 감추기 ({currentPageNum}쪽)</span>
+                <button type="button" onClick={() => setShowHidePageModal(false)} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
+              </div>
+              <div className="flex flex-col gap-2 mb-4">
+                {(
+                  [
+                    { key: "header", label: "머리말 감추기" },
+                    { key: "footer", label: "꼬리말 감추기" },
+                    { key: "pageNumber", label: "쪽 번호 감추기" },
+                    { key: "border", label: "쪽 테두리 감추기" },
+                    { key: "background", label: "배경 감추기" },
+                  ] as const
+                ).map((item) => (
+                  <label key={item.key} className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={draftHidePageOpts[item.key]}
+                      onChange={(e) => setDraftHidePageOpts((prev) => ({ ...prev, [item.key]: e.target.checked }))}
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowHidePageModal(false)}
+                  className="px-3 py-1.5 rounded-[4px] border border-neutral-300 hover:bg-neutral-100 cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pIdx = Math.max(0, currentPageNum - 1);
+                    setHiddenPageElements((prev) => ({ ...prev, [pIdx]: { ...draftHidePageOpts } }));
+                    setShowHidePageModal(false);
+                    showToast(`${currentPageNum}쪽 감추기 설정이 적용되었습니다.`);
+                  }}
+                  className="px-3 py-1.5 rounded-[4px] bg-[#0066cc] text-white hover:bg-[#0052a3] font-medium cursor-pointer"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

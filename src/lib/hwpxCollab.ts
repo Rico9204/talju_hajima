@@ -48,6 +48,9 @@ export interface HwpxTableCell {
   bold?: boolean;
   colSpan?: number;
   rowSpan?: number;
+  mergedHidden?: boolean;
+  widthPercent?: number;
+  heightPx?: number;
   bgColor?: string;
   color?: string;
   rawAttrs?: string;
@@ -62,6 +65,8 @@ export interface HwpxTableBlock {
   offsetY?: number;
   widthPercent?: number;
   heightPt?: number;
+  colWidths?: number[];
+  rowHeights?: number[];
   caption?: string;
   captionPos?: string;
   borderColor?: string;
@@ -1472,13 +1477,43 @@ export function serializeBlocksToHwpxPackage(
       const rowCount = block.rows.length;
       const colCount = block.rows[0]?.length || 1;
       const totalWidthHw = 42520;
-      const colWidthHw = Math.floor(totalWidthHw / Math.max(1, colCount));
-      const rowHeightHw = 2834;
-      const totalHeightHw = rowHeightHw * rowCount;
+      const hasCustomColWidths = Array.isArray(block.colWidths) && block.colWidths.length === colCount;
+      const colWeightSum = hasCustomColWidths
+        ? block.colWidths!.reduce((acc, w) => acc + Math.max(1, w || 0), 0)
+        : colCount;
+      const colWidthsHw = Array.from({ length: colCount }, (_, ci) => {
+        if (!hasCustomColWidths) return Math.floor(totalWidthHw / Math.max(1, colCount));
+        return Math.max(1000, Math.round((totalWidthHw * Math.max(1, block.colWidths![ci] || 0)) / Math.max(1, colWeightSum)));
+      });
+      const defaultRowHeightHw = 2834;
+      const rowHeightsHw = Array.from({ length: rowCount }, (_, ri) => {
+        const px = block.rowHeights?.[ri];
+        return px && px > 0 ? Math.max(1200, Math.round(px * 75)) : defaultRowHeightHw;
+      });
+      const totalHeightHw = rowHeightsHw.reduce((acc, h) => acc + h, 0);
       const tblId = Math.floor(Math.random() * 1000000000) + 1000000000;
 
       const rowsXml = block.rows.map((row, rIdx) => {
         const cellsXml = row.map((cell, cIdx) => {
+          if (cell.mergedHidden) return "";
+          const cSpan = Math.max(1, cell.colSpan || 1);
+          const rSpan = Math.max(1, cell.rowSpan || 1);
+          let cellW = 0;
+          if (cell.widthPercent && cell.widthPercent > 0) {
+            cellW = Math.max(1000, Math.round((totalWidthHw * cell.widthPercent) / 100));
+          } else {
+            for (let k = 0; k < cSpan; k++) {
+              cellW += colWidthsHw[cIdx + k] ?? Math.floor(totalWidthHw / Math.max(1, colCount));
+            }
+          }
+          let cellH = 0;
+          if (cell.heightPx && cell.heightPx > 0) {
+            cellH = Math.max(1200, Math.round(cell.heightPx * 75));
+          } else {
+            for (let k = 0; k < rSpan; k++) {
+              cellH += rowHeightsHw[rIdx + k] ?? defaultRowHeightHw;
+            }
+          }
           const cellCharPr = getOrCreateCharPr({ bold: cell.bold });
           const cellParaPr = getParaPrForAlign(cell.align || "center", cell.rawAttrs);
           let tcAttrs = cell.rawAttrs ? ` ${cell.rawAttrs}` : ` name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="1"`;
@@ -1486,8 +1521,8 @@ export function serializeBlocksToHwpxPackage(
             tcAttrs += ' borderFillIDRef="1"';
           }
           const cellParaId = (idx + 1) * 10000 + (rIdx + 1) * 100 + (cIdx + 1);
-          return `        <hp:tc${tcAttrs}>\n          <hp:cellAddr colAddr="${cIdx}" rowAddr="${rIdx}"/>\n          <hp:cellSpan colSpan="1" rowSpan="1"/>\n          <hp:cellSz width="${colWidthHw}" height="${rowHeightHw}"/>\n          <hp:cellMargin left="510" right="510" top="141" bottom="141"/>\n          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="${colWidthHw}" textHeight="${rowHeightHw}" hasTextRef="0" hasNumRef="0">\n            <hp:p id="${cellParaId}" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n              <hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run>\n            </hp:p>\n          </hp:subList>\n        </hp:tc>`;
-        }).join("\n");
+          return `        <hp:tc${tcAttrs}>\n          <hp:cellAddr colAddr="${cIdx}" rowAddr="${rIdx}"/>\n          <hp:cellSpan colSpan="${cSpan}" rowSpan="${rSpan}"/>\n          <hp:cellSz width="${cellW}" height="${cellH}"/>\n          <hp:cellMargin left="510" right="510" top="141" bottom="141"/>\n          <hp:subList id="0" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" textWidth="${cellW}" textHeight="${cellH}" hasTextRef="0" hasNumRef="0">\n            <hp:p id="${cellParaId}" paraPrIDRef="${cellParaPr}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">\n              <hp:run charPrIDRef="${cellCharPr}"><hp:t>${escapeXml(cell.text)}</hp:t></hp:run>\n            </hp:p>\n          </hp:subList>\n        </hp:tc>`;
+        }).filter(Boolean).join("\n");
         return `      <hp:tr>\n${cellsXml}\n      </hp:tr>`;
       }).join("\n");
 
@@ -2040,6 +2075,11 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
             if (cell.rawAttrs) yCell.set("rawAttrs", cell.rawAttrs);
             if (cell.align) yCell.set("align", cell.align);
             if (cell.bold !== undefined) yCell.set("bold", cell.bold);
+            if (cell.colSpan && cell.colSpan > 1) yCell.set("colSpan", cell.colSpan);
+            if (cell.rowSpan && cell.rowSpan > 1) yCell.set("rowSpan", cell.rowSpan);
+            if (cell.mergedHidden) yCell.set("mergedHidden", true);
+            if (cell.widthPercent !== undefined) yCell.set("widthPercent", cell.widthPercent);
+            if (cell.heightPx !== undefined) yCell.set("heightPx", cell.heightPx);
             if (cell.bgColor) yCell.set("bgColor", cell.bgColor);
             if (cell.color) yCell.set("color", cell.color);
             yRow.push([yCell]);
@@ -2049,6 +2089,8 @@ export function initHwpxYDoc(doc: Y.Doc, blocks: HwpxCollabBlock[]): void {
         yBlock.set("rows", yRows);
         if (block.widthPercent !== undefined) yBlock.set("widthPercent", block.widthPercent);
         if (block.heightPt !== undefined) yBlock.set("heightPt", block.heightPt);
+        if (block.colWidths !== undefined) yBlock.set("colWidths", block.colWidths);
+        if (block.rowHeights !== undefined) yBlock.set("rowHeights", block.rowHeights);
         if (block.caption !== undefined) yBlock.set("caption", block.caption);
         if (block.captionPos !== undefined) yBlock.set("captionPos", block.captionPos);
         if (block.borderColor !== undefined) yBlock.set("borderColor", block.borderColor);
@@ -2223,9 +2265,26 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
             const cellAttrs = yCell.get("rawAttrs") as string | undefined;
             const align = yCell.get("align") as "left" | "center" | "right" | "justify" | undefined;
             const bold = yCell.get("bold") as boolean | undefined;
+            const colSpan = yCell.get("colSpan") as number | undefined;
+            const rowSpan = yCell.get("rowSpan") as number | undefined;
+            const mergedHidden = yCell.get("mergedHidden") as boolean | undefined;
+            const widthPercent = yCell.get("widthPercent") as number | undefined;
+            const heightPx = yCell.get("heightPx") as number | undefined;
             const bgColor = yCell.get("bgColor") as string | undefined;
             const color = yCell.get("color") as string | undefined;
-            cells.push({ text: yText ? yText.toString() : "", rawAttrs: cellAttrs, align, bold, bgColor, color });
+            cells.push({
+              text: yText ? yText.toString() : "",
+              rawAttrs: cellAttrs,
+              align,
+              bold,
+              colSpan,
+              rowSpan,
+              mergedHidden,
+              widthPercent,
+              heightPx,
+              bgColor,
+              color,
+            });
           }
           rows.push(cells);
         }
@@ -2234,6 +2293,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
       const offsetY = yBlock.get("offsetY") as number | undefined;
       const widthPercent = yBlock.get("widthPercent") as number | undefined;
       const heightPt = yBlock.get("heightPt") as number | undefined;
+      const colWidths = yBlock.get("colWidths") as number[] | undefined;
+      const rowHeights = yBlock.get("rowHeights") as number[] | undefined;
       const caption = yBlock.get("caption") as string | undefined;
       const captionPos = yBlock.get("captionPos") as string | undefined;
       const borderColor = yBlock.get("borderColor") as string | undefined;
@@ -2268,6 +2329,8 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         offsetY,
         widthPercent,
         heightPt,
+        colWidths,
+        rowHeights,
         caption,
         captionPos,
         borderColor,

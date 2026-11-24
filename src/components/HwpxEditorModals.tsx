@@ -447,11 +447,10 @@ export function BookmarkModal({
                         onGoto(bm.name);
                         onClose();
                       }}
-                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer transition-colors ${
-                        isSel
-                          ? "bg-[#e8f0fe] text-[#1d4ed8] font-medium"
-                          : "text-neutral-800 hover:bg-neutral-100"
-                      }`}
+                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer transition-colors ${isSel
+                        ? "bg-[#e8f0fe] text-[#1d4ed8] font-medium"
+                        : "text-neutral-800 hover:bg-neutral-100"
+                        }`}
                     >
                       {bm.name}
                     </button>
@@ -467,11 +466,10 @@ export function BookmarkModal({
               type="button"
               onClick={handleInsert}
               disabled={!canInsert}
-              className={`w-full py-1.5 bg-white border text-xs font-medium ${
-                canInsert
-                  ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
-                  : "border-neutral-200 text-neutral-300 cursor-default"
-              }`}
+              className={`w-full py-1.5 bg-white border text-xs font-medium ${canInsert
+                ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                : "border-neutral-200 text-neutral-300 cursor-default"
+                }`}
             >
               넣기
             </button>
@@ -486,11 +484,10 @@ export function BookmarkModal({
               type="button"
               onClick={handleGoto}
               disabled={!gotoTarget}
-              className={`mt-3 w-full py-1.5 bg-white border text-xs font-medium ${
-                gotoTarget
-                  ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
-                  : "border-neutral-200 text-neutral-300 cursor-default"
-              }`}
+              className={`mt-3 w-full py-1.5 bg-white border text-xs font-medium ${gotoTarget
+                ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                : "border-neutral-200 text-neutral-300 cursor-default"
+                }`}
             >
               이동
             </button>
@@ -644,22 +641,20 @@ export function BulletAndNumberModal({
               <button
                 type="button"
                 onClick={() => setTab("bullet")}
-                className={`px-3 py-1 text-xs cursor-pointer ${
-                  tab === "bullet"
-                    ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
-                    : "text-neutral-700 hover:text-neutral-900"
-                }`}
+                className={`px-3 py-1 text-xs cursor-pointer ${tab === "bullet"
+                  ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
+                  : "text-neutral-700 hover:text-neutral-900"
+                  }`}
               >
                 글머리표
               </button>
               <button
                 type="button"
                 onClick={() => setTab("number")}
-                className={`px-3 py-1 text-xs cursor-pointer ${
-                  tab === "number"
-                    ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
-                    : "text-neutral-700 hover:text-neutral-900"
-                }`}
+                className={`px-3 py-1 text-xs cursor-pointer ${tab === "number"
+                  ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
+                  : "text-neutral-700 hover:text-neutral-900"
+                  }`}
               >
                 문단 번호
               </button>
@@ -677,9 +672,8 @@ export function BulletAndNumberModal({
                       title="없음"
                       onClick={() => setSelectedBullet(null)}
                       onDoubleClick={() => { onApplyBullet(null); onClose(); }}
-                      className={`h-14 flex items-center justify-center border cursor-pointer ${
-                        selectedBullet === null ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
-                      }`}
+                      className={`h-14 flex items-center justify-center border cursor-pointer ${selectedBullet === null ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
+                        }`}
                     >
                       <div className="w-8 h-8 border border-neutral-600 relative overflow-hidden bg-neutral-200/70">
                         <svg viewBox="0 0 32 32" className="w-full h-full">
@@ -696,9 +690,8 @@ export function BulletAndNumberModal({
                           type="button"
                           onClick={() => setSelectedBullet(bp.value)}
                           onDoubleClick={() => { onApplyBullet(bp.value); onClose(); }}
-                          className={`h-14 px-2 py-1.5 flex flex-col justify-center gap-1.5 border cursor-pointer ${
-                            isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
-                          }`}
+                          className={`h-14 px-2 py-1.5 flex flex-col justify-center gap-1.5 border cursor-pointer ${isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
+                            }`}
                         >
                           <div className="flex items-center gap-1.5">
                             <span className={`w-3 text-center leading-none text-neutral-700 ${bp.sizeClass || "text-[10px]"}`}>{bp.char}</span>
@@ -729,9 +722,8 @@ export function BulletAndNumberModal({
                       title="없음"
                       onClick={() => setSelectedNumberIdx(0)}
                       onDoubleClick={() => { onApplyNumber(null); onClose(); }}
-                      className={`h-16 flex items-center justify-center border cursor-pointer ${
-                        selectedNumberIdx === 0 ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
-                      }`}
+                      className={`h-16 flex items-center justify-center border cursor-pointer ${selectedNumberIdx === 0 ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
+                        }`}
                     >
                       <div className="w-8 h-8 border border-neutral-600 relative overflow-hidden bg-neutral-200/70">
                         <svg viewBox="0 0 32 32" className="w-full h-full">
@@ -749,9 +741,8 @@ export function BulletAndNumberModal({
                           type="button"
                           onClick={() => setSelectedNumberIdx(idx)}
                           onDoubleClick={() => { onApplyNumber(np.makePrefix(Math.max(1, startNum))); onClose(); }}
-                          className={`h-16 px-1.5 py-1 flex flex-col justify-center gap-0.5 border text-[9px] leading-tight cursor-pointer ${
-                            isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
-                          }`}
+                          className={`h-16 px-1.5 py-1 flex flex-col justify-center gap-0.5 border text-[9px] leading-tight cursor-pointer ${isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
+                            }`}
                         >
                           {np.levels.map((lv, lIdx) => (
                             <div key={lIdx} className="flex items-center gap-1">
@@ -920,9 +911,8 @@ export function StyleModal({
                       type="button"
                       onClick={() => setSelectedId(s.id)}
                       onDoubleClick={() => { onApply(s.id); onClose(); }}
-                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer ${
-                        isSel ? "bg-[#d4d4d4] text-neutral-900" : "text-neutral-800 hover:bg-neutral-100"
-                      }`}
+                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer ${isSel ? "bg-[#d4d4d4] text-neutral-900" : "text-neutral-800 hover:bg-neutral-100"
+                        }`}
                     >
                       {s.name}
                     </button>
@@ -960,9 +950,8 @@ export function StyleModal({
                     setStyles((prev) => prev.filter((s) => s.id !== activeStyle.id));
                     setSelectedId("body");
                   }}
-                  className={`w-7 h-7 bg-white border border-neutral-300 text-xs flex items-center justify-center ${
-                    activeStyle.builtIn ? "text-red-200 cursor-not-allowed" : "text-red-500 hover:bg-neutral-100 cursor-pointer"
-                  }`}
+                  className={`w-7 h-7 bg-white border border-neutral-300 text-xs flex items-center justify-center ${activeStyle.builtIn ? "text-red-200 cursor-not-allowed" : "text-red-500 hover:bg-neutral-100 cursor-pointer"
+                    }`}
                 >
                   ✕
                 </button>
@@ -1199,9 +1188,8 @@ export function PageNumberModal({
                 key={p.id}
                 type="button"
                 onClick={() => setPos(p.id)}
-                className={`p-2 rounded border text-left text-[11px] transition ${
-                  pos === p.id ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-200 hover:bg-neutral-50"
-                }`}
+                className={`p-2 rounded border text-left text-[11px] transition ${pos === p.id ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-200 hover:bg-neutral-50"
+                  }`}
               >
                 {p.label}
               </button>
@@ -1733,11 +1721,10 @@ export function CharShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("basic")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "basic"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "basic"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 기본
               </button>
@@ -1745,11 +1732,10 @@ export function CharShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("extended")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "extended"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "extended"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 확장
               </button>
@@ -1882,9 +1868,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setBold(!bold)}
                       title="진하게"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] font-bold cursor-pointer ${
-                        bold ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] font-bold cursor-pointer ${bold ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1892,9 +1877,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setItalic(!italic)}
                       title="기울임"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] italic cursor-pointer ${
-                        italic ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] italic cursor-pointer ${italic ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1906,9 +1890,8 @@ export function CharShapeModal({
                         setUnderlinePos(next ? "bottom" : "none");
                       }}
                       title="밑줄"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] underline cursor-pointer ${
-                        underline ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] underline cursor-pointer ${underline ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1920,9 +1903,8 @@ export function CharShapeModal({
                         setStrikeShape(next ? "실선" : "없음");
                       }}
                       title="취소선"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] line-through cursor-pointer ${
-                        strikethrough ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] line-through cursor-pointer ${strikethrough ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1930,9 +1912,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setOutlineAttr(!outlineAttr)}
                       title="외곽선"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        outlineAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${outlineAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
+                        }`}
                       style={{ WebkitTextStroke: "0.5px currentColor", color: outlineAttr ? "#0066cc" : "transparent" }}
                     >
                       가
@@ -1941,9 +1922,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setShadowAttr(!shadowAttr)}
                       title="그림자"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        shadowAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${shadowAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                       style={{ textShadow: "1.5px 1.5px 0px rgba(0,0,0,0.35)" }}
                     >
                       가
@@ -1952,9 +1932,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setEmbossAttr(!embossAttr); if (!embossAttr) setEngraveAttr(false); }}
                       title="양각"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        embossAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${embossAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
+                        }`}
                     >
                       가
                     </button>
@@ -1962,9 +1941,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setEngraveAttr(!engraveAttr); if (!engraveAttr) setEmbossAttr(false); }}
                       title="음각"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        engraveAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-600"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${engraveAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-600"
+                        }`}
                     >
                       가
                     </button>
@@ -1975,9 +1953,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setSuperscript(!superscript); if (!superscript) setSubscript(false); }}
                       title="위 첨자"
-                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${
-                        superscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${superscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
+                        }`}
                     >
                       X<sup className="text-[9px]">가</sup>
                     </button>
@@ -1985,9 +1962,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setSubscript(!subscript); if (!subscript) setSuperscript(false); }}
                       title="아래 첨자"
-                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${
-                        subscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${subscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
+                        }`}
                     >
                       X<sub className="text-[9px]">가</sub>
                     </button>
@@ -2350,13 +2326,13 @@ export function ParaShapeModal({
     extra: "none" | "distribute" | "divide";
     lines: string[];
   }> = [
-    { key: "justify", title: "양쪽 정렬", targetAlign: "justify", extra: "none", lines: ["w-4", "w-4", "w-4", "w-4"] },
-    { key: "left", title: "왼쪽 정렬", targetAlign: "left", extra: "none", lines: ["w-4", "w-2.5", "w-4", "w-3"] },
-    { key: "center", title: "가운데 정렬", targetAlign: "center", extra: "none", lines: ["w-4 mx-auto", "w-2.5 mx-auto", "w-4 mx-auto", "w-3 mx-auto"] },
-    { key: "right", title: "오른쪽 정렬", targetAlign: "right", extra: "none", lines: ["w-4 ml-auto", "w-2.5 ml-auto", "w-4 ml-auto", "w-3 ml-auto"] },
-    { key: "distribute", title: "배분 정렬", targetAlign: "justify", extra: "distribute", lines: ["w-4", "w-4", "w-4", "w-4 border-dashed"] },
-    { key: "divide", title: "나눔 정렬", targetAlign: "justify", extra: "divide", lines: ["w-4", "w-3 mx-auto", "w-4", "w-2 mx-auto"] },
-  ];
+      { key: "justify", title: "양쪽 정렬", targetAlign: "justify", extra: "none", lines: ["w-4", "w-4", "w-4", "w-4"] },
+      { key: "left", title: "왼쪽 정렬", targetAlign: "left", extra: "none", lines: ["w-4", "w-2.5", "w-4", "w-3"] },
+      { key: "center", title: "가운데 정렬", targetAlign: "center", extra: "none", lines: ["w-4 mx-auto", "w-2.5 mx-auto", "w-4 mx-auto", "w-3 mx-auto"] },
+      { key: "right", title: "오른쪽 정렬", targetAlign: "right", extra: "none", lines: ["w-4 ml-auto", "w-2.5 ml-auto", "w-4 ml-auto", "w-3 ml-auto"] },
+      { key: "distribute", title: "배분 정렬", targetAlign: "justify", extra: "distribute", lines: ["w-4", "w-4", "w-4", "w-4 border-dashed"] },
+      { key: "divide", title: "나눔 정렬", targetAlign: "justify", extra: "divide", lines: ["w-4", "w-3 mx-auto", "w-4", "w-2 mx-auto"] },
+    ];
 
   return (
     <div
@@ -2388,11 +2364,10 @@ export function ParaShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("basic")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "basic"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "basic"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 기본
               </button>
@@ -2400,11 +2375,10 @@ export function ParaShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("border")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "border"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "border"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 테두리/배경
               </button>
@@ -2427,11 +2401,10 @@ export function ParaShapeModal({
                             setAlign(btn.targetAlign);
                             setAlignExtra(btn.extra);
                           }}
-                          className={`w-8 h-7 border rounded-[2px] flex flex-col justify-center gap-[2.5px] px-1.5 cursor-pointer ${
-                            active
-                              ? "bg-[#e5e7eb] border-neutral-500 shadow-inner"
-                              : "bg-white border-neutral-300 hover:bg-neutral-50"
-                          }`}
+                          className={`w-8 h-7 border rounded-[2px] flex flex-col justify-center gap-[2.5px] px-1.5 cursor-pointer ${active
+                            ? "bg-[#e5e7eb] border-neutral-500 shadow-inner"
+                            : "bg-white border-neutral-300 hover:bg-neutral-50"
+                            }`}
                         >
                           {btn.lines.map((cls, idx) => (
                             <span key={idx} className={`h-[1.5px] bg-neutral-700 block ${cls}`} />
@@ -2500,9 +2473,8 @@ export function ParaShapeModal({
                         </label>
                       </div>
                       <div
-                        className={`w-28 flex items-center border rounded-[2px] ${
-                          firstLineType === "none" ? "border-neutral-200 bg-neutral-50 opacity-50 pointer-events-none" : "border-neutral-300 bg-white"
-                        }`}
+                        className={`w-28 flex items-center border rounded-[2px] ${firstLineType === "none" ? "border-neutral-200 bg-neutral-50 opacity-50 pointer-events-none" : "border-neutral-300 bg-white"
+                          }`}
                       >
                         <CharShapeNumberInput value={firstLinePt} min={0} max={200} step={1} onChange={setFirstLinePt} />
                         <span className="text-[11px] text-neutral-500 pr-2">pt</span>
@@ -2758,3 +2730,297 @@ export function ParaShapeModal({
   );
 }
 
+
+export function SplitCellModal({
+  isOpen,
+  initialRows = 1,
+  initialCols = 1,
+  canMergeBeforeSplit = false,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  initialRows?: number;
+  initialCols?: number;
+  canMergeBeforeSplit?: boolean;
+  onClose: () => void;
+  onConfirm: (opts: {
+    rows: number;
+    cols: number;
+    equalRowHeight: boolean;
+    mergeBeforeSplit: boolean;
+  }) => void;
+}) {
+  const [useRows, setUseRows] = useState(true);
+  const [useCols, setUseCols] = useState(false);
+  const [rowsCount, setRowsCount] = useState(2);
+  const [colsCount, setColsCount] = useState(2);
+  const [equalRowHeight, setEqualRowHeight] = useState(false);
+  const [mergeBeforeSplit, setMergeBeforeSplit] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const hasMergedRows = initialRows > 1;
+    const hasMergedCols = initialCols > 1;
+    if (hasMergedRows || hasMergedCols) {
+      setUseRows(hasMergedRows);
+      setUseCols(hasMergedCols);
+      setRowsCount(hasMergedRows ? initialRows : 2);
+      setColsCount(hasMergedCols ? initialCols : 2);
+    } else {
+      setUseRows(true);
+      setUseCols(false);
+      setRowsCount(2);
+      setColsCount(2);
+    }
+    setEqualRowHeight(false);
+    setMergeBeforeSplit(false);
+  }, [isOpen, initialRows, initialCols]);
+
+  if (!isOpen) return null;
+
+  const canSubmit = useRows || useCols;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    const r = useRows ? Math.max(1, Math.min(20, Math.round(rowsCount) || 2)) : 1;
+    const c = useCols ? Math.max(1, Math.min(20, Math.round(colsCount) || 2)) : 1;
+    onConfirm({
+      rows: r,
+      cols: c,
+      equalRowHeight,
+      mergeBeforeSplit: canMergeBeforeSplit && mergeBeforeSplit,
+    });
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 select-none"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+        if (e.key === "Enter" && canSubmit) {
+          e.preventDefault();
+          submit();
+        }
+      }}
+    >
+      <div className="w-[410px] bg-white border border-neutral-400 shadow-2xl rounded-[3px] text-[12px] text-neutral-800 overflow-hidden">
+        <div className="h-9 px-3.5 bg-white border-b border-neutral-200 flex items-center justify-between font-semibold text-[13px] text-neutral-900">
+          <span>셀 나누기</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 text-base cursor-pointer px-1 leading-none"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 border border-neutral-200 rounded-[2px] p-3.5 space-y-4">
+            <div className="space-y-2.5">
+              <div className="text-[12px] font-bold text-[#1d4ed8]">줄/칸 나누기</div>
+              <div className="flex items-center gap-2.5 pl-1">
+                <label className="inline-flex items-center gap-2 cursor-pointer min-w-[74px]">
+                  <input
+                    id="split-cell-use-rows"
+                    type="checkbox"
+                    checked={useRows}
+                    onChange={(e) => setUseRows(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-[#1d4ed8] cursor-pointer"
+                  />
+                  <span className="text-neutral-800">줄 개수</span>
+                </label>
+                <input
+                  id="split-cell-rows"
+                  type="number"
+                  min={1}
+                  max={20}
+                  disabled={!useRows}
+                  value={rowsCount}
+                  onChange={(e) => setRowsCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                  className={`w-28 px-2 py-1 border rounded-[2px] outline-none ${useRows
+                    ? "bg-white border-neutral-300 text-neutral-900 focus:border-[#1d4ed8]"
+                    : "bg-neutral-50 border-neutral-200 text-neutral-300 cursor-not-allowed"
+                    }`}
+                />
+              </div>
+              <div className="flex items-center gap-2.5 pl-1">
+                <label className="inline-flex items-center gap-2 cursor-pointer min-w-[74px]">
+                  <input
+                    id="split-cell-use-cols"
+                    type="checkbox"
+                    checked={useCols}
+                    onChange={(e) => setUseCols(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-[#1d4ed8] cursor-pointer"
+                  />
+                  <span className="text-neutral-800">칸 개수</span>
+                </label>
+                <input
+                  id="split-cell-cols"
+                  type="number"
+                  min={1}
+                  max={20}
+                  disabled={!useCols}
+                  value={colsCount}
+                  onChange={(e) => setColsCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                  className={`w-28 px-2 py-1 border rounded-[2px] outline-none ${useCols
+                    ? "bg-white border-neutral-300 text-neutral-900 focus:border-[#1d4ed8]"
+                    : "bg-neutral-50 border-neutral-200 text-neutral-300 cursor-not-allowed"
+                    }`}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[12px] font-bold text-[#1d4ed8]">선택 사항</div>
+              <label className="flex items-center gap-2 pl-1 cursor-pointer">
+                <input
+                  id="split-cell-equal-height"
+                  type="checkbox"
+                  checked={equalRowHeight}
+                  onChange={(e) => setEqualRowHeight(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#1d4ed8] cursor-pointer"
+                />
+                <span className="text-neutral-800">줄 높이를 같게 나누기</span>
+              </label>
+              <label
+                className={`flex items-center gap-2 pl-1 ${canMergeBeforeSplit ? "cursor-pointer" : "cursor-not-allowed"
+                  }`}
+              >
+                <input
+                  id="split-cell-merge-first"
+                  type="checkbox"
+                  disabled={!canMergeBeforeSplit}
+                  checked={canMergeBeforeSplit && mergeBeforeSplit}
+                  onChange={(e) => setMergeBeforeSplit(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#1d4ed8] disabled:opacity-40"
+                />
+                <span className={canMergeBeforeSplit ? "text-neutral-800" : "text-neutral-300"}>
+                  셀을 합친 후 나누기
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="w-[82px] flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={submit}
+              className={`w-full py-1.5 border rounded-[2px] text-[12px] ${canSubmit
+                ? "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-900 cursor-pointer"
+                : "border-neutral-200 bg-neutral-50 text-neutral-300 cursor-not-allowed"
+                }`}
+            >
+              나누기
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-neutral-900 cursor-pointer text-[12px]"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DeleteTableCellsModal({
+  isOpen,
+  onKeepShape,
+  onDeleteCells,
+  onClose,
+}: {
+  isOpen: boolean;
+  onKeepShape: () => void;
+  onDeleteCells: () => void;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[1350] flex items-center justify-center bg-black/25 select-none"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          onKeepShape();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="한글"
+        className="w-[460px] bg-[#f7f8fa] border border-[#93b4e8] shadow-2xl rounded-[3px] text-[13px] text-neutral-800 overflow-hidden"
+      >
+        <div className="h-8 px-3 bg-gradient-to-b from-[#eef4fc] to-[#e2ecfa] border-b border-[#c5d7f2] flex items-center text-[13px] font-medium text-neutral-800">
+          한글
+        </div>
+        <div className="p-3 bg-[#f7f8fa]">
+          <div className="bg-white border border-neutral-200 rounded-[2px] px-5 py-5">
+            <div className="flex items-center gap-4">
+              <svg
+                width="30"
+                height="30"
+                viewBox="0 0 24 24"
+                fill="none"
+                className="shrink-0"
+                aria-hidden="true"
+              >
+                <path
+                  d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                  fill="#f5b81c"
+                />
+                <rect x="11.1" y="9" width="1.8" height="5.2" rx="0.9" fill="#ffffff" />
+                <circle cx="12" cy="16.6" r="1.05" fill="#ffffff" />
+              </svg>
+              <p className="text-[13px] text-neutral-800 leading-snug">
+                선택된 셀들을 지웁니다. 내용만 지우고 셀 모양은 남겨 둘까요?
+              </p>
+            </div>
+            <div className="my-4 border-t border-neutral-200" />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={onKeepShape}
+                className="min-w-[54px] px-3 py-1 bg-[#d4d4d4] hover:bg-[#c8c8c8] border border-neutral-400 rounded-[2px] text-[12px] text-neutral-900 cursor-pointer outline-none"
+              >
+                예
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteCells}
+                className="min-w-[54px] px-3 py-1 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-[2px] text-[12px] text-neutral-800 cursor-pointer"
+              >
+                아니요
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="min-w-[54px] px-3 py-1 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-[2px] text-[12px] text-neutral-800 cursor-pointer"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
