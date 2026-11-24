@@ -187,10 +187,32 @@ export function extractHwpxImageMap(entries: Map<string, Uint8Array>): Map<strin
   return map;
 }
 
+export type HwpxChartType =
+  | "column"
+  | "stacked-column"
+  | "line"
+  | "bar"
+  | "stacked-bar"
+  | "scatter"
+  | "pie"
+  | "exploded-pie"
+  | "doughnut"
+  | "area"
+  | "stacked-area"
+  | "radar"
+  | "column-3d"
+  | "stacked-column-3d"
+  | "bar-3d"
+  | "stacked-bar-3d"
+  | "pie-3d"
+  | "exploded-pie-3d"
+  | "area-3d"
+  | "stacked-area-3d";
+
 export interface HwpxChartBlock {
   type: "chart";
   id: string;
-  chartType: "column" | "bar" | "line" | "pie";
+  chartType: HwpxChartType;
   title: string;
   categories: string[];
   series: { name: string; values: number[]; color?: string }[];
@@ -1121,14 +1143,24 @@ export function buildOoxmlChartXml(block: HwpxChartBlock): string {
     .join("");
 
   const chartType = block.chartType || "column";
+  const isStacked = chartType.includes("stacked");
+  const grouping = isStacked ? "stacked" : "clustered";
   let plotBody = "";
-  if (chartType === "pie") {
+  if (chartType === "doughnut") {
+    plotBody = `<c:doughnutChart><c:varyColors val="1"/>${serXml}<c:holeSize val="50"/></c:doughnutChart>`;
+  } else if (chartType.includes("pie")) {
     plotBody = `<c:pieChart><c:varyColors val="1"/>${serXml}</c:pieChart>`;
   } else if (chartType === "line") {
     plotBody = `<c:lineChart><c:grouping val="standard"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:lineChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
+  } else if (chartType.includes("area")) {
+    plotBody = `<c:areaChart><c:grouping val="${isStacked ? "stacked" : "standard"}"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:areaChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
+  } else if (chartType === "radar") {
+    plotBody = `<c:radarChart><c:radarStyle val="marker"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:radarChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
+  } else if (chartType === "scatter") {
+    plotBody = `<c:scatterChart><c:scatterStyle val="lineMarker"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:scatterChart><c:valAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:valAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
   } else {
-    const barDir = chartType === "bar" ? "bar" : "col";
-    plotBody = `<c:barChart><c:barDir val="${barDir}"/><c:grouping val="clustered"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
+    const barDir = chartType.includes("bar") ? "bar" : "col";
+    plotBody = `<c:barChart><c:barDir val="${barDir}"/><c:grouping val="${grouping}"/>${serXml}<c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2"/></c:catAx><c:valAx><c:axId val="2"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:crossAx val="1"/></c:valAx>`;
   }
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${title}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:plotArea><c:layout/>${plotBody}</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/></c:chart></c:chartSpace>`;
@@ -2481,7 +2513,7 @@ export function extractBlocksFromYDoc(doc: Y.Doc): HwpxCollabBlock[] {
         isTextBox,
       });
     } else if (type === "chart") {
-      const chartType = (yBlock.get("chartType") as "column" | "bar" | "line" | "pie") || "column";
+      const chartType = (yBlock.get("chartType") as HwpxChartType) || "column";
       const title = (yBlock.get("title") as string) || "차트 1";
       const categories = (yBlock.get("categories") as string[]) || ["1분기", "2분기", "3분기", "4분기"];
       const series = (yBlock.get("series") as { name: string; values: number[]; color?: string }[]) || [

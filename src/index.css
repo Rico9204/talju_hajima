@@ -899,3 +899,15 @@ html, body, #root {
 
 /* 오류 문구(text-red-600)는 어두운 화면에서 대비가 모자라 밝은 빨강으로 바꾼다. */
 :root[data-theme="dark"] .text-red-600, .dark .text-red-600 { color: #f87171; }
+
+[data-format-toolbar-controls="true"][data-obj-sel="true"] :disabled {
+  opacity: 1 !important;
+}
+
+[data-page-idx] [contenteditable="true"] b,
+[data-page-idx] [contenteditable="true"] strong,
+[data-page-idx] [contenteditable="true"] [style*="font-weight: bold"],
+[data-page-idx] [contenteditable="true"] [style*="font-weight: 700"] {
+  font-weight: normal !important;
+  text-shadow: 0.42px 0 0 currentColor, -0.15px 0 0 currentColor;
+}
