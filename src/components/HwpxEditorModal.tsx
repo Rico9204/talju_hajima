@@ -1973,6 +1973,26 @@ function HwpxEditorModalInner({
   const [columnSectionBreakBlockIds, setColumnSectionBreakBlockIds] = useState<Record<string, boolean>>({});
   const [showLineNumbers, setShowLineNumbers] = useState(false);
 
+  // 검토 탭 - 변경 내용 추적 상태
+  const [trackChangesEnabled, setTrackChangesEnabled] = useState(false);
+  const [showTrackInsertDelete, setShowTrackInsertDelete] = useState(true);
+  const [showTrackFormat, setShowTrackFormat] = useState(true);
+  const [trackDisplayMode, setTrackDisplayMode] = useState<"final-markup" | "final">("final-markup");
+  const [hoverReviewViewSub, setHoverReviewViewSub] = useState(false);
+  const [trackedChanges, setTrackedChanges] = useState<Array<{
+    id: string;
+    blockId: string;
+    kind: "insert" | "delete" | "format";
+    prevText?: string;
+    prevStyle?: Partial<HwpxParagraphBlock>;
+  }>>([]);
+  const [activeTrackedChangeIdx, setActiveTrackedChangeIdx] = useState<number>(-1);
+
+  // 도구 탭 - 빠른 교정 & 접근성 설정 상태
+  const [smartQuotesEnabled, setSmartQuotesEnabled] = useState(true);
+  const [screenReaderEnabled, setScreenReaderEnabled] = useState(false);
+  const [screenReaderAnnouncement, setScreenReaderAnnouncement] = useState("");
+
   // ── 한컴독스 상단 메뉴바 풀다운 드롭다운 및 상단 UI 상태 ──
   const [openDropdown, setOpenDropdown] = useState<"file" | "edit" | "view" | "insert" | "format" | "page" | "table" | "review" | "tools" | null>(null);
   const [hoverSubmenu, setHoverSubmenu] = useState<string | null>(null);
@@ -3521,8 +3541,42 @@ function HwpxEditorModalInner({
       yText = new Y.Text(typeof yBlock.get("text") === "string" ? (yBlock.get("text") as string) : "");
       yBlock.set("text", yText);
     }
+    const oldText = yText.toString();
+    let finalText = newText;
+    if (smartQuotesEnabled && newText.length === oldText.length + 1) {
+      let diffPos = newText.length - 1;
+      for (let i = 0; i < oldText.length; i++) {
+        if (oldText[i] !== newText[i]) {
+          diffPos = i;
+          break;
+        }
+      }
+      const ch = newText[diffPos];
+      if (ch === '"' || ch === "'") {
+        const before = diffPos === 0 ? "" : newText[diffPos - 1];
+        const isOpen = diffPos === 0 || /[\s(\[{<「『《〈]/.test(before);
+        const curly = ch === '"' ? (isOpen ? "“" : "”") : (isOpen ? "‘" : "’");
+        finalText = newText.slice(0, diffPos) + curly + newText.slice(diffPos + 1);
+      }
+    }
+    const blkId = String(yBlock.get("id") || "");
+    if (trackChangesEnabled && blkId && oldText !== finalText) {
+      const kind: "insert" | "delete" = finalText.length >= oldText.length ? "insert" : "delete";
+      setTrackedChanges((prev) => {
+        const existingIdx = prev.findIndex((c) => c.blockId === blkId && c.kind !== "format");
+        if (existingIdx !== -1) {
+          const next = [...prev];
+          next[existingIdx] = { ...next[existingIdx], kind };
+          return next;
+        }
+        return [
+          ...prev,
+          { id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blockId: blkId, kind, prevText: oldText },
+        ];
+      });
+    }
     doc.transact(() => {
-      applyTextDiffToYText(yText, newText);
+      applyTextDiffToYText(yText, finalText);
     });
   };
 
@@ -3537,6 +3591,24 @@ function HwpxEditorModalInner({
       }
     } else {
       indicesToUpdate.push(index);
+    }
+    if (trackChangesEnabled) {
+      for (const idx of indicesToUpdate) {
+        const curBlk = blocks[idx];
+        if (curBlk && curBlk.type === "paragraph") {
+          const prevStyle: Partial<HwpxParagraphBlock> = {};
+          (Object.keys(patch) as Array<keyof HwpxParagraphBlock>).forEach((k) => {
+            (prevStyle as Record<string, unknown>)[k] = curBlk[k];
+          });
+          setTrackedChanges((prev) => {
+            if (prev.some((c) => c.blockId === curBlk.id && c.kind === "format")) return prev;
+            return [
+              ...prev,
+              { id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, blockId: curBlk.id, kind: "format", prevStyle },
+            ];
+          });
+        }
+      }
     }
     doc.transact(() => {
       for (const idx of indicesToUpdate) {
@@ -5132,6 +5204,17 @@ function HwpxEditorModalInner({
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
         handlePrint();
+        return;
+      }
+      // Ctrl+Alt+F1: 스크린 리더 지원 사용 토글
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "F1" || e.keyCode === 112)) {
+        e.preventDefault();
+        setScreenReaderEnabled((prev) => {
+          const next = !prev;
+          setScreenReaderAnnouncement(next ? "스크린 리더 지원 사용이 켜졌습니다." : "");
+          showToast(next ? "스크린 리더 지원 사용을 켰습니다." : "스크린 리더 지원 사용을 껐습니다.");
+          return next;
+        });
         return;
       }
       // F7: 편집 용지 모달
@@ -7467,6 +7550,96 @@ function HwpxEditorModalInner({
     setDraftNewPageNum(String(curVal));
     setShowNewPageNumModal(true);
   };
+
+  const visibleTrackedChanges = trackedChanges.filter((tc) =>
+    tc.kind === "format" ? showTrackFormat : showTrackInsertDelete
+  );
+
+  const focusTrackedChangeAt = (nextIdx: number, list = visibleTrackedChanges) => {
+    if (list.length === 0) {
+      setActiveTrackedChangeIdx(-1);
+      return;
+    }
+    const clamped = ((nextIdx % list.length) + list.length) % list.length;
+    setActiveTrackedChangeIdx(clamped);
+    const tc = list[clamped];
+    const bIdx = blocks.findIndex((b) => b.id === tc.blockId);
+    if (bIdx !== -1) {
+      setSelectedIdx(bIdx);
+      const el = document.querySelector(`[data-block-idx="${bIdx}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
+  const handleTrackNavigate = (dir: 1 | -1) => {
+    if (visibleTrackedChanges.length === 0) {
+      showToast("추적된 변경 내용이 없습니다.");
+      return;
+    }
+    const base = activeTrackedChangeIdx >= 0 ? activeTrackedChangeIdx : (dir === 1 ? -1 : 0);
+    focusTrackedChangeAt(base + dir);
+  };
+
+  const handleTrackAcceptAndNext = () => {
+    if (visibleTrackedChanges.length === 0) return;
+    const curIdx = activeTrackedChangeIdx >= 0 && activeTrackedChangeIdx < visibleTrackedChanges.length ? activeTrackedChangeIdx : 0;
+    const target = visibleTrackedChanges[curIdx];
+    const remaining = trackedChanges.filter((c) => c.id !== target.id);
+    setTrackedChanges(remaining);
+    const nextVisible = remaining.filter((tc) => (tc.kind === "format" ? showTrackFormat : showTrackInsertDelete));
+    if (nextVisible.length > 0) {
+      focusTrackedChangeAt(curIdx % nextVisible.length, nextVisible);
+    } else {
+      setActiveTrackedChangeIdx(-1);
+    }
+    showToast("변경 내용을 적용했습니다.");
+  };
+
+  const handleTrackRejectAndNext = () => {
+    if (visibleTrackedChanges.length === 0) return;
+    const curIdx = activeTrackedChangeIdx >= 0 && activeTrackedChangeIdx < visibleTrackedChanges.length ? activeTrackedChangeIdx : 0;
+    const target = visibleTrackedChanges[curIdx];
+    const bIdx = blocks.findIndex((b) => b.id === target.blockId);
+    if (bIdx !== -1) {
+      const yBlocks = doc.getArray<Y.Map<unknown>>("hwpx_blocks");
+      const yBlock = yBlocks.get(bIdx);
+      if (yBlock) {
+        doc.transact(() => {
+          if (target.kind !== "format" && target.prevText !== undefined) {
+            const yText = yBlock.get("text");
+            if (yText instanceof Y.Text) {
+              applyTextDiffToYText(yText, target.prevText);
+            }
+          } else if (target.kind === "format" && target.prevStyle) {
+            for (const [k, v] of Object.entries(target.prevStyle)) {
+              if (v === undefined) yBlock.delete(k);
+              else yBlock.set(k, v);
+            }
+          }
+        });
+      }
+    }
+    const remaining = trackedChanges.filter((c) => c.id !== target.id);
+    setTrackedChanges(remaining);
+    const nextVisible = remaining.filter((tc) => (tc.kind === "format" ? showTrackFormat : showTrackInsertDelete));
+    if (nextVisible.length > 0) {
+      focusTrackedChangeAt(curIdx % nextVisible.length, nextVisible);
+    } else {
+      setActiveTrackedChangeIdx(-1);
+    }
+    showToast("변경 내용을 취소(원복)했습니다.");
+  };
+
+  useEffect(() => {
+    if (!screenReaderEnabled) return;
+    const b = blocks[selectedIdx];
+    const desc = b
+      ? b.type === "paragraph"
+        ? `문단: ${(b.text || "빈 줄").slice(0, 40)}`
+        : `개체(${b.type})`
+      : "문서";
+    setScreenReaderAnnouncement(`${currentPageNum}쪽, ${desc}`);
+  }, [screenReaderEnabled, selectedIdx, currentPageNum]);
 
   const openHidePageModal = () => {
     const pIdx = Math.max(0, currentPageNum - 1);
@@ -9918,61 +10091,173 @@ function HwpxEditorModalInner({
                   {isDropdownOpen && menu.id === "review" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[205px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); addMemoToBlock(selectedIdx); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("review-track")}
+                        onMouseLeave={() => {
+                          setHoverSubmenu((prev) => (prev === "review-track" ? null : prev));
+                          setHoverReviewViewSub(false);
+                        }}
                       >
-                        <span className="flex items-center gap-2.5">
-                          <CommentIcon className="w-4 h-4 text-amber-500" />
-                          <span>메모</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); deleteMemosForBlock(selectedIdx); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <span className="w-4 text-center text-red-500 font-bold">✕</span>
-                          <span>메모 지우기</span>
-                        </span>
-                      </button>
-                      <div className="my-1 border-t border-neutral-200" />
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowSpellCheckModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <SpellCheckIcon className="w-4 h-4 text-emerald-600" />
-                          <span>맞춤법 교정...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); insertToc(); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <TocIcon className="w-4 h-4 text-blue-600" />
-                          <span>차례 만들기...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowDocStatsModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <DocInfoIcon className="w-4 h-4 text-neutral-600" />
-                          <span>문서 정보...</span>
-                        </span>
-                        <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Q+I</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu((prev) => (prev === "review-track" ? null : "review-track"))}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverSubmenu === "review-track" ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-4" />
+                            <span>변경 내용 추적</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▸</span>
+                        </button>
+
+                        {hoverSubmenu === "review-track" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[195px] flex flex-col">
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => {
+                                const next = !trackChangesEnabled;
+                                setTrackChangesEnabled(next);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                                showToast(next ? "변경 내용 추적을 켰습니다." : "변경 내용 추적을 껐습니다.");
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#e11d48] font-bold text-xs">{trackChangesEnabled ? "✓" : ""}</span>
+                              <span>변경 내용 추적</span>
+                            </button>
+
+                            <div className="my-1 border-t border-neutral-200" />
+
+                            <button
+                              type="button"
+                              disabled={visibleTrackedChanges.length === 0}
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => { handleTrackAcceptAndNext(); setOpenDropdown(null); setHoverSubmenu(null); }}
+                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${visibleTrackedChanges.length === 0 ? "text-neutral-400 cursor-not-allowed" : "hover:bg-neutral-100 cursor-pointer"}`}
+                            >
+                              <span className="w-4" />
+                              <span>적용 후 다음으로 이동</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={visibleTrackedChanges.length === 0}
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => { handleTrackRejectAndNext(); setOpenDropdown(null); setHoverSubmenu(null); }}
+                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${visibleTrackedChanges.length === 0 ? "text-neutral-400 cursor-not-allowed" : "hover:bg-neutral-100 cursor-pointer"}`}
+                            >
+                              <span className="w-4" />
+                              <span>취소 후 다음으로 이동</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={visibleTrackedChanges.length === 0}
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => { handleTrackNavigate(1); setOpenDropdown(null); setHoverSubmenu(null); }}
+                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${visibleTrackedChanges.length === 0 ? "text-neutral-400 cursor-not-allowed" : "hover:bg-neutral-100 cursor-pointer"}`}
+                            >
+                              <span className="w-4" />
+                              <span>다음</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={visibleTrackedChanges.length === 0}
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => { handleTrackNavigate(-1); setOpenDropdown(null); setHoverSubmenu(null); }}
+                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${visibleTrackedChanges.length === 0 ? "text-neutral-400 cursor-not-allowed" : "hover:bg-neutral-100 cursor-pointer"}`}
+                            >
+                              <span className="w-4" />
+                              <span>이전</span>
+                            </button>
+
+                            <div className="my-1 border-t border-neutral-200" />
+
+                            <div
+                              className="relative"
+                              onMouseEnter={() => setHoverReviewViewSub(true)}
+                              onMouseLeave={() => setHoverReviewViewSub(false)}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setHoverReviewViewSub((v) => !v)}
+                                className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverReviewViewSub ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span className="w-4" />
+                                  <span>변경 내용 보기</span>
+                                </span>
+                                <span className="text-[10px] text-neutral-400">▸</span>
+                              </button>
+                              {hoverReviewViewSub && (
+                                <div className="absolute left-full top-0 ml-0.5 z-80 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[140px] flex flex-col">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowTrackInsertDelete((v) => !v);
+                                      setOpenDropdown(null);
+                                      setHoverSubmenu(null);
+                                      setHoverReviewViewSub(false);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                                  >
+                                    <span className="w-4 text-[#e11d48] font-bold text-xs">{showTrackInsertDelete ? "✓" : ""}</span>
+                                    <span>삽입 및 삭제</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowTrackFormat((v) => !v);
+                                      setOpenDropdown(null);
+                                      setHoverSubmenu(null);
+                                      setHoverReviewViewSub(false);
+                                    }}
+                                    className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                                  >
+                                    <span className="w-4 text-[#e11d48] font-bold text-xs">{showTrackFormat ? "✓" : ""}</span>
+                                    <span>서식</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="my-1 border-t border-neutral-200" />
+
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => {
+                                setTrackDisplayMode("final-markup");
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                                showToast("최종본 및 변경 내용 보기 모드");
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#e11d48] font-bold text-xs">{trackDisplayMode === "final-markup" ? "✓" : ""}</span>
+                              <span>최종본 및 변경 내용</span>
+                            </button>
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHoverReviewViewSub(false)}
+                              onClick={() => {
+                                setTrackDisplayMode("final");
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                                showToast("최종본 보기 모드");
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                            >
+                              <span className="w-4 text-[#e11d48] font-bold text-xs">{trackDisplayMode === "final" ? "✓" : ""}</span>
+                              <span>최종본</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -9980,49 +10265,86 @@ function HwpxEditorModalInner({
                   {isDropdownOpen && menu.id === "tools" && (
                     <div
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[210px] text-xs text-neutral-800 animate-in fade-in duration-100"
+                      className="absolute left-0 top-full mt-0.5 z-60 bg-white border border-neutral-300 shadow-2xl rounded-[4px] py-1 min-w-[195px] text-xs text-neutral-800 animate-in fade-in duration-100"
                       style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}
                     >
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowTextConvertModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                      {/* 빠른 교정 ▸ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("tools-quick-correct")}
+                        onMouseLeave={() => setHoverSubmenu((prev) => (prev === "tools-quick-correct" ? null : prev))}
                       >
-                        <span className="flex items-center gap-2.5">
-                          <TextConvertIcon className="w-4 h-4 text-indigo-600" />
-                          <span>글자 바꾸기...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowShortcutsModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu((prev) => (prev === "tools-quick-correct" ? null : "tools-quick-correct"))}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverSubmenu === "tools-quick-correct" ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-4" />
+                            <span>빠른 교정</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▸</span>
+                        </button>
+                        {hoverSubmenu === "tools-quick-correct" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[265px] flex flex-col">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = !smartQuotesEnabled;
+                                setSmartQuotesEnabled(next);
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                                showToast(next ? "'곧은 따옴표'를 '둥근 따옴표'로 자동 바꾸기를 켰습니다." : "'곧은 따옴표'를 '둥근 따옴표'로 자동 바꾸기를 껐습니다.");
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer whitespace-nowrap"
+                            >
+                              <span className="w-4 text-[#e11d48] font-bold text-xs">{smartQuotesEnabled ? "✓" : ""}</span>
+                              <span>'곧은 따옴표'를 '둥근 따옴표'로 자동 바꾸기</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 접근성 설정 ▸ */}
+                      <div
+                        className="relative"
+                        onMouseEnter={() => setHoverSubmenu("tools-accessibility")}
+                        onMouseLeave={() => setHoverSubmenu((prev) => (prev === "tools-accessibility" ? null : prev))}
                       >
-                        <span className="flex items-center gap-2.5">
-                          <ShortcutsIcon className="w-4 h-4 text-neutral-600" />
-                          <span>단축키 안내...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowSafeFontModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <SafeFontIcon className="w-4 h-4 text-emerald-600" />
-                          <span>공공안심글꼴...</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setOpenDropdown(null); setShowAddFontModal(true); }}
-                        className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <span>🔤</span>
-                          <span>글꼴(폰트) 추가/관리...</span>
-                        </span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setHoverSubmenu((prev) => (prev === "tools-accessibility" ? null : "tools-accessibility"))}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-left cursor-pointer ${hoverSubmenu === "tools-accessibility" ? "bg-neutral-100" : "hover:bg-neutral-100"}`}
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <span className="w-4" />
+                            <span>접근성 설정</span>
+                          </span>
+                          <span className="text-[10px] text-neutral-400">▸</span>
+                        </button>
+                        {hoverSubmenu === "tools-accessibility" && (
+                          <div className="absolute left-full top-0 ml-0.5 z-70 bg-white border border-neutral-300 shadow-xl rounded-[4px] py-1 min-w-[235px] flex flex-col">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = !screenReaderEnabled;
+                                setScreenReaderEnabled(next);
+                                setScreenReaderAnnouncement(next ? "스크린 리더 지원 사용이 켜졌습니다." : "");
+                                setOpenDropdown(null);
+                                setHoverSubmenu(null);
+                                showToast(next ? "스크린 리더 지원 사용을 켰습니다." : "스크린 리더 지원 사용을 껐습니다.");
+                              }}
+                              className="w-full flex items-center justify-between gap-4 px-3 py-1.5 hover:bg-neutral-100 text-left cursor-pointer whitespace-nowrap"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="w-4 text-[#e11d48] font-bold text-xs">{screenReaderEnabled ? "✓" : ""}</span>
+                                <span>스크린 리더 지원 사용</span>
+                              </span>
+                              <span className="text-[11px] text-neutral-400 font-mono">Ctrl+Alt+F1</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -14770,8 +15092,15 @@ function HwpxEditorModalInner({
                             {(() => {
                               const blockMemos = memos.filter((m) => m.blockId === block.id);
                               const hasMemos = blockMemos.length > 0;
+                              const blockTrackedChanges = trackDisplayMode === "final-markup"
+                                ? visibleTrackedChanges.filter((tc) => tc.blockId === block.id)
+                                : [];
+                              const isActiveTrackedBlock = activeTrackedChangeIdx >= 0
+                                && visibleTrackedChanges[activeTrackedChangeIdx]?.blockId === block.id
+                                && trackDisplayMode === "final-markup";
                               return (
-                                <div className={`${isInlinePara ? "inline" : ""} relative ${hasMemos && showAllMemos ? "bg-orange-50/75 border-b border-orange-300/80 rounded-[2px]" : ""}`}>
+                                <div data-tracked-change={blockTrackedChanges.length > 0 ? blockTrackedChanges[0].kind : undefined}
+                        className={`${isInlinePara ? "inline" : ""} relative ${hasMemos && showAllMemos ? "bg-orange-50/75 border-b border-orange-300/80 rounded-[2px]" : ""} ${blockTrackedChanges.length > 0 ? (isActiveTrackedBlock ? "border-l-2 border-rose-600 bg-rose-50/50 pl-1.5" : "border-l-2 border-rose-400 bg-rose-50/25 pl-1.5") : ""}`}>
                                   {showControlMarks && (idx === 0 || showPageBreak || hasMemos) && (
                                     <div className="flex items-center gap-1 mb-0.5 select-none pointer-events-none flex-wrap">
                                       {idx === 0 && (
@@ -16575,6 +16904,9 @@ function HwpxEditorModalInner({
           </div>
         </main>
         <div id="hwpx-remote-slot" className="pointer-events-none absolute top-6 right-6 z-40" />
+        <div role="status" aria-live="polite" data-screen-reader-region="true" data-screen-reader-active={screenReaderEnabled ? "true" : "false"} className="sr-only">
+          {screenReaderEnabled ? screenReaderAnnouncement : ""}
+        </div>
         </div>
 
         {/* 한컴독스 표준 하단 상태 표시줄 */}
