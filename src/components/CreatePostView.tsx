@@ -5,6 +5,8 @@ import { dataRepository } from "../api";
 import { BOARD_CATEGORIES } from "../lib/boardData";
 import { validateNewPollInput } from "../lib/boardPoll";
 import { MAX_BOARD_TAGS, normalizeBoardTags, sameTag, splitTagInput } from "../lib/boardTags";
+import { validateBoardProfanity } from "../lib/profanityFilter";
+import ProfanityAlertOverlay from "./ProfanityAlertOverlay";
 import type { BoardAttachment, BoardCategory, BoardPost, NewBoardPostInput } from "../api/types";
 
 export default function CreatePostView({
@@ -53,6 +55,7 @@ export default function CreatePostView({
     initialPost?.poll?.closesAt ? new Date(initialPost.poll.closesAt).toLocaleString("sv-SE").slice(0, 16).replace(" ", "T") : ""
   );
   const [hideImagePreview, setHideImagePreview] = useState(initialPost?.hideImagePreview ?? false);
+  const [profanityOverlayMessage, setProfanityOverlayMessage] = useState<string | null>(null);
   // 태그: 쉼표·Enter로 추가, × 또는 빈 칸에서 Backspace로 삭제. 저장할 때 입력 중인 글자도 태그로 넣는다.
   const [tags, setTags] = useState<string[]>(initialPost?.tags ?? []);
   const [tagDraft, setTagDraft] = useState("");
@@ -247,6 +250,19 @@ export default function CreatePostView({
     }
 
     const finalTags = normalizeBoardTags([...tags, ...splitTagInput(tagDraft)]);
+    const profanityError = validateBoardProfanity({
+      title: title.trim(),
+      content: cleanHtml,
+      tags: finalTags,
+      pollQuestion: pollInput?.question,
+      pollOptions: pollInput?.options,
+    });
+    if (profanityError) {
+      setError(profanityError);
+      setProfanityOverlayMessage(profanityError);
+      return;
+    }
+
     if (initialPost && onUpdate) {
       onUpdate(initialPost.id, {
         category,
@@ -272,6 +288,7 @@ export default function CreatePostView({
 
   return (
     <div className="space-y-6">
+      <ProfanityAlertOverlay message={profanityOverlayMessage} onClose={() => setProfanityOverlayMessage(null)} />
       <div className="flex items-center justify-between gap-4">
         <button
           onClick={onCancel}
