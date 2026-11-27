@@ -1,7 +1,7 @@
 // Source: https://github.com/VaneProject/bad-word-filtering (badwords.txt)
 // License: MIT License - Copyright (c) 2023 PersesTitan
 // (오탐 방지를 위해 공지/운영자 등 일반 단어 및 '정보지원/사용자지원' 등에 걸리는 일부 2음절 단독어 제외)
-const KOREAN_PROFANITY_LIST: readonly string[] = [
+export const KOREAN_PROFANITY_LIST: readonly string[] = [
   "시발",
   "씨발",
   "씨팔",
@@ -595,7 +595,7 @@ const KOREAN_PROFANITY_LIST: readonly string[] = [
   "흐졉"
 ];
 
-const ENGLISH_PROFANITY_LIST: readonly string[] = [
+export const ENGLISH_PROFANITY_LIST: readonly string[] = [
   "fuck",
   "fucking",
   "fucked",
@@ -617,9 +617,35 @@ const ENGLISH_PROFANITY_LIST: readonly string[] = [
   "sex"
 ];
 
+// 오탐 방지: 비속어가 들어 있지만 일상적으로 쓰는 표현. 검사하기 전에 이 표현들을 지운다(띄어쓰기를 그대로 둔 소문자 글에 적용).
+// 고칠 때는 src/lib/profanityWords.ts의 같은 목록도 함께 고친다(tests/profanity-filter.test.mjs가 두 목록이 같은지 확인한다).
+export const KOREAN_ALLOWED_PATTERNS: readonly RegExp[] = [
+  /시발(점|역|택시)/g,
+  /병신년/g,
+  /새끼\s?(고양이|강아지|손가락|발가락|손톱|발톱|줄|돼지|곰|오리|양|사자|호랑이|토끼|거북)/g,
+  /게이(트|지|밍|머|츠)/g,
+  /꺼져\s?(있|요|서|가|도|야|간|버렸|버린)/g,
+  /졸라(매|맨)/g,
+  /씹(어|는|다|으|었|기|히|힌|힐|을|던|고)/g,
+  /성교육/g,
+  /유방암/g,
+  /호로(록|비츠)/g,
+  /호모\s?(사피엔스|에렉투스|하빌리스|루덴스|파베르)/g,
+  /[0-9일이삼사오육칠팔구십]\s?개년/g,
+  /이년(차|간|째)/g,
+  /에비(던스|앙)/g,
+  /에미넴/g,
+  /니미츠/g,
+  /애비게일/g,
+  /닥쳐(오|온|올|왔)/g,
+  /[쑤수]셔\s?넣/g,
+  /조\s?까지/g,
+  /조\s또/g,
+];
+
+
 const ZERO_WIDTH_RE = /[\u200b-\u200d\ufeff]/g;
 const HTML_TAG_RE = /<[^>]*>/g;
-const SEPARATORS_RE = /[\s.,_\-*!?~@#$%^&()[\]{}/\\|+=:;"'`]+/g;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -629,6 +655,27 @@ const ENGLISH_PROFANITY_RE = new RegExp(
   `(?:^|[^a-z])(?:${ENGLISH_PROFANITY_LIST.map(escapeRegExp).join("|")})(?:$|[^a-z])`,
   "i"
 );
+
+// 두 글자 이하의 짧은 비속어는 띄어쓰기를 넘어 찾으면 "다시 발송", "그게 이상해요"처럼 멀쩡한 문장이 걸린다.
+// 그래서 짧은 비속어는 단어 안에서만 찾고, "시 발"·"ㅅ ㅂ"처럼 한 글자씩 띄운 우회만 이어 붙여 찾는다.
+// 세 글자 이상은 띄어쓰기를 모두 무시하고 찾는다("개 새끼", "개새 끼").
+const NON_SPACE_SEPARATORS_RE = /[.,_\-*!?~@#$%^&()[\]{}/\\|+=:;"'`]+/g;
+const LONG_KOREAN_WORDS = KOREAN_PROFANITY_LIST.filter((word) => [...word].length > 2);
+const hasAny = (text: string, words: readonly string[]) => words.some((word) => text.includes(word));
+
+function containsKoreanProfanity(plain: string): boolean {
+  let text = plain.toLowerCase();
+  for (const pattern of KOREAN_ALLOWED_PATTERNS) text = text.replace(pattern, " ");
+  const tokens = text.split(/\s+/).map((token) => token.replace(NON_SPACE_SEPARATORS_RE, "")).filter(Boolean);
+  if (tokens.some((token) => hasAny(token, KOREAN_PROFANITY_LIST))) return true;
+  let run = "";
+  for (const token of [...tokens, ""]) {
+    if ([...token].length === 1) { run += token; continue; }
+    if ([...run].length > 1 && hasAny(run, KOREAN_PROFANITY_LIST)) return true;
+    run = "";
+  }
+  return hasAny(tokens.join(""), LONG_KOREAN_WORDS);
+}
 
 function decodeHtmlAndStripTags(raw: string): string {
   return raw
@@ -646,12 +693,7 @@ export function containsProfanity(raw: string | undefined | null): boolean {
   const plain = decodeHtmlAndStripTags(String(raw));
   if (!plain.trim()) return false;
 
-  const compactKo = plain.toLowerCase().replace(SEPARATORS_RE, "");
-  for (const word of KOREAN_PROFANITY_LIST) {
-    if (compactKo.includes(word)) {
-      return true;
-    }
-  }
+  if (containsKoreanProfanity(plain)) return true;
 
   const lower = plain.toLowerCase();
   const collapsedPunct = lower.replace(/[.\-_*]+/g, "");

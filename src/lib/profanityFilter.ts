@@ -1,8 +1,7 @@
-import { ENGLISH_PROFANITY_LIST, KOREAN_PROFANITY_LIST } from "./profanityWords.ts";
+import { ENGLISH_PROFANITY_LIST, KOREAN_ALLOWED_PATTERNS, KOREAN_PROFANITY_LIST } from "./profanityWords.ts";
 
 const ZERO_WIDTH_RE = /[\u200b-\u200d\ufeff]/g;
 const HTML_TAG_RE = /<[^>]*>/g;
-const SEPARATORS_RE = /[\s.,_\-*!?~@#$%^&()[\]{}/\\|+=:;"'`]+/g;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -24,8 +23,25 @@ function decodeHtmlAndStripTags(raw: string): string {
     .replace(ZERO_WIDTH_RE, "");
 }
 
-function normalizeForKoreanCheck(text: string): string {
-  return text.toLowerCase().replace(SEPARATORS_RE, "");
+// 두 글자 이하의 짧은 비속어는 띄어쓰기를 넘어 찾으면 "다시 발송", "그게 이상해요"처럼 멀쩡한 문장이 걸린다.
+// 그래서 짧은 비속어는 단어 안에서만 찾고, "시 발"·"ㅅ ㅂ"처럼 한 글자씩 띄운 우회만 이어 붙여 찾는다.
+// 세 글자 이상은 띄어쓰기를 모두 무시하고 찾는다("개 새끼", "개새 끼").
+const NON_SPACE_SEPARATORS_RE = /[.,_\-*!?~@#$%^&()[\]{}/\\|+=:;"'`]+/g;
+const LONG_KOREAN_WORDS = KOREAN_PROFANITY_LIST.filter((word) => [...word].length > 2);
+const hasAny = (text: string, words: readonly string[]) => words.some((word) => text.includes(word));
+
+function containsKoreanProfanity(plain: string): boolean {
+  let text = plain.toLowerCase();
+  for (const pattern of KOREAN_ALLOWED_PATTERNS) text = text.replace(pattern, " ");
+  const tokens = text.split(/\s+/).map((token) => token.replace(NON_SPACE_SEPARATORS_RE, "")).filter(Boolean);
+  if (tokens.some((token) => hasAny(token, KOREAN_PROFANITY_LIST))) return true;
+  let run = "";
+  for (const token of [...tokens, ""]) {
+    if ([...token].length === 1) { run += token; continue; }
+    if ([...run].length > 1 && hasAny(run, KOREAN_PROFANITY_LIST)) return true;
+    run = "";
+  }
+  return hasAny(tokens.join(""), LONG_KOREAN_WORDS);
 }
 
 /**
@@ -37,12 +53,7 @@ export function containsProfanity(raw: string | undefined | null): boolean {
   const plain = decodeHtmlAndStripTags(String(raw));
   if (!plain.trim()) return false;
 
-  const compactKo = normalizeForKoreanCheck(plain);
-  for (const word of KOREAN_PROFANITY_LIST) {
-    if (compactKo.includes(word)) {
-      return true;
-    }
-  }
+  if (containsKoreanProfanity(plain)) return true;
 
   // 영어는 구분자 제거 버전과 단어 경계 버전 모두 검사 (f.u.c.k 같은 우회 탐지 + classic 등 오탐 방지)
   const lower = plain.toLowerCase();
