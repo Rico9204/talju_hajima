@@ -9,6 +9,7 @@ import {
   serializeBlocksToHwpxXml,
   hwpxCollabKey,
   hwpxCollabText,
+  extractMemosFromHwpxXml,
 } from '../src/lib/hwpxCollab.ts';
 import { newHwpxBytes, readZipEntries, writeZipEntries, extractHwpxText } from '../src/lib/hwpx.ts';
 
@@ -472,14 +473,37 @@ test('hwpxCollab: 표 셀의 borderFillIDRef 보정 및 자유 이동(Floating) 
 
   // 1. 표 셀에 borderFillIDRef="1"이 자동 보충되었는지 검증
   assert.ok(pkg.sectionXml.includes('borderFillIDRef="1"'));
-  // 2. 부유 표의 hp:pos treatAsChar="0", allowOverlap="1" 검증
-  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="1" allowOverlap="1"'));
-  assert.ok(pkg.sectionXml.includes('vertOffset="2500" horzOffset="1500"'));
+  // 2. 부유 표의 hp:pos treatAsChar="0", flowWithText="0", allowOverlap="1" 검증 (1px = 75 HWPUNIT)
+  assert.ok(pkg.sectionXml.includes('<hp:pos treatAsChar="0" affectLSpacing="0" flowWithText="0" allowOverlap="1"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="1875" horzOffset="1125"'));
 
   // 3. 부유 도형의 textWrap="IN_FRONT_OF_TEXT", treatAsChar="0", allowOverlap="1", zOrder="10" 검증
   assert.ok(pkg.sectionXml.includes('textWrap="IN_FRONT_OF_TEXT"'));
   assert.ok(pkg.sectionXml.includes('zOrder="10"'));
-  assert.ok(pkg.sectionXml.includes('vertOffset="10000" horzOffset="5000"'));
+  assert.ok(pkg.sectionXml.includes('vertOffset="7500" horzOffset="3750"'));
+
+  // 4. 자리차지(TOP_AND_BOTTOM) + 음수 오프셋 + allowOverlap=false 왕복(Roundtrip) 검증
+  const tbPkg = serializeBlocksToHwpxPackage([
+    {
+      type: 'shape',
+      id: 'shape_tb',
+      shapeType: 'rect',
+      text: '',
+      treatAsChar: false,
+      textWrap: 'TOP_AND_BOTTOM',
+      allowOverlap: false,
+      offsetX: 120,
+      offsetY: -40,
+    },
+  ], '', '');
+  const reparsedTb = parseHwpxXmlToBlocks(tbPkg.sectionXml);
+  assert.equal(reparsedTb.length, 1);
+  assert.equal(reparsedTb[0].type, 'shape');
+  assert.equal(reparsedTb[0].treatAsChar, false);
+  assert.equal(reparsedTb[0].textWrap, 'TOP_AND_BOTTOM');
+  assert.equal(reparsedTb[0].allowOverlap, false);
+  assert.equal(reparsedTb[0].offsetX, 120);
+  assert.equal(reparsedTb[0].offsetY, -40);
 
   // 4. headerXml의 hh:paraProperties에 신규 정렬 서식이 등록되었는지 검증
   assert.ok(pkg.headerXml.includes('<hh:align horizontal="RIGHT"'));
@@ -553,11 +577,14 @@ test('hwpxCollab: 차트(chart) 블록이 한컴 OWPML 호환 직렬화 및 Yjs 
     },
   ];
 
-  // 1. OWPML 직렬화 검증 (차트 캡션 및 대체 텍스트 표기 확인)
+  // 1. OWPML 직렬화 검증 (<hp:chart> + Chart/chart1.xml + 캡션 확인)
   const pkg = serializeBlocksToHwpxPackage(chartBlocks, '', '');
+  assert.ok(pkg.sectionXml.includes('<hp:chart '));
+  assert.ok(pkg.sectionXml.includes('chartIDRef="Chart/chart1.xml"'));
   assert.ok(pkg.sectionXml.includes('<hp:caption side="BOTTOM"'));
   assert.ok(pkg.sectionXml.includes('차트 1. 분기별 경영 실적'));
-  assert.ok(pkg.sectionXml.includes('[차트: column] [차트 1] 분기별 경영 실적'));
+  assert.ok(pkg.chartFiles?.has('Chart/chart1.xml'));
+  assert.ok(pkg.chartFiles?.get('Chart/chart1.xml')?.includes('<c:chartSpace'));
 
   // 2. Yjs CRDT 라운드트립 검증
   const ydoc = new Y.Doc();
@@ -574,4 +601,113 @@ test('hwpxCollab: 차트(chart) 블록이 한컴 OWPML 호환 직렬화 및 Yjs 
     assert.deepEqual(extracted[0].series[0].values, [180, 240, 290, 360]);
     assert.equal(extracted[0].caption, '차트 1. 분기별 경영 실적');
   }
+});
+
+test('hwpxCollab: 각주(<hp:footNote>) 및 미주(<hp:endNote>) OWPML 직렬화 및 라운드트립 검증', () => {
+  const blocks = [
+    {
+      type: 'paragraph',
+      id: 'p_note_host',
+      text: '본문에서 OWPML<sup data-note-id="footnote-sample-1" data-note-type="footnote">1)</sup>과 CRDT<sup data-note-id="endnote-sample-1" data-note-type="endnote">1)</sup>를 설명합니다.',
+    },
+    {
+      type: 'paragraph',
+      id: 'footnote-sample-1',
+      text: '한컴오피스 표준 각주 설명입니다.',
+    },
+    {
+      type: 'paragraph',
+      id: 'endnote-sample-1',
+      text: '실시간 동시 편집 미주 설명입니다.',
+    },
+  ];
+
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+  // 1. OWPML <hp:footNote> 및 <hp:endNote> 제어 태그 생성 확인
+  assert.ok(pkg.sectionXml.includes('<hp:footNote number="1"'));
+  assert.ok(pkg.sectionXml.includes('numType="FOOTNOTE"'));
+  assert.ok(pkg.sectionXml.includes('한컴오피스 표준 각주 설명입니다.'));
+  assert.ok(pkg.sectionXml.includes('<hp:endNote number="1"'));
+  assert.ok(pkg.sectionXml.includes('numType="ENDNOTE"'));
+  assert.ok(pkg.sectionXml.includes('실시간 동시 편집 미주 설명입니다.'));
+  // 2. 각주/미주 블록이 일반 본문 <hp:p>로 중복 출력되지 않았는지 확인
+  const topLevelPCount = (pkg.sectionXml.match(/^\s*<hp:p\b/gm) || []).length;
+  assert.equal(topLevelPCount, 1);
+
+  // 3. 라운드트립 파싱 검증
+  const parsed = parseHwpxXmlToBlocks(pkg.sectionXml);
+  const host = parsed.find((b) => b.type === 'paragraph' && b.text.includes('OWPML'));
+  assert.ok(host && host.type === 'paragraph');
+  assert.ok(host.text.includes('data-note-type="footnote"'));
+  assert.ok(host.text.includes('data-note-type="endnote"'));
+  const fnBlock = parsed.find((b) => b.id.startsWith('footnote-'));
+  const enBlock = parsed.find((b) => b.id.startsWith('endnote-'));
+  assert.ok(fnBlock && fnBlock.type === 'paragraph' && fnBlock.text.includes('한컴오피스 표준 각주 설명입니다.'));
+  assert.ok(enBlock && enBlock.type === 'paragraph' && enBlock.text.includes('실시간 동시 편집 미주 설명입니다.'));
+});
+
+test('hwpxCollab: 하이퍼링크(<a href>) OWPML <hp:fieldBegin type="HYPERLINK"> 직렬화 검증', () => {
+  const blocks = [
+    {
+      type: 'paragraph',
+      id: 'p_link_host',
+      text: '참고 링크 <a href="https://example.com">예제 사이트</a> 입니다.',
+    },
+  ];
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+  assert.ok(pkg.sectionXml.includes('<hp:fieldBegin '));
+  assert.ok(pkg.sectionXml.includes('type="HYPERLINK"'));
+  assert.ok(pkg.sectionXml.includes('https://example.com;1;0;0;'));
+  assert.ok(pkg.sectionXml.includes('<hp:t>예제 사이트</hp:t>'));
+  assert.ok(pkg.sectionXml.includes('<hp:fieldEnd '));
+
+  const parsed = parseHwpxXmlToBlocks(pkg.sectionXml);
+  const linkPara = parsed.find((b) => b.type === 'paragraph' && b.text.includes('예제 사이트'));
+  assert.ok(linkPara && linkPara.type === 'paragraph');
+  assert.ok(linkPara.text.includes('<a href="https://example.com">예제 사이트</a>'));
+});
+
+test('hwpxCollab: 책갈피(<hp:bookmark>) OWPML 직렬화 및 라운드트립 검증', () => {
+  const blocks = [
+    {
+      type: 'paragraph',
+      id: 'p_bm_host',
+      text: '여기에 <span data-bookmark-name="테스트_책갈피"></span> 본문이 있습니다.',
+    },
+  ];
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '');
+  assert.ok(pkg.sectionXml.includes('<hp:bookmark name="테스트_책갈피"/>'));
+
+  const parsed = parseHwpxXmlToBlocks(pkg.sectionXml);
+  const bmPara = parsed.find((b) => b.type === 'paragraph' && b.text.includes('본문이 있습니다'));
+  assert.ok(bmPara && bmPara.type === 'paragraph');
+  assert.ok(bmPara.text.includes('data-bookmark-name="테스트_책갈피"'));
+});
+
+test('hwpxCollab: 메모(<hp:fieldBegin type="MEMO">) OWPML 직렬화 및 라운드트립 검증', () => {
+  const blocks = [
+    {
+      type: 'paragraph',
+      id: 'p_0',
+      text: '메모가 달린 문단입니다.',
+    },
+  ];
+  const memos = [
+    {
+      id: 'memo_1',
+      blockId: 'p_0',
+      author: '검토자',
+      createdAt: '2026-11-24 02:45',
+      text: '이 문단을 확인하세요.',
+    },
+  ];
+  const pkg = serializeBlocksToHwpxPackage(blocks, '', '', { memos });
+  assert.ok(pkg.sectionXml.includes('type="MEMO"'));
+  assert.ok(pkg.sectionXml.includes('이 문단을 확인하세요.'));
+  assert.ok(pkg.headerXml.includes('<hh:memoProperties'));
+
+  const parsedMemos = extractMemosFromHwpxXml(pkg.sectionXml);
+  assert.equal(parsedMemos.length, 1);
+  assert.equal(parsedMemos[0].author, '검토자');
+  assert.equal(parsedMemos[0].text, '이 문단을 확인하세요.');
 });

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import HwpxEditorModal from "./HwpxEditorModal";
-import { newHwpxBytes, HWPX_MIME } from "../lib/hwpx";
+import { newHwpxBytes, readZipEntries, writeZipEntries, HWPX_MIME } from "../lib/hwpx";
+import { parseHwpxXmlToBlocks, serializeBlocksToHwpxPackage, prepareHwpxPackageEntries, type HwpxCollabBlock, type HwpxTableBlock, type HwpxShapeBlock, type HwpxImageBlock, type HwpxEquationBlock, type HwpxChartBlock } from "../lib/hwpxCollab";
 import type { WorkspaceFile } from "../api/types";
 import type { CollabPresence } from "../lib/collab";
 
 export default function HwpxTestPage() {
   const [hwpxBytes, setHwpxBytes] = useState<Uint8Array | null>(null);
+  const [sampleRichBlocks, setSampleRichBlocks] = useState<Array<{ anchorText: string; block: HwpxCollabBlock }>>([]);
   const [fileName, setFileName] = useState("한컴오피스_기능테스트_문서.hwpx");
   const [loading, setLoading] = useState(true);
 
@@ -48,9 +50,193 @@ export default function HwpxTestPage() {
           "[테스트 문단 12] 본 샘플 문서는 페이지 넘김, 두 쪽 보기, 세 쪽 보기, 확대/축소, 찾기/찾아 바꾸기, 찾아가기 등 모든 보기·편집 시나리오를 한 번에 검증할 수 있도록 충분히 긴 분량으로 구성되었습니다.\n\n" +
           "4. 결론 및 향후 점검 사항\n" +
           "[테스트 문단 13] 한 쪽, 두 쪽, 세 쪽 보기 전환 시 모든 페이지가 화면 안에 잘림 없이 배치되는지 확인하세요.\n\n" +
+          "[입력 메뉴 전체 기능 테스트] 문자표(※ ★ ☆ ○ ● ① ② ③ ㈜ ℃ ㎜ → ∑), 필드 입력(작성일: 2026-11-23), 하이퍼링크(https://www.hancomdocs.com), 책갈피([책갈피: 테스트_기준점]) 샘플이 포함되어 있습니다.\n\n" +
+          "[서식 메뉴 기능 테스트]\n" +
+          "● 글머리표 모양 샘플 문단입니다.\n" +
+          "1. 문단 번호 모양 샘플 문단입니다.\n" +
+          "가. 한 수준 증가(들여쓰기 +10pt) 적용 샘플 문단입니다.\n" +
+          "2. 한 수준 감소(상위 수준 복귀) 적용 샘플 문단입니다.\n\n" +
           "[테스트 문단 14] 마지막 문단까지 입력 및 스크롤이 원활하게 동작하는지 확인한 뒤, 수정된 문서를 .hwpx 또는 .pdf로 내보내어 한컴 뷰어에서 동일하게 열리는지 검증할 수 있습니다.";
 
-        const bytes = await newHwpxBytes(sampleText);
+        const baseBytes = await newHwpxBytes(sampleText, "굴림체");
+        const entries = await readZipEntries(baseBytes);
+        const secBytes = entries.get("Contents/section0.xml");
+        const hdrBytes = entries.get("Contents/header.xml");
+        let bytes = baseBytes;
+        if (secBytes && hdrBytes) {
+          const secXml = new TextDecoder().decode(secBytes);
+          const hdrXml = new TextDecoder().decode(hdrBytes);
+          const parsedBlocks = parseHwpxXmlToBlocks(secXml, hdrXml);
+
+          // 0. 샘플 하이퍼링크 및 책갈피 적용 ([입력 메뉴 전체 기능 테스트] 문단)
+          for (const b of parsedBlocks) {
+            if (b.type === "paragraph" && b.text.includes("https://www.hancomdocs.com")) {
+              b.text = b.text.replace(
+                "https://www.hancomdocs.com",
+                '<a href="https://www.hancomdocs.com">https://www.hancomdocs.com</a>'
+              );
+            }
+            if (b.type === "paragraph" && b.text.includes("[책갈피: 테스트_기준점]")) {
+              b.text = b.text.replace(
+                "[책갈피: 테스트_기준점]",
+                '<span data-bookmark-name="테스트_기준점"></span>[책갈피: 테스트_기준점]'
+              );
+            }
+            if (b.type === "paragraph" && b.text.includes("한 수준 증가(들여쓰기 +10pt)")) {
+              b.marginLeftPt = 10;
+            }
+          }
+
+          // 1. 표 (4x4 + 상단 캡션)
+          const tableAfterIdx = parsedBlocks.findIndex(
+            (b) => b.type === "paragraph" && b.text.includes("표 내부의 각 셀은 독립적인")
+          );
+          const sampleTable: HwpxTableBlock = {
+            id: "sample-table-1",
+            type: "table",
+            caption: "기능 테스트 요약 표",
+            captionPos: "top_left",
+            rows: [
+              [
+                { text: "테스트 항목", bgColor: "#EFF6FF" },
+                { text: "담당 모듈", bgColor: "#EFF6FF" },
+                { text: "점검 건수", bgColor: "#EFF6FF" },
+                { text: "상태", bgColor: "#EFF6FF" },
+              ],
+              [{ text: "문단/글자 서식" }, { text: "편집기 본문" }, { text: "12" }, { text: "정상" }],
+              [{ text: "표/셀 다중 선택" }, { text: "표 편집기" }, { text: "8" }, { text: "정상" }],
+              [{ text: "OWPML 내보내기" }, { text: "hwpxCollab" }, { text: "15" }, { text: "정상" }],
+            ],
+          };
+          if (tableAfterIdx !== -1) {
+            parsedBlocks.splice(tableAfterIdx + 1, 0, sampleTable);
+          } else {
+            parsedBlocks.push(sampleTable);
+          }
+
+          // 2. 입력 탭 전체 기능 샘플 블록 (도형, 그림, 글상자, 문단 띠, 차트, 수식, 웹 동영상)
+          const objSectionIdx = parsedBlocks.findIndex(
+            (b) => b.type === "paragraph" && b.text.includes("사각형, 타원, 직선 등의 도형 개체는")
+          );
+          const insertPos = objSectionIdx !== -1 ? objSectionIdx + 1 : parsedBlocks.length;
+
+          let sampleImgSrc = "";
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 280;
+            canvas.height = 100;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.fillStyle = "#EFF6FF";
+              ctx.fillRect(0, 0, 280, 100);
+              ctx.strokeStyle = "#2563EB";
+              ctx.lineWidth = 2;
+              ctx.strokeRect(2, 2, 276, 96);
+              ctx.fillStyle = "#1E3A8A";
+              ctx.font = "bold 14px sans-serif";
+              ctx.textAlign = "center";
+              ctx.fillText("한컴오피스 기능 테스트 그림", 140, 56);
+              sampleImgSrc = canvas.toDataURL("image/png");
+            }
+          } catch {
+            sampleImgSrc = "";
+          }
+
+          const sampleBand: HwpxShapeBlock = {
+            id: "band_sample_1",
+            type: "shape",
+            shapeType: "line",
+            widthPercent: 100,
+            heightPt: 2,
+            strokeColor: "#1f2937",
+            strokeWidth: 1.5,
+            treatAsChar: false,
+            textWrap: "TOP_AND_BOTTOM",
+            limitToPage: true,
+            align: "center",
+          };
+          const sampleShapeRect: HwpxShapeBlock = {
+            id: "shape-sample-rect",
+            type: "shape",
+            shapeType: "rect",
+            widthPercent: 45,
+            heightPt: 48,
+            fillColor: "#DBEAFE",
+            strokeColor: "#1D4ED8",
+            strokeWidth: 1.5,
+            text: "도형(사각형) 샘플",
+            align: "left",
+          };
+          const sampleTextBox: HwpxShapeBlock = {
+            id: "textbox-sample-1",
+            type: "shape",
+            shapeType: "rect",
+            isTextBox: true,
+            widthPercent: 60,
+            heightPt: 48,
+            fillColor: "#F8FAFC",
+            strokeColor: "#334155",
+            strokeWidth: 1,
+            text: "글상자(TextBox) 샘플 내용입니다.",
+            align: "left",
+          };
+          const sampleEquation: HwpxEquationBlock = {
+            id: "eq-sample-1",
+            type: "equation",
+            script: "E = mc^2 + sqrt{a^2 + b^2}",
+          };
+          const sampleChart: HwpxChartBlock = {
+            id: "chart-sample-1",
+            type: "chart",
+            chartType: "bar",
+            title: "모듈별 테스트 현황",
+            categories: ["문단", "표", "도형", "수식"],
+            series: [{ name: "테스트 건수", values: [12, 8, 10, 6], color: "#2563EB" }],
+            widthPercent: 65,
+            align: "left",
+          };
+          const sampleWebVideo: HwpxShapeBlock = {
+            id: "vid-sample-1",
+            type: "shape",
+            shapeType: "rect",
+            text: "__WEB_VIDEO__:https://www.youtube.com/watch?v=SX_ViT4Ra7k",
+            widthPercent: 65,
+            heightPt: 180,
+            fillColor: "#000000",
+            strokeColor: "#1f2937",
+            strokeWidth: 1,
+            align: "left",
+          };
+          parsedBlocks.splice(
+            insertPos,
+            0,
+            sampleBand,
+            sampleShapeRect,
+            sampleTextBox,
+            sampleEquation,
+            sampleWebVideo
+          );
+          const richList: Array<{ anchorText: string; block: HwpxCollabBlock }> = [
+            { anchorText: "사각형, 타원, 직선 등의 도형 개체는", block: sampleChart },
+          ];
+          if (sampleImgSrc) {
+            const sampleImgBlock: HwpxImageBlock = {
+              id: "img-sample-1",
+              type: "image",
+              src: sampleImgSrc,
+              widthPercent: 45,
+              align: "left",
+              caption: "그림 샘플 캡션",
+              captionPos: "bottom_center",
+            };
+            richList.push({ anchorText: "사각형, 타원, 직선 등의 도형 개체는", block: sampleImgBlock });
+          }
+          if (active) setSampleRichBlocks(richList);
+
+          const pkg = serializeBlocksToHwpxPackage(parsedBlocks, secXml, hdrXml);
+          const finalEntries = prepareHwpxPackageEntries(entries, pkg.sectionXml, pkg.headerXml);
+          bytes = await writeZipEntries(finalEntries);
+        }
         if (active) {
           setHwpxBytes(bytes);
           setLoading(false);
@@ -100,8 +286,8 @@ export default function HwpxTestPage() {
   const mockPresence: CollabPresence = {
     key: "tester:test-session",
     me: { id: "tester", name: "테스터" },
-    track: () => {},
-    leave: () => {},
+    track: () => { },
+    leave: () => { },
   };
 
   return (
@@ -126,6 +312,40 @@ export default function HwpxTestPage() {
         room={1}
         mode="main"
         rawHwpxBytes={hwpxBytes}
+        initialSampleBlocks={sampleRichBlocks}
+        initialSampleNotes={[
+          {
+            kind: "footnote",
+            id: "footnote-sample-1",
+            anchorText: "쪽 윤곽(Ctrl+G+L)",
+            noteText: "쪽 윤곽을 끄면 연속 편집 모드로 전환되며 여백 꺾쇠 표시선이 숨겨집니다.",
+          },
+          {
+            kind: "footnote",
+            id: "footnote-sample-2",
+            anchorText: "OWPML XML 스키마",
+            noteText: "한컴오피스 및 한컴독스 표준 개방형 워드프로세서 마크업 언어(KS X 6101)입니다.",
+          },
+          {
+            kind: "endnote",
+            id: "endnote-sample-1",
+            anchorText: "Yjs CRDT 동기화 엔진",
+            noteText: "충돌 없는 복제 데이터 타입(CRDT) 기반 실시간 동시 편집 동기화 엔진입니다.",
+          },
+          {
+            kind: "endnote",
+            id: "endnote-sample-2",
+            anchorText: "한컴 뷰어",
+            noteText: "내보내기(.hwpx / .pdf) 결과는 한컴오피스 및 한컴 뷰어에서 동일하게 열립니다.",
+          },
+        ]}
+        initialSampleMemos={[
+          {
+            anchorText: "문서 창(눈금자), 메모",
+            author: "검토자",
+            text: "샘플 메모: 각주·미주·하이퍼링크·책갈피와 함께 우측 메모 카드 동작을 확인하세요.",
+          },
+        ]}
         presence={mockPresence}
         editors={[]}
         save={async (_bytes, _text, baseVersionId) => {

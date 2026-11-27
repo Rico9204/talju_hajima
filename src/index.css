@@ -6,8 +6,8 @@
 math.hwpx-rendered-equation,
 .hwpx-rendered-equation-wrapper math {
   font-family: 'Cambria Math', 'KaTeX_Math', 'STIX Two Math', 'Latin Modern Math', 'Times New Roman', serif;
-  font-size: 1.16em;
-  line-height: 1.4;
+  font-size: 9.5pt;
+  line-height: 1.15;
   color: #111827;
 }
 
@@ -926,4 +926,16 @@ html, body, #root {
 @media (prefers-reduced-motion: reduce) {
   .radar-fill-up, .radar-ghost-out, .radar-ripple-out, .radar-ripple-in { animation: none; opacity: 0; }
   .radar-fill-up { opacity: 1; }
+}
+
+[data-format-toolbar-controls="true"][data-obj-sel="true"] :disabled {
+  opacity: 1 !important;
+}
+
+[data-page-idx] [contenteditable="true"] b,
+[data-page-idx] [contenteditable="true"] strong,
+[data-page-idx] [contenteditable="true"] [style*="font-weight: bold"],
+[data-page-idx] [contenteditable="true"] [style*="font-weight: 700"] {
+  font-weight: normal !important;
+  text-shadow: 0.42px 0 0 currentColor, -0.15px 0 0 currentColor;
 }

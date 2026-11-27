@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   CharShapeIcon,
   ParaShapeIcon,
@@ -199,72 +199,852 @@ export function TextConvertModal({
   );
 }
 
-// 3. 하이퍼링크 모달 (Ctrl+K)
+// 3. 하이퍼링크 모달 (Ctrl+K) — 한컴오피스/한컴독스 스타일
 export function HyperlinkModal({
   isOpen,
   onClose,
   onInsert,
+  initialText = "",
 }: {
   isOpen: boolean;
   onClose: () => void;
   onInsert: (text: string, url: string) => void;
+  initialText?: string;
 }) {
-  const [text, setText] = useState("");
-  const [url, setUrl] = useState("https://");
+  const [text, setText] = useState(initialText);
+  const [linkType, setLinkType] = useState<"web" | "email">("web");
+  const [url, setUrl] = useState("http://");
+
+  useEffect(() => {
+    if (isOpen) {
+      setText(initialText);
+      setLinkType("web");
+      setUrl("http://");
+    }
+  }, [isOpen, initialText]);
+
   if (!isOpen) return null;
 
+  const handleSubmit = () => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl || trimmedUrl === "http://" || trimmedUrl === "https://" || trimmedUrl === "mailto:") {
+      return;
+    }
+    const finalUrl =
+      linkType === "email"
+        ? (/^mailto:/i.test(trimmedUrl) ? trimmedUrl : `mailto:${trimmedUrl}`)
+        : (/^(https?:\/\/|mailto:|tel:|\/)/i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`);
+    onInsert(text.trim() || finalUrl, finalUrl);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-      <div className="w-88 bg-white rounded-xl shadow-2xl border border-neutral-300 p-4 text-neutral-800 flex flex-col gap-3">
-        <h4 className="text-xs font-bold text-neutral-900 flex items-center justify-between border-b pb-2">
-          <span className="flex items-center gap-1.5">
-            <HyperlinkIcon className="w-4 h-4 text-blue-600" />
-            <span>하이퍼링크 삽입 (Ctrl+K)</span>
-          </span>
-          <button type="button" onClick={onClose} className="text-neutral-400 hover:text-neutral-700 cursor-pointer">✕</button>
-        </h4>
-        <div className="flex flex-col gap-2.5 text-xs">
-          <div>
-            <label className="block text-[11px] font-bold text-neutral-700 mb-1">표시할 텍스트</label>
-            <input
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="예: 과제 참고 링크"
-              className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold text-neutral-700 mb-1">연결할 웹 주소 (URL)</label>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full bg-neutral-50 border border-neutral-300 rounded px-2.5 py-1.5 text-xs outline-none focus:border-[#0066cc]"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          handleSubmit();
+        }
+      }}
+    >
+      <div className="w-[460px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">하이퍼링크</span>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 rounded text-xs border border-neutral-300 hover:bg-neutral-100 text-neutral-700 font-medium"
+            className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer"
+            aria-label="닫기"
           >
-            취소
+            ✕
           </button>
+        </div>
+
+        {/* 본문 2단 레이아웃 (좌측 입력 카드 + 우측 넣기/취소 버튼) */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 bg-white border border-neutral-300 p-4 flex flex-col gap-4">
+            <div>
+              <label className="block text-xs font-bold text-[#1d4ed8] mb-1.5">
+                표시할 문자열
+              </label>
+              <input
+                type="text"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                autoFocus={!initialText}
+                className="w-full bg-white border border-neutral-400 px-2.5 py-1.5 text-[13px] text-neutral-900 outline-none focus:border-[#0066cc]"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">연결 대상</div>
+              <div className="flex flex-col gap-1.5 text-[13px] text-neutral-800">
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="hwpx-hyperlink-type"
+                    checked={linkType === "web"}
+                    onChange={() => {
+                      setLinkType("web");
+                      if (!url.trim() || url.trim() === "mailto:") setUrl("http://");
+                    }}
+                    className="accent-[#0066cc] cursor-pointer"
+                  />
+                  <span>웹 주소</span>
+                </label>
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="hwpx-hyperlink-type"
+                    checked={linkType === "email"}
+                    onChange={() => {
+                      setLinkType("email");
+                      if (url.trim() === "http://" || url.trim() === "https://") setUrl("mailto:");
+                    }}
+                    className="accent-[#0066cc] cursor-pointer"
+                  />
+                  <span>전자 우편 주소</span>
+                </label>
+              </div>
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                autoFocus={Boolean(initialText)}
+                placeholder={linkType === "email" ? "mailto:example@domain.com" : "http://"}
+                className="mt-2 w-full bg-white border border-neutral-400 px-2.5 py-1.5 text-[13px] text-neutral-900 outline-none focus:border-[#0066cc]"
+              />
+            </div>
+          </div>
+
+          {/* 우측 버튼 열 */}
+          <div className="w-22 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              넣기
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 3-2. 책갈피 모달 (한컴오피스/한컴독스 스타일)
+export function BookmarkModal({
+  isOpen,
+  onClose,
+  onInsert,
+  onGoto,
+  bookmarks = [],
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onInsert: (name: string) => void;
+  onGoto: (name: string) => void;
+  bookmarks?: Array<{ name: string; blockIdx: number }>;
+}) {
+  const [name, setName] = useState("");
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName("");
+      setSelectedName(null);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const canInsert = name.trim().length > 0;
+  const gotoTarget = selectedName || (bookmarks.some((b) => b.name === name.trim()) ? name.trim() : null);
+
+  const handleInsert = () => {
+    if (!canInsert) return;
+    onInsert(name.trim());
+    onClose();
+  };
+
+  const handleGoto = () => {
+    if (!gotoTarget) return;
+    onGoto(gotoTarget);
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter" && canInsert) {
+          e.preventDefault();
+          handleInsert();
+        }
+      }}
+    >
+      <div className="w-[460px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">책갈피</span>
           <button
             type="button"
-            onClick={() => {
-              if (url) {
-                onInsert(text || url, url);
-                onClose();
-              }
-            }}
-            className="px-4 py-1 rounded text-xs bg-[#0066cc] text-white font-bold hover:bg-[#0055aa]"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer"
+            aria-label="닫기"
           >
-            삽입
+            ✕
           </button>
+        </div>
+
+        {/* 본문 2단 레이아웃 */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 bg-white border border-neutral-300 p-4 flex flex-col gap-3.5">
+            <div>
+              <label className="block text-xs font-bold text-[#1d4ed8] mb-1.5">
+                책갈피 이름
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="책갈피 이름 입력"
+                autoFocus
+                className="w-full bg-white border border-neutral-400 px-2.5 py-1.5 text-[13px] text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-[#0066cc]"
+              />
+            </div>
+
+            <div>
+              <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">책갈피 목록</div>
+              <div className="w-full h-56 bg-white border border-neutral-400 overflow-y-auto text-[13px]">
+                {bookmarks.map((bm) => {
+                  const isSel = selectedName === bm.name;
+                  return (
+                    <button
+                      key={bm.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedName(bm.name);
+                        setName(bm.name);
+                      }}
+                      onDoubleClick={() => {
+                        onGoto(bm.name);
+                        onClose();
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer transition-colors ${isSel
+                        ? "bg-[#e8f0fe] text-[#1d4ed8] font-medium"
+                        : "text-neutral-800 hover:bg-neutral-100"
+                        }`}
+                    >
+                      {bm.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* 우측 버튼 열 */}
+          <div className="w-22 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleInsert}
+              disabled={!canInsert}
+              className={`w-full py-1.5 bg-white border text-xs font-medium ${canInsert
+                ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                : "border-neutral-200 text-neutral-300 cursor-default"
+                }`}
+            >
+              넣기
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={handleGoto}
+              disabled={!gotoTarget}
+              className={`mt-3 w-full py-1.5 bg-white border text-xs font-medium ${gotoTarget
+                ? "border-neutral-400 text-neutral-900 hover:bg-neutral-100 cursor-pointer"
+                : "border-neutral-200 text-neutral-300 cursor-default"
+                }`}
+            >
+              이동
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 3-3. 글머리표 및 문단 번호 모달 ([서식] 메뉴 — 한컴오피스/한컴독스 통합 2탭 대화상자)
+export function BulletAndNumberModal({
+  isOpen,
+  initialTab = "bullet",
+  onClose,
+  onApplyBullet,
+  onApplyNumber,
+}: {
+  isOpen: boolean;
+  initialTab?: "bullet" | "number";
+  onClose: () => void;
+  onApplyBullet: (prefix: string | null) => void;
+  onApplyNumber: (prefix: string | null) => void;
+}) {
+  const [tab, setTab] = useState<"bullet" | "number">(initialTab);
+  const [selectedBullet, setSelectedBullet] = useState<string | null>("● ");
+  const [selectedNumberIdx, setSelectedNumberIdx] = useState<number>(0); // 0 = 없음, 1..10 = 프리셋
+  const [startMode, setStartMode] = useState<"continue_prev" | "continue_recent" | "new">("new");
+  const [startNum, setStartNum] = useState<number>(1);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
+  if (!isOpen) return null;
+
+  const bulletPresets: Array<{ id: string; char: string; value: string; sizeClass?: string }> = [
+    { id: "b1", char: "●", value: "● ", sizeClass: "text-[11px]" },
+    { id: "b2", char: "•", value: "• ", sizeClass: "text-[10px]" },
+    { id: "b3", char: "■", value: "■ ", sizeClass: "text-[10px]" },
+    { id: "b4", char: "▪", value: "▪ ", sizeClass: "text-[8px]" },
+    { id: "b5", char: "◆", value: "◆ ", sizeClass: "text-[10px]" },
+    { id: "b6", char: "♦", value: "♦ ", sizeClass: "text-[9px]" },
+    { id: "b7", char: "▶", value: "▶ ", sizeClass: "text-[9px]" },
+    { id: "b8", char: "○", value: "○ ", sizeClass: "text-[11px]" },
+    { id: "b9", char: "□", value: "□ ", sizeClass: "text-[11px]" },
+    { id: "b10", char: "◇", value: "◇ ", sizeClass: "text-[11px]" },
+    { id: "b11", char: "▷", value: "▷ ", sizeClass: "text-[10px]" },
+    { id: "b12", char: "◎", value: "◎ ", sizeClass: "text-[11px]" },
+    { id: "b13", char: "☑", value: "☑ ", sizeClass: "text-[11px]" },
+    { id: "b14", char: "✓", value: "✓ ", sizeClass: "text-[11px]" },
+    { id: "b15", char: "★", value: "★ ", sizeClass: "text-[11px]" },
+    { id: "b16", char: "❖", value: "❖ ", sizeClass: "text-[11px]" },
+    { id: "b17", char: "☞", value: "☞ ", sizeClass: "text-[11px]" },
+  ];
+
+  const numberPresets: Array<{ levels: [string, string, string, string]; makePrefix: (n: number) => string }> = [
+    { levels: ["1.", "가.", "1)", "가)"], makePrefix: (n) => `${n}. ` },
+    { levels: ["(1)", "(가)", "(a)", "1)"], makePrefix: (n) => `(${n}) ` },
+    { levels: ["1)", "가)", "a)", "(1)"], makePrefix: (n) => `${n}) ` },
+    {
+      levels: ["①", "(ㄱ)", "(a)", "1)"],
+      makePrefix: (n) => {
+        const circled = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮";
+        return `${circled[Math.max(0, Math.min(circled.length - 1, n - 1))] || `(${n})`} `;
+      },
+    },
+    {
+      levels: ["가)", "a)", "(1)", "(가)"],
+      makePrefix: (n) => {
+        const ko = "가나다라마바사아자차카타파하";
+        return `${ko[Math.max(0, Math.min(ko.length - 1, n - 1))] || n}) `;
+      },
+    },
+    {
+      levels: ["(ㄱ)", "(1)", "(a)", "1)"],
+      makePrefix: (n) => {
+        const jamo = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ";
+        return `(${jamo[Math.max(0, Math.min(jamo.length - 1, n - 1))] || n}) `;
+      },
+    },
+    {
+      levels: ["I.", "A.", "1.", "i)"],
+      makePrefix: (n) => {
+        const roman = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+        return `${roman[Math.max(0, Math.min(roman.length - 1, n - 1))] || n}. `;
+      },
+    },
+    {
+      levels: ["i.", "a.", "(i)", "(a)"],
+      makePrefix: (n) => {
+        const romanLower = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+        return `${romanLower[Math.max(0, Math.min(romanLower.length - 1, n - 1))] || n}. `;
+      },
+    },
+    {
+      levels: ["A.", "1.", "가.", "(a)"],
+      makePrefix: (n) => `${String.fromCharCode(64 + Math.max(1, Math.min(26, n)))}. `,
+    },
+    { levels: ["1.", "1.1.", "1.1.1.", "1.1.1.1."], makePrefix: (n) => `${n}. ` },
+  ];
+
+  const handleConfirm = () => {
+    if (tab === "bullet") {
+      onApplyBullet(selectedBullet);
+    } else {
+      if (selectedNumberIdx === 0) {
+        onApplyNumber(null);
+      } else {
+        const preset = numberPresets[selectedNumberIdx - 1];
+        onApplyNumber(preset ? preset.makePrefix(Math.max(1, startNum)) : "1. ");
+      }
+    }
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          handleConfirm();
+        }
+      }}
+    >
+      <div className="w-[460px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">글머리표 및 문단 번호</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 본문 */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1">
+            {/* 탭 헤더 */}
+            <div className="flex items-end gap-1 mb-0">
+              <button
+                type="button"
+                onClick={() => setTab("bullet")}
+                className={`px-3 py-1 text-xs cursor-pointer ${tab === "bullet"
+                  ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
+                  : "text-neutral-700 hover:text-neutral-900"
+                  }`}
+              >
+                글머리표
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("number")}
+                className={`px-3 py-1 text-xs cursor-pointer ${tab === "number"
+                  ? "bg-white text-[#1d4ed8] font-bold border border-b-0 border-neutral-300 border-b-white -mb-px z-10 shadow-[inset_0_-2px_0_#0066cc]"
+                  : "text-neutral-700 hover:text-neutral-900"
+                  }`}
+              >
+                문단 번호
+              </button>
+            </div>
+
+            {/* 탭 내용 카드 */}
+            <div className="bg-white border border-neutral-300 p-3.5">
+              {tab === "bullet" ? (
+                <>
+                  <div className="text-xs font-bold text-[#1d4ed8] mb-2">글머리표 모양</div>
+                  <div className="border border-neutral-300 p-2 grid grid-cols-4 gap-1.5 bg-white">
+                    {/* 없음 셀 (대각선) */}
+                    <button
+                      type="button"
+                      title="없음"
+                      onClick={() => setSelectedBullet(null)}
+                      onDoubleClick={() => { onApplyBullet(null); onClose(); }}
+                      className={`h-14 flex items-center justify-center border cursor-pointer ${selectedBullet === null ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
+                        }`}
+                    >
+                      <div className="w-8 h-8 border border-neutral-600 relative overflow-hidden bg-neutral-200/70">
+                        <svg viewBox="0 0 32 32" className="w-full h-full">
+                          <line x1="0" y1="32" x2="32" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {bulletPresets.map((bp) => {
+                      const isSel = selectedBullet === bp.value;
+                      return (
+                        <button
+                          key={bp.id}
+                          type="button"
+                          onClick={() => setSelectedBullet(bp.value)}
+                          onDoubleClick={() => { onApplyBullet(bp.value); onClose(); }}
+                          className={`h-14 px-2 py-1.5 flex flex-col justify-center gap-1.5 border cursor-pointer ${isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
+                            }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-3 text-center leading-none text-neutral-700 ${bp.sizeClass || "text-[10px]"}`}>{bp.char}</span>
+                            <div className="flex-1 flex flex-col gap-1">
+                              <span className="block h-[1.5px] bg-neutral-500 w-full" />
+                              <span className="block h-[1.5px] bg-neutral-500 w-4/5" />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-3 text-center leading-none text-neutral-700 ${bp.sizeClass || "text-[10px]"}`}>{bp.char}</span>
+                            <div className="flex-1 flex flex-col gap-1">
+                              <span className="block h-[1.5px] bg-neutral-500 w-full" />
+                              <span className="block h-[1.5px] bg-neutral-500 w-3/4" />
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-xs font-bold text-[#1d4ed8] mb-2">문단 번호 모양</div>
+                  <div className="border border-neutral-300 p-2 grid grid-cols-4 gap-1.5 bg-white">
+                    {/* 없음 셀 (대각선) */}
+                    <button
+                      type="button"
+                      title="없음"
+                      onClick={() => setSelectedNumberIdx(0)}
+                      onDoubleClick={() => { onApplyNumber(null); onClose(); }}
+                      className={`h-16 flex items-center justify-center border cursor-pointer ${selectedNumberIdx === 0 ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-neutral-200 hover:bg-neutral-50"
+                        }`}
+                    >
+                      <div className="w-8 h-8 border border-neutral-600 relative overflow-hidden bg-neutral-200/70">
+                        <svg viewBox="0 0 32 32" className="w-full h-full">
+                          <line x1="0" y1="32" x2="32" y2="0" stroke="#dc2626" strokeWidth="1.5" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {numberPresets.map((np, i) => {
+                      const idx = i + 1;
+                      const isSel = selectedNumberIdx === idx;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setSelectedNumberIdx(idx)}
+                          onDoubleClick={() => { onApplyNumber(np.makePrefix(Math.max(1, startNum))); onClose(); }}
+                          className={`h-16 px-1.5 py-1 flex flex-col justify-center gap-0.5 border text-[9px] leading-tight cursor-pointer ${isSel ? "bg-[#dcdcdc] border-neutral-500" : "bg-white border-transparent hover:bg-neutral-50 hover:border-neutral-200"
+                            }`}
+                        >
+                          {np.levels.map((lv, lIdx) => (
+                            <div key={lIdx} className="flex items-center gap-1">
+                              <span className="text-neutral-700 font-medium whitespace-nowrap">{lv}</span>
+                              <span className="flex-1 h-[1px] bg-neutral-400" />
+                            </div>
+                          ))}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* 시작 번호 방식 */}
+                  <div className="mt-3.5">
+                    <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">시작 번호 방식</div>
+                    <div className="flex flex-col gap-1.5 text-xs">
+                      <label className="inline-flex items-center gap-2 text-neutral-400 cursor-not-allowed">
+                        <input type="radio" name="hwpx-num-start" disabled checked={startMode === "continue_prev"} onChange={() => setStartMode("continue_prev")} />
+                        <span>앞 번호 목록에 이어</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-neutral-400 cursor-not-allowed">
+                        <input type="radio" name="hwpx-num-start" disabled checked={startMode === "continue_recent"} onChange={() => setStartMode("continue_recent")} />
+                        <span>이전 번호 목록에 이어</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-neutral-900 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="hwpx-num-start"
+                          checked={startMode === "new"}
+                          onChange={() => setStartMode("new")}
+                          className="accent-[#0066cc] cursor-pointer"
+                        />
+                        <span>새 번호 목록 시작</span>
+                      </label>
+                      <div className="pl-5 flex items-center gap-2 mt-0.5">
+                        <span className="text-neutral-800">1수준 시작 번호</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={999}
+                          value={startNum}
+                          onChange={(e) => setStartNum(Math.max(1, parseInt(e.target.value || "1", 10)))}
+                          className="w-24 bg-white border border-neutral-400 px-2 py-0.5 text-xs text-neutral-900 outline-none focus:border-[#0066cc]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 우측 버튼 열 */}
+          <div className="w-20 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleConfirm}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              확인
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function StyleModal({
+  isOpen,
+  onClose,
+  onApply,
+  currentStyleInfo,
+  onOpenParaShape,
+  onOpenCharShape,
+  onOpenBulletNumber,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onApply: (preset: string) => void;
+  currentStyleInfo?: {
+    marginLeftPt?: number;
+    marginRightPt?: number;
+    firstLineType?: string;
+    align?: string;
+    lineSpacingPct?: number;
+    fontFamily?: string;
+    sizePt?: number;
+    charWidthPct?: number;
+    letterSpacingPct?: number;
+    listKind?: string;
+  };
+  onOpenParaShape?: () => void;
+  onOpenCharShape?: () => void;
+  onOpenBulletNumber?: () => void;
+}) {
+  const [styles, setStyles] = useState([
+    { id: "body", name: "Normal", fontFamily: "굴림체", sizePt: 10, align: "왼쪽", lineSpacingPct: 160, nextStyle: "Normal", builtIn: true },
+  ]);
+  const [selectedId, setSelectedId] = useState("body");
+  if (!isOpen) return null;
+
+  const activeStyle = styles.find((s) => s.id === selectedId) || styles[0];
+  const mapFontDisplayName = (raw?: string) => {
+    const first = (raw || "").split(",")[0].replace(/['"]/g, "").trim();
+    if (!first || /^gulimche$/i.test(first)) return "굴림체";
+    if (/^gulim$/i.test(first)) return "굴림";
+    if (/^batangche$/i.test(first)) return "바탕체";
+    if (/^batang$/i.test(first)) return "바탕";
+    if (/^dotumche$/i.test(first)) return "돋움체";
+    if (/^dotum$/i.test(first)) return "돋움";
+    if (/^malgun gothic$/i.test(first)) return "맑은 고딕";
+    return first;
+  };
+  const alignLabel = activeStyle.align;
+  const fontLabel = mapFontDisplayName(currentStyleInfo?.fontFamily || activeStyle.fontFamily);
+  const sizeLabel = activeStyle.sizePt;
+  const leftMarginLabel = 0;
+  const rightMarginLabel = 0;
+  const firstLineLabel = "보통";
+  const lineSpacingLabel = activeStyle.lineSpacingPct;
+  const charWidthLabel = 100;
+  const letterSpacingLabel = 0;
+  const listKindLabel = "없음";
+
+  return (
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/30"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          onApply(selectedId);
+          onClose();
+        }
+      }}
+    >
+      <div className="w-[740px] max-w-full bg-[#f0f1f4] border border-neutral-400 shadow-2xl text-neutral-900 overflow-hidden select-none">
+        {/* 상단 제목 표시줄 */}
+        <div className="bg-[#eef2fb] border-b border-neutral-300 px-3.5 py-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-neutral-900">스타일</span>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-neutral-900 text-sm leading-none px-1 cursor-pointer">✕</button>
+        </div>
+
+        {/* 본문 */}
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 bg-white border border-neutral-300 p-4 flex gap-5">
+            {/* 좌측 스타일 목록 */}
+            <div className="w-44 flex flex-col shrink-0">
+              <div className="text-xs font-bold text-[#1d4ed8] mb-1.5">스타일 목록</div>
+              <div className="flex-1 min-h-[290px] border border-neutral-400 bg-white overflow-y-auto text-xs">
+                {styles.map((s) => {
+                  const isSel = selectedId === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedId(s.id)}
+                      onDoubleClick={() => { onApply(s.id); onClose(); }}
+                      className={`w-full text-left px-2.5 py-1.5 cursor-pointer ${isSel ? "bg-[#d4d4d4] text-neutral-900" : "text-neutral-800 hover:bg-neutral-100"
+                        }`}
+                    >
+                      {s.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="스타일 추가"
+                  onClick={() => {
+                    const nextNum = styles.length;
+                    const newId = `custom_${Date.now()}`;
+                    setStyles((prev) => [...prev, { id: newId, name: `새 스타일 ${nextNum}`, fontFamily: "굴림체", sizePt: 10, align: "왼쪽", lineSpacingPct: 160, nextStyle: "Normal", builtIn: false }]);
+                    setSelectedId(newId);
+                  }}
+                  className="w-7 h-7 bg-white border border-neutral-300 hover:bg-neutral-100 text-[#1d4ed8] text-base leading-none flex items-center justify-center cursor-pointer"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  title="스타일 편집"
+                  onClick={() => { onOpenParaShape?.(); }}
+                  className="w-7 h-7 bg-white border border-neutral-300 hover:bg-neutral-100 text-neutral-600 text-xs flex items-center justify-center cursor-pointer"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  title="스타일 삭제"
+                  disabled={activeStyle.builtIn}
+                  onClick={() => {
+                    if (activeStyle.builtIn) return;
+                    setStyles((prev) => prev.filter((s) => s.id !== activeStyle.id));
+                    setSelectedId("body");
+                  }}
+                  className={`w-7 h-7 bg-white border border-neutral-300 text-xs flex items-center justify-center ${activeStyle.builtIn ? "text-red-200 cursor-not-allowed" : "text-red-500 hover:bg-neutral-100 cursor-pointer"
+                    }`}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* 우측 상세 정보 */}
+            <div className="flex-1 flex flex-col gap-3 text-xs">
+              {/* 문단 모양 정보 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#1d4ed8]">문단 모양 정보</span>
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenParaShape?.(); }}
+                    className="px-3 py-0.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-[11px] text-neutral-800 cursor-pointer"
+                  >
+                    설정...
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 pl-2 text-neutral-800">
+                  <div className="flex"><span className="w-24 text-neutral-600">왼쪽 여백</span><span>: {leftMarginLabel} pt</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">첫 줄</span><span>: {firstLineLabel}</span></div>
+                  <div className="flex"><span className="w-24 text-neutral-600">오른쪽 여백</span><span>: {rightMarginLabel} pt</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">정렬 방식</span><span>: {alignLabel}</span></div>
+                  <div className="flex col-span-2"><span className="w-24 text-neutral-600">줄 간격</span><span>: {lineSpacingLabel}%</span></div>
+                  <div className="flex col-span-2"><span className="w-24 text-neutral-600">다음 스타일</span><span>: {activeStyle.nextStyle}</span></div>
+                </div>
+              </div>
+
+              <div className="border-t border-neutral-200" />
+
+              {/* 글자 모양 정보 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#1d4ed8]">글자 모양 정보</span>
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenCharShape?.(); }}
+                    className="px-3 py-0.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-[11px] text-neutral-800 cursor-pointer"
+                  >
+                    설정...
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 pl-2 text-neutral-800">
+                  <div className="flex"><span className="w-24 text-neutral-600">글꼴</span><span>: {fontLabel}</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">장평</span><span>: {charWidthLabel} %</span></div>
+                  <div className="flex"><span className="w-24 text-neutral-600">크기</span><span>: {sizeLabel} pt</span></div>
+                  <div className="flex"><span className="w-20 text-neutral-600">자간</span><span>: {letterSpacingLabel} %</span></div>
+                </div>
+              </div>
+
+              <div className="border-t border-neutral-200" />
+
+              {/* 글머리표/문단 번호 정보 */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#1d4ed8]">글머리표/문단 번호 정보</span>
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenBulletNumber?.(); }}
+                    className="px-3 py-0.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-[11px] text-neutral-800 cursor-pointer"
+                  >
+                    설정...
+                  </button>
+                </div>
+                <div className="pl-2 text-neutral-800 flex">
+                  <span className="w-24 text-neutral-600">종류</span><span>: {listKindLabel}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-neutral-200" />
+
+              {/* 현재 커서 위치 스타일 */}
+              <div>
+                <div className="font-bold text-[#1d4ed8] mb-1.5">현재 커서 위치 스타일</div>
+                <div className="pl-2 text-neutral-800 flex">
+                  <span className="w-24 text-neutral-600">스타일</span><span>: {activeStyle.name}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 우측 확인 버튼 */}
+          <div className="w-20 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => { onApply(selectedId); onClose(); }}
+              className="w-full py-1.5 bg-white border border-neutral-400 hover:bg-neutral-100 text-xs font-medium text-neutral-900 cursor-pointer"
+            >
+              확인
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -408,9 +1188,8 @@ export function PageNumberModal({
                 key={p.id}
                 type="button"
                 onClick={() => setPos(p.id)}
-                className={`p-2 rounded border text-left text-[11px] transition ${
-                  pos === p.id ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-200 hover:bg-neutral-50"
-                }`}
+                className={`p-2 rounded border text-left text-[11px] transition ${pos === p.id ? "bg-blue-50 border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-200 hover:bg-neutral-50"
+                  }`}
               >
                 {p.label}
               </button>
@@ -942,11 +1721,10 @@ export function CharShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("basic")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "basic"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "basic"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 기본
               </button>
@@ -954,11 +1732,10 @@ export function CharShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("extended")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "extended"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "extended"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 확장
               </button>
@@ -1091,9 +1868,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setBold(!bold)}
                       title="진하게"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] font-bold cursor-pointer ${
-                        bold ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] font-bold cursor-pointer ${bold ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1101,9 +1877,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setItalic(!italic)}
                       title="기울임"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] italic cursor-pointer ${
-                        italic ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] italic cursor-pointer ${italic ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1115,9 +1890,8 @@ export function CharShapeModal({
                         setUnderlinePos(next ? "bottom" : "none");
                       }}
                       title="밑줄"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] underline cursor-pointer ${
-                        underline ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] underline cursor-pointer ${underline ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1129,9 +1903,8 @@ export function CharShapeModal({
                         setStrikeShape(next ? "실선" : "없음");
                       }}
                       title="취소선"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] line-through cursor-pointer ${
-                        strikethrough ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] line-through cursor-pointer ${strikethrough ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                     >
                       가
                     </button>
@@ -1139,9 +1912,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setOutlineAttr(!outlineAttr)}
                       title="외곽선"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        outlineAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${outlineAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
+                        }`}
                       style={{ WebkitTextStroke: "0.5px currentColor", color: outlineAttr ? "#0066cc" : "transparent" }}
                     >
                       가
@@ -1150,9 +1922,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => setShadowAttr(!shadowAttr)}
                       title="그림자"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        shadowAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${shadowAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50"
+                        }`}
                       style={{ textShadow: "1.5px 1.5px 0px rgba(0,0,0,0.35)" }}
                     >
                       가
@@ -1161,9 +1932,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setEmbossAttr(!embossAttr); if (!embossAttr) setEngraveAttr(false); }}
                       title="양각"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        embossAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${embossAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-500"
+                        }`}
                     >
                       가
                     </button>
@@ -1171,9 +1941,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setEngraveAttr(!engraveAttr); if (!engraveAttr) setEmbossAttr(false); }}
                       title="음각"
-                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${
-                        engraveAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-600"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[13px] cursor-pointer ${engraveAttr ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc]" : "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-600"
+                        }`}
                     >
                       가
                     </button>
@@ -1184,9 +1953,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setSuperscript(!superscript); if (!superscript) setSubscript(false); }}
                       title="위 첨자"
-                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${
-                        superscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${superscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
+                        }`}
                     >
                       X<sup className="text-[9px]">가</sup>
                     </button>
@@ -1194,9 +1962,8 @@ export function CharShapeModal({
                       type="button"
                       onClick={() => { setSubscript(!subscript); if (!subscript) setSuperscript(false); }}
                       title="아래 첨자"
-                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${
-                        subscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
-                      }`}
+                      className={`w-8 h-8 border rounded-[2px] text-[11px] cursor-pointer flex items-center justify-center ${subscript ? "bg-[#e5f1fb] border-[#0066cc] text-[#0066cc] font-bold" : "border-neutral-300 bg-white hover:bg-neutral-50 text-[#0066cc]"
+                        }`}
                     >
                       X<sub className="text-[9px]">가</sub>
                     </button>
@@ -1559,13 +2326,13 @@ export function ParaShapeModal({
     extra: "none" | "distribute" | "divide";
     lines: string[];
   }> = [
-    { key: "justify", title: "양쪽 정렬", targetAlign: "justify", extra: "none", lines: ["w-4", "w-4", "w-4", "w-4"] },
-    { key: "left", title: "왼쪽 정렬", targetAlign: "left", extra: "none", lines: ["w-4", "w-2.5", "w-4", "w-3"] },
-    { key: "center", title: "가운데 정렬", targetAlign: "center", extra: "none", lines: ["w-4 mx-auto", "w-2.5 mx-auto", "w-4 mx-auto", "w-3 mx-auto"] },
-    { key: "right", title: "오른쪽 정렬", targetAlign: "right", extra: "none", lines: ["w-4 ml-auto", "w-2.5 ml-auto", "w-4 ml-auto", "w-3 ml-auto"] },
-    { key: "distribute", title: "배분 정렬", targetAlign: "justify", extra: "distribute", lines: ["w-4", "w-4", "w-4", "w-4 border-dashed"] },
-    { key: "divide", title: "나눔 정렬", targetAlign: "justify", extra: "divide", lines: ["w-4", "w-3 mx-auto", "w-4", "w-2 mx-auto"] },
-  ];
+      { key: "justify", title: "양쪽 정렬", targetAlign: "justify", extra: "none", lines: ["w-4", "w-4", "w-4", "w-4"] },
+      { key: "left", title: "왼쪽 정렬", targetAlign: "left", extra: "none", lines: ["w-4", "w-2.5", "w-4", "w-3"] },
+      { key: "center", title: "가운데 정렬", targetAlign: "center", extra: "none", lines: ["w-4 mx-auto", "w-2.5 mx-auto", "w-4 mx-auto", "w-3 mx-auto"] },
+      { key: "right", title: "오른쪽 정렬", targetAlign: "right", extra: "none", lines: ["w-4 ml-auto", "w-2.5 ml-auto", "w-4 ml-auto", "w-3 ml-auto"] },
+      { key: "distribute", title: "배분 정렬", targetAlign: "justify", extra: "distribute", lines: ["w-4", "w-4", "w-4", "w-4 border-dashed"] },
+      { key: "divide", title: "나눔 정렬", targetAlign: "justify", extra: "divide", lines: ["w-4", "w-3 mx-auto", "w-4", "w-2 mx-auto"] },
+    ];
 
   return (
     <div
@@ -1597,11 +2364,10 @@ export function ParaShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("basic")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "basic"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "basic"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 기본
               </button>
@@ -1609,11 +2375,10 @@ export function ParaShapeModal({
               <button
                 type="button"
                 onClick={() => setTab("border")}
-                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${
-                  tab === "border"
-                    ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
-                    : "text-neutral-600 hover:text-neutral-900"
-                }`}
+                className={`px-4 py-1.5 text-[12px] cursor-pointer transition ${tab === "border"
+                  ? "border-b-2 border-[#0066cc] text-[#0066cc] font-semibold"
+                  : "text-neutral-600 hover:text-neutral-900"
+                  }`}
               >
                 테두리/배경
               </button>
@@ -1636,11 +2401,10 @@ export function ParaShapeModal({
                             setAlign(btn.targetAlign);
                             setAlignExtra(btn.extra);
                           }}
-                          className={`w-8 h-7 border rounded-[2px] flex flex-col justify-center gap-[2.5px] px-1.5 cursor-pointer ${
-                            active
-                              ? "bg-[#e5e7eb] border-neutral-500 shadow-inner"
-                              : "bg-white border-neutral-300 hover:bg-neutral-50"
-                          }`}
+                          className={`w-8 h-7 border rounded-[2px] flex flex-col justify-center gap-[2.5px] px-1.5 cursor-pointer ${active
+                            ? "bg-[#e5e7eb] border-neutral-500 shadow-inner"
+                            : "bg-white border-neutral-300 hover:bg-neutral-50"
+                            }`}
                         >
                           {btn.lines.map((cls, idx) => (
                             <span key={idx} className={`h-[1.5px] bg-neutral-700 block ${cls}`} />
@@ -1709,9 +2473,8 @@ export function ParaShapeModal({
                         </label>
                       </div>
                       <div
-                        className={`w-28 flex items-center border rounded-[2px] ${
-                          firstLineType === "none" ? "border-neutral-200 bg-neutral-50 opacity-50 pointer-events-none" : "border-neutral-300 bg-white"
-                        }`}
+                        className={`w-28 flex items-center border rounded-[2px] ${firstLineType === "none" ? "border-neutral-200 bg-neutral-50 opacity-50 pointer-events-none" : "border-neutral-300 bg-white"
+                          }`}
                       >
                         <CharShapeNumberInput value={firstLinePt} min={0} max={200} step={1} onChange={setFirstLinePt} />
                         <span className="text-[11px] text-neutral-500 pr-2">pt</span>
@@ -1967,3 +2730,297 @@ export function ParaShapeModal({
   );
 }
 
+
+export function SplitCellModal({
+  isOpen,
+  initialRows = 1,
+  initialCols = 1,
+  canMergeBeforeSplit = false,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  initialRows?: number;
+  initialCols?: number;
+  canMergeBeforeSplit?: boolean;
+  onClose: () => void;
+  onConfirm: (opts: {
+    rows: number;
+    cols: number;
+    equalRowHeight: boolean;
+    mergeBeforeSplit: boolean;
+  }) => void;
+}) {
+  const [useRows, setUseRows] = useState(true);
+  const [useCols, setUseCols] = useState(false);
+  const [rowsCount, setRowsCount] = useState(2);
+  const [colsCount, setColsCount] = useState(2);
+  const [equalRowHeight, setEqualRowHeight] = useState(false);
+  const [mergeBeforeSplit, setMergeBeforeSplit] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const hasMergedRows = initialRows > 1;
+    const hasMergedCols = initialCols > 1;
+    if (hasMergedRows || hasMergedCols) {
+      setUseRows(hasMergedRows);
+      setUseCols(hasMergedCols);
+      setRowsCount(hasMergedRows ? initialRows : 2);
+      setColsCount(hasMergedCols ? initialCols : 2);
+    } else {
+      setUseRows(true);
+      setUseCols(false);
+      setRowsCount(2);
+      setColsCount(2);
+    }
+    setEqualRowHeight(false);
+    setMergeBeforeSplit(false);
+  }, [isOpen, initialRows, initialCols]);
+
+  if (!isOpen) return null;
+
+  const canSubmit = useRows || useCols;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    const r = useRows ? Math.max(1, Math.min(20, Math.round(rowsCount) || 2)) : 1;
+    const c = useCols ? Math.max(1, Math.min(20, Math.round(colsCount) || 2)) : 1;
+    onConfirm({
+      rows: r,
+      cols: c,
+      equalRowHeight,
+      mergeBeforeSplit: canMergeBeforeSplit && mergeBeforeSplit,
+    });
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30 select-none"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+        if (e.key === "Enter" && canSubmit) {
+          e.preventDefault();
+          submit();
+        }
+      }}
+    >
+      <div className="w-[410px] bg-white border border-neutral-400 shadow-2xl rounded-[3px] text-[12px] text-neutral-800 overflow-hidden">
+        <div className="h-9 px-3.5 bg-white border-b border-neutral-200 flex items-center justify-between font-semibold text-[13px] text-neutral-900">
+          <span>셀 나누기</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-900 text-base cursor-pointer px-1 leading-none"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-3.5 flex items-start gap-3">
+          <div className="flex-1 border border-neutral-200 rounded-[2px] p-3.5 space-y-4">
+            <div className="space-y-2.5">
+              <div className="text-[12px] font-bold text-[#1d4ed8]">줄/칸 나누기</div>
+              <div className="flex items-center gap-2.5 pl-1">
+                <label className="inline-flex items-center gap-2 cursor-pointer min-w-[74px]">
+                  <input
+                    id="split-cell-use-rows"
+                    type="checkbox"
+                    checked={useRows}
+                    onChange={(e) => setUseRows(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-[#1d4ed8] cursor-pointer"
+                  />
+                  <span className="text-neutral-800">줄 개수</span>
+                </label>
+                <input
+                  id="split-cell-rows"
+                  type="number"
+                  min={1}
+                  max={20}
+                  disabled={!useRows}
+                  value={rowsCount}
+                  onChange={(e) => setRowsCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                  className={`w-28 px-2 py-1 border rounded-[2px] outline-none ${useRows
+                    ? "bg-white border-neutral-300 text-neutral-900 focus:border-[#1d4ed8]"
+                    : "bg-neutral-50 border-neutral-200 text-neutral-300 cursor-not-allowed"
+                    }`}
+                />
+              </div>
+              <div className="flex items-center gap-2.5 pl-1">
+                <label className="inline-flex items-center gap-2 cursor-pointer min-w-[74px]">
+                  <input
+                    id="split-cell-use-cols"
+                    type="checkbox"
+                    checked={useCols}
+                    onChange={(e) => setUseCols(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-[#1d4ed8] cursor-pointer"
+                  />
+                  <span className="text-neutral-800">칸 개수</span>
+                </label>
+                <input
+                  id="split-cell-cols"
+                  type="number"
+                  min={1}
+                  max={20}
+                  disabled={!useCols}
+                  value={colsCount}
+                  onChange={(e) => setColsCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                  className={`w-28 px-2 py-1 border rounded-[2px] outline-none ${useCols
+                    ? "bg-white border-neutral-300 text-neutral-900 focus:border-[#1d4ed8]"
+                    : "bg-neutral-50 border-neutral-200 text-neutral-300 cursor-not-allowed"
+                    }`}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[12px] font-bold text-[#1d4ed8]">선택 사항</div>
+              <label className="flex items-center gap-2 pl-1 cursor-pointer">
+                <input
+                  id="split-cell-equal-height"
+                  type="checkbox"
+                  checked={equalRowHeight}
+                  onChange={(e) => setEqualRowHeight(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#1d4ed8] cursor-pointer"
+                />
+                <span className="text-neutral-800">줄 높이를 같게 나누기</span>
+              </label>
+              <label
+                className={`flex items-center gap-2 pl-1 ${canMergeBeforeSplit ? "cursor-pointer" : "cursor-not-allowed"
+                  }`}
+              >
+                <input
+                  id="split-cell-merge-first"
+                  type="checkbox"
+                  disabled={!canMergeBeforeSplit}
+                  checked={canMergeBeforeSplit && mergeBeforeSplit}
+                  onChange={(e) => setMergeBeforeSplit(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#1d4ed8] disabled:opacity-40"
+                />
+                <span className={canMergeBeforeSplit ? "text-neutral-800" : "text-neutral-300"}>
+                  셀을 합친 후 나누기
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="w-[82px] flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={submit}
+              className={`w-full py-1.5 border rounded-[2px] text-[12px] ${canSubmit
+                ? "border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-900 cursor-pointer"
+                : "border-neutral-200 bg-neutral-50 text-neutral-300 cursor-not-allowed"
+                }`}
+            >
+              나누기
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-1.5 border border-neutral-300 rounded-[2px] bg-white hover:bg-neutral-50 text-neutral-900 cursor-pointer text-[12px]"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DeleteTableCellsModal({
+  isOpen,
+  onKeepShape,
+  onDeleteCells,
+  onClose,
+}: {
+  isOpen: boolean;
+  onKeepShape: () => void;
+  onDeleteCells: () => void;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[1350] flex items-center justify-center bg-black/25 select-none"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          onKeepShape();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="한글"
+        className="w-[460px] bg-[#f7f8fa] border border-[#93b4e8] shadow-2xl rounded-[3px] text-[13px] text-neutral-800 overflow-hidden"
+      >
+        <div className="h-8 px-3 bg-gradient-to-b from-[#eef4fc] to-[#e2ecfa] border-b border-[#c5d7f2] flex items-center text-[13px] font-medium text-neutral-800">
+          한글
+        </div>
+        <div className="p-3 bg-[#f7f8fa]">
+          <div className="bg-white border border-neutral-200 rounded-[2px] px-5 py-5">
+            <div className="flex items-center gap-4">
+              <svg
+                width="30"
+                height="30"
+                viewBox="0 0 24 24"
+                fill="none"
+                className="shrink-0"
+                aria-hidden="true"
+              >
+                <path
+                  d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                  fill="#f5b81c"
+                />
+                <rect x="11.1" y="9" width="1.8" height="5.2" rx="0.9" fill="#ffffff" />
+                <circle cx="12" cy="16.6" r="1.05" fill="#ffffff" />
+              </svg>
+              <p className="text-[13px] text-neutral-800 leading-snug">
+                선택된 셀들을 지웁니다. 내용만 지우고 셀 모양은 남겨 둘까요?
+              </p>
+            </div>
+            <div className="my-4 border-t border-neutral-200" />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={onKeepShape}
+                className="min-w-[54px] px-3 py-1 bg-[#d4d4d4] hover:bg-[#c8c8c8] border border-neutral-400 rounded-[2px] text-[12px] text-neutral-900 cursor-pointer outline-none"
+              >
+                예
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteCells}
+                className="min-w-[54px] px-3 py-1 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-[2px] text-[12px] text-neutral-800 cursor-pointer"
+              >
+                아니요
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="min-w-[54px] px-3 py-1 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-[2px] text-[12px] text-neutral-800 cursor-pointer"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
