@@ -9,6 +9,7 @@ import { RealtimeHub } from "./realtime.js";
 import { PushSender } from "./push.js";
 import { Db, selectJson, selectOneJson, type Query } from "./db.js";
 import { BOARD_FLAG_TAGS, mapBoardPost, normalizeBoardTags, storedBoardTags } from "./mappers.js";
+import { validateBoardProfanity } from "./profanity.js";
 
 const BOARD_ALLOWED_TAGS = [
   "p", "div", "span", "br", "hr", "b", "strong", "i", "em", "u", "s", "strike", "del", "sub", "sup",
@@ -197,6 +198,14 @@ export class BoardController {
   @Post("posts")
   async createPost(@UserId() userId: string, @Body() body: CreatePostDto) {
     const tags = storedBoardTags(normalizeBoardTags(body.tags ?? []), !!body.hideImagePreview);
+    const profanityError = validateBoardProfanity({
+      title: body.title,
+      content: body.content,
+      tags: body.tags,
+      pollQuestion: body.poll?.question,
+      pollOptions: body.poll?.options,
+    });
+    if (profanityError) throw new BadRequestException(profanityError);
     let createdId = 0;
     const result = await this.db.asUser(userId, async (query) => {
       const [row] = await query<{ id: number }>(
@@ -226,6 +235,12 @@ export class BoardController {
   @Patch("posts/:postId")
   @HttpCode(204)
   async updatePost(@UserId() userId: string, @Param("postId", ParseIntPipe) postId: number, @Body() patch: PostPatchDto) {
+    const profanityError = validateBoardProfanity({
+      title: patch.title,
+      content: patch.content,
+      tags: patch.tags,
+    });
+    if (profanityError) throw new BadRequestException(profanityError);
     await this.db.asUser(userId, async (query) => {
       const updates: Record<string, unknown> = {};
       if (patch.category !== undefined) updates.category = patch.category;
@@ -302,6 +317,8 @@ export class BoardController {
   async addComment(@UserId() userId: string, @Param("postId", ParseIntPipe) postId: number, @Body() body: CommentDto) {
     const content = body.content.trim();
     if (!content) throw new BadRequestException("댓글 내용을 입력해 주세요.");
+    const profanityError = validateBoardProfanity({ comment: content });
+    if (profanityError) throw new BadRequestException(profanityError);
     await this.db.asUser(userId, (query) =>
       query("insert into public.board_comments(post_id, parent_comment_id, author_user_id, content) values ($1, $2, auth.uid(), $3)",
         [postId, body.parentCommentId ?? null, content]));

@@ -3,6 +3,8 @@ import { BOARD_CATEGORIES } from "../lib/boardData";
 import BoardPollView from "./BoardPollView";
 import { useConfirm } from "./ConfirmDialog";
 import { sanitizeBoardHtml } from "../lib/boardHtml";
+import { validateBoardProfanity } from "../lib/profanityFilter";
+import ProfanityAlertOverlay from "./ProfanityAlertOverlay";
 import { CommentReportButton, PostReportButton, PostReportList } from "./PostReport";
 import type { BoardPost } from "../api/types";
 
@@ -46,6 +48,8 @@ export default function PostDetailView({
   onReported?: (postId: number) => void;
 }) {
   const [commentText, setCommentText] = useState("");
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [profanityOverlayMessage, setProfanityOverlayMessage] = useState<string | null>(null);
   const [ask, confirmDialog] = useConfirm();
   const [replyingTarget, setReplyingTarget] = useState<{ commentId: number; targetAuthor: string; replyId?: number } | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -76,14 +80,30 @@ export default function PostDetailView({
 
   function handleCommentSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!commentText.trim()) return;
-    onAddComment(post.id, commentText.trim());
+    const trimmed = commentText.trim();
+    if (!trimmed) return;
+    const profanityError = validateBoardProfanity({ comment: trimmed });
+    if (profanityError) {
+      setCommentError(profanityError);
+      setProfanityOverlayMessage(profanityError);
+      return;
+    }
+    setCommentError(null);
+    onAddComment(post.id, trimmed);
     setCommentText("");
   }
 
   function handleReplySubmit() {
     if (!replyingTarget || !replyText.trim()) return;
-    onAddReply(post.id, replyingTarget.commentId, replyText.trim(), replyingTarget.targetAuthor);
+    const trimmed = replyText.trim();
+    const profanityError = validateBoardProfanity({ comment: trimmed });
+    if (profanityError) {
+      setCommentError(profanityError);
+      setProfanityOverlayMessage(profanityError);
+      return;
+    }
+    setCommentError(null);
+    onAddReply(post.id, replyingTarget.commentId, trimmed, replyingTarget.targetAuthor);
     setReplyText("");
     setReplyingTarget(null);
   }
@@ -94,6 +114,7 @@ export default function PostDetailView({
 
   return (
     <div className="space-y-6">
+      <ProfanityAlertOverlay message={profanityOverlayMessage} onClose={() => setProfanityOverlayMessage(null)} />
       {confirmDialog}
       <div className="flex items-center justify-between gap-4">
         <button
@@ -301,12 +322,15 @@ export default function PostDetailView({
             <textarea
               rows={3}
               value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
+              onChange={(e) => { setCommentText(e.target.value); if (commentError) setCommentError(null); }}
               maxLength={2000}
               placeholder="댓글을 남겨보세요..."
               className="w-full px-4 py-3 text-xs md:text-sm outline-none resize-none"
               style={{ background: "var(--muted)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }}
             />
+            {commentError && (
+              <div className="text-xs font-600 text-red-500 px-1">{commentError}</div>
+            )}
             <div className="flex justify-end">
               <button
                 type="submit"
