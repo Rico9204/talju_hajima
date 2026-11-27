@@ -161,8 +161,15 @@ export interface DataRepository {
   dismissAnnouncement(id: number): Promise<void>;
   markAnnouncementRead(id: number): Promise<void>; // "확인했어요"
   subscribeToAnnouncements(onChange: () => void): () => void;
+  // 전체 알림 목록(관리자 공지 + 게시판 공지사항)과 읽음 표시. 바뀌면 subscribeToAnnouncements로 알려 준다.
+  listNotifications(): Promise<import("./types").AppNotification[]>;
+  markNotificationsRead(items: { kind: "announcement" | "board_notice"; refId: number }[]): Promise<void>;
   // 운영자: 탈퇴 신청·복구 신청 목록과 처리(탈퇴 승인 = 14일이 지난 계정의 정보 삭제)
   listAccountWithdrawals(): Promise<import("./types").AccountWithdrawalLists>;
+  // 운영자: 접속 감사(사용자 목록, 사용자별 IP 요약, IP별 업로드·삭제 내역). 기록은 1년 보관.
+  listAuditUsers(query: string, offset: number): Promise<{ items: import("./types").AuditUser[]; hasMore: boolean }>;
+  listAuditIps(userId: string): Promise<import("./types").AuditIp[]>;
+  listAuditActivities(userId: string, ip: string, before?: number): Promise<{ items: import("./types").AuditActivity[]; nextBefore: number | null }>;
   approveAccountWithdrawal(userId: string): Promise<void>;
   approveAccountRecovery(userId: string): Promise<void>;
   rejectAccountRecovery(userId: string): Promise<void>;

@@ -103,6 +103,7 @@ export default function QuickEditModal({ projectId, file, room, mode, initialTex
       offCursors();
       presence.track(null);
       docRef.current = null;
+      doc.mute(); // 닫는 즉시 새로 연 편집기의 동기화 요청에 옛 내용으로 답하지 않게 한다
       window.setTimeout(() => doc.destroy(), 1500); // 마지막 저장 알림이 나갈 시간
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

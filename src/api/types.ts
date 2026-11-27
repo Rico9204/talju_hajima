@@ -568,11 +568,57 @@ export interface AccountWithdrawalRecord {
   requestedAt: string;
   recoveryRequestedAt: string | null;
   recoveryRejected: boolean;
-  purgeAt: string; // 탈퇴 신청 14일 뒤: 이때부터 탈퇴 승인(정보 삭제)할 수 있다
-  purgeable: boolean;
+  purgeAt: string; // 탈퇴 신청 14일 뒤: 이때 자동으로 삭제된다(그 전에 운영자가 승인하면 바로 삭제)
 }
 
 export interface AccountWithdrawalLists {
   withdrawals: AccountWithdrawalRecord[]; // 복구를 신청하지 않은 계정
   recoveries: AccountWithdrawalRecord[]; // 복구를 신청한 계정(탈퇴 신청 목록에서는 빠진다)
+}
+
+// 전체 알림: 관리자 공지(공지 기간 동안 계속)와 게시판 공지사항(운영자가 쓰면 사용자 전체에게, 최근 30일).
+export interface AppNotification {
+  kind: "announcement" | "board_notice";
+  refId: number; // 관리자 공지 id 또는 게시글 id
+  title: string;
+  body: string | null; // 관리자 공지만 내용이 있다(게시판 공지는 제목만 알린다)
+  startDate: string | null; // 관리자 공지의 기간(YYYY-MM-DD)
+  endDate: string | null;
+  createdAt: string;
+  read: boolean;
+}
+
+// 접속 감사(운영자 전용): 사용자 목록 → 사용자가 접속한 IP → 그 IP에서 한 활동(업로드·삭제)
+export interface AuditUser {
+  userId: string;
+  email: string;
+  name: string;
+  firstAt: string; // 처음 기록된 접속
+  lastAt: string; // 마지막 접속
+  ipCount: number;
+  logins: number;
+  uploads: number;
+  deletes: number;
+  active: boolean; // false = 탈퇴 등으로 삭제된 계정(기록은 보관 기간 동안 남는다)
+}
+
+export interface AuditIp {
+  ip: string;
+  firstAt: string;
+  lastAt: string;
+  logins: number;
+  uploads: number;
+  deletes: number;
+}
+
+export interface AuditActivity {
+  id: number;
+  at: string;
+  kind: "upload" | "delete";
+  targetType: string | null;
+  targetId: string | null;
+  targetName: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  detail: Record<string, unknown>;
 }

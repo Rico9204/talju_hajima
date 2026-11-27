@@ -53,11 +53,27 @@ export function useAnnouncements(userId: string | null | undefined): { items: An
   return { items: current, loaded: isLoaded };
 }
 
+// "확인했어요" 기록(announcement_reads)은 알림 종과 함께 쓴다. 여기서 확인하면 알림 종이 다시 읽도록 알린다.
+const readListeners = new Set<() => void>();
+export function onAnnouncementRead(listener: () => void): () => void {
+  readListeners.add(listener);
+  return () => { readListeners.delete(listener); };
+}
+
+// 알림 종에서 읽음 표시한 공지를 이 목록에도 바로 반영한다(서버 기록은 알림 종이 한다).
+export function applyAnnouncementsRead(ids: number[]): void {
+  const set = new Set(ids);
+  if (!items.some((a) => set.has(a.id) && !a.read)) return;
+  items = items.map((a) => (set.has(a.id) ? { ...a, read: true } : a));
+  emit();
+}
+
 export async function markAnnouncementRead(id: number): Promise<void> {
   items = items.map((a) => (a.id === id ? { ...a, read: true } : a));
   emit();
   try {
     await dataRepository.markAnnouncementRead(id);
+    for (const listener of readListeners) listener();
   } catch {
     refreshAnnouncements(); // 기록하지 못했으면 서버 상태로 되돌린다
   }

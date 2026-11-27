@@ -49,13 +49,13 @@ export interface CursorUser { name: string; color: string; }
 // awareness = 같은 방 사람들의 커서·선택 위치와 이름·색(저장되지 않는 휘발성 상태). 문서 업데이트와 같은 방송 채널로
 // "aw" 이벤트를 주고받는다. 들어올 때(joined)와 남이 들어올 때(sync-req) 내 상태를 다시 보내고, 나갈 때(창 닫기 포함) 지운다.
 // 연결이 끊긴 사람의 커서는 y-protocols가 30초 뒤에 지운다(각자 15초마다 상태를 갱신). awareness는 문서가 없어질 때 함께 정리된다.
-export interface CollabRoom { awareness: Awareness; head: () => number; savedKey: () => string; markSaved: (head: number, key: string) => void; destroy: () => void; }
+export interface CollabRoom { awareness: Awareness; mute: () => void; head: () => number; savedKey: () => string; markSaved: (head: number, key: string) => void; destroy: () => void; }
 export function connectCollabRoom(doc: Y.Doc, opts: { projectId: string; fileId: number; room: number; mode: CollabMode; initialKey: string; me?: { id: string; name: string }; awareness?: Awareness; onSaved: () => void }): CollabRoom {
   const awareness = opts.awareness ?? new Awareness(doc);
   const user: CursorUser | null = opts.me ? { name: opts.me.name || "익명", color: cursorColor(opts.me.id) } : null;
   if (user) awareness.setLocalState({ ...awareness.getLocalState(), user });
   let head = opts.room; let saved = opts.initialKey; const topic = `collab_doc:${opts.projectId}:${opts.fileId}:${opts.room}:${opts.mode}`;
-  let pending: Uint8Array[] = []; let flushTimer: number | undefined;
+  let pending: Uint8Array[] = []; let flushTimer: number | undefined; let muted = false;
   let broadcast = (_event: string, _payload: Record<string, unknown>) => {};
   const flush = () => { window.clearTimeout(flushTimer); flushTimer = undefined; if (pending.length) { broadcast("update", { u: toB64(Y.mergeUpdates(pending)) }); pending = []; } };
   const onUpdate = (update: Uint8Array, origin: unknown) => { if (origin !== "remote" && origin !== "seed") { pending.push(update); flushTimer ??= window.setTimeout(flush, 120); } };
@@ -77,7 +77,7 @@ export function connectCollabRoom(doc: Y.Doc, opts: { projectId: string; fileId:
   const channel = connect(topic, (message, send) => {
     broadcast = (event, payload) => send("broadcast", { topic, event, payload });
     if (message.type === "joined") { broadcast("sync-req", { sv: toB64(Y.encodeStateVector(doc)) }); announce(); }
-    if (message.type !== "broadcast" || !message.payload) return;
+    if (message.type !== "broadcast" || !message.payload || muted) return; // 닫힌 뒤에는 남의 변경을 받지도, 동기화 요청에 답하지도 않는다
     const payload = message.payload;
     if (message.event === "update") Y.applyUpdate(doc, fromB64(String(payload.u)), "remote");
     if (message.event === "sync-req") { broadcast("sync-res", { u: toB64(Y.encodeStateAsUpdate(doc, fromB64(String(payload.sv)))), head, saved }); announce(); }
@@ -86,14 +86,14 @@ export function connectCollabRoom(doc: Y.Doc, opts: { projectId: string; fileId:
     if (message.event === "saved" && typeof payload.head === "number" && payload.head >= head) { head = payload.head; saved = String(payload.saved); opts.onSaved(); }
   });
   return {
-    awareness, head: () => head, savedKey: () => saved, markSaved: (nextHead, key) => { head = nextHead; saved = key; broadcast("saved", { head: nextHead, saved: key }); },
+    awareness, mute: () => { muted = true; }, head: () => head, savedKey: () => saved, markSaved: (nextHead, key) => { head = nextHead; saved = key; broadcast("saved", { head: nextHead, saved: key }); },
     destroy: () => { flush(); leave(); window.removeEventListener("pagehide", leave); window.removeEventListener("pageshow", back); awareness.off("update", onAwareness); doc.off("update", onUpdate); channel.close(); },
   };
 }
 // 다른 사람의 커서(바로 수정): anchor = 선택 시작, head = 커서가 있는 쪽. 글자 위치(textarea selectionStart와 같은 단위).
 export interface RemoteCursor { clientId: number; user: CursorUser; anchor: number; head: number; }
 export interface CollabDoc {
-  text: () => string; edit: (oldValue: string, newValue: string, remoteSince?: Delta[]) => void; head: () => number; savedHash: () => string; markSaved: (head: number, text: string) => void; destroy: () => void;
+  text: () => string; edit: (oldValue: string, newValue: string, remoteSince?: Delta[]) => void; head: () => number; savedHash: () => string; markSaved: (head: number, text: string) => void; mute: () => void; destroy: () => void;
   setCursor: (anchor: number, head: number) => void; cursors: () => RemoteCursor[]; onCursors: (listener: () => void) => () => void;
 }
 export function openCollabDoc(opts: { projectId: string; fileId: number; room: number; mode: CollabMode; initialText: string; me?: { id: string; name: string }; onRemote: (delta: Delta) => void; onSaved: () => void }): CollabDoc {
@@ -103,7 +103,7 @@ export function openCollabDoc(opts: { projectId: string; fileId: number; room: n
   const toRel = (index: number) => Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(text, index));
   const toAbs = (json: unknown) => { try { return Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(json), doc)?.index ?? null; } catch { return null; } };
   return {
-    text: () => text.toString(), edit: (oldValue, newValue, remoteSince) => applyTextEdit(doc, oldValue, newValue, remoteSince), head: room.head, savedHash: room.savedKey, markSaved: (nextHead, value) => room.markSaved(nextHead, textHash(value)), destroy: () => { room.destroy(); doc.destroy(); },
+    text: () => text.toString(), edit: (oldValue, newValue, remoteSince) => applyTextEdit(doc, oldValue, newValue, remoteSince), head: room.head, savedHash: room.savedKey, markSaved: (nextHead, value) => room.markSaved(nextHead, textHash(value)), mute: room.mute, destroy: () => { room.destroy(); doc.destroy(); },
     setCursor: (anchor, head) => { if (awareness.getLocalState()) awareness.setLocalStateField("cursor", { anchor: toRel(anchor), head: toRel(head) }); },
     cursors: () => [...awareness.getStates()].flatMap(([clientId, state]) => {
       const user = state.user as CursorUser | undefined; const cursor = state.cursor as { anchor?: unknown; head?: unknown } | null | undefined;

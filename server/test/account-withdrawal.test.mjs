@@ -2,6 +2,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb, setupProject, signupUsers, startApp } from './helpers.mjs';
+import { AuthLimits } from '../dist/auth.js';
+import { RateLimiter } from '../dist/auth.js';
 
 let pg, app, api, upload, s;
 const PASSWORD = 'correct-horse-1';
@@ -16,9 +18,9 @@ const ids = (list) => list.map((x) => x.userId);
 before(async () => {
   let db;
   ({ pg, db } = await createTestDb());
-  ({ app, api, upload } = await startApp(db));
+  ({ app, api, upload } = await startApp(db, { authLimits: new AuthLimits(undefined, undefined, new RateLimiter(100, 60 * 60_000)) })); // 이 시험은 계정을 많이 만든다
   s = await setupProject(api, pg);
-  [s.operator, s.a, s.b, s.c, s.d, s.e] = await signupUsers(api, 6, 'extra');
+  [s.operator, s.a, s.b, s.c, s.d, s.e, s.f] = await signupUsers(api, 7, 'extra');
   await pg.query('update profiles set is_operator = true, is_admin = true where id = $1', [s.operator.id]);
 });
 after(async () => { await app?.close(); await pg?.close(); });
@@ -78,16 +80,13 @@ test('운영자만 탈퇴 신청 목록을 볼 수 있고, 복구를 신청하�
   const a = list.withdrawals.find((x) => x.userId === s.a.id);
   assert.equal(a.email, s.a.email);
   assert.equal(a.reason, '더 이상 쓰지 않아요');
-  assert.equal(a.purgeable, false);
   assert.ok(a.purgeAt);
 });
 
-test('14일 전에는 정보를 지울 수 없다(탈퇴 승인 거절), 일반 사용자는 승인할 수 없다', async () => {
-  const early = await call(s.operator, 'POST', `/admin/account-withdrawals/${s.a.id}/approve`);
-  assert.equal(early.status, 400);
-  assert.match(early.body.message, /14일/);
+test('탈퇴 승인(정보 삭제)은 운영자만 할 수 있고, 잘못된 번호나 없는 신청은 거절한다', async () => {
   assert.equal((await call(s.leader, 'POST', `/admin/account-withdrawals/${s.a.id}/approve`)).status, 400);
   assert.equal((await call(s.operator, 'POST', '/admin/account-withdrawals/not-a-uuid/approve')).status, 400);
+  assert.equal((await call(s.operator, 'POST', `/admin/account-withdrawals/${s.leader.id}/approve`)).status, 400); // 탈퇴를 신청한 계정이 아님
   assert.equal((await pg.query('select count(*)::int as n from auth.users where id = $1', [s.a.id])).rows[0].n, 1); // 정보는 그대로
 });
 
@@ -149,17 +148,14 @@ test('복구 신청 기간(탈퇴 신청 후 14일)이 지나면 신청할 수 �
   assert.equal((await loginOf(s.d)).body.withdrawal.canRecover, false);
 });
 
-test('14일이 지난 계정은 운영자가 탈퇴 승인하면 계정 정보와 프로필 사진이 삭제된다', async () => {
-  // 프로필 사진을 올려 둔 계정을 탈퇴시키고 14일이 지난 것으로 만든다.
+test('유예 기간 안이어도 운영자가 탈퇴 승인하면 바로 계정 정보와 프로필 사진이 삭제된다', async () => {
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5f645400000000049454e44ae426082', 'hex');
   const uploaded = await upload(s.e.token, '/me/images/avatar', { name: 'a.png', type: 'image/png', bytes: png });
   assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
   assert.equal((await pg.query("select count(*)::int as n from storage.objects where bucket_id = 'avatars' and name like $1", [`${s.e.id}/%`])).rows[0].n, 1);
   assert.equal((await withdraw(s.e)).status, 204);
-  await backdate(s.e, 15);
-  const list = await listOf();
-  assert.equal(list.withdrawals.find((x) => x.userId === s.e.id).purgeable, true);
-  assert.equal((await call(s.operator, 'POST', `/admin/account-withdrawals/${s.e.id}/approve`)).status, 204);
+  assert.ok(ids((await listOf()).withdrawals).includes(s.e.id)); // 유예 기간 안이라 목록에 보인다
+  assert.equal((await call(s.operator, 'POST', `/admin/account-withdrawals/${s.e.id}/approve`)).status, 204); // 14일이 지나지 않았어도 승인 = 삭제
   assert.equal((await pg.query('select count(*)::int as n from auth.users where id = $1', [s.e.id])).rows[0].n, 0);
   assert.equal((await pg.query('select count(*)::int as n from public.profiles where id = $1', [s.e.id])).rows[0].n, 0);
   assert.equal((await pg.query('select count(*)::int as n from public.account_withdrawals where user_id = $1', [s.e.id])).rows[0].n, 0);
@@ -169,9 +165,41 @@ test('14일이 지난 계정은 운영자가 탈퇴 승인하면 계정 정보�
   assert.equal((await call(s.operator, 'POST', `/admin/account-withdrawals/${s.e.id}/approve`)).status, 400); // 이미 삭제됨
 });
 
-test('운영자 승인 전의 다른 신청은 영향받지 않는다', async () => {
+test('유예 기간(14일)이 지나면 자동으로 삭제된다(프로필 사진 포함), 목록에는 유예 중인 계정만 보인다', async () => {
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5f645400000000049454e44ae426082', 'hex');
+  assert.equal((await upload(s.f.token, '/me/images/avatar', { name: 'a.png', type: 'image/png', bytes: png })).status, 201);
+  assert.equal((await withdraw(s.f)).status, 204);
+  // 아직 유예 중: 목록에 보이고 지워지지 않는다. 남은 날짜는 자동 삭제 예정 시각(purgeAt)으로 알 수 있다.
+  const before = (await listOf()).withdrawals.find((x) => x.userId === s.f.id);
+  assert.ok(before && new Date(before.purgeAt).getTime() > Date.now() + 13 * 86400e3);
+  await backdate(s.f, 15); // 유예 기간이 지났다
+  // 운영자가 목록을 열면 먼저 정리돼서(서버는 1시간마다도 정리한다) 목록에 없고 계정도 지워져 있다.
+  const list = await listOf();
+  assert.ok(![...list.withdrawals, ...list.recoveries].some((x) => x.userId === s.f.id));
+  assert.equal((await pg.query('select count(*)::int as n from auth.users where id = $1', [s.f.id])).rows[0].n, 0);
+  assert.equal((await pg.query("select count(*)::int as n from storage.objects where bucket_id = 'avatars' and name like $1", [`${s.f.id}/%`])).rows[0].n, 0);
+  assert.equal((await loginOf(s.f)).status, 401);
+});
+
+test('자동 삭제는 복구 신청이 접수된 계정을 건드리지 않는다, 복구가 거절돼 유예가 지난 계정은 삭제된다', async () => {
+  // s.b: 복구 신청이 접수된 채 30일 전에 탈퇴 신청한 것으로 만든다(위에서 이미 복구 승인으로 처리됐다면 다시 신청한다).
+  assert.equal((await withdraw(s.b, { password: PASSWORD })).status, 204);
+  assert.equal((await recoverRequest(s.b)).status, 200);
+  await backdate(s.b, 30);
+  let list = await listOf();
+  assert.deepEqual(ids(list.recoveries), [s.b.id]); // 유예가 지났어도 복구 신청 목록에 남아 있다
+  assert.equal((await pg.query('select count(*)::int as n from auth.users where id = $1', [s.b.id])).rows[0].n, 1);
+  // 복구를 거절하면 탈퇴 신청으로 돌아가고, 이미 유예가 지났으므로 다음 정리에서 자동 삭제된다.
+  assert.equal((await call(s.operator, 'POST', `/admin/account-recoveries/${s.b.id}/reject`)).status, 204);
+  list = await listOf();
+  assert.ok(![...list.withdrawals, ...list.recoveries].some((x) => x.userId === s.b.id));
+  assert.equal((await pg.query('select count(*)::int as n from auth.users where id = $1', [s.b.id])).rows[0].n, 0);
+});
+
+test('다른 신청(유예 중)은 자동 삭제에 영향받지 않는다', async () => {
   const list = await listOf();
   assert.ok(ids(list.withdrawals).includes(s.a.id));
-  assert.ok(ids(list.withdrawals).includes(s.c.id));
-  assert.ok(ids(list.withdrawals).includes(s.d.id));
+  assert.ok(ids(list.withdrawals).includes(s.c.id)); // 복구가 거절됐지만 아직 유예 중
+  assert.ok(!ids(list.withdrawals).includes(s.d.id)); // 복구 신청 기간(14일)이 지나 자동 삭제됐다
+  assert.equal((await pg.query('select count(*)::int as n from auth.users where id = $1', [s.d.id])).rows[0].n, 0);
 });

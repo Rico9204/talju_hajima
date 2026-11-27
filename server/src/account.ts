@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Post, Req, Res, UnauthorizedException, UseGuards, HttpException } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, HttpCode, Injectable, Logger, Param, ParseUUIDPipe, Post, Req, Res, UnauthorizedException, UseGuards, HttpException, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { IsEmail, IsOptional, IsString, Length, MaxLength } from "class-validator";
 import bcrypt from "bcryptjs";
 import type { Request, Response } from "express";
@@ -21,12 +21,68 @@ class RecoverDto {
 }
 
 const BAD_CREDENTIALS = "아이디 또는 비밀번호가 올바르지 않습니다.";
+const SWEEP_EVERY_MS = 60 * 60 * 1000; // 유예 기간이 지난 탈퇴 계정을 1시간마다 정리한다
+
+// 유예 기간(14일)이 지난 탈퇴 계정을 자동으로 삭제한다(서버가 시작할 때, 그 뒤 1시간마다, 운영자가 목록을 열 때).
+// 복구 신청이 접수된 계정과 참여한 프로젝트가 있는 계정은 건드리지 않는다(DB 함수 expired_withdrawal_ids가 가린다).
+@Injectable()
+export class WithdrawalPurger implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger("WithdrawalPurger");
+  private first?: NodeJS.Timeout;
+  private every?: NodeJS.Timeout;
+  private running: Promise<number> | null = null;
+
+  constructor(private readonly db: Db, private readonly store: FileStore, private readonly withdrawn: WithdrawnAccounts) {}
+
+  onModuleInit(): void {
+    this.first = setTimeout(() => void this.sweep(), 10_000);
+    this.every = setInterval(() => void this.sweep(), SWEEP_EVERY_MS);
+    this.first.unref(); this.every.unref(); // 이 타이머 때문에 서버가 끝나지 못하는 일이 없게
+  }
+
+  onModuleDestroy(): void { clearTimeout(this.first); clearInterval(this.every); }
+
+  // 지운 계정 수. 동시에 여러 번 불러도 한 번만 돌린다.
+  sweep(): Promise<number> {
+    this.running ??= this.sweepOnce().finally(() => { this.running = null; });
+    return this.running;
+  }
+
+  private async sweepOnce(): Promise<number> {
+    try {
+      const candidates = await this.db.asSystem((query) => scalarJson<string[]>(query, "public.expired_withdrawal_ids()"));
+      if (!candidates?.length) return 0;
+      const files = await this.profileImages(candidates); // 지우기 전에 프로필 사진 이름을 모아 둔다
+      const deleted = (await this.db.asSystem((query) => scalarJson<string[]>(query, "public.purge_expired_withdrawals()"))) ?? [];
+      for (const id of deleted) this.withdrawn.remove(id);
+      await this.deleteImages(files.filter((f) => deleted.includes(f.userId)));
+      if (deleted.length > 0) this.logger.log(`유예 기간이 지난 탈퇴 계정 ${deleted.length}개를 삭제했습니다.`);
+      return deleted.length;
+    } catch (error) {
+      this.logger.error(`탈퇴 계정 자동 삭제에 실패했습니다: ${error instanceof Error ? error.message : error}`);
+      return 0;
+    }
+  }
+
+  // 계정의 프로필 사진 파일(avatars/<계정 id>/…)
+  async profileImages(userIds: string[]): Promise<{ userId: string; name: string }[]> {
+    const rows = await this.db.asSystem((query) => query<{ name: string }>(
+      "select name from storage.objects where bucket_id = 'avatars' and split_part(name, '/', 1) = any ($1::text[])", [userIds]));
+    return rows.map((r) => ({ userId: r.name.split("/")[0], name: r.name }));
+  }
+
+  async deleteImages(files: { name: string }[]): Promise<void> {
+    if (files.length === 0) return;
+    for (const file of files) await this.store.remove(`avatars/${file.name}`).catch(() => {});
+    await this.db.asSystem((query) => query("delete from storage.objects where bucket_id = 'avatars' and name = any ($1::text[])", [files.map((f) => f.name)]));
+  }
+}
 
 @Controller()
 export class AccountController {
   constructor(
     private readonly db: Db, private readonly limits: AuthLimits, private readonly address: ClientAddress,
-    private readonly cookie: SessionCookie, private readonly withdrawn: WithdrawnAccounts, private readonly store: FileStore,
+    private readonly cookie: SessionCookie, private readonly withdrawn: WithdrawnAccounts, private readonly purger: WithdrawalPurger,
   ) {}
 
   // 로그인과 같은 실패 횟수 제한을 쓴다(탈퇴·복구 화면으로 비밀번호를 무작위로 대입하지 못하게).
@@ -85,18 +141,22 @@ export class AccountController {
   }
 
   // ── 운영자 ──
-  // 탈퇴 신청 목록(복구를 신청하지 않은 계정)과 복구 신청 목록(복구를 신청한 계정). 복구를 신청하면 앞의 목록에서 빠진다.
+  // 탈퇴 신청 목록(유예 기간 안이고 복구를 신청하지 않은 계정)과 복구 신청 목록(복구를 신청한 계정). 복구를 신청하면 앞의 목록에서 빠진다.
+  // 유예 기간(14일)이 지난 계정은 자동으로 삭제되므로 목록에 없다(조회할 때도 먼저 정리한다).
   @Get("admin/account-withdrawals")
   @UseGuards(AuthGuard)
   async list(@UserId() userId: string) {
     await this.assertOperator(userId);
+    await this.purger.sweep();
     const rows = await this.db.asUser(userId, (query) => selectJson(query, `
       select user_id, email, display_name, reason, requested_at, recovery_requested_at, recovery_rejected_at,
-        requested_at + interval '14 days' as purge_at, requested_at + interval '14 days' <= now() as purgeable
-      from public.account_withdrawals order by requested_at, user_id`));
+        requested_at + interval '14 days' as purge_at
+      from public.account_withdrawals
+      where recovery_requested_at is not null or requested_at + interval '14 days' > now()
+      order by requested_at, user_id`));
     const mapped = rows.map((r) => ({
       userId: r.user_id, email: r.email, displayName: r.display_name, reason: r.reason, requestedAt: r.requested_at,
-      recoveryRequestedAt: r.recovery_requested_at, recoveryRejected: !!r.recovery_rejected_at, purgeAt: r.purge_at, purgeable: r.purgeable === true,
+      recoveryRequestedAt: r.recovery_requested_at, recoveryRejected: !!r.recovery_rejected_at, purgeAt: r.purge_at, // 자동 삭제 예정 시각
     }));
     return {
       withdrawals: mapped.filter((r) => !r.recoveryRequestedAt),
@@ -104,18 +164,16 @@ export class AccountController {
     };
   }
 
-  // 탈퇴 승인 = 계정 정보 삭제(14일이 지난 계정만). 프로필 사진 파일도 함께 지운다.
+  // 탈퇴 승인 = 계정 정보를 바로 삭제(유예 기간 안이어도). 프로필 사진 파일도 함께 지운다. 복구 신청이 접수된 계정은 먼저 그 신청을 처리해야 한다.
   // 다른 사람이 보는 자료(프로젝트 파일·게시판 첨부)는 지우지 않는다 — 작성자 표시만 사라진다.
   @Post("admin/account-withdrawals/:userId/approve")
   @UseGuards(AuthGuard)
   @HttpCode(204)
   async approveWithdrawal(@UserId() operatorId: string, @Param("userId", ParseUUIDPipe) targetId: string) {
-    const files = await this.db.asSystem((query) => query<{ name: string }>(
-      "select name from storage.objects where bucket_id = 'avatars' and name like $1", [`${targetId}/%`]));
+    const files = await this.purger.profileImages([targetId]);
     await this.db.asUser(operatorId, (query) => query("select public.approve_account_withdrawal($1::uuid)", [targetId]));
     this.withdrawn.remove(targetId);
-    for (const file of files) await this.store.remove(`avatars/${file.name}`).catch(() => {});
-    await this.db.asSystem((query) => query("delete from storage.objects where bucket_id = 'avatars' and name like $1", [`${targetId}/%`]));
+    await this.purger.deleteImages(files);
   }
 
   @Post("admin/account-recoveries/:userId/approve")

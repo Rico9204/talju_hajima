@@ -273,7 +273,7 @@ export default function Login() {
                     <button type="button" onClick={() => void submitRecovery()} disabled={recoveryBusy} className="self-start px-4 py-2 text-xs font-700" style={{ background: "#d97706", color: "#fff", borderRadius: "40px", opacity: recoveryBusy ? 0.6 : 1 }}>{recoveryBusy ? "신청 중…" : "복구 신청"}</button>
                   </>
                 ) : (
-                  <p className="font-600">복구 신청 기간(14일)이 지났어요. 운영자 승인 후 계정 정보가 삭제돼요.</p>
+                  <p className="font-600">복구 신청 기간(14일)이 지났어요. 계정 정보는 곧 자동으로 삭제돼요.</p>
                 )}
               </div>
             )}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LANGUAGE_LABEL, RUN_TIMEOUT_MS, runCode, type RunLanguage, type RunResult } from "../lib/codeRunner";
+import { LANGUAGE_LABEL, RUN_TIMEOUT_MS, isRemoteLanguage, runCode, type RunLanguage, type RunResult } from "../lib/codeRunner";
 
 // 코드 파일의 "▶ 실행": 결과(출력)만 바로 아래 패널에 보여 준다. 실행 방식·제한은 lib/codeRunner.ts.
 type Chunk = { stream: "stdout" | "stderr"; text: string };
@@ -45,8 +45,9 @@ export default function CodeRunPanel({ language, runner }: { language: RunLangua
   useEffect(() => { endRef.current?.scrollIntoView?.({ block: "nearest" }); }, [chunks.length]);
 
   const summary = status === "loading" ? "실행 환경을 준비하는 중… (처음 한 번은 몇 초 걸려요)"
-    : status === "running" ? "실행 중…"
-    : result?.timedOut ? `시간 초과(${RUN_TIMEOUT_MS[language] / 1000}초)로 중단했어요`
+    : status === "running" ? (isRemoteLanguage(language) ? "컴파일하고 실행하는 중…" : "실행 중…")
+    : result?.compileError ? "✗ 컴파일 오류"
+    : result?.timedOut ? (isRemoteLanguage(language) ? `실행 시간(${RUN_TIMEOUT_MS[language] / 1000}초) 또는 메모리 한도를 넘어 중단했어요` : `시간 초과(${RUN_TIMEOUT_MS[language] / 1000}초)로 중단했어요`)
     : result?.cancelled ? "중단됨"
     : result ? `${result.ok ? "✓ 완료" : "✗ 오류로 끝남"} · ${(result.durationMs / 1000).toFixed(2)}초`
     : "";

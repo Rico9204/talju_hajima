@@ -134,6 +134,11 @@ export class RestDataRepository implements DataRepository {
   dismissAnnouncement(id: number) { return this.api.request<void>(`/announcements/${id}/dismiss`, { method: "POST" }); }
   markAnnouncementRead(id: number) { return this.api.request<void>(`/announcements/${id}/read`, { method: "POST" }); }
   subscribeToAnnouncements(onChange: () => void) { return this.realtime.subscribe("announcements", (message) => { if (message.type === "change" || message.type === "joined") onChange(); }); }
+  async listNotifications() { return (await this.api.request<{ items: import("../types").AppNotification[] }>("/notifications")).items; }
+  markNotificationsRead(items: { kind: "announcement" | "board_notice"; refId: number }[]) { return this.api.request<void>("/notifications/read", { method: "POST", body: JSON.stringify({ items }) }); }
+  listAuditUsers(query: string, offset: number) { return this.api.request<{ items: import("../types").AuditUser[]; hasMore: boolean }>(`/admin/audit/users?q=${encodeURIComponent(query)}&offset=${offset}`); }
+  listAuditIps(userId: string) { return this.api.request<import("../types").AuditIp[]>(`/admin/audit/users/${encodeURIComponent(userId)}/ips`); }
+  listAuditActivities(userId: string, ip: string, before?: number) { return this.api.request<{ items: import("../types").AuditActivity[]; nextBefore: number | null }>(`/admin/audit/users/${encodeURIComponent(userId)}/activities?ip=${encodeURIComponent(ip)}${before ? `&before=${before}` : ""}`); }
   listAccountWithdrawals() { return this.api.request<import("../types").AccountWithdrawalLists>("/admin/account-withdrawals"); }
   approveAccountWithdrawal(userId: string) { return this.api.request<void>(`/admin/account-withdrawals/${encodeURIComponent(userId)}/approve`, { method: "POST" }); }
   approveAccountRecovery(userId: string) { return this.api.request<void>(`/admin/account-recoveries/${encodeURIComponent(userId)}/approve`, { method: "POST" }); }

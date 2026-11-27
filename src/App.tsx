@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useRef, type CSSProperties } from "react";
 import { createBrowserRouter, Navigate, Outlet, Route, RouterProvider, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { WorkspaceFocus } from "./components/Workspace";
-import AnnouncementPopup from "./components/AnnouncementPopup";
+import AppChrome from "./components/AppChrome";
 import Sidebar from "./components/Sidebar";
 import Login from "./components/Login";
 import ResetPassword from "./components/ResetPassword";
@@ -43,7 +43,7 @@ function RequireAuth() {
     );
   }
   if (!session) return <Navigate to="/login" replace />;
-  return <><Outlet /><AnnouncementPopup /></>;
+  return <Outlet />;
 }
 
 // 앱 셸의 overflow-hidden 래퍼들은 사용자가 스크롤할 수 없지만, 코드(scrollIntoView, 포커스 이동,
@@ -206,11 +206,14 @@ const router = createBrowserRouter([{
   path: "*",
   element: (
     <ErrorBoundary variant="full">
-      <ProjectProvider>
-        <Suspense fallback={<PageLoading />}>
-          <AppRoutes />
-        </Suspense>
-      </ProjectProvider>
+      {/* 공지 배너·알림 종·관리자 공지 팝업은 ProjectProvider 바깥에 둔다: 프로젝트가 없는 사용자는 앱 전체가 다른 화면으로 바뀐다. */}
+      <AppChrome>
+        <ProjectProvider>
+          <Suspense fallback={<PageLoading />}>
+            <AppRoutes />
+          </Suspense>
+        </ProjectProvider>
+      </AppChrome>
     </ErrorBoundary>
   ),
 }]);

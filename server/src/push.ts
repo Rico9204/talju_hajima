@@ -86,19 +86,34 @@ export class PushSender implements OnModuleDestroy {
       const [row] = await this.db.asSystem((query) => query<{ body: unknown }>("delete from net.push_outbox where id = $1::bigint returning body", [id]));
       const payload = row && parse(row.body);
       if (!payload) return;
-      const message = JSON.stringify(payload.notification);
-      const gone: string[] = [];
-      await Promise.all(payload.subscriptions.map(async (s) => {
-        try {
-          await this.send({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, message);
-        } catch (error) {
-          const status = (error as { statusCode?: number }).statusCode;
-          if (status === 404 || status === 410) gone.push(s.endpoint); // 브라우저가 구독을 끊음
-        }
-      }));
-      if (gone.length) await this.db.asSystem((query) => query("delete from public.push_subscriptions where endpoint = any($1::text[])", [gone]));
+      await this.sendAll(payload.subscriptions, payload.notification);
     } catch (error) {
       this.logger.warn(`웹 푸시 전송 실패: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  private async sendAll(subscriptions: Subscription[], notification: Notice): Promise<void> {
+    const message = JSON.stringify(notification);
+    const gone: string[] = [];
+    await Promise.all(subscriptions.map(async (s) => {
+      try {
+        await this.send({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, message);
+      } catch (error) {
+        const status = (error as { statusCode?: number }).statusCode;
+        if (status === 404 || status === 410) gone.push(s.endpoint); // 브라우저가 구독을 끊음
+      }
+    }));
+    if (gone.length) await this.db.asSystem((query) => query("delete from public.push_subscriptions where endpoint = any($1::text[])", [gone]));
+  }
+
+  // 전체 공지: 웹 푸시를 켠 모든 브라우저에 보낸다(키가 없으면 아무것도 하지 않는다). 실패해도 글 작성에는 영향이 없다.
+  async broadcast(notification: Notice): Promise<void> {
+    if (!this.vapid) return;
+    try {
+      const rows = await this.db.asSystem((query) => query<Subscription>("select endpoint, p256dh, auth from public.push_subscriptions"));
+      await this.sendAll(rows.filter((s) => PUSH_HOST.test(s.endpoint)), notification);
+    } catch (error) {
+      this.logger.warn(`전체 웹 푸시 전송 실패: ${error instanceof Error ? error.message : error}`);
     }
   }
 
